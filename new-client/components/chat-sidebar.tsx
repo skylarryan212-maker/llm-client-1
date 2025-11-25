@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { KeyboardEvent, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Plus, Sparkles, ChevronDown, ChevronRight, FolderPlus, X } from 'lucide-react'
@@ -64,6 +64,18 @@ export function ChatSidebar({
 
   const visibleProjects = projects.slice(0, 5)
   const moreProjects = projects.slice(5)
+
+  const handleListItemKeyDown = (
+    event: KeyboardEvent<HTMLDivElement>,
+    action?: () => void
+  ) => {
+    if (!action) return
+
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault()
+      action()
+    }
+  }
 
   return (
     <>
@@ -154,9 +166,14 @@ export function ChatSidebar({
                         </button>
 
                         {visibleProjects.map((project) => (
-                          <button
+                          <div
                             key={project.id}
+                            role="button"
+                            tabIndex={0}
                             onClick={() => onProjectSelect?.(project.id)}
+                            onKeyDown={(event) =>
+                              handleListItemKeyDown(event, () => onProjectSelect?.(project.id))
+                            }
                             className={`group w-full text-left rounded-lg transition-colors ${
                               selectedProjectId === project.id
                                 ? 'bg-zinc-800 text-white'
@@ -173,7 +190,7 @@ export function ChatSidebar({
                                 onDelete={() => console.log('Delete project', project.id)}
                               />
                             </div>
-                          </button>
+                          </div>
                         ))}
 
                         {moreProjects.length > 0 && (
@@ -193,12 +210,20 @@ export function ChatSidebar({
                             {showMoreProjects && (
                               <div className="absolute left-full top-0 ml-2 w-56 rounded-lg border border-border bg-popover p-1 shadow-lg z-50">
                                 {moreProjects.map((project) => (
-                                  <button
+                                  <div
                                     key={project.id}
+                                    role="button"
+                                    tabIndex={0}
                                     onClick={() => {
                                       onProjectSelect?.(project.id)
                                       setShowMoreProjects(false)
                                     }}
+                                    onKeyDown={(event) =>
+                                      handleListItemKeyDown(event, () => {
+                                        onProjectSelect?.(project.id)
+                                        setShowMoreProjects(false)
+                                      })
+                                    }
                                     className="group w-full text-left rounded-lg hover:bg-accent transition-colors"
                                   >
                                     <div className="py-2 px-3 flex items-center justify-between gap-2">
@@ -211,7 +236,7 @@ export function ChatSidebar({
                                         onDelete={() => console.log('Delete project', project.id)}
                                       />
                                     </div>
-                                  </button>
+                                  </div>
                                 ))}
                               </div>
                             )}
@@ -233,9 +258,14 @@ export function ChatSidebar({
                     {!chatsCollapsed && (
                       <div className="space-y-1">
                         {conversations.map((conv) => (
-                          <button
+                          <div
                             key={conv.id}
+                            role="button"
+                            tabIndex={0}
                             onClick={() => onChatSelect?.(conv.id)}
+                            onKeyDown={(event) =>
+                              handleListItemKeyDown(event, () => onChatSelect?.(conv.id))
+                            }
                             className={`group w-full text-left rounded-lg transition-colors ${
                               selectedChatId === conv.id && !isAgentsPage
                                 ? 'bg-zinc-800 text-white'
@@ -255,7 +285,7 @@ export function ChatSidebar({
                                 onDelete={() => console.log('Delete', conv.id)}
                               />
                             </div>
-                          </button>
+                          </div>
                         ))}
                       </div>
                     )}

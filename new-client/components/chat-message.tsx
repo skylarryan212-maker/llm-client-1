@@ -31,20 +31,20 @@ export function ChatMessage({ role, content, model, hasImage, imageUrl, hasSourc
 
   if (role === 'user') {
     return (
-      <div className="flex justify-end px-3 sm:px-4 py-3 sm:py-4">
-        <div className="max-w-[85%] sm:max-w-3xl rounded-2xl bg-primary px-3 sm:px-4 py-2.5 sm:py-3 text-primary-foreground">
-          <p className="text-sm leading-relaxed break-words">{content}</p>
+      <div className="flex justify-end px-4 sm:px-6 lg:px-12 py-3 sm:py-4">
+        <div className="max-w-[92%] sm:max-w-4xl lg:max-w-5xl xl:max-w-[1200px] 2xl:max-w-[1400px] rounded-2xl bg-primary px-3 sm:px-4 py-2.5 sm:py-3 text-primary-foreground">
+          <p className="text-base leading-relaxed break-words">{content}</p>
         </div>
       </div>
     )
   }
 
   return (
-    <div className="px-3 sm:px-4 py-4 sm:py-6">
-      <div className="mx-auto max-w-3xl">
+    <div className="px-4 sm:px-6 lg:px-12 py-4 sm:py-6">
+      <div className="mx-auto max-w-5xl xl:max-w-[1200px] 2xl:max-w-[1400px]">
         <div className="space-y-3 sm:space-y-4">
           <div className="prose prose-invert max-w-none">
-            <p className="text-sm leading-relaxed text-foreground break-words">{content}</p>
+            <p className="text-base leading-relaxed text-foreground break-words">{content}</p>
           </div>
 
           {hasImage && imageUrl && (

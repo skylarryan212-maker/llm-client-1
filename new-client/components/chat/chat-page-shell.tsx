@@ -203,7 +203,7 @@ export default function ChatPageShell({
       />
 
       <div className="flex flex-1 flex-col w-full min-w-0">
-        <div className="flex h-[53px] items-center justify-between border-b border-border px-3 lg:px-4">
+        <div className="flex h-[53px] items-center justify-between border-b border-border px-3 lg:px-6">
           <div className="flex items-center gap-2 min-w-0">
             {/* Mobile sidebar toggle */}
             <Button
@@ -275,7 +275,7 @@ export default function ChatPageShell({
         </div>
 
         {!selectedChatId || messages.length === 0 ? (
-          <div className="flex flex-1 items-center justify-center px-4 overflow-hidden">
+          <div className="flex flex-1 items-center justify-center px-4 sm:px-6 lg:px-12 overflow-hidden">
             <div className="text-center">
               <h2 className="text-xl sm:text-2xl font-semibold text-foreground mb-2">
                 Where should we begin?
@@ -284,10 +284,12 @@ export default function ChatPageShell({
           </div>
         ) : (
           <ScrollArea className="flex-1 overflow-auto">
-            <div className="py-4 pb-24 sm:pb-4">
-              {messages.map((message, index) => (
-                <ChatMessage key={index} {...message} />
-              ))}
+            <div className="px-4 sm:px-6 lg:px-12">
+              <div className="mx-auto max-w-6xl xl:max-w-[1400px] py-6 pb-32 lg:pb-12">
+                {messages.map((message, index) => (
+                  <ChatMessage key={index} {...message} />
+                ))}
+              </div>
             </div>
           </ScrollArea>
         )}

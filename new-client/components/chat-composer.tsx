@@ -32,9 +32,9 @@ export function ChatComposer({ onSubmit, onSend, placeholder = "Message LLM Clie
   }
 
   return (
-    <div className="bg-background p-3 sm:p-4 border-t border-border lg:border-0">
-      <div className="mx-auto max-w-3xl">
-        <div className="relative flex items-center gap-1.5 sm:gap-2 rounded-3xl border border-border bg-muted/30 px-2 sm:px-3 py-2 transition-all focus-within:border-ring focus-within:bg-background">
+    <div className="bg-background px-4 py-3 sm:px-6 sm:py-4 lg:px-12 border-t border-border lg:border-0">
+      <div className="mx-auto max-w-6xl xl:max-w-[1400px]">
+        <div className="relative flex items-center gap-1.5 sm:gap-2 rounded-3xl border border-border bg-muted/30 px-2 sm:px-3 lg:px-4 py-2 sm:py-2.5 transition-all focus-within:border-ring focus-within:bg-background">
           <div className="relative flex items-center">
             <Button
               variant="ghost"
