@@ -284,10 +284,12 @@ export default function ChatPageShell({
           </div>
         ) : (
           <ScrollArea className="flex-1 overflow-auto">
-            <div className="py-4 pb-24 sm:pb-4">
-              {messages.map((message, index) => (
-                <ChatMessage key={index} {...message} />
-              ))}
+            <div className="px-4 sm:px-6 lg:px-10">
+              <div className="mx-auto max-w-screen-xl py-4 pb-28 sm:pb-6">
+                {messages.map((message, index) => (
+                  <ChatMessage key={index} {...message} />
+                ))}
+              </div>
             </div>
           </ScrollArea>
         )}
