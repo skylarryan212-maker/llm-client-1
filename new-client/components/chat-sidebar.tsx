@@ -82,6 +82,12 @@ export function ChatSidebar({
   const moreProjects = projects.slice(5)
 
   const projectChatMap = useMemo(() => projectChats, [projectChats])
+  const selectedChatProjectId = useMemo(() => {
+    const entry = Object.entries(projectChatMap).find(([, chats]) =>
+      chats.some((chat) => chat.id === selectedChatId)
+    )
+    return entry ? entry[0] : ''
+  }, [projectChatMap, selectedChatId])
 
   const handleListItemKeyDown = (
     event: KeyboardEvent<HTMLDivElement>,
@@ -134,10 +140,10 @@ export function ChatSidebar({
           </div>
 
           <div className={`space-y-2 p-3 ${!isOpen && 'lg:flex lg:flex-col lg:items-center hidden'}`}>
-            <Button 
+            <Button
               onClick={onNewChat}
-              variant="ghost" 
-              className={`${isOpen ? 'w-full justify-start' : 'w-10 h-10 p-0 justify-center'} gap-2 text-sidebar-foreground hover:bg-sidebar-accent`}
+              variant="ghost"
+              className={`${isOpen ? 'w-full justify-start px-2.5' : 'w-10 h-10 p-0 justify-center'} h-9 gap-2 text-sidebar-foreground hover:bg-sidebar-accent`}
               title={!isOpen ? "New Chat" : undefined}
             >
               <Plus className="h-4 w-4 flex-shrink-0" />
@@ -178,7 +184,7 @@ export function ChatSidebar({
                         <Button
                           onClick={onNewProject}
                           variant="ghost"
-                          className="w-full justify-start gap-2 text-sidebar-foreground hover:bg-sidebar-accent"
+                          className="h-9 w-full justify-start gap-2 px-2.5 text-sidebar-foreground hover:bg-sidebar-accent"
                         >
                           <FolderPlus className="h-4 w-4" />
                           New project
@@ -190,13 +196,16 @@ export function ChatSidebar({
                           const hasMoreChats = chatsForProject.length > 5
                           const isProjectActive =
                             isProjectRootView && activeProjectId === project.id
+                          const shouldShowChats =
+                            activeProjectId === project.id ||
+                            selectedChatProjectId === project.id
 
                           return (
                             <div key={project.id} className="space-y-1">
                               <Link
                                 href={`/projects/${project.id}`}
                                 onClick={() => onProjectSelect?.(project.id)}
-                                className={`group relative flex items-center gap-2 rounded-lg px-3 py-2 transition-colors ${
+                                className={`group relative flex items-center gap-2 rounded-lg px-2.5 py-2 transition-colors ${
                                   isProjectActive
                                     ? 'bg-zinc-800 text-white'
                                     : 'hover:bg-sidebar-accent'
@@ -204,7 +213,7 @@ export function ChatSidebar({
                               >
                                 <div className="flex items-center gap-2 flex-1 min-w-0">
                                   <span className="text-base">{project.icon}</span>
-                                  <span className="truncate text-sm text-sidebar-foreground pr-10">
+                                  <span className="truncate text-sm text-sidebar-foreground pr-8">
                                     {project.name}
                                   </span>
                                 </div>
@@ -216,8 +225,8 @@ export function ChatSidebar({
                                 </div>
                               </Link>
 
-                              {visibleChats.length > 0 && (
-                                <div className="px-2 pb-2 space-y-1">
+                              {shouldShowChats && visibleChats.length > 0 && (
+                                <div className="px-1.5 pb-2 space-y-1">
                                   {visibleChats.map((chat) => (
                                     <div
                                       key={chat.id}
@@ -227,14 +236,14 @@ export function ChatSidebar({
                                       onKeyDown={(event) =>
                                         handleListItemKeyDown(event, () => onProjectChatSelect?.(project.id, chat.id))
                                       }
-                                      className={`group/chat flex items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left transition-colors ${
+                                      className={`group/chat flex items-center gap-2 rounded-md px-2.5 py-1.5 text-left transition-colors ${
                                         selectedChatId === chat.id
                                           ? 'bg-zinc-800 text-white'
                                           : 'hover:bg-sidebar-accent'
                                       }`}
                                     >
                                       <div className="flex-1 min-w-0">
-                                        <span className="block truncate text-sm text-sidebar-foreground pr-10">
+                                        <span className="block truncate text-sm text-sidebar-foreground pr-8">
                                           {chat.title}
                                         </span>
                                       </div>
@@ -252,7 +261,7 @@ export function ChatSidebar({
                                   {hasMoreChats && (
                                     <Link
                                       href={`/projects/${project.id}`}
-                                      className="block rounded-md px-2 py-1.5 text-sm text-muted-foreground hover:bg-sidebar-accent"
+                                      className="block rounded-md px-2.5 py-1.5 text-sm text-muted-foreground hover:bg-sidebar-accent"
                                       onClick={() => onProjectSelect?.(project.id)}
                                     >
                                       See more…
@@ -334,25 +343,23 @@ export function ChatSidebar({
                             onKeyDown={(event) =>
                               handleListItemKeyDown(event, () => onChatSelect?.(conv.id))
                             }
-                            className={`group/chat w-full text-left rounded-lg transition-colors ${
+                            className={`group/chat w-full text-left rounded-lg px-2.5 py-2 flex items-center gap-2 transition-colors ${
                               selectedChatId === conv.id && !isAgentsPage
                                 ? 'bg-zinc-800 text-white'
                                 : 'hover:bg-sidebar-accent'
                             }`}
                           >
-                            <div className="py-2 px-3 flex items-center gap-2">
-                              <div className="flex-1 min-w-0">
-                                <div className="truncate text-sm text-sidebar-foreground pr-10">{conv.title}</div>
-                              </div>
-                              <div className="flex-shrink-0">
-                                <ChatContextMenu
-                                  onShare={() => console.log('Share', conv.id)}
-                                  onRename={() => console.log('Rename', conv.id)}
-                                  onMoveToProject={() => console.log('Move to project', conv.id)}
-                                  onArchive={() => console.log('Archive', conv.id)}
-                                  onDelete={() => console.log('Delete', conv.id)}
-                                />
-                              </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="truncate text-sm text-sidebar-foreground pr-8">{conv.title}</div>
+                            </div>
+                            <div className="flex-shrink-0">
+                              <ChatContextMenu
+                                onShare={() => console.log('Share', conv.id)}
+                                onRename={() => console.log('Rename', conv.id)}
+                                onMoveToProject={() => console.log('Move to project', conv.id)}
+                                onArchive={() => console.log('Archive', conv.id)}
+                                onDelete={() => console.log('Delete', conv.id)}
+                              />
                             </div>
                           </div>
                         ))}
