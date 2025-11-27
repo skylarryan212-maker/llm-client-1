@@ -205,7 +205,7 @@ export function ChatSidebar({
                               <Link
                                 href={`/projects/${project.id}`}
                                 onClick={() => onProjectSelect?.(project.id)}
-                                className={`group relative flex items-center gap-2 rounded-lg px-2.5 py-2 transition-colors ${
+                                className={`group relative flex w-full items-center gap-2 rounded-lg px-2.5 py-2 transition-colors ${
                                   isProjectActive
                                     ? 'bg-zinc-800 text-white'
                                     : 'hover:bg-sidebar-accent'
@@ -236,7 +236,7 @@ export function ChatSidebar({
                                       onKeyDown={(event) =>
                                         handleListItemKeyDown(event, () => onProjectChatSelect?.(project.id, chat.id))
                                       }
-                                      className={`group/chat flex items-center gap-2 rounded-md px-2.5 py-1.5 text-left transition-colors ${
+                                      className={`group/chat flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left transition-colors ${
                                         selectedChatId === chat.id
                                           ? 'bg-zinc-800 text-white'
                                           : 'hover:bg-sidebar-accent'
