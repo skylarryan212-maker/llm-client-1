@@ -23,6 +23,7 @@ type ChatContextValue = {
   globalChats: StoredChat[];
   getProjectChats: (projectId: string) => StoredChat[];
   createChat: (options: {
+    id?: string;
     projectId?: string;
     title?: string;
     initialMessages?: StoredMessage[];
@@ -47,12 +48,13 @@ export function ChatProvider({ children, initialChats = [] }: ChatProviderProps)
   const [chats, setChats] = useState<StoredChat[]>(initialChats);
 
   const createChat = useCallback(
-    ({ projectId, title, initialMessages = [] }: {
+    ({ id, projectId, title, initialMessages = [] }: {
+      id?: string;
       projectId?: string;
       title?: string;
       initialMessages?: StoredMessage[];
     }) => {
-      const chatId = `chat-${Date.now()}`;
+      const chatId = id ?? `chat-${Date.now()}`;
       const now = new Date().toISOString();
       const derivedTitle = title || getTitleFromMessages(initialMessages);
 
