@@ -1,12 +1,12 @@
 "use server";
 
-import { createServerClient } from "@/lib/supabase/server";
+import { supabaseServer } from "@/lib/supabase/server";
 import { getCurrentUserId } from "@/lib/supabase/user";
 
 export async function startGlobalConversationAction(
   firstMessageContent: string
 ): Promise<{ conversationId: string }> {
-  const supabase = createServerClient();
+  const supabase = await supabaseServer();
   const userId = getCurrentUserId();
 
   const { data, error } = await supabase
@@ -33,7 +33,7 @@ export async function appendUserMessageAction(
   conversationId: string,
   content: string
 ): Promise<void> {
-  const supabase = createServerClient();
+  const supabase = await supabaseServer();
   const userId = getCurrentUserId();
 
   const { data, error } = await supabase

@@ -1,4 +1,4 @@
-import { createServerClient } from "@/lib/supabase/server";
+import { supabaseServer } from "@/lib/supabase/server";
 import { getCurrentUserId } from "@/lib/supabase/user";
 import type { Database } from "@/lib/supabase/types";
 
@@ -12,7 +12,7 @@ function isValidUuid(value: string | null | undefined) {
 }
 
 export async function getConversationsForUser(options?: { projectId?: string | null }) {
-  const supabase = createServerClient();
+  const supabase = await supabaseServer();
   const userId = getCurrentUserId();
 
   const query = supabase
@@ -44,7 +44,7 @@ export async function getConversationById(conversationId: string) {
     return null;
   }
 
-  const supabase = createServerClient();
+  const supabase = await supabaseServer();
   const userId = getCurrentUserId();
 
   const { data, error } = await supabase

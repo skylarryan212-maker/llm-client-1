@@ -1,11 +1,11 @@
-import { createServerClient } from "@/lib/supabase/server";
+import { supabaseServer } from "@/lib/supabase/server";
 import { getCurrentUserId } from "@/lib/supabase/user";
 
 export async function createGlobalConversationWithFirstMessage(params: {
   title?: string | null;
   firstMessageContent: string;
 }) {
-  const supabase = createServerClient();
+  const supabase = await supabaseServer();
   const userId = getCurrentUserId();
 
   const { data: conversation, error: conversationError } = await supabase
@@ -55,7 +55,7 @@ export async function appendMessageToConversation(params: {
   role: "user" | "assistant";
   content: string;
 }) {
-  const supabase = createServerClient();
+  const supabase = await supabaseServer();
   const userId = getCurrentUserId();
 
   const { data, error } = await supabase
