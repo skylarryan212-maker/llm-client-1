@@ -1,18 +1,13 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useState } from "react";
+import { useEffect, useState } from "react";
 
 export function usePersistentSidebarOpen(defaultValue = true) {
-  const [isOpen, setIsOpen] = useState<boolean>(defaultValue);
-
-  useLayoutEffect(() => {
+  const [isOpen, setIsOpen] = useState<boolean>(() => {
+    if (typeof window === "undefined") return defaultValue;
     const stored = localStorage.getItem("sidebarOpen");
-    if (stored !== null) {
-      setIsOpen(stored === "true");
-    } else {
-      setIsOpen(defaultValue);
-    }
-  }, [defaultValue]);
+    return stored !== null ? stored === "true" : defaultValue;
+  });
 
   useEffect(() => {
     localStorage.setItem("sidebarOpen", isOpen ? "true" : "false");

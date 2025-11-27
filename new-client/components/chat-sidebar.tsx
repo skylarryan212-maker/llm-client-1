@@ -71,8 +71,11 @@ export function ChatSidebar({
 
   const projects: Project[] = propProjects || []
 
+  const pathSegments = pathname?.split("/").filter(Boolean) ?? []
   const pathProjectId =
-    isProjectsPage && pathname ? pathname.split("/")[2] ?? "" : ""
+    pathSegments[0] === "projects" ? pathSegments[1] ?? "" : ""
+  const isProjectRootView =
+    pathSegments[0] === "projects" && pathSegments.length === 2
   const activeProjectId = selectedProjectId || pathProjectId
 
   const visibleProjects = projects.slice(0, 5)
@@ -184,12 +187,14 @@ export function ChatSidebar({
                           const chatsForProject = projectChatMap[project.id] || []
                           const visibleChats = chatsForProject.slice(0, 5)
                           const hasMoreChats = chatsForProject.length > 5
+                          const isProjectActive =
+                            isProjectRootView && activeProjectId === project.id
 
                           return (
                             <div
                               key={project.id}
                               className={`group rounded-lg transition-colors ${
-                                activeProjectId === project.id
+                                isProjectActive
                                   ? 'bg-zinc-800 text-white'
                                   : 'hover:bg-sidebar-accent'
                               }`}
@@ -197,11 +202,13 @@ export function ChatSidebar({
                               <Link
                                 href={`/projects/${project.id}`}
                                 onClick={() => onProjectSelect?.(project.id)}
-                                className="flex items-center justify-between gap-2 px-3 py-2"
+                                className="relative flex items-center gap-2 px-3 py-2"
                               >
                                 <div className="flex items-center gap-2 flex-1 min-w-0">
                                   <span className="text-base">{project.icon}</span>
-                                  <span className="truncate text-sm text-sidebar-foreground pr-8">{project.name}</span>
+                                  <span className="truncate text-sm text-sidebar-foreground pr-8">
+                                    {project.name}
+                                  </span>
                                 </div>
                                 <ProjectContextMenu
                                   onRename={() => console.log('Rename project', project.id)}
@@ -226,16 +233,20 @@ export function ChatSidebar({
                                           : 'hover:bg-sidebar-accent'
                                       }`}
                                     >
-                                      <span className="truncate text-sm text-sidebar-foreground pr-3">
-                                        {chat.title}
-                                      </span>
-                                      <ChatContextMenu
-                                        onShare={() => console.log('Share', chat.id)}
-                                        onRename={() => console.log('Rename', chat.id)}
-                                        onMoveToProject={() => console.log('Move to project', chat.id)}
-                                        onArchive={() => console.log('Archive', chat.id)}
-                                        onDelete={() => console.log('Delete', chat.id)}
-                                      />
+                                      <div className="flex-1 min-w-0">
+                                        <span className="block truncate text-sm text-sidebar-foreground pr-6">
+                                          {chat.title}
+                                        </span>
+                                      </div>
+                                      <div className="flex-shrink-0">
+                                        <ChatContextMenu
+                                          onShare={() => console.log('Share', chat.id)}
+                                          onRename={() => console.log('Rename', chat.id)}
+                                          onMoveToProject={() => console.log('Move to project', chat.id)}
+                                          onArchive={() => console.log('Archive', chat.id)}
+                                          onDelete={() => console.log('Delete', chat.id)}
+                                        />
+                                      </div>
                                     </div>
                                   ))}
                                   {hasMoreChats && (
@@ -278,7 +289,7 @@ export function ChatSidebar({
                                       setShowMoreProjects(false)
                                     }}
                                     className={`group block w-full text-left rounded-lg transition-colors ${
-                                      activeProjectId === project.id
+                                      isProjectRootView && activeProjectId === project.id
                                         ? 'bg-zinc-800 text-white'
                                         : 'hover:bg-accent'
                                     }`}
@@ -329,17 +340,19 @@ export function ChatSidebar({
                                 : 'hover:bg-sidebar-accent'
                             }`}
                           >
-                            <div className="py-2 px-3 flex items-center justify-between gap-2">
+                            <div className="py-2 px-3 flex items-center gap-2">
                               <div className="flex-1 min-w-0">
-                                <div className="truncate text-sm text-sidebar-foreground pr-3">{conv.title}</div>
+                                <div className="truncate text-sm text-sidebar-foreground pr-6">{conv.title}</div>
                               </div>
-                              <ChatContextMenu
-                                onShare={() => console.log('Share', conv.id)}
-                                onRename={() => console.log('Rename', conv.id)}
-                                onMoveToProject={() => console.log('Move to project', conv.id)}
-                                onArchive={() => console.log('Archive', conv.id)}
-                                onDelete={() => console.log('Delete', conv.id)}
-                              />
+                              <div className="flex-shrink-0">
+                                <ChatContextMenu
+                                  onShare={() => console.log('Share', conv.id)}
+                                  onRename={() => console.log('Rename', conv.id)}
+                                  onMoveToProject={() => console.log('Move to project', conv.id)}
+                                  onArchive={() => console.log('Archive', conv.id)}
+                                  onDelete={() => console.log('Delete', conv.id)}
+                                />
+                              </div>
                             </div>
                           </div>
                         ))}
