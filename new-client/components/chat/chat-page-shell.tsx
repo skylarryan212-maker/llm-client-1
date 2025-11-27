@@ -394,8 +394,8 @@ export default function ChatPageShell({
                 <path
                   strokeLinecap="round"
                   strokeLinejoin="round"
-                  strokeWidth="1.5"
-                  d="M8.684 13.342a3 3 0 10-1.368 5.342m1.368-5.342l6.632-3.316m-6.632 3.316a3 3 0 111.368-5.342m5.264 2.026a3 3 0 105.368-2.684 3 3 0 00-5.368 2.684z"
+                  strokeWidth="2"
+                  d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z"
                 />
               </svg>
               <span className="hidden md:inline">Share</span>
@@ -414,8 +414,8 @@ export default function ChatPageShell({
                 <path
                   strokeLinecap="round"
                   strokeLinejoin="round"
-                  strokeWidth="1.5"
-                  d="M3 7h18M5 7V5a2 2 0 012-2h10a2 2 0 012 2v2m-2 4H7m0 0v8a2 2 0 002 2h6a2 2 0 002-2v-8m-10 4h4"
+                  strokeWidth="2"
+                  d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"
                 />
               </svg>
               <span className="hidden md:inline">Archive</span>
