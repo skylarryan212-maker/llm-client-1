@@ -5,6 +5,9 @@ import type { Database } from "@/lib/supabase/types";
 export type ConversationRow =
   Database["public"]["Tables"]["conversations"]["Row"];
 export type MessageRow = Database["public"]["Tables"]["messages"]["Row"];
+type ConversationInsert =
+  Database["public"]["Tables"]["conversations"]["Insert"];
+type MessageInsert = Database["public"]["Tables"]["messages"]["Insert"];
 
 export async function createGlobalConversationWithFirstMessage(params: {
   title?: string | null;
@@ -15,14 +18,14 @@ export async function createGlobalConversationWithFirstMessage(params: {
 
   const { data: conversation, error: conversationError } = await supabase
     .from("conversations")
-    .insert({
+    .insert<ConversationInsert>({
       user_id: userId,
       title: params.title ?? null,
       project_id: null,
       metadata: {},
     })
     .select()
-    .single<ConversationRow>();
+    .single();
 
   if (conversationError || !conversation) {
     throw new Error(
@@ -32,7 +35,7 @@ export async function createGlobalConversationWithFirstMessage(params: {
 
   const { data: message, error: messageError } = await supabase
     .from("messages")
-    .insert({
+    .insert<MessageInsert>({
       user_id: userId,
       conversation_id: conversation.id,
       role: "user",
@@ -40,7 +43,7 @@ export async function createGlobalConversationWithFirstMessage(params: {
       metadata: {},
     })
     .select()
-    .single<MessageRow>();
+    .single();
 
   if (messageError || !message) {
     throw new Error(
@@ -61,7 +64,7 @@ export async function appendMessageToConversation(params: {
 
   const { data, error } = await supabase
     .from("messages")
-    .insert({
+    .insert<MessageInsert>({
       user_id: userId,
       conversation_id: params.conversationId,
       role: params.role,
@@ -69,7 +72,7 @@ export async function appendMessageToConversation(params: {
       metadata: {},
     })
     .select()
-    .single<MessageRow>();
+    .single();
 
   if (error || !data) {
     throw new Error(
