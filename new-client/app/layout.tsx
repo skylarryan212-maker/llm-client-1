@@ -2,13 +2,14 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import { ProjectsProvider } from "@/components/projects/projects-provider";
 
 const geistSans = Geist({
   subsets: ["latin"],
   variable: "--font-geist-sans",
 });
 
-const geistMono = Geist({
+const geistMono = Geist_Mono({
   subsets: ["latin"],
   variable: "--font-geist-mono",
 });
@@ -29,7 +30,7 @@ export default function RootLayout({
       className={`dark ${geistSans.variable} ${geistMono.variable}`}
     >
       <body className="font-sans antialiased bg-background text-foreground">
-        {children}
+        <ProjectsProvider>{children}</ProjectsProvider>
       </body>
     </html>
   );

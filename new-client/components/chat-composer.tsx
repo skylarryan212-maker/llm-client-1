@@ -3,7 +3,8 @@
 import { useState, KeyboardEvent, FormEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Mic, ArrowUp, Plus } from "lucide-react";
+import { Mic, ArrowUp } from "lucide-react";
+import { AttachmentMenuButton } from "@/components/chat/attachment-menu";
 
 type ChatComposerProps = {
   onSubmit?: (message: string) => void;
@@ -21,6 +22,7 @@ export function ChatComposer({
   onRegenerate,
 }: ChatComposerProps) {
   const [value, setValue] = useState("");
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
 
   const effectiveSubmit = (text: string) => {
     const trimmed = text.trim();
@@ -47,14 +49,10 @@ export function ChatComposer({
       <div className="relative flex items-center gap-1.5 sm:gap-2 rounded-3xl border border-border bg-muted/30 px-2 sm:px-3 lg:px-4 py-2 sm:py-2.5 transition-all focus-within:border-ring focus-within:bg-background">
         {/* Left action button (plus) */}
         <div className="flex items-center">
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="size-8 sm:size-9 rounded-full hover:bg-accent"
-          >
-            <Plus className="h-4 w-4" />
-          </Button>
+          <AttachmentMenuButton
+            open={isMenuOpen}
+            onOpenChange={setIsMenuOpen}
+          />
         </div>
 
         {/* Textarea */}

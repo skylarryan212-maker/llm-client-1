@@ -17,6 +17,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { useProjects } from "@/components/projects/projects-provider";
+import { NewProjectModal } from "@/components/projects/new-project-modal";
 
 interface ShellConversation {
   id: string;
@@ -58,6 +60,7 @@ export default function ChatPageShell({
   messages: initialMessages,
 }: ChatPageShellProps) {
   const router = useRouter();
+  const { projects, addProject } = useProjects();
 
   // Seed a single chat from server data for now (for /c/[id] routes)
   const [chats, setChats] = useState<ChatData[]>(() => {
@@ -81,11 +84,12 @@ export default function ChatPageShell({
 
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [currentModel, setCurrentModel] = useState("GPT-5.1");
-const [selectedChatId, setSelectedChatId] = useState<string | null>(
-  activeConversationId ?? null
-);
+  const [selectedChatId, setSelectedChatId] = useState<string | null>(
+    activeConversationId ?? null
+  );
 
   const [selectedProjectId, setSelectedProjectId] = useState("");
+  const [isNewProjectOpen, setIsNewProjectOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
   // Sidebar open on desktop, closed on mobile (v0 behavior)
@@ -173,11 +177,19 @@ const handleNewChat = () => {
 
 
   const handleProjectSelect = (id: string) => {
-    router.push(`/project/${id}`);
+    setSelectedProjectId(id);
+    router.push(`/projects/${id}`);
   };
 
   const handleNewProject = () => {
-    router.push("/project/new");
+    setIsNewProjectOpen(true);
+  };
+
+  const handleProjectCreate = (name: string) => {
+    const newProject = addProject(name);
+    setSelectedProjectId(newProject.id);
+    setIsNewProjectOpen(false);
+    router.push(`/projects/${newProject.id}`);
   };
 
   const sidebarConversations = chats.map((chat) => ({
@@ -196,6 +208,7 @@ const handleNewChat = () => {
         onModelSelect={setCurrentModel}
         selectedChatId={selectedChatId ?? ""} // Sidebar API expects string
         conversations={sidebarConversations}
+        projects={projects}
         onChatSelect={handleChatSelect}
         onNewChat={handleNewChat}
         onNewProject={handleNewProject}
@@ -309,6 +322,11 @@ const handleNewChat = () => {
       <SettingsModal
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
+      />
+      <NewProjectModal
+        isOpen={isNewProjectOpen}
+        onClose={() => setIsNewProjectOpen(false)}
+        onCreate={handleProjectCreate}
       />
     </div>
   );
