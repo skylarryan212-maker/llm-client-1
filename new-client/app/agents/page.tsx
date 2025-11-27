@@ -1,12 +1,15 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { Code2, Database, Menu, TrendingUp, Workflow } from "lucide-react";
 
 import { AgentCard } from "@/components/agent-card";
 import { ChatSidebar } from "@/components/chat-sidebar";
 import { Button } from "@/components/ui/button";
+import { useProjects } from "@/components/projects/projects-provider";
+import { useChatStore } from "@/components/chat/chat-provider";
+import { usePersistentSidebarOpen } from "@/lib/hooks/use-sidebar-open";
 
 const agents = [
   {
@@ -39,31 +42,62 @@ const agents = [
 
 export default function AgentsPage() {
   const router = useRouter();
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [currentModel, setCurrentModel] = useState("GPT-5.1");
+  const { projects } = useProjects();
+  const { chats, globalChats } = useChatStore();
+  const [isSidebarOpen, setIsSidebarOpen] = usePersistentSidebarOpen(true);
 
-  useEffect(() => {
-    const handleResize = () => {
-      setIsSidebarOpen(window.innerWidth >= 1024);
-    };
+  const sidebarConversations = useMemo(
+    () =>
+      globalChats.map((chat) => ({
+        id: chat.id,
+        title: chat.title,
+        timestamp: chat.timestamp,
+      })),
+    [globalChats]
+  );
 
-    handleResize();
-    window.addEventListener("resize", handleResize);
-    return () => window.removeEventListener("resize", handleResize);
-  }, []);
+  const projectChatMap = useMemo(() => {
+    const map: Record<string, { id: string; title: string; timestamp: string; projectId: string }[]> = {};
+
+    chats.forEach((chat) => {
+      if (!chat.projectId) return;
+      if (!map[chat.projectId]) map[chat.projectId] = [];
+      map[chat.projectId].push({
+        id: chat.id,
+        title: chat.title,
+        timestamp: chat.timestamp,
+        projectId: chat.projectId,
+      });
+    });
+
+    return map;
+  }, [chats]);
+
+  const handleChatSelect = (chatId: string) => {
+    const chat = chats.find((item) => item.id === chatId);
+    if (chat?.projectId) {
+      router.push(`/projects/${chat.projectId}/c/${chatId}`);
+      return;
+    }
+
+    router.push(`/c/${chatId}`);
+  };
 
   return (
     <div className="flex h-screen overflow-hidden bg-background text-foreground dark">
       <ChatSidebar
         isOpen={isSidebarOpen}
         onToggle={() => setIsSidebarOpen((open) => !open)}
-        currentModel={currentModel}
-        onModelSelect={setCurrentModel}
         selectedChatId={""}
-        conversations={[]}
-        projects={[]}
-        onChatSelect={(chatId) => router.push(`/c/${chatId}`)}
+        conversations={sidebarConversations}
+        projects={projects}
+        projectChats={projectChatMap}
+        onChatSelect={handleChatSelect}
+        onProjectChatSelect={(projectId, chatId) =>
+          router.push(`/projects/${projectId}/c/${chatId}`)
+        }
         onNewChat={() => router.push("/")}
+        onNewProject={() => router.push("/projects")}
         onProjectSelect={(projectId) => router.push(`/projects/${projectId}`)}
       />
 

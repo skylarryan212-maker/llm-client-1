@@ -91,13 +91,22 @@ export default function CodexAgentChatPage({ params }: CodexChatPageProps) {
 
       <ScrollArea className="flex-1">
         <div className="py-4">
-          {messages.map((message, index) => (
-            <ChatMessage key={`${params.chatId}-${index}`} {...message} />
-          ))}
+          <div className="w-full px-4 sm:px-6 lg:px-12 space-y-4">
+            {messages.map((message, index) => (
+              <ChatMessage key={`${params.chatId}-${index}`} {...message} />
+            ))}
+          </div>
         </div>
       </ScrollArea>
 
-      <ChatComposer placeholder="Request changes or ask a question" onSubmit={handleSubmit} />
+      <div className="border-t border-zinc-800 bg-black px-4 sm:px-6 lg:px-12 py-3 sm:py-4">
+        <div className="mx-auto w-full max-w-3xl">
+          <ChatComposer
+            placeholder="Request changes or ask a question"
+            onSubmit={handleSubmit}
+          />
+        </div>
+      </div>
     </div>
   );
 }
