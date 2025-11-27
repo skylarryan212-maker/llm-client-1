@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Menu, Plus } from "lucide-react";
 
@@ -9,28 +9,17 @@ import { Button } from "@/components/ui/button";
 import { useProjects } from "@/components/projects/projects-provider";
 import { ProjectCard } from "@/components/projects/project-card";
 import { NewProjectModal } from "@/components/projects/new-project-modal";
+import { usePersistentSidebarOpen } from "@/lib/hooks/use-sidebar-open";
+import { useChatStore } from "@/components/chat/chat-provider";
 
 export default function ProjectsPage() {
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [isSidebarOpen, setIsSidebarOpen] = usePersistentSidebarOpen(true);
   const [currentModel, setCurrentModel] = useState("GPT-5.1");
   const [selectedProjectId, setSelectedProjectId] = useState("");
   const [isNewProjectOpen, setIsNewProjectOpen] = useState(false);
   const { projects, addProject } = useProjects();
+  const { globalChats, chats } = useChatStore();
   const router = useRouter();
-
-  useEffect(() => {
-    const handleResize = () => {
-      if (window.innerWidth >= 1024) {
-        setIsSidebarOpen(true);
-      } else {
-        setIsSidebarOpen(false);
-      }
-    };
-
-    handleResize();
-    window.addEventListener("resize", handleResize);
-    return () => window.removeEventListener("resize", handleResize);
-  }, []);
 
   const handleNewProject = () => {
     setIsNewProjectOpen(true);
@@ -52,16 +41,59 @@ export default function ProjectsPage() {
     router.push("/");
   };
 
+  const handleChatSelect = (chatId: string) => {
+    const chat = chats.find((item) => item.id === chatId);
+    if (chat?.projectId) {
+      setSelectedProjectId(chat.projectId);
+      router.push(`/projects/${chat.projectId}/c/${chatId}`);
+    } else {
+      setSelectedProjectId("");
+      router.push(`/c/${chatId}`);
+    }
+  };
+
+  const handleProjectChatSelect = (projectIdValue: string, chatId: string) => {
+    setSelectedProjectId(projectIdValue);
+    router.push(`/projects/${projectIdValue}/c/${chatId}`);
+  };
+
+  const sidebarConversations = useMemo(
+    () =>
+      globalChats.map((chat) => ({
+        id: chat.id,
+        title: chat.title,
+        timestamp: chat.timestamp,
+      })),
+    [globalChats]
+  );
+
+  const projectConversations = useMemo(() => {
+    const map: Record<string, { id: string; title: string; timestamp: string }[]> = {};
+    chats.forEach((chat) => {
+      if (!chat.projectId) return;
+      if (!map[chat.projectId]) map[chat.projectId] = [];
+      map[chat.projectId].push({
+        id: chat.id,
+        title: chat.title,
+        timestamp: chat.timestamp,
+      });
+    });
+    return map;
+  }, [chats]);
+
   return (
     <div className="flex h-screen overflow-hidden bg-background text-foreground dark">
       <ChatSidebar
         isOpen={isSidebarOpen}
-        onToggle={() => setIsSidebarOpen(!isSidebarOpen)}
+        onToggle={() => setIsSidebarOpen((open) => !open)}
         currentModel={currentModel}
         onModelSelect={setCurrentModel}
         selectedChatId={""}
-        conversations={[]}
+        conversations={sidebarConversations}
         projects={projects}
+        projectChats={projectConversations}
+        onChatSelect={handleChatSelect}
+        onProjectChatSelect={handleProjectChatSelect}
         onNewChat={handleNewChat}
         onNewProject={handleNewProject}
         onProjectSelect={handleProjectSelect}

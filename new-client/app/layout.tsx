@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { ProjectsProvider } from "@/components/projects/projects-provider";
+import { ChatProvider } from "@/components/chat/chat-provider";
 
 const geistSans = Geist({
   subsets: ["latin"],
@@ -30,7 +31,9 @@ export default function RootLayout({
       className={`dark ${geistSans.variable} ${geistMono.variable}`}
     >
       <body className="font-sans antialiased bg-background text-foreground">
-        <ProjectsProvider>{children}</ProjectsProvider>
+        <ProjectsProvider>
+          <ChatProvider>{children}</ChatProvider>
+        </ProjectsProvider>
       </body>
     </html>
   );

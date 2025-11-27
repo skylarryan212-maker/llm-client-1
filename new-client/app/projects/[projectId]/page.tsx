@@ -1,38 +1,30 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { CalendarIcon, Menu, MessageSquare, Plus, ArrowLeft } from "lucide-react";
+import { CalendarIcon, Menu, Plus, ArrowLeft } from "lucide-react";
 
 import { ChatSidebar } from "@/components/chat-sidebar";
 import { Button } from "@/components/ui/button";
 import { useProjects } from "@/components/projects/projects-provider";
 import { NewProjectModal } from "@/components/projects/new-project-modal";
+import { usePersistentSidebarOpen } from "@/lib/hooks/use-sidebar-open";
+import { useChatStore } from "@/components/chat/chat-provider";
+import { ChatComposer } from "@/components/chat-composer";
 
 export default function ProjectDetailPage() {
   const params = useParams<{ projectId: string }>();
   const router = useRouter();
   const { projects, addProject } = useProjects();
+  const { globalChats, chats, createChat } = useChatStore();
 
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [isSidebarOpen, setIsSidebarOpen] = usePersistentSidebarOpen(true);
   const [currentModel, setCurrentModel] = useState("GPT-5.1");
   const [isNewProjectOpen, setIsNewProjectOpen] = useState(false);
+  const [selectedChatId, setSelectedChatId] = useState("");
+  const [selectedProjectId, setSelectedProjectId] = useState(params.projectId);
 
   const projectId = params.projectId;
-
-  useEffect(() => {
-    const handleResize = () => {
-      if (window.innerWidth >= 1024) {
-        setIsSidebarOpen(true);
-      } else {
-        setIsSidebarOpen(false);
-      }
-    };
-
-    handleResize();
-    window.addEventListener("resize", handleResize);
-    return () => window.removeEventListener("resize", handleResize);
-  }, []);
 
   const project = useMemo(
     () => projects.find((item) => item.id === projectId),
@@ -50,24 +42,95 @@ export default function ProjectDetailPage() {
   };
 
   const handleNewChat = () => {
-    const id = `${projectId || "project"}-chat-${Date.now()}`;
-    router.push(`/c/${id}`);
+    setSelectedChatId("");
+    setSelectedProjectId("");
+    router.push("/");
+  };
+
+  const handleChatSelect = (chatId: string) => {
+    const chat = chats.find((item) => item.id === chatId);
+    setSelectedChatId(chatId);
+    if (chat?.projectId) {
+      setSelectedProjectId(chat.projectId);
+      router.push(`/projects/${chat.projectId}/c/${chatId}`);
+    } else {
+      setSelectedProjectId("");
+      router.push(`/c/${chatId}`);
+    }
+  };
+
+  const handleProjectChatSelect = (projectIdValue: string, chatId: string) => {
+    setSelectedChatId(chatId);
+    setSelectedProjectId(projectIdValue);
+    router.push(`/projects/${projectIdValue}/c/${chatId}`);
+  };
+
+  const sidebarConversations = useMemo(
+    () =>
+      globalChats.map((chat) => ({
+        id: chat.id,
+        title: chat.title,
+        timestamp: chat.timestamp,
+      })),
+    [globalChats]
+  );
+
+  const projectConversations = useMemo(() => {
+    const map: Record<string, { id: string; title: string; timestamp: string }[]> = {};
+    chats.forEach((chat) => {
+      if (!chat.projectId) return;
+      if (!map[chat.projectId]) map[chat.projectId] = [];
+      map[chat.projectId].push({
+        id: chat.id,
+        title: chat.title,
+        timestamp: chat.timestamp,
+      });
+    });
+    return map;
+  }, [chats]);
+
+  const handleProjectChatSubmit = (message: string) => {
+    const now = new Date().toISOString();
+    const chatId = createChat({
+      projectId,
+      initialMessages: [
+        { id: `user-${Date.now()}`, role: "user", content: message, timestamp: now },
+        {
+          id: `assistant-${Date.now()}`,
+          role: "assistant",
+          content: `This is a demo response to: "${message}". In a real app this would come from the model.`,
+          timestamp: now,
+          model: currentModel,
+        },
+      ],
+      title: message.slice(0, 80) || "New chat",
+    });
+
+    setSelectedChatId(chatId);
+    setSelectedProjectId(projectId);
+    router.push(`/projects/${projectId}/c/${chatId}`);
   };
 
   return (
     <div className="flex h-screen overflow-hidden bg-background text-foreground dark">
       <ChatSidebar
         isOpen={isSidebarOpen}
-        onToggle={() => setIsSidebarOpen(!isSidebarOpen)}
+        onToggle={() => setIsSidebarOpen((open) => !open)}
         currentModel={currentModel}
         onModelSelect={setCurrentModel}
-        selectedChatId={""}
-        conversations={[]}
+        selectedChatId={selectedChatId}
+        conversations={sidebarConversations}
         projects={projects}
-        onNewChat={() => router.push("/")}
+        projectChats={projectConversations}
+        onChatSelect={handleChatSelect}
+        onProjectChatSelect={handleProjectChatSelect}
+        onNewChat={handleNewChat}
         onNewProject={handleNewProject}
-        onProjectSelect={(id) => router.push(`/projects/${id}`)}
-        selectedProjectId={projectId}
+        onProjectSelect={(id) => {
+          setSelectedProjectId(id);
+          router.push(`/projects/${id}`);
+        }}
+        selectedProjectId={selectedProjectId}
       />
 
       <div className="flex-1 overflow-y-auto">
@@ -99,10 +162,6 @@ export default function ProjectDetailPage() {
               </div>
             </div>
             <div className="flex items-center gap-2">
-              <Button variant="secondary" className="gap-2" onClick={handleNewChat}>
-                <MessageSquare className="h-4 w-4" />
-                New Chat
-              </Button>
               <Button onClick={handleNewProject} className="gap-2">
                 <Plus className="h-4 w-4" />
                 New Project
@@ -127,15 +186,14 @@ export default function ProjectDetailPage() {
             </div>
           </div>
 
-          <div className="rounded-lg border border-dashed border-border bg-muted/20 p-6 text-center">
+          <div className="rounded-lg border border-dashed border-border bg-muted/20 p-6">
             <p className="text-base font-semibold text-foreground">Project chats</p>
             <p className="text-sm text-muted-foreground">
-              Chats started from here stay in local memory for now. Use the New Chat button above to begin.
+              Chats started from here stay in local memory for now. Use the composer below to begin.
             </p>
-            <Button className="mt-4 gap-2" onClick={handleNewChat}>
-              <MessageSquare className="h-4 w-4" />
-              Start a chat
-            </Button>
+            <div className="mt-4 mx-auto w-full max-w-3xl">
+              <ChatComposer onSubmit={handleProjectChatSubmit} />
+            </div>
           </div>
         </div>
       </div>
