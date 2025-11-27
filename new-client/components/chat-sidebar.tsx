@@ -175,13 +175,14 @@ export function ChatSidebar({
                     
                     {!projectsCollapsed && (
                       <div className="space-y-1">
-                        <button
+                        <Button
                           onClick={onNewProject}
-                          className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-sidebar-foreground hover:bg-sidebar-accent transition-colors"
+                          variant="ghost"
+                          className="w-full justify-start gap-2 text-sidebar-foreground hover:bg-sidebar-accent"
                         >
                           <FolderPlus className="h-4 w-4" />
                           New project
-                        </button>
+                        </Button>
 
                         {visibleProjects.map((project) => {
                           const chatsForProject = projectChatMap[project.id] || []
@@ -191,29 +192,28 @@ export function ChatSidebar({
                             isProjectRootView && activeProjectId === project.id
 
                           return (
-                            <div
-                              key={project.id}
-                              className={`group rounded-lg transition-colors ${
-                                isProjectActive
-                                  ? 'bg-zinc-800 text-white'
-                                  : 'hover:bg-sidebar-accent'
-                              }`}
-                            >
+                            <div key={project.id} className="space-y-1">
                               <Link
                                 href={`/projects/${project.id}`}
                                 onClick={() => onProjectSelect?.(project.id)}
-                                className="relative flex items-center gap-2 px-3 py-2"
+                                className={`group relative flex items-center gap-2 rounded-lg px-3 py-2 transition-colors ${
+                                  isProjectActive
+                                    ? 'bg-zinc-800 text-white'
+                                    : 'hover:bg-sidebar-accent'
+                                }`}
                               >
                                 <div className="flex items-center gap-2 flex-1 min-w-0">
                                   <span className="text-base">{project.icon}</span>
-                                  <span className="truncate text-sm text-sidebar-foreground pr-8">
+                                  <span className="truncate text-sm text-sidebar-foreground pr-10">
                                     {project.name}
                                   </span>
                                 </div>
-                                <ProjectContextMenu
-                                  onRename={() => console.log('Rename project', project.id)}
-                                  onDelete={() => console.log('Delete project', project.id)}
-                                />
+                                <div className="flex-shrink-0">
+                                  <ProjectContextMenu
+                                    onRename={() => console.log('Rename project', project.id)}
+                                    onDelete={() => console.log('Delete project', project.id)}
+                                  />
+                                </div>
                               </Link>
 
                               {visibleChats.length > 0 && (
@@ -234,7 +234,7 @@ export function ChatSidebar({
                                       }`}
                                     >
                                       <div className="flex-1 min-w-0">
-                                        <span className="block truncate text-sm text-sidebar-foreground pr-6">
+                                        <span className="block truncate text-sm text-sidebar-foreground pr-10">
                                           {chat.title}
                                         </span>
                                       </div>
@@ -342,7 +342,7 @@ export function ChatSidebar({
                           >
                             <div className="py-2 px-3 flex items-center gap-2">
                               <div className="flex-1 min-w-0">
-                                <div className="truncate text-sm text-sidebar-foreground pr-6">{conv.title}</div>
+                                <div className="truncate text-sm text-sidebar-foreground pr-10">{conv.title}</div>
                               </div>
                               <div className="flex-shrink-0">
                                 <ChatContextMenu

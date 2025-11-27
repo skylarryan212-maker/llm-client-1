@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Code2, Database, Menu, TrendingUp, Workflow } from "lucide-react";
 
@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { AgentCard } from "@/components/agents/agent-card";
 import { useProjects } from "@/components/projects/projects-provider";
 import { NewProjectModal } from "@/components/projects/new-project-modal";
+import { usePersistentSidebarOpen } from "@/lib/hooks/use-sidebar-open";
 
 const agents = [
   {
@@ -46,26 +47,12 @@ const agents = [
 ];
 
 export default function AgentsPage() {
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [isSidebarOpen, setIsSidebarOpen] = usePersistentSidebarOpen(true);
   const [currentModel, setCurrentModel] = useState("GPT-5.1");
   const [selectedProjectId, setSelectedProjectId] = useState("");
   const [isNewProjectOpen, setIsNewProjectOpen] = useState(false);
   const { projects, addProject } = useProjects();
   const router = useRouter();
-
-  useEffect(() => {
-    const handleResize = () => {
-      if (window.innerWidth >= 1024) {
-        setIsSidebarOpen(true);
-      } else {
-        setIsSidebarOpen(false);
-      }
-    };
-
-    handleResize();
-    window.addEventListener("resize", handleResize);
-    return () => window.removeEventListener("resize", handleResize);
-  }, []);
 
   const handleChatSelect = (chatId: string) => {
     router.push(`/c/${chatId}`);
