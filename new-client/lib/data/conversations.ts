@@ -4,9 +4,14 @@ import type { Database } from "@/lib/supabase/types";
 
 type ConversationRow = Database["public"]["Tables"]["conversations"]["Row"];
 
-export async function getConversationsForUser(options?: {
-  projectId?: string | null;
-}) {
+const uuidPattern =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function isValidUuid(value: string | null | undefined) {
+  return typeof value === "string" && uuidPattern.test(value);
+}
+
+export async function getConversationsForUser(options?: { projectId?: string | null }) {
   const supabase = createServerClient();
   const userId = getCurrentUserId();
 
@@ -17,6 +22,9 @@ export async function getConversationsForUser(options?: {
     .order("created_at", { ascending: false });
 
   if (options?.projectId) {
+    if (!isValidUuid(options.projectId)) {
+      return [];
+    }
     query.eq("project_id", options.projectId);
   } else {
     query.is("project_id", null);
@@ -32,6 +40,10 @@ export async function getConversationsForUser(options?: {
 }
 
 export async function getConversationById(conversationId: string) {
+  if (!isValidUuid(conversationId)) {
+    return null;
+  }
+
   const supabase = createServerClient();
   const userId = getCurrentUserId();
 
