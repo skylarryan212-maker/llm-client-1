@@ -8,7 +8,7 @@ import { ChatMessage } from "@/components/chat-message";
 import { ChatComposer } from "@/components/chat-composer";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
-import { ArrowDown, Menu } from "lucide-react";
+import { ArrowDown, ChevronDown, Menu } from "lucide-react";
 import { SettingsModal } from "@/components/settings-modal";
 import {
   DropdownMenu,
@@ -100,7 +100,7 @@ export default function ChatPageShell({
         id: m.id,
         role: m.role,
         content: m.content,
-        model: "GPT-5.1",
+        model: "GPT 5.1",
         timestamp: m.timestamp,
       })),
     });
@@ -290,20 +290,21 @@ export default function ChatPageShell({
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="h-9 w-auto gap-1 border-0 px-2 text-base font-semibold"
+                  className="h-9 w-auto gap-1.5 border-0 px-2 text-base font-semibold"
                 >
                   {currentModel === "Auto"
-                    ? "GPT-5.1"
+                    ? "GPT 5.1"
                     : currentModel === "Instant"
-                      ? "GPT-5.1 Instant"
+                      ? "GPT 5.1 Instant"
                       : currentModel === "Thinking"
-                        ? "GPT-5.1 Thinking"
+                        ? "GPT 5.1 Thinking"
                         : currentModel}
+                  <ChevronDown className="h-4 w-4 text-muted-foreground" />
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="w-64">
+              <DropdownMenuContent align="start" className="w-64 space-y-1 py-2">
                 <div className="px-2 pb-1 text-sm font-semibold text-muted-foreground">
-                  GPT-5.1
+                  GPT 5.1
                 </div>
                 <DropdownMenuRadioGroup
                   value={currentModel}
@@ -311,7 +312,7 @@ export default function ChatPageShell({
                 >
                   <DropdownMenuRadioItem
                     value="Auto"
-                    className="items-start"
+                    className="items-center gap-3 px-2 py-2"
                   >
                     <div className="flex flex-col">
                       <span className="font-medium leading-none">Auto</span>
@@ -322,7 +323,7 @@ export default function ChatPageShell({
                   </DropdownMenuRadioItem>
                   <DropdownMenuRadioItem
                     value="Instant"
-                    className="items-start"
+                    className="items-center gap-3 px-2 py-2"
                   >
                     <div className="flex flex-col">
                       <span className="font-medium leading-none">Instant</span>
@@ -333,7 +334,7 @@ export default function ChatPageShell({
                   </DropdownMenuRadioItem>
                   <DropdownMenuRadioItem
                     value="Thinking"
-                    className="items-start"
+                    className="items-center gap-3 px-2 py-2"
                   >
                     <div className="flex flex-col">
                       <span className="font-medium leading-none">Thinking</span>
@@ -343,8 +344,11 @@ export default function ChatPageShell({
                     </div>
                   </DropdownMenuRadioItem>
                 </DropdownMenuRadioGroup>
+                <div className="px-2">
+                  <div className="h-px bg-border" />
+                </div>
                 <DropdownMenuSub>
-                  <DropdownMenuSubTrigger className="items-start">
+                  <DropdownMenuSubTrigger className="items-center gap-3 px-2 py-2">
                     <div className="flex flex-col text-left">
                       <span className="font-medium leading-none">
                         Other models

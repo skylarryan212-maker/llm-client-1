@@ -29,9 +29,9 @@ export function ChatMessage({
   hasSources,
 }: ChatMessageProps) {
   const [copied, setCopied] = useState(false)
-  const [retryModel, setRetryModel] = useState('GPT-5.1')
+  const [retryModel, setRetryModel] = useState('GPT 5.1')
 
-  const displayModel = 'GPT-5.1'
+  const displayModel = 'GPT 5.1'
 
   const handleCopy = async () => {
     await navigator.clipboard.writeText(content)
@@ -115,8 +115,8 @@ export function ChatMessage({
                   <DropdownMenuRadioItem value="GPT-5 Mini">
                     GPT-5 Mini
                   </DropdownMenuRadioItem>
-                  <DropdownMenuRadioItem value="GPT-5.1" className="flex items-center justify-between gap-2">
-                    <span className="flex-1">GPT-5.1</span>
+                  <DropdownMenuRadioItem value="GPT 5.1" className="flex items-center justify-between gap-2">
+                    <span className="flex-1">GPT 5.1</span>
                     <span className="text-xs text-muted-foreground">Current</span>
                   </DropdownMenuRadioItem>
                   <DropdownMenuRadioItem value="GPT-5 Pro">
