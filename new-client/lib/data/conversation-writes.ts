@@ -1,13 +1,14 @@
 import { createServerClient } from "@/lib/supabase/server";
 import { getCurrentUserId } from "@/lib/supabase/user";
-import type { Database } from "@/lib/supabase/types";
+import type {
+  ConversationInsert,
+  Database,
+  MessageInsert,
+} from "@/lib/supabase/types";
 
 export type ConversationRow =
   Database["public"]["Tables"]["conversations"]["Row"];
 export type MessageRow = Database["public"]["Tables"]["messages"]["Row"];
-type ConversationInsert =
-  Database["public"]["Tables"]["conversations"]["Insert"];
-type MessageInsert = Database["public"]["Tables"]["messages"]["Insert"];
 
 export async function createGlobalConversationWithFirstMessage(params: {
   title?: string | null;

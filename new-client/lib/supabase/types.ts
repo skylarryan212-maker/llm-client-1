@@ -91,3 +91,8 @@ export type Database = {
     CompositeTypes: Record<string, never>;
   };
 };
+
+export type ConversationInsert =
+  Database["public"]["Tables"]["conversations"]["Insert"];
+export type MessageInsert = Database["public"]["Tables"]["messages"]["Insert"];
+export type ProjectInsert = Database["public"]["Tables"]["projects"]["Insert"];
