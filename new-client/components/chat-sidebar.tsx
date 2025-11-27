@@ -1,6 +1,6 @@
 'use client'
 
-import { KeyboardEvent, useState } from 'react'
+import { KeyboardEvent, useMemo, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Plus, Sparkles, ChevronDown, ChevronRight, FolderPlus, X } from 'lucide-react'
@@ -33,7 +33,9 @@ interface ChatSidebarProps {
   selectedChatId?: string
   conversations?: Conversation[]
   projects?: Project[]
+  projectChats?: Record<string, Conversation[]>
   onChatSelect?: (id: string) => void
+  onProjectChatSelect?: (projectId: string, chatId: string) => void
   onNewChat?: () => void
   onNewProject?: () => void
   onProjectSelect?: (id: string) => void
@@ -49,7 +51,9 @@ export function ChatSidebar({
   selectedChatId = '4',
   conversations: propConversations,
   projects: propProjects,
+  projectChats = {},
   onChatSelect,
+  onProjectChatSelect,
   onNewChat,
   onNewProject,
   onProjectSelect,
@@ -73,6 +77,8 @@ export function ChatSidebar({
 
   const visibleProjects = projects.slice(0, 5)
   const moreProjects = projects.slice(5)
+
+  const projectChatMap = useMemo(() => projectChats, [projectChats])
 
   const handleListItemKeyDown = (
     event: KeyboardEvent<HTMLDivElement>,
@@ -174,29 +180,78 @@ export function ChatSidebar({
                           New project
                         </button>
 
-                        {visibleProjects.map((project) => (
-                          <Link
-                            key={project.id}
-                            href={`/projects/${project.id}`}
-                            onClick={() => onProjectSelect?.(project.id)}
-                            className={`group block w-full text-left rounded-lg transition-colors ${
-                              activeProjectId === project.id
-                                ? 'bg-zinc-800 text-white'
-                                : 'hover:bg-sidebar-accent'
-                            }`}
-                          >
-                            <div className="py-2 px-3 flex items-center justify-between gap-2">
-                              <div className="flex items-center gap-2 flex-1 min-w-0">
-                                <span className="text-base">{project.icon}</span>
-                                <span className="truncate text-sm text-sidebar-foreground pr-8">{project.name}</span>
-                              </div>
-                              <ProjectContextMenu
-                                onRename={() => console.log('Rename project', project.id)}
-                                onDelete={() => console.log('Delete project', project.id)}
-                              />
+                        {visibleProjects.map((project) => {
+                          const chatsForProject = projectChatMap[project.id] || []
+                          const visibleChats = chatsForProject.slice(0, 5)
+                          const hasMoreChats = chatsForProject.length > 5
+
+                          return (
+                            <div
+                              key={project.id}
+                              className={`group rounded-lg transition-colors ${
+                                activeProjectId === project.id
+                                  ? 'bg-zinc-800 text-white'
+                                  : 'hover:bg-sidebar-accent'
+                              }`}
+                            >
+                              <Link
+                                href={`/projects/${project.id}`}
+                                onClick={() => onProjectSelect?.(project.id)}
+                                className="flex items-center justify-between gap-2 px-3 py-2"
+                              >
+                                <div className="flex items-center gap-2 flex-1 min-w-0">
+                                  <span className="text-base">{project.icon}</span>
+                                  <span className="truncate text-sm text-sidebar-foreground pr-8">{project.name}</span>
+                                </div>
+                                <ProjectContextMenu
+                                  onRename={() => console.log('Rename project', project.id)}
+                                  onDelete={() => console.log('Delete project', project.id)}
+                                />
+                              </Link>
+
+                              {visibleChats.length > 0 && (
+                                <div className="px-2 pb-2 space-y-1">
+                                  {visibleChats.map((chat) => (
+                                    <div
+                                      key={chat.id}
+                                      role="button"
+                                      tabIndex={0}
+                                      onClick={() => onProjectChatSelect?.(project.id, chat.id)}
+                                      onKeyDown={(event) =>
+                                        handleListItemKeyDown(event, () => onProjectChatSelect?.(project.id, chat.id))
+                                      }
+                                      className={`group/chat flex items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left transition-colors ${
+                                        selectedChatId === chat.id
+                                          ? 'bg-zinc-800 text-white'
+                                          : 'hover:bg-sidebar-accent'
+                                      }`}
+                                    >
+                                      <span className="truncate text-sm text-sidebar-foreground pr-3">
+                                        {chat.title}
+                                      </span>
+                                      <ChatContextMenu
+                                        onShare={() => console.log('Share', chat.id)}
+                                        onRename={() => console.log('Rename', chat.id)}
+                                        onMoveToProject={() => console.log('Move to project', chat.id)}
+                                        onArchive={() => console.log('Archive', chat.id)}
+                                        onDelete={() => console.log('Delete', chat.id)}
+                                      />
+                                    </div>
+                                  ))}
+                                  {hasMoreChats && (
+                                    <Link
+                                      href={`/projects/${project.id}`}
+                                      className="block rounded-md px-2 py-1.5 text-sm text-muted-foreground hover:bg-sidebar-accent"
+                                      onClick={() => onProjectSelect?.(project.id)}
+                                    >
+                                      See more…
+                                    </Link>
+                                  )}
+                                </div>
+                              )}
                             </div>
-                          </Link>
-                        ))}
+                          )
+                        })}
 
                         {moreProjects.length > 0 && (
                           <div className="relative">
@@ -254,7 +309,7 @@ export function ChatSidebar({
                       className="flex w-full items-center gap-1 mb-2 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
                     >
                       {chatsCollapsed ? <ChevronRight className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
-                      CHATS
+                      ALL CHATS
                     </button>
                     
                     {!chatsCollapsed && (
@@ -268,16 +323,15 @@ export function ChatSidebar({
                             onKeyDown={(event) =>
                               handleListItemKeyDown(event, () => onChatSelect?.(conv.id))
                             }
-                            className={`group w-full text-left rounded-lg transition-colors ${
+                            className={`group/chat w-full text-left rounded-lg transition-colors ${
                               selectedChatId === conv.id && !isAgentsPage
                                 ? 'bg-zinc-800 text-white'
                                 : 'hover:bg-sidebar-accent'
                             }`}
                           >
-                            <div className="py-2 px-3 flex items-start justify-between gap-2">
+                            <div className="py-2 px-3 flex items-center justify-between gap-2">
                               <div className="flex-1 min-w-0">
-                                <div className="truncate text-sm text-sidebar-foreground pr-8">{conv.title}</div>
-                                <div className="text-xs text-muted-foreground">{conv.timestamp}</div>
+                                <div className="truncate text-sm text-sidebar-foreground pr-3">{conv.title}</div>
                               </div>
                               <ChatContextMenu
                                 onShare={() => console.log('Share', conv.id)}

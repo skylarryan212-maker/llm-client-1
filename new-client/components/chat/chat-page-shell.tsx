@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { ChatSidebar } from "@/components/chat-sidebar";
@@ -19,11 +19,14 @@ import {
 } from "@/components/ui/select";
 import { useProjects } from "@/components/projects/projects-provider";
 import { NewProjectModal } from "@/components/projects/new-project-modal";
+import { useChatStore } from "@/components/chat/chat-provider";
+import { usePersistentSidebarOpen } from "@/lib/hooks/use-sidebar-open";
 
 interface ShellConversation {
   id: string;
   title: string;
   timestamp: string;
+  projectId?: string;
 }
 
 interface ServerMessage {
@@ -38,13 +41,7 @@ interface Message {
   content: string;
   model?: string;
   hasSources?: boolean;
-}
-
-interface ChatData {
-  id: string;
-  title: string;
-  timestamp: string;
-  messages: Message[];
+  timestamp?: string;
 }
 
 interface ChatPageShellProps {
@@ -52,129 +49,126 @@ interface ChatPageShellProps {
   activeConversationId: string | null; // allow null for "/"
   messages: ServerMessage[];
   searchParams: Record<string, string | string[] | undefined>;
+  projectId?: string;
 }
 
 export default function ChatPageShell({
   conversations: initialConversations,
   activeConversationId,
   messages: initialMessages,
+  projectId,
 }: ChatPageShellProps) {
   const router = useRouter();
   const { projects, addProject } = useProjects();
+  const {
+    chats,
+    globalChats,
+    createChat,
+    appendMessages,
+    ensureChat,
+  } = useChatStore();
 
-  // Seed a single chat from server data for now (for /c/[id] routes)
-  const [chats, setChats] = useState<ChatData[]>(() => {
-    if (!initialConversations.length) return [];
-
-    const first = initialConversations[0];
-
-    return [
-      {
-        id: first.id,
-        title: first.title,
-        timestamp: first.timestamp ?? "Just now",
-        messages: initialMessages.map((m) => ({
-          role: m.role,
-          content: m.content,
-          model: "GPT-5.1",
-        })),
-      },
-    ];
-  });
-
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [isSidebarOpen, setIsSidebarOpen] = usePersistentSidebarOpen(true);
   const [currentModel, setCurrentModel] = useState("GPT-5.1");
   const [selectedChatId, setSelectedChatId] = useState<string | null>(
     activeConversationId ?? null
   );
 
-  const [selectedProjectId, setSelectedProjectId] = useState("");
+  const [selectedProjectId, setSelectedProjectId] = useState(projectId ?? "");
   const [isNewProjectOpen, setIsNewProjectOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
-  // Sidebar open on desktop, closed on mobile (v0 behavior)
   useEffect(() => {
-    const handleResize = () => {
-      if (window.innerWidth >= 1024) {
-        setIsSidebarOpen(true);
-      } else {
-        setIsSidebarOpen(false);
-      }
-    };
+    setSelectedChatId(activeConversationId ?? null);
+  }, [activeConversationId]);
 
-    handleResize();
-    window.addEventListener("resize", handleResize);
-    return () => window.removeEventListener("resize", handleResize);
-  }, []);
+  useEffect(() => {
+    if (!initialConversations.length) return;
+
+    const first = initialConversations[0];
+    ensureChat({
+      id: first.id,
+      title: first.title,
+      timestamp: first.timestamp ?? new Date().toISOString(),
+      projectId: projectId ?? first.projectId,
+      messages: initialMessages.map((m) => ({
+        role: m.role,
+        content: m.content,
+        model: "GPT-5.1",
+        timestamp: m.timestamp,
+      })),
+    });
+  }, [ensureChat, initialConversations, initialMessages, projectId]);
 
   const currentChat = chats.find((c) => c.id === selectedChatId);
   const messages = currentChat?.messages || [];
 
+  useEffect(() => {
+    if (currentChat?.projectId) {
+      setSelectedProjectId(currentChat.projectId);
+    } else if (selectedChatId) {
+      setSelectedProjectId("");
+    }
+  }, [currentChat, selectedChatId]);
+
   const handleSubmit = (message: string) => {
-    const newUserMessage: Message = { role: "user", content: message };
+    const now = new Date().toISOString();
+    const newUserMessage: Message = { role: "user", content: message, timestamp: now };
     const demoAssistantMessage: Message = {
       role: "assistant",
       content: `This is a demo response to: "${message}". In a real app this would come from the model.`,
       model: currentModel,
+      timestamp: now,
     };
 
     if (!selectedChatId) {
-      // New, unsaved chat in "/"
-      const newChatId = Date.now().toString();
-      const newChat: ChatData = {
-        id: newChatId,
-        title: "Demo Chat",
-        timestamp: "Just now",
-        messages: [newUserMessage, demoAssistantMessage],
-      };
-      setChats((prevChats) => [newChat, ...prevChats]);
-      setSelectedChatId(newChatId);
-    } else {
-      // Append to existing in-memory chat
-      setChats((prevChats) => {
-        const updatedChats = prevChats.map((chat) => {
-          if (chat.id === selectedChatId) {
-            return {
-              ...chat,
-              messages: [
-                ...chat.messages,
-                newUserMessage,
-                demoAssistantMessage,
-              ],
-              timestamp: "Just now",
-              title:
-                chat.messages.length === 0
-                  ? message.slice(0, 50)
-                  : chat.title,
-            };
-          }
-          return chat;
-        });
-
-        const currentChatIndex = updatedChats.findIndex(
-          (c) => c.id === selectedChatId
-        );
-        if (currentChatIndex > 0) {
-          const current = updatedChats.splice(currentChatIndex, 1)[0];
-          updatedChats.unshift(current);
-        }
-
-        return updatedChats;
+      const targetProjectId = selectedProjectId || projectId;
+      const newChatId = createChat({
+        projectId: targetProjectId,
+        initialMessages: [
+          { ...newUserMessage, id: `user-${Date.now()}` },
+          { ...demoAssistantMessage, id: `assistant-${Date.now()}` },
+        ],
+        title: message.slice(0, 80) || "New chat",
       });
+      setSelectedChatId(newChatId);
+      if (targetProjectId) {
+        setSelectedProjectId(targetProjectId);
+        router.push(`/projects/${targetProjectId}/c/${newChatId}`);
+      } else {
+        router.push(`/c/${newChatId}`);
+      }
+    } else {
+      appendMessages(selectedChatId, [
+        { ...newUserMessage, id: `user-${Date.now()}` },
+        { ...demoAssistantMessage, id: `assistant-${Date.now()}` },
+      ]);
     }
   };
 
-const handleChatSelect = (id: string) => {
-  router.push(`/c/${id}`);
-};
+  const handleChatSelect = (id: string) => {
+    const chat = chats.find((item) => item.id === id);
+    setSelectedChatId(id);
+    if (chat?.projectId) {
+      setSelectedProjectId(chat.projectId);
+      router.push(`/projects/${chat.projectId}/c/${id}`);
+    } else {
+      setSelectedProjectId("");
+      router.push(`/c/${id}`);
+    }
+  };
 
+  const handleProjectChatSelect = (projectIdValue: string, chatId: string) => {
+    setSelectedChatId(chatId);
+    setSelectedProjectId(projectIdValue);
+    router.push(`/projects/${projectIdValue}/c/${chatId}`);
+  };
 
-const handleNewChat = () => {
-  // reset to blank new-chat state
-  setSelectedChatId(null);
-  router.push("/");
-};
-
+  const handleNewChat = () => {
+    setSelectedChatId(null);
+    setSelectedProjectId("");
+    router.push("/");
+  };
 
   const handleProjectSelect = (id: string) => {
     setSelectedProjectId(id);
@@ -192,24 +186,47 @@ const handleNewChat = () => {
     router.push(`/projects/${newProject.id}`);
   };
 
-  const sidebarConversations = chats.map((chat) => ({
-    id: chat.id,
-    title: chat.title,
-    timestamp: chat.timestamp,
-  }));
+  const sidebarConversations = useMemo(
+    () =>
+      globalChats.map((chat) => ({
+        id: chat.id,
+        title: chat.title,
+        timestamp: chat.timestamp,
+      })),
+    [globalChats]
+  );
+
+  const projectConversations = useMemo(() => {
+    const map: Record<string, ShellConversation[]> = {};
+
+    chats.forEach((chat) => {
+      if (!chat.projectId) return;
+      if (!map[chat.projectId]) map[chat.projectId] = [];
+      map[chat.projectId].push({
+        id: chat.id,
+        title: chat.title,
+        timestamp: chat.timestamp,
+        projectId: chat.projectId,
+      });
+    });
+
+    return map;
+  }, [chats]);
 
   return (
     <div className="flex h-screen overflow-hidden bg-background text-foreground dark">
       {/* Sidebar */}
       <ChatSidebar
         isOpen={isSidebarOpen}
-        onToggle={() => setIsSidebarOpen(!isSidebarOpen)}
+        onToggle={() => setIsSidebarOpen((open) => !open)}
         currentModel={currentModel}
         onModelSelect={setCurrentModel}
         selectedChatId={selectedChatId ?? ""} // Sidebar API expects string
         conversations={sidebarConversations}
         projects={projects}
+        projectChats={projectConversations}
         onChatSelect={handleChatSelect}
+        onProjectChatSelect={handleProjectChatSelect}
         onNewChat={handleNewChat}
         onNewProject={handleNewProject}
         onProjectSelect={handleProjectSelect}
@@ -227,7 +244,7 @@ const handleNewChat = () => {
               variant="ghost"
               size="icon"
               className="h-9 w-9 lg:hidden"
-              onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+              onClick={() => setIsSidebarOpen((open) => !open)}
             >
               <Menu className="h-4 w-4" />
             </Button>
@@ -312,7 +329,7 @@ const handleNewChat = () => {
         )}
 
         {/* Composer: full-width bar, centered pill like ChatGPT */}
-        <div className="border-t bg-background px-4 sm:px-6 lg:px-12 py-3 sm:py-4">
+        <div className="bg-background px-4 sm:px-6 lg:px-12 py-3 sm:py-4">
           <div className="mx-auto w-full max-w-3xl">
             <ChatComposer onSubmit={handleSubmit} />
           </div>
