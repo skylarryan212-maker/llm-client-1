@@ -90,21 +90,33 @@ export default function ChatPageShell({
   useEffect(() => {
     if (!initialConversations.length) return;
 
-    const first = initialConversations[0];
-    ensureChat({
-      id: first.id,
-      title: first.title,
-      timestamp: first.timestamp ?? new Date().toISOString(),
-      projectId: projectId ?? first.projectId,
-      messages: initialMessages.map((m) => ({
-        id: m.id,
-        role: m.role,
-        content: m.content,
-        model: "GPT 5.1",
-        timestamp: m.timestamp,
-      })),
+    initialConversations.forEach((conversation) => {
+      const isActive = conversation.id === activeConversationId;
+      const messagesForConversation = isActive
+        ? initialMessages.map((m) => ({
+            id: m.id,
+            role: m.role,
+            content: m.content,
+            model: "GPT 5.1",
+            timestamp: m.timestamp,
+          }))
+        : [];
+
+      ensureChat({
+        id: conversation.id,
+        title: conversation.title,
+        timestamp: conversation.timestamp ?? new Date().toISOString(),
+        projectId: projectId ?? conversation.projectId,
+        messages: messagesForConversation,
+      });
     });
-  }, [ensureChat, initialConversations, initialMessages, projectId]);
+  }, [
+    activeConversationId,
+    ensureChat,
+    initialConversations,
+    initialMessages,
+    projectId,
+  ]);
 
   const currentChat = chats.find((c) => c.id === selectedChatId);
   const messages = currentChat?.messages || [];
