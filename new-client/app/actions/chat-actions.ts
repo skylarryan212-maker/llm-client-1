@@ -6,35 +6,38 @@ import { getCurrentUserId } from "@/lib/supabase/user";
 export async function startGlobalConversationAction(
   firstMessageContent: string
 ): Promise<{ conversationId: string }> {
-  const supabase = await supabaseServer();
+  // Cast locally to relax the broken Supabase generic inference for this file only
+  const supabase = (await supabaseServer()) as any;
   const userId = getCurrentUserId();
 
   const { data, error } = await supabase
     .from("conversations")
-    .insert({
-      user_id: userId,
-      title: firstMessageContent.slice(0, 80) || null,
-      project_id: null,
-      metadata: {},
-    })
-    .select()
-    .single();
+    .insert([
+      {
+        user_id: userId,
+        title: firstMessageContent.slice(0, 80) || null,
+        project_id: null,
+        metadata: {},
+      },
+    ])
+    .select();
 
-  if (error || !data) {
+  if (error || !data || !data[0]) {
     throw new Error("Failed to create conversation");
   }
 
-  return { conversationId: data.id };
+  const conversation = data[0];
+  return { conversationId: conversation.id as string };
 }
 
 export async function appendUserMessageAction(
   conversationId: string,
   content: string
 ): Promise<void> {
-  const supabase = await supabaseServer();
+  const supabase = (await supabaseServer()) as any;
   const userId = getCurrentUserId();
 
-  const { data, error } = await supabase
+  const { error } = await supabase
     .from("messages")
     .insert([
       {
@@ -44,11 +47,9 @@ export async function appendUserMessageAction(
         content,
         metadata: {},
       },
-    ])
-    .select()
-    .single();
+    ]);
 
-  if (error || !data) {
+  if (error) {
     throw new Error("Failed to append message");
   }
 }

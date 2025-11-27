@@ -7,8 +7,9 @@ export async function createGlobalConversationWithFirstMessage(params: {
 }) {
   const supabase = await supabaseServer();
   const userId = getCurrentUserId();
+  const supabaseAny = supabase as any;
 
-  const { data: conversation, error: conversationError } = await supabase
+  const { data: conversation, error: conversationError } = await supabaseAny
     .from("conversations")
     .insert([
       {
@@ -16,18 +17,20 @@ export async function createGlobalConversationWithFirstMessage(params: {
         title: params.title ?? null,
         project_id: null,
         metadata: {},
-      },
+      } as any,
     ])
     .select()
     .single();
 
   if (conversationError || !conversation) {
     throw new Error(
-      `Failed to create conversation: ${conversationError?.message ?? "Unknown error"}`
+      `Failed to create conversation: ${
+        conversationError?.message ?? "Unknown error"
+      }`
     );
   }
 
-  const { data: message, error: messageError } = await supabase
+  const { data: message, error: messageError } = await supabaseAny
     .from("messages")
     .insert([
       {
@@ -36,7 +39,7 @@ export async function createGlobalConversationWithFirstMessage(params: {
         role: "user",
         content: params.firstMessageContent,
         metadata: {},
-      },
+      } as any,
     ])
     .select()
     .single();
@@ -57,8 +60,9 @@ export async function appendMessageToConversation(params: {
 }) {
   const supabase = await supabaseServer();
   const userId = getCurrentUserId();
+  const supabaseAny = supabase as any;
 
-  const { data, error } = await supabase
+  const { data, error } = await supabaseAny
     .from("messages")
     .insert([
       {
@@ -67,7 +71,7 @@ export async function appendMessageToConversation(params: {
         role: params.role,
         content: params.content,
         metadata: {},
-      },
+      } as any,
     ])
     .select()
     .single();
