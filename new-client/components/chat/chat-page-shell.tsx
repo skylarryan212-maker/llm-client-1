@@ -47,7 +47,7 @@ interface ChatData {
 
 interface ChatPageShellProps {
   conversations: ShellConversation[];
-  activeConversationId: string;
+  activeConversationId: string | null; // allow null for "/"
   messages: ServerMessage[];
   searchParams: Record<string, string | string[] | undefined>;
 }
@@ -59,7 +59,7 @@ export default function ChatPageShell({
 }: ChatPageShellProps) {
   const router = useRouter();
 
-  // Seed a single chat from server data for now
+  // Seed a single chat from server data for now (for /c/[id] routes)
   const [chats, setChats] = useState<ChatData[]>(() => {
     if (!initialConversations.length) return [];
 
@@ -81,9 +81,10 @@ export default function ChatPageShell({
 
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [currentModel, setCurrentModel] = useState("GPT-5.1");
-  const [selectedChatId, setSelectedChatId] = useState<string>(
-    activeConversationId || initialConversations[0]?.id || ""
-  );
+const [selectedChatId, setSelectedChatId] = useState<string | null>(
+  activeConversationId ?? null
+);
+
   const [selectedProjectId, setSelectedProjectId] = useState("");
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
@@ -114,6 +115,7 @@ export default function ChatPageShell({
     };
 
     if (!selectedChatId) {
+      // New, unsaved chat in "/"
       const newChatId = Date.now().toString();
       const newChat: ChatData = {
         id: newChatId,
@@ -124,6 +126,7 @@ export default function ChatPageShell({
       setChats((prevChats) => [newChat, ...prevChats]);
       setSelectedChatId(newChatId);
     } else {
+      // Append to existing in-memory chat
       setChats((prevChats) => {
         const updatedChats = prevChats.map((chat) => {
           if (chat.id === selectedChatId) {
@@ -157,13 +160,17 @@ export default function ChatPageShell({
     }
   };
 
-  const handleChatSelect = (id: string) => {
-    setSelectedChatId(id);
-  };
+const handleChatSelect = (id: string) => {
+  router.push(`/c/${id}`);
+};
 
-  const handleNewChat = () => {
-    setSelectedChatId("");
-  };
+
+const handleNewChat = () => {
+  // reset to blank new-chat state
+  setSelectedChatId(null);
+  router.push("/");
+};
+
 
   const handleProjectSelect = (id: string) => {
     router.push(`/project/${id}`);
@@ -187,7 +194,7 @@ export default function ChatPageShell({
         onToggle={() => setIsSidebarOpen(!isSidebarOpen)}
         currentModel={currentModel}
         onModelSelect={setCurrentModel}
-        selectedChatId={selectedChatId}
+        selectedChatId={selectedChatId ?? ""} // Sidebar API expects string
         conversations={sidebarConversations}
         onChatSelect={handleChatSelect}
         onNewChat={handleNewChat}
@@ -241,7 +248,7 @@ export default function ChatPageShell({
                   strokeLinecap="round"
                   strokeLinejoin="round"
                   strokeWidth="1.5"
-                  d="M8.684 13.342a3 3 0 10-1.368 5.342m1.368-5.342l6.632-3.316m-6.632 3.316a3 3 0 111.368-5.342m5.264 2.026a3 3 0 105.368-2.684 3 3 0 00-5.368 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z"
+                  d="M8.684 13.342a3 3 0 10-1.368 5.342m1.368-5.342l6.632-3.316m-6.632 3.316a3 3 0 111.368-5.342m5.264 2.026a3 3 0 105.368-2.684 3 3 0 00-5.368 2.684z"
                 />
               </svg>
               <span className="hidden md:inline">Share</span>
@@ -281,7 +288,7 @@ export default function ChatPageShell({
         ) : (
           <ScrollArea className="flex-1 overflow-auto">
             <div className="py-4 pb-4">
-              {/* Wide desktop layout: full width with padding, no max-w container */}
+              {/* Wide desktop layout with padded container */}
               <div className="w-full px-4 sm:px-6 lg:px-12 space-y-4">
                 {messages.map((message, index) => (
                   <ChatMessage key={index} {...message} />
@@ -291,7 +298,7 @@ export default function ChatPageShell({
           </ScrollArea>
         )}
 
-                {/* Composer: full-width bar, centered pill like ChatGPT */}
+        {/* Composer: full-width bar, centered pill like ChatGPT */}
         <div className="border-t bg-background px-4 sm:px-6 lg:px-12 py-3 sm:py-4">
           <div className="mx-auto w-full max-w-3xl">
             <ChatComposer onSubmit={handleSubmit} />
