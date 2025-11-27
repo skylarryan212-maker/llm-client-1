@@ -11,12 +11,15 @@ import { Button } from "@/components/ui/button";
 import { ArrowDown, Menu } from "lucide-react";
 import { SettingsModal } from "@/components/settings-modal";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { useProjects } from "@/components/projects/projects-provider";
 import { NewProjectModal } from "@/components/projects/new-project-modal";
 import { StoredMessage, useChatStore } from "@/components/chat/chat-provider";
@@ -61,7 +64,7 @@ export default function ChatPageShell({
   } = useChatStore();
 
   const [isSidebarOpen, setIsSidebarOpen] = usePersistentSidebarOpen(true);
-  const [currentModel, setCurrentModel] = useState("GPT-5.1");
+  const [currentModel, setCurrentModel] = useState("Auto");
   const [selectedChatId, setSelectedChatId] = useState<string | null>(
     activeConversationId ?? null
   );
@@ -282,17 +285,76 @@ export default function ChatPageShell({
               <Menu className="h-4 w-4" />
             </Button>
 
-            <Select value={currentModel} onValueChange={setCurrentModel}>
-              <SelectTrigger className="h-9 w-auto gap-1 border-0 px-2 focus:ring-0">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="GPT-5.1">GPT-5.1</SelectItem>
-                <SelectItem value="GPT-4 Turbo">GPT-4 Turbo</SelectItem>
-                <SelectItem value="GPT-3.5">GPT-3.5</SelectItem>
-                <SelectItem value="Claude 3">Claude 3</SelectItem>
-              </SelectContent>
-            </Select>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-9 w-auto gap-1 border-0 px-2 text-sm font-medium"
+                >
+                  {currentModel}
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-64">
+                <DropdownMenuRadioGroup
+                  value={currentModel}
+                  onValueChange={setCurrentModel}
+                >
+                  <DropdownMenuRadioItem
+                    value="Auto"
+                    className="items-start"
+                  >
+                    <div className="flex flex-col">
+                      <span className="font-medium leading-none">Auto</span>
+                      <span className="text-xs text-muted-foreground">
+                        Decides how long to think
+                      </span>
+                    </div>
+                  </DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem
+                    value="Instant"
+                    className="items-start"
+                  >
+                    <div className="flex flex-col">
+                      <span className="font-medium leading-none">Instant</span>
+                      <span className="text-xs text-muted-foreground">
+                        Answers right away
+                      </span>
+                    </div>
+                  </DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem
+                    value="Thinking"
+                    className="items-start"
+                  >
+                    <div className="flex flex-col">
+                      <span className="font-medium leading-none">Thinking</span>
+                      <span className="text-xs text-muted-foreground">
+                        Thinks longer for better answers
+                      </span>
+                    </div>
+                  </DropdownMenuRadioItem>
+                </DropdownMenuRadioGroup>
+                <DropdownMenuSub>
+                  <DropdownMenuSubTrigger className="items-start">
+                    <div className="flex flex-col text-left">
+                      <span className="font-medium leading-none">
+                        Other models
+                      </span>
+                    </div>
+                  </DropdownMenuSubTrigger>
+                  <DropdownMenuSubContent className="w-56">
+                    <DropdownMenuRadioGroup
+                      value={currentModel}
+                      onValueChange={setCurrentModel}
+                    >
+                      <DropdownMenuRadioItem value="GPT 5 Pro">
+                        GPT 5 Pro
+                      </DropdownMenuRadioItem>
+                    </DropdownMenuRadioGroup>
+                  </DropdownMenuSubContent>
+                </DropdownMenuSub>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
 
           <div className="hidden sm:flex items-center gap-2">

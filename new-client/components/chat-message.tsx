@@ -4,7 +4,8 @@ import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
   DropdownMenuContent,
-  DropdownMenuItem,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Copy, ExternalLink, Check } from 'lucide-react'
@@ -20,8 +21,17 @@ interface ChatMessageProps {
   hasSources?: boolean
 }
 
-export function ChatMessage({ role, content, model, hasImage, imageUrl, hasSources }: ChatMessageProps) {
+export function ChatMessage({
+  role,
+  content,
+  hasImage,
+  imageUrl,
+  hasSources,
+}: ChatMessageProps) {
   const [copied, setCopied] = useState(false)
+  const [retryModel, setRetryModel] = useState('GPT-5.1')
+
+  const displayModel = 'GPT-5.1'
 
   const handleCopy = async () => {
     await navigator.clipboard.writeText(content)
@@ -88,24 +98,33 @@ export function ChatMessage({ role, content, model, hasImage, imageUrl, hasSourc
               </Button>
             )}
             
-            {model && (
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="sm" className="h-8 text-xs text-muted-foreground hover:text-foreground flex-shrink-0">
-                    {model}
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" className="w-56">
-                  <DropdownMenuItem className="flex items-center justify-between">
-                    <span>Retry with GPT-4</span>
-                    <span className="text-xs text-muted-foreground">current</span>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem>Retry with GPT-4 Turbo</DropdownMenuItem>
-                  <DropdownMenuItem>Retry with GPT-3.5</DropdownMenuItem>
-                  <DropdownMenuItem>Retry with Claude 3</DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            )}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="sm" className="h-8 text-xs text-muted-foreground hover:text-foreground flex-shrink-0">
+                  {displayModel}
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" className="w-56">
+                <DropdownMenuRadioGroup
+                  value={retryModel}
+                  onValueChange={setRetryModel}
+                >
+                  <DropdownMenuRadioItem value="GPT-5 Nano">
+                    GPT-5 Nano
+                  </DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="GPT-5 Mini">
+                    GPT-5 Mini
+                  </DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="GPT-5.1" className="flex items-center justify-between gap-2">
+                    <span className="flex-1">GPT-5.1</span>
+                    <span className="text-xs text-muted-foreground">Current</span>
+                  </DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="GPT-5 Pro">
+                    GPT-5 Pro
+                  </DropdownMenuRadioItem>
+                </DropdownMenuRadioGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
       </div>
