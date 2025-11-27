@@ -1,28 +1,56 @@
 "use server";
 
-import {
-  appendMessageToConversation,
-  createGlobalConversationWithFirstMessage,
-} from "@/lib/data/conversation-writes";
+import { createServerClient } from "@/lib/supabase/server";
+import { getCurrentUserId } from "@/lib/supabase/user";
 
 export async function startGlobalConversationAction(
   firstMessageContent: string
 ): Promise<{ conversationId: string }> {
-  const { conversation } = await createGlobalConversationWithFirstMessage({
-    title: firstMessageContent.slice(0, 80) || null,
-    firstMessageContent,
-  });
+  const supabase = createServerClient();
+  const userId = getCurrentUserId();
 
-  return { conversationId: conversation.id };
+  const { data, error } = await supabase
+    .from("conversations")
+    .insert([
+      {
+        user_id: userId,
+        title: firstMessageContent.slice(0, 80) || null,
+        project_id: null,
+        metadata: {},
+      },
+    ])
+    .select()
+    .single();
+
+  if (error || !data) {
+    throw new Error("Failed to create conversation");
+  }
+
+  return { conversationId: data.id };
 }
 
 export async function appendUserMessageAction(
   conversationId: string,
   content: string
 ): Promise<void> {
-  await appendMessageToConversation({
-    conversationId,
-    role: "user",
-    content,
-  });
+  const supabase = createServerClient();
+  const userId = getCurrentUserId();
+
+  const { data, error } = await supabase
+    .from("messages")
+    .insert([
+      {
+        user_id: userId,
+        conversation_id: conversationId,
+        role: "user",
+        content,
+        metadata: {},
+      },
+    ])
+    .select()
+    .single();
+
+  if (error || !data) {
+    throw new Error("Failed to append message");
+  }
 }
