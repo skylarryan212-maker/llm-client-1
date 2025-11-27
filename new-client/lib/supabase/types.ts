@@ -6,93 +6,88 @@ export type Json =
   | { [key: string]: Json | undefined }
   | Json[];
 
-export type Database = {
+export interface Database {
   public: {
     Tables: {
       conversations: {
         Row: {
-          created_at: string | null;
           id: string;
-          metadata: Json | null;
-          project_id: string | null;
-          title: string | null;
           user_id: string;
+          title: string | null;
+          created_at: string | null;
+          project_id: string | null;
+          metadata: Json | null;
         };
         Insert: {
-          created_at?: string | null;
           id?: string;
-          metadata?: Json | null;
-          project_id?: string | null;
-          title?: string | null;
           user_id: string;
+          title?: string | null;
+          created_at?: string | null;
+          project_id?: string | null;
+          metadata?: Json | null;
         };
         Update: {
-          created_at?: string | null;
           id?: string;
-          metadata?: Json | null;
-          project_id?: string | null;
-          title?: string | null;
           user_id?: string;
+          title?: string | null;
+          created_at?: string | null;
+          project_id?: string | null;
+          metadata?: Json | null;
         };
       };
       messages: {
         Row: {
-          content: string | null;
-          conversation_id: string | null;
-          created_at: string | null;
           id: string;
-          metadata: Json | null;
-          role: string | null;
           user_id: string;
+          role: string | null;
+          content: string | null;
+          created_at: string | null;
+          conversation_id: string | null;
+          metadata: Json | null;
         };
         Insert: {
-          content?: string | null;
-          conversation_id?: string | null;
-          created_at?: string | null;
           id?: string;
-          metadata?: Json | null;
+          user_id: string;
           role?: string | null;
-          user_id?: string;
+          content?: string | null;
+          created_at?: string | null;
+          conversation_id?: string | null;
+          metadata?: Json | null;
         };
         Update: {
-          content?: string | null;
-          conversation_id?: string | null;
-          created_at?: string | null;
           id?: string;
-          metadata?: Json | null;
-          role?: string | null;
           user_id?: string;
+          role?: string | null;
+          content?: string | null;
+          created_at?: string | null;
+          conversation_id?: string | null;
+          metadata?: Json | null;
         };
       };
       projects: {
         Row: {
-          created_at: string | null;
           id: string;
-          name: string | null;
           user_id: string;
+          name: string | null;
+          created_at: string | null;
         };
         Insert: {
-          created_at?: string | null;
           id?: string;
-          name?: string | null;
           user_id: string;
+          name?: string | null;
+          created_at?: string | null;
         };
         Update: {
-          created_at?: string | null;
           id?: string;
-          name?: string | null;
           user_id?: string;
+          name?: string | null;
+          created_at?: string | null;
         };
       };
     };
-    Views: Record<string, never>;
-    Functions: Record<string, never>;
-    Enums: Record<string, never>;
-    CompositeTypes: Record<string, never>;
   };
-};
+}
 
-export type ConversationInsert =
-  Database["public"]["Tables"]["conversations"]["Insert"];
+export type ConversationInsert = Database["public"]["Tables"]["conversations"]["Insert"];
 export type MessageInsert = Database["public"]["Tables"]["messages"]["Insert"];
 export type ProjectInsert = Database["public"]["Tables"]["projects"]["Insert"];

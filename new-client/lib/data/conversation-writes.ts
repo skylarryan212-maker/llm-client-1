@@ -19,7 +19,7 @@ export async function createGlobalConversationWithFirstMessage(params: {
   const userId = getCurrentUserId();
 
   const { data: conversation, error: conversationError } = await supabase
-    .from("conversations" satisfies keyof Database["public"]["Tables"])
+    .from("conversations")
     .insert<ConversationInsert>({
       user_id: userId,
       title: params.title ?? null,
@@ -36,7 +36,7 @@ export async function createGlobalConversationWithFirstMessage(params: {
   }
 
   const { data: message, error: messageError } = await supabase
-    .from("messages" satisfies keyof Database["public"]["Tables"])
+    .from("messages")
     .insert<MessageInsert>({
       user_id: userId,
       conversation_id: conversation.id,
@@ -65,7 +65,7 @@ export async function appendMessageToConversation(params: {
   const userId = getCurrentUserId();
 
   const { data, error } = await supabase
-    .from("messages" satisfies keyof Database["public"]["Tables"])
+    .from("messages")
     .insert<MessageInsert>({
       user_id: userId,
       conversation_id: params.conversationId,
