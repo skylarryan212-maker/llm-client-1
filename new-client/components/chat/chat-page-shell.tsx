@@ -14,6 +14,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuPortal,
   DropdownMenuSub,
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
@@ -358,19 +359,21 @@ export default function ChatPageShell({
                       </span>
                     </div>
                   </DropdownMenuSubTrigger>
-                  <DropdownMenuSubContent className="w-56 p-2">
-                    <DropdownMenuItem
-                      className="items-center gap-3 px-3 py-2"
-                      onSelect={() => setCurrentModel("GPT 5 Pro")}
-                    >
-                      <span className="flex-1">GPT 5 Pro</span>
-                      <span className="flex w-4 justify-end">
-                        {currentModel === "GPT 5 Pro" && (
-                          <Check className="h-4 w-4" />
-                        )}
-                      </span>
-                    </DropdownMenuItem>
-                  </DropdownMenuSubContent>
+                  <DropdownMenuPortal>
+                    <DropdownMenuSubContent className="w-56 p-2">
+                      <DropdownMenuItem
+                        className="items-center gap-3 px-3 py-2"
+                        onSelect={() => setCurrentModel("GPT 5 Pro")}
+                      >
+                        <span className="flex-1">GPT 5 Pro</span>
+                        <span className="flex w-4 justify-end">
+                          {currentModel === "GPT 5 Pro" && (
+                            <Check className="h-4 w-4" />
+                          )}
+                        </span>
+                      </DropdownMenuItem>
+                    </DropdownMenuSubContent>
+                  </DropdownMenuPortal>
                 </DropdownMenuSub>
               </DropdownMenuContent>
             </DropdownMenu>
