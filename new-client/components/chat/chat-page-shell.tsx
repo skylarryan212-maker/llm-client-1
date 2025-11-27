@@ -8,13 +8,12 @@ import { ChatMessage } from "@/components/chat-message";
 import { ChatComposer } from "@/components/chat-composer";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
-import { ArrowDown, ChevronDown, Menu } from "lucide-react";
+import { ArrowDown, Check, ChevronDown, Menu } from "lucide-react";
 import { SettingsModal } from "@/components/settings-modal";
 import {
   DropdownMenu,
   DropdownMenuContent,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
+  DropdownMenuItem,
   DropdownMenuSub,
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
@@ -290,7 +289,7 @@ export default function ChatPageShell({
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="h-9 w-auto gap-1.5 border-0 px-2 text-base font-semibold"
+                  className="h-9 w-auto gap-1.5 border-0 px-2 text-base font-semibold focus-visible:bg-transparent focus-visible:outline-none focus-visible:ring-0"
                 >
                   {currentModel === "Auto"
                     ? "GPT 5.1"
@@ -303,67 +302,74 @@ export default function ChatPageShell({
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start" className="w-64 space-y-1 py-2">
-                <div className="px-2 pb-1 text-sm font-semibold text-muted-foreground">
+                <div className="px-3 pb-1 text-sm font-semibold text-muted-foreground">
                   GPT 5.1
                 </div>
-                <DropdownMenuRadioGroup
-                  value={currentModel}
-                  onValueChange={setCurrentModel}
+                <DropdownMenuItem
+                  className="items-center gap-3 px-3 py-2"
+                  onSelect={() => setCurrentModel("Auto")}
                 >
-                  <DropdownMenuRadioItem
-                    value="Auto"
-                    className="items-center gap-3 px-2 py-2"
-                  >
-                    <div className="flex flex-col">
-                      <span className="font-medium leading-none">Auto</span>
-                      <span className="text-xs text-muted-foreground">
-                        Decides how long to think
-                      </span>
-                    </div>
-                  </DropdownMenuRadioItem>
-                  <DropdownMenuRadioItem
-                    value="Instant"
-                    className="items-center gap-3 px-2 py-2"
-                  >
-                    <div className="flex flex-col">
-                      <span className="font-medium leading-none">Instant</span>
-                      <span className="text-xs text-muted-foreground">
-                        Answers right away
-                      </span>
-                    </div>
-                  </DropdownMenuRadioItem>
-                  <DropdownMenuRadioItem
-                    value="Thinking"
-                    className="items-center gap-3 px-2 py-2"
-                  >
-                    <div className="flex flex-col">
-                      <span className="font-medium leading-none">Thinking</span>
-                      <span className="text-xs text-muted-foreground">
-                        Thinks longer for better answers
-                      </span>
-                    </div>
-                  </DropdownMenuRadioItem>
-                </DropdownMenuRadioGroup>
+                  <div className="flex flex-1 flex-col">
+                    <span className="font-medium leading-none">Auto</span>
+                    <span className="text-xs text-muted-foreground">
+                      Decides how long to think
+                    </span>
+                  </div>
+                  <span className="flex w-4 justify-end">
+                    {currentModel === "Auto" && <Check className="h-4 w-4" />}
+                  </span>
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  className="items-center gap-3 px-3 py-2"
+                  onSelect={() => setCurrentModel("Instant")}
+                >
+                  <div className="flex flex-1 flex-col">
+                    <span className="font-medium leading-none">Instant</span>
+                    <span className="text-xs text-muted-foreground">
+                      Answers right away
+                    </span>
+                  </div>
+                  <span className="flex w-4 justify-end">
+                    {currentModel === "Instant" && <Check className="h-4 w-4" />}
+                  </span>
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  className="items-center gap-3 px-3 py-2"
+                  onSelect={() => setCurrentModel("Thinking")}
+                >
+                  <div className="flex flex-1 flex-col">
+                    <span className="font-medium leading-none">Thinking</span>
+                    <span className="text-xs text-muted-foreground">
+                      Thinks longer for better answers
+                    </span>
+                  </div>
+                  <span className="flex w-4 justify-end">
+                    {currentModel === "Thinking" && <Check className="h-4 w-4" />}
+                  </span>
+                </DropdownMenuItem>
                 <div className="px-2">
                   <div className="h-px bg-border" />
                 </div>
                 <DropdownMenuSub>
-                  <DropdownMenuSubTrigger className="items-center gap-3 px-2 py-2">
+                  <DropdownMenuSubTrigger className="items-center gap-3 px-3 py-2">
                     <div className="flex flex-col text-left">
                       <span className="font-medium leading-none">
                         Other models
                       </span>
                     </div>
                   </DropdownMenuSubTrigger>
-                  <DropdownMenuSubContent className="w-56">
-                    <DropdownMenuRadioGroup
-                      value={currentModel}
-                      onValueChange={setCurrentModel}
+                  <DropdownMenuSubContent className="w-56 p-2">
+                    <DropdownMenuItem
+                      className="items-center gap-3 px-3 py-2"
+                      onSelect={() => setCurrentModel("GPT 5 Pro")}
                     >
-                      <DropdownMenuRadioItem value="GPT 5 Pro">
-                        GPT 5 Pro
-                      </DropdownMenuRadioItem>
-                    </DropdownMenuRadioGroup>
+                      <span className="flex-1">GPT 5 Pro</span>
+                      <span className="flex w-4 justify-end">
+                        {currentModel === "GPT 5 Pro" && (
+                          <Check className="h-4 w-4" />
+                        )}
+                      </span>
+                    </DropdownMenuItem>
                   </DropdownMenuSubContent>
                 </DropdownMenuSub>
               </DropdownMenuContent>

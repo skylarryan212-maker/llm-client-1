@@ -109,18 +109,18 @@ export function ChatMessage({
                   value={retryModel}
                   onValueChange={setRetryModel}
                 >
-                  <DropdownMenuRadioItem value="GPT-5 Nano">
-                    GPT-5 Nano
+                  <DropdownMenuRadioItem value="GPT 5 Nano">
+                    GPT 5 Nano
                   </DropdownMenuRadioItem>
-                  <DropdownMenuRadioItem value="GPT-5 Mini">
-                    GPT-5 Mini
+                  <DropdownMenuRadioItem value="GPT 5 Mini">
+                    GPT 5 Mini
                   </DropdownMenuRadioItem>
                   <DropdownMenuRadioItem value="GPT 5.1" className="flex items-center justify-between gap-2">
                     <span className="flex-1">GPT 5.1</span>
                     <span className="text-xs text-muted-foreground">Current</span>
                   </DropdownMenuRadioItem>
-                  <DropdownMenuRadioItem value="GPT-5 Pro">
-                    GPT-5 Pro
+                  <DropdownMenuRadioItem value="GPT 5 Pro">
+                    GPT 5 Pro
                   </DropdownMenuRadioItem>
                 </DropdownMenuRadioGroup>
               </DropdownMenuContent>
