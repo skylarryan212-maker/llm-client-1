@@ -11,6 +11,10 @@ import { Button } from "@/components/ui/button";
 import { ArrowDown, Check, ChevronDown, Menu } from "lucide-react";
 import { SettingsModal } from "@/components/settings-modal";
 import {
+  appendUserMessageAction,
+  startGlobalConversationAction,
+} from "@/app/actions/chat-actions";
+import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -135,7 +139,7 @@ export default function ChatPageShell({
     }
   }, [currentChat, selectedChatId]);
 
-  const handleSubmit = (message: string) => {
+  const handleSubmit = async (message: string) => {
     const now = new Date().toISOString();
     const userMessage: StoredMessage = {
       id: `user-${Date.now()}`,
@@ -153,19 +157,31 @@ export default function ChatPageShell({
 
     if (!selectedChatId) {
       const targetProjectId = selectedProjectId || projectId;
-      const newChatId = createChat({
-        projectId: targetProjectId,
-        initialMessages: [userMessage, assistantMessage],
-        title: message.slice(0, 80) || "New chat",
-      });
-      setSelectedChatId(newChatId);
       if (targetProjectId) {
+        const newChatId = createChat({
+          projectId: targetProjectId,
+          initialMessages: [userMessage, assistantMessage],
+          title: message.slice(0, 80) || "New chat",
+        });
+        setSelectedChatId(newChatId);
         setSelectedProjectId(targetProjectId);
         router.push(`/projects/${targetProjectId}/c/${newChatId}`);
       } else {
+        const { conversationId } = await startGlobalConversationAction(message);
+        const newChatId = createChat({
+          id: conversationId,
+          initialMessages: [userMessage, assistantMessage],
+          title: message.slice(0, 80) || "New chat",
+        });
+        setSelectedChatId(newChatId);
+        setSelectedProjectId("");
         router.push(`/c/${newChatId}`);
       }
     } else {
+      const isProjectChat = currentChat?.projectId ?? false;
+      if (!isProjectChat) {
+        await appendUserMessageAction(selectedChatId, message);
+      }
       appendMessages(selectedChatId, [userMessage, assistantMessage]);
     }
   };

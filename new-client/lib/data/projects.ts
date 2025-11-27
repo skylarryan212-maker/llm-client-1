@@ -1,11 +1,11 @@
-import { createServerClient } from "@/lib/supabase/server";
+import { supabaseServer } from "@/lib/supabase/server";
 import { getCurrentUserId } from "@/lib/supabase/user";
 import type { Database } from "@/lib/supabase/types";
 
 type ProjectRow = Database["public"]["Tables"]["projects"]["Row"];
 
 export async function getProjectsForUser() {
-  const supabase = createServerClient();
+  const supabase = await supabaseServer();
   const userId = getCurrentUserId();
 
   const { data, error } = await supabase
@@ -23,7 +23,7 @@ export async function getProjectsForUser() {
 }
 
 export async function getProjectById(projectId: string) {
-  const supabase = createServerClient();
+  const supabase = await supabaseServer();
   const userId = getCurrentUserId();
 
   const { data, error } = await supabase

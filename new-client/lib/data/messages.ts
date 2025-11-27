@@ -1,4 +1,4 @@
-import { createServerClient } from "@/lib/supabase/server";
+import { supabaseServer } from "@/lib/supabase/server";
 import { getCurrentUserId } from "@/lib/supabase/user";
 import type { Database } from "@/lib/supabase/types";
 
@@ -16,7 +16,7 @@ export async function getMessagesForConversation(conversationId: string) {
     return [];
   }
 
-  const supabase = createServerClient();
+  const supabase = await supabaseServer();
   const userId = getCurrentUserId();
 
   const { data, error } = await supabase
