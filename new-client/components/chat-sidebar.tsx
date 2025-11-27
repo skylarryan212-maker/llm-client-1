@@ -19,8 +19,10 @@ interface Conversation {
 interface Project {
   id: string
   name: string
-  icon: string
-  color: string
+  icon?: string
+  color?: string
+  createdAt?: string
+  description?: string
 }
 
 interface ChatSidebarProps {
@@ -30,6 +32,7 @@ interface ChatSidebarProps {
   onModelSelect?: (model: string) => void
   selectedChatId?: string
   conversations?: Conversation[]
+  projects?: Project[]
   onChatSelect?: (id: string) => void
   onNewChat?: () => void
   onNewProject?: () => void
@@ -41,10 +44,11 @@ interface ChatSidebarProps {
 export function ChatSidebar({ 
   isOpen, 
   onToggle, 
-  currentModel = 'GPT-4', 
-  onModelSelect, 
+  currentModel = 'GPT-4',
+  onModelSelect,
   selectedChatId = '4',
   conversations: propConversations,
+  projects: propProjects,
   onChatSelect,
   onNewChat,
   onNewProject,
@@ -54,13 +58,18 @@ export function ChatSidebar({
 }: ChatSidebarProps) {
   const pathname = usePathname()
   const isAgentsPage = pathname === '/agents'
+  const isProjectsPage = pathname?.startsWith('/projects')
   const [projectsCollapsed, setProjectsCollapsed] = useState(false)
   const [chatsCollapsed, setChatsCollapsed] = useState(false)
   const [showMoreProjects, setShowMoreProjects] = useState(false)
   
   const conversations: Conversation[] = propConversations || []
 
-  const projects: Project[] = []
+  const projects: Project[] = propProjects || []
+
+  const pathProjectId =
+    isProjectsPage && pathname ? pathname.split("/")[2] ?? "" : ""
+  const activeProjectId = selectedProjectId || pathProjectId
 
   const visibleProjects = projects.slice(0, 5)
   const moreProjects = projects.slice(5)
@@ -166,16 +175,12 @@ export function ChatSidebar({
                         </button>
 
                         {visibleProjects.map((project) => (
-                          <div
+                          <Link
                             key={project.id}
-                            role="button"
-                            tabIndex={0}
+                            href={`/projects/${project.id}`}
                             onClick={() => onProjectSelect?.(project.id)}
-                            onKeyDown={(event) =>
-                              handleListItemKeyDown(event, () => onProjectSelect?.(project.id))
-                            }
-                            className={`group w-full text-left rounded-lg transition-colors ${
-                              selectedProjectId === project.id
+                            className={`group block w-full text-left rounded-lg transition-colors ${
+                              activeProjectId === project.id
                                 ? 'bg-zinc-800 text-white'
                                 : 'hover:bg-sidebar-accent'
                             }`}
@@ -190,7 +195,7 @@ export function ChatSidebar({
                                 onDelete={() => console.log('Delete project', project.id)}
                               />
                             </div>
-                          </div>
+                          </Link>
                         ))}
 
                         {moreProjects.length > 0 && (
@@ -210,21 +215,18 @@ export function ChatSidebar({
                             {showMoreProjects && (
                               <div className="absolute left-full top-0 ml-2 w-56 rounded-lg border border-border bg-popover p-1 shadow-lg z-50">
                                 {moreProjects.map((project) => (
-                                  <div
+                                  <Link
                                     key={project.id}
-                                    role="button"
-                                    tabIndex={0}
+                                    href={`/projects/${project.id}`}
                                     onClick={() => {
                                       onProjectSelect?.(project.id)
                                       setShowMoreProjects(false)
                                     }}
-                                    onKeyDown={(event) =>
-                                      handleListItemKeyDown(event, () => {
-                                        onProjectSelect?.(project.id)
-                                        setShowMoreProjects(false)
-                                      })
-                                    }
-                                    className="group w-full text-left rounded-lg hover:bg-accent transition-colors"
+                                    className={`group block w-full text-left rounded-lg transition-colors ${
+                                      activeProjectId === project.id
+                                        ? 'bg-zinc-800 text-white'
+                                        : 'hover:bg-accent'
+                                    }`}
                                   >
                                     <div className="py-2 px-3 flex items-center justify-between gap-2">
                                       <div className="flex items-center gap-2 flex-1 min-w-0">
@@ -236,7 +238,7 @@ export function ChatSidebar({
                                         onDelete={() => console.log('Delete project', project.id)}
                                       />
                                     </div>
-                                  </div>
+                                  </Link>
                                 ))}
                               </div>
                             )}
