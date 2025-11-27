@@ -5,6 +5,7 @@ import type {
   Database,
   MessageInsert,
 } from "@/lib/supabase/types";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
 export type ConversationRow =
   Database["public"]["Tables"]["conversations"]["Row"];
@@ -14,11 +15,11 @@ export async function createGlobalConversationWithFirstMessage(params: {
   title?: string | null;
   firstMessageContent: string;
 }): Promise<{ conversation: ConversationRow; message: MessageRow }> {
-  const supabase = createServerClient();
+  const supabase: SupabaseClient<Database> = createServerClient();
   const userId = getCurrentUserId();
 
   const { data: conversation, error: conversationError } = await supabase
-    .from("conversations")
+    .from("conversations" satisfies keyof Database["public"]["Tables"])
     .insert<ConversationInsert>({
       user_id: userId,
       title: params.title ?? null,
@@ -35,7 +36,7 @@ export async function createGlobalConversationWithFirstMessage(params: {
   }
 
   const { data: message, error: messageError } = await supabase
-    .from("messages")
+    .from("messages" satisfies keyof Database["public"]["Tables"])
     .insert<MessageInsert>({
       user_id: userId,
       conversation_id: conversation.id,
@@ -60,11 +61,11 @@ export async function appendMessageToConversation(params: {
   role: "user" | "assistant";
   content: string;
 }): Promise<MessageRow> {
-  const supabase = createServerClient();
+  const supabase: SupabaseClient<Database> = createServerClient();
   const userId = getCurrentUserId();
 
   const { data, error } = await supabase
-    .from("messages")
+    .from("messages" satisfies keyof Database["public"]["Tables"])
     .insert<MessageInsert>({
       user_id: userId,
       conversation_id: params.conversationId,
