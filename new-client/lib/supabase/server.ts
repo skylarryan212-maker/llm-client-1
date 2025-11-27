@@ -1,16 +1,18 @@
-import { createServerClient as createSupabaseServerClient } from "@supabase/ssr";
-import { cookies } from "next/headers";
+"use server";
 
+import { cookies } from "next/headers";
+import { createClient } from "@supabase/supabase-js";
 import type { Database } from "./types";
 
-export const supabaseServer = (cookieStore: ReturnType<typeof cookies>) =>
-  createSupabaseServerClient<Database>(
+export function supabaseServer() {
+  return createClient<Database>(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    { cookies: cookieStore }
+    {
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false,
+      },
+    }
   );
-
-export function createServerClient() {
-  const cookieStore = cookies();
-  return supabaseServer(cookieStore);
 }
