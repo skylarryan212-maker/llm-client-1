@@ -12,6 +12,7 @@ type ChatComposerProps = {
   isStreaming?: boolean;
   onStop?: () => void;
   onRegenerate?: () => void;
+  placeholder?: string;
 };
 
 export function ChatComposer({
@@ -20,6 +21,7 @@ export function ChatComposer({
   isStreaming,
   onStop,
   onRegenerate,
+  placeholder,
 }: ChatComposerProps) {
   const [value, setValue] = useState("");
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -60,7 +62,7 @@ export function ChatComposer({
           value={value}
           onChange={(e) => setValue(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="Message LLM Client..."
+          placeholder={placeholder ?? "Message LLM Client..."}
           rows={1}
           className="flex-1 min-h-[36px] max-h-[200px] border-0 bg-transparent dark:bg-transparent px-0 py-2 text-sm leading-5 resize-none focus-visible:ring-0 focus-visible:ring-offset-0 shadow-none rounded-none"
         />

@@ -8,11 +8,14 @@ interface CodexTaskItemProps {
   title: string
   date: string
   preview: string
+  basePath?: string
 }
 
-export function CodexTaskItem({ id, title, date, preview }: CodexTaskItemProps) {
+export function CodexTaskItem({ id, title, date, preview, basePath = '/agents/codex/c' }: CodexTaskItemProps) {
+  const href = `${basePath}/${id}`
+
   return (
-    <Link href={`/codex/chat/${id}`}>
+    <Link href={href}>
       <div className="group rounded-lg border border-border bg-card p-4 transition-all hover:border-primary/50 hover:bg-accent/50">
         <div className="flex items-start gap-3">
           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
