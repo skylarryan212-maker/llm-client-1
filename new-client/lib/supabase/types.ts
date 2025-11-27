@@ -3,7 +3,7 @@ export type Json =
   | number
   | boolean
   | null
-  | { [key: string]: Json | undefined }
+  | { [key: string]: Json }
   | Json[];
 
 export interface Database {
@@ -19,11 +19,12 @@ export interface Database {
           metadata: Json | null;
         };
         Insert: {
+          id?: string;
           user_id: string;
           title?: string | null;
-          project_id?: string | null;
-          metadata?: Json;
           created_at?: string | null;
+          project_id?: string | null;
+          metadata?: Json | null;
         };
         Update: {
           id?: string;
@@ -34,6 +35,7 @@ export interface Database {
           metadata?: Json | null;
         };
       };
+
       messages: {
         Row: {
           id: string;
@@ -63,6 +65,7 @@ export interface Database {
           metadata?: Json | null;
         };
       };
+
       projects: {
         Row: {
           id: string;
@@ -86,7 +89,3 @@ export interface Database {
     };
   };
 }
-
-export type ConversationInsert = Database["public"]["Tables"]["conversations"]["Insert"];
-export type MessageInsert = Database["public"]["Tables"]["messages"]["Insert"];
-export type ProjectInsert = Database["public"]["Tables"]["projects"]["Insert"];
