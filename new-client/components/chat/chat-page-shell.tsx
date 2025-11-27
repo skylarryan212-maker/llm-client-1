@@ -290,12 +290,21 @@ export default function ChatPageShell({
                 <Button
                   variant="ghost"
                   size="sm"
-                  className="h-9 w-auto gap-1 border-0 px-2 text-sm font-medium"
+                  className="h-9 w-auto gap-1 border-0 px-2 text-base font-semibold"
                 >
-                  {currentModel}
+                  {currentModel === "Auto"
+                    ? "GPT-5.1"
+                    : currentModel === "Instant"
+                      ? "GPT-5.1 Instant"
+                      : currentModel === "Thinking"
+                        ? "GPT-5.1 Thinking"
+                        : currentModel}
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start" className="w-64">
+                <div className="px-2 pb-1 text-sm font-semibold text-muted-foreground">
+                  GPT-5.1
+                </div>
                 <DropdownMenuRadioGroup
                   value={currentModel}
                   onValueChange={setCurrentModel}
