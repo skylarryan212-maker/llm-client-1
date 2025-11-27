@@ -6,85 +6,64 @@ export type Json =
   | { [key: string]: Json }
   | Json[];
 
+export interface Conversation {
+  id: string;
+  user_id: string;
+  title: string | null;
+  project_id: string | null;
+  metadata: Json | null;
+  created_at: string | null;
+}
+
+export interface ConversationInsert {
+  user_id: string;
+  title?: string | null;
+  project_id?: string | null;
+  metadata?: Json | null;
+}
+
+export interface Message {
+  id: string;
+  conversation_id: string;
+  role: string;
+  content: string;
+  created_at: string | null;
+  metadata: Json | null;
+}
+
+export interface MessageInsert {
+  conversation_id: string;
+  role: string;
+  content: string;
+  metadata?: Json | null;
+}
+
+export interface Project {
+  id: string;
+  user_id: string;
+  name: string;
+  created_at: string | null;
+}
+
+export interface ProjectInsert {
+  user_id: string;
+  name: string;
+}
+
 export interface Database {
   public: {
     Tables: {
       conversations: {
-        Row: {
-          id: string;
-          user_id: string;
-          title: string | null;
-          created_at: string | null;
-          project_id: string | null;
-          metadata: Json | null;
-        };
-        Insert: {
-          id?: string;
-          user_id: string;
-          title?: string | null;
-          created_at?: string | null;
-          project_id?: string | null;
-          metadata?: Json | null;
-        };
-        Update: {
-          id?: string;
-          user_id?: string;
-          title?: string | null;
-          created_at?: string | null;
-          project_id?: string | null;
-          metadata?: Json | null;
-        };
+        Row: Conversation;
+        Insert: ConversationInsert;
       };
-
       messages: {
-        Row: {
-          id: string;
-          user_id: string;
-          role: string | null;
-          content: string | null;
-          created_at: string | null;
-          conversation_id: string | null;
-          metadata: Json | null;
-        };
-        Insert: {
-          id?: string;
-          user_id: string;
-          role?: string | null;
-          content?: string | null;
-          created_at?: string | null;
-          conversation_id?: string | null;
-          metadata?: Json | null;
-        };
-        Update: {
-          id?: string;
-          user_id?: string;
-          role?: string | null;
-          content?: string | null;
-          created_at?: string | null;
-          conversation_id?: string | null;
-          metadata?: Json | null;
-        };
+        Row: Message;
+        Insert: MessageInsert;
       };
-
       projects: {
-        Row: {
-          id: string;
-          user_id: string;
-          name: string | null;
-          created_at: string | null;
-        };
-        Insert: {
-          id?: string;
-          user_id: string;
-          name?: string | null;
-          created_at?: string | null;
-        };
-        Update: {
-          id?: string;
-          user_id?: string;
-          name?: string | null;
-          created_at?: string | null;
-        };
+        Row: Project;
+        Insert: ProjectInsert;
       };
     };
   };

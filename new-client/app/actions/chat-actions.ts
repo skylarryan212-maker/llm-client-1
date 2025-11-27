@@ -11,14 +11,12 @@ export async function startGlobalConversationAction(
 
   const { data, error } = await supabase
     .from("conversations")
-    .insert([
-      {
-        user_id: userId,
-        title: firstMessageContent.slice(0, 80) || null,
-        project_id: null,
-        metadata: {},
-      },
-    ])
+    .insert({
+      user_id: userId,
+      title: firstMessageContent.slice(0, 80) || null,
+      project_id: null,
+      metadata: {},
+    })
     .select()
     .single();
 
