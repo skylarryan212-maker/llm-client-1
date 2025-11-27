@@ -19,12 +19,11 @@ export interface Database {
           metadata: Json | null;
         };
         Insert: {
-          id?: string;
           user_id: string;
           title?: string | null;
-          created_at?: string | null;
           project_id?: string | null;
-          metadata?: Json | null;
+          metadata?: Json;
+          created_at?: string | null;
         };
         Update: {
           id?: string;
