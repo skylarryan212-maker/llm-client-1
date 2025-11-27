@@ -46,9 +46,9 @@ export function ChatComposer({
 
   return (
     <form onSubmit={handleFormSubmit}>
-      <div className="relative flex items-center gap-1.5 sm:gap-2 rounded-3xl border border-border bg-muted/30 px-2 sm:px-3 lg:px-4 py-2 sm:py-2.5 transition-all focus-within:border-ring focus-within:bg-background">
+      <div className="relative flex items-end gap-1.5 sm:gap-2 rounded-3xl border border-border bg-muted/30 px-2 sm:px-3 lg:px-4 py-2 sm:py-2.5 transition-all focus-within:border-ring focus-within:bg-background">
         {/* Left action button (plus) */}
-        <div className="flex items-center">
+        <div className="flex items-center pb-0.5 sm:pb-0">
           <AttachmentMenuButton
             open={isMenuOpen}
             onOpenChange={setIsMenuOpen}
@@ -62,11 +62,11 @@ export function ChatComposer({
           onKeyDown={handleKeyDown}
           placeholder="Message LLM Client..."
           rows={1}
-          className="flex-1 min-h-[36px] max-h-[200px] border-0 bg-transparent px-0 py-2 text-sm leading-5 resize-none focus-visible:ring-0 focus-visible:ring-offset-0"
+          className="flex-1 min-h-[36px] max-h-[200px] border-0 bg-transparent dark:bg-transparent px-0 py-2 text-sm leading-5 resize-none focus-visible:ring-0 focus-visible:ring-offset-0 shadow-none rounded-none"
         />
 
         {/* Right actions: mic + send OR stop/regenerate if streaming */}
-        <div className="flex shrink-0 items-center gap-0.5 sm:gap-1">
+        <div className="flex shrink-0 items-end gap-0.5 sm:gap-1 pb-0.5 sm:pb-0">
           {!isStreaming ? (
             <>
               <Button

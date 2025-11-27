@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { ChatSidebar } from "@/components/chat-sidebar";
@@ -8,7 +8,7 @@ import { ChatMessage } from "@/components/chat-message";
 import { ChatComposer } from "@/components/chat-composer";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
-import { Menu } from "lucide-react";
+import { ArrowDown, Menu } from "lucide-react";
 import { SettingsModal } from "@/components/settings-modal";
 import {
   Select,
@@ -69,6 +69,16 @@ export default function ChatPageShell({
   const [selectedProjectId, setSelectedProjectId] = useState(projectId ?? "");
   const [isNewProjectOpen, setIsNewProjectOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isAutoScroll, setIsAutoScroll] = useState(true);
+  const [showScrollToBottom, setShowScrollToBottom] = useState(false);
+  const scrollViewportRef = useRef<HTMLDivElement | null>(null);
+
+  const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
+    const viewport = scrollViewportRef.current;
+    if (!viewport) return;
+
+    viewport.scrollTo({ top: viewport.scrollHeight, behavior });
+  }, []);
 
   useEffect(() => {
     setSelectedChatId(activeConversationId ?? null);
@@ -95,6 +105,12 @@ export default function ChatPageShell({
 
   const currentChat = chats.find((c) => c.id === selectedChatId);
   const messages = currentChat?.messages || [];
+
+  useEffect(() => {
+    setIsAutoScroll(true);
+    setShowScrollToBottom(false);
+    scrollToBottom("auto");
+  }, [selectedChatId]);
 
   useEffect(() => {
     if (currentChat?.projectId) {
@@ -167,6 +183,30 @@ export default function ChatPageShell({
     setSelectedProjectId(id);
     router.push(`/projects/${id}`);
   };
+
+  const handleScroll: React.UIEventHandler<HTMLDivElement> = (event) => {
+    const target = event.currentTarget;
+    const { scrollTop, scrollHeight, clientHeight } = target;
+    const distanceFromBottom = scrollHeight - (scrollTop + clientHeight);
+    const atBottom = distanceFromBottom <= 24;
+
+    setShowScrollToBottom(!atBottom);
+
+    setIsAutoScroll((prev) => {
+      if (!prev && atBottom) return prev;
+      if (!atBottom) return false;
+      return prev;
+    });
+  };
+
+  useEffect(() => {
+    if (isAutoScroll) {
+      scrollToBottom("auto");
+      setShowScrollToBottom(false);
+    } else {
+      setShowScrollToBottom(true);
+    }
+  }, [messages.length, isAutoScroll]);
 
   const handleNewProject = () => {
     setIsNewProjectOpen(true);
@@ -309,7 +349,11 @@ export default function ChatPageShell({
             </div>
           </div>
         ) : (
-          <ScrollArea className="flex-1 overflow-auto">
+          <ScrollArea
+            className="flex-1 overflow-auto"
+            viewportRef={scrollViewportRef}
+            onViewportScroll={handleScroll}
+          >
             <div className="py-4 pb-4">
               {/* Wide desktop layout with padded container */}
               <div className="w-full px-4 sm:px-6 lg:px-12 space-y-4">
@@ -322,7 +366,25 @@ export default function ChatPageShell({
         )}
 
         {/* Composer: full-width bar, centered pill like ChatGPT */}
-        <div className="bg-background px-4 sm:px-6 lg:px-12 py-3 sm:py-4">
+        <div className="bg-background px-4 sm:px-6 lg:px-12 py-3 sm:py-4 relative">
+          <div
+            className={`pointer-events-none absolute left-1/2 -translate-x-1/2 -top-7 transition-opacity duration-200 ${
+              showScrollToBottom ? "opacity-100" : "opacity-0"
+            }`}
+          >
+            <Button
+              type="button"
+              size="icon"
+              className="pointer-events-auto h-10 w-10 rounded-full border border-border bg-background/80 shadow-md backdrop-blur hover:bg-background"
+              onClick={() => {
+                setIsAutoScroll(true);
+                setShowScrollToBottom(false);
+                scrollToBottom();
+              }}
+            >
+              <ArrowDown className="h-4 w-4" />
+            </Button>
+          </div>
           <div className="mx-auto w-full max-w-3xl">
             <ChatComposer onSubmit={handleSubmit} />
           </div>
