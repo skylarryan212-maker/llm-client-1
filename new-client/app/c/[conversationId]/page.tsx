@@ -1,5 +1,4 @@
 // app/c/[conversationId]/page.tsx
-
 import ChatPageShell from "@/components/chat/chat-page-shell";
 
 type PageParams = Promise<{ conversationId: string }>;
@@ -17,8 +16,7 @@ export default async function ConversationPage({
   const { conversationId } = await params;
   const resolvedSearchParams = await searchParams;
 
-  const now = new Date().toISOString();
-
+  // Simple mock data to drive the UI
   const conversations = [
     {
       id: conversationId,
@@ -28,9 +26,9 @@ export default async function ConversationPage({
       tags: [],
       messagesCount: 2,
       isPinned: false,
-      createdAt: now,
-      lastUpdated: now,
-      timestamp: now,
+      createdAt: new Date().toISOString(),
+      lastUpdated: new Date().toISOString(),
+      timestamp: new Date().toISOString(),
     },
   ];
 
@@ -39,23 +37,21 @@ export default async function ConversationPage({
       id: "m1",
       role: "user" as const,
       content: "Hey, can you show the new UI?",
-      timestamp: now,
+      timestamp: new Date().toISOString(),
     },
     {
       id: "m2",
       role: "assistant" as const,
       content: "Here’s the static v0 chat layout wired up.",
-      timestamp: now,
+      timestamp: new Date().toISOString(),
     },
   ];
 
-  const activeConversationId = conversations[0]?.id ?? conversationId;
-
   return (
-    <main className="h-screen flex bg-background">
+    <main>
       <ChatPageShell
         conversations={conversations}
-        activeConversationId={activeConversationId}
+        activeConversationId={conversationId}
         messages={messages}
         searchParams={resolvedSearchParams}
       />

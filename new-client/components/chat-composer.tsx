@@ -1,81 +1,115 @@
-'use client'
+"use client";
 
-import { Button } from '@/components/ui/button'
-import { Textarea } from '@/components/ui/textarea'
-import { Plus, Mic, ArrowUp } from 'lucide-react'
-import { useState } from 'react'
-import { AttachmentMenu } from '@/components/attachment-menu'
+import { useState, KeyboardEvent, FormEvent } from "react";
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+import { Mic, ArrowUp, Plus } from "lucide-react";
 
-interface ChatComposerProps {
-  onSubmit?: (message: string) => void
-  onSend?: (message: string) => void
-  placeholder?: string
-}
+type ChatComposerProps = {
+  onSubmit?: (message: string) => void;
+  onSendMessage?: (message: string) => void;
+  isStreaming?: boolean;
+  onStop?: () => void;
+  onRegenerate?: () => void;
+};
 
-export function ChatComposer({ onSubmit, onSend, placeholder = "Message LLM Client..." }: ChatComposerProps) {
-  const [message, setMessage] = useState('')
-  const [isMenuOpen, setIsMenuOpen] = useState(false)
+export function ChatComposer({
+  onSubmit,
+  onSendMessage,
+  isStreaming,
+  onStop,
+  onRegenerate,
+}: ChatComposerProps) {
+  const [value, setValue] = useState("");
 
-  const handleSubmit = () => {
-    if (message.trim()) {
-      if (onSubmit) onSubmit(message)
-      if (onSend) onSend(message)
-      setMessage('')
+  const effectiveSubmit = (text: string) => {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    if (onSubmit) onSubmit(trimmed);
+    else if (onSendMessage) onSendMessage(trimmed);
+    setValue("");
+  };
+
+  const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      effectiveSubmit(value);
     }
-  }
+  };
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault()
-      handleSubmit()
-    }
-  }
+  const handleFormSubmit = (e: FormEvent) => {
+    e.preventDefault();
+    effectiveSubmit(value);
+  };
 
   return (
-    <div className="bg-background px-4 py-3 sm:px-6 sm:py-4 lg:px-12 border-t border-border lg:border-0">
-      <div className="mx-auto max-w-6xl xl:max-w-[1400px]">
-        <div className="relative flex items-center gap-1.5 sm:gap-2 rounded-3xl border border-border bg-muted/30 px-2 sm:px-3 lg:px-4 py-2 sm:py-2.5 transition-all focus-within:border-ring focus-within:bg-background">
-          <div className="relative flex items-center">
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8 sm:h-9 sm:w-9 shrink-0 rounded-full hover:bg-accent"
-              onClick={() => setIsMenuOpen(!isMenuOpen)}
-            >
-              <Plus className="h-4 w-4" />
-            </Button>
-            <AttachmentMenu isOpen={isMenuOpen} position="top" />
-          </div>
+    <form onSubmit={handleFormSubmit}>
+      <div className="relative flex items-center gap-1.5 sm:gap-2 rounded-3xl border border-border bg-muted/30 px-2 sm:px-3 lg:px-4 py-2 sm:py-2.5 transition-all focus-within:border-ring focus-within:bg-background">
+        {/* Left action button (plus) */}
+        <div className="flex items-center">
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="size-8 sm:size-9 rounded-full hover:bg-accent"
+          >
+            <Plus className="h-4 w-4" />
+          </Button>
+        </div>
 
-          <Textarea
-            value={message}
-            onChange={(e) => setMessage(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder={placeholder}
-            className="min-h-[36px] max-h-[200px] flex-1 resize-none border-0 bg-transparent px-0 py-2 text-sm leading-5 focus-visible:ring-0 focus-visible:ring-offset-0"
-            rows={1}
-          />
+        {/* Textarea */}
+        <Textarea
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          onKeyDown={handleKeyDown}
+          placeholder="Message LLM Client..."
+          rows={1}
+          className="flex-1 min-h-[36px] max-h-[200px] border-0 bg-transparent px-0 py-2 text-sm leading-5 resize-none focus-visible:ring-0 focus-visible:ring-offset-0"
+        />
 
-          <div className="flex shrink-0 items-center gap-0.5 sm:gap-1">
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-8 w-8 sm:h-9 sm:w-9 rounded-full hover:bg-accent"
-            >
-              <Mic className="h-4 w-4" />
-            </Button>
-
-            <Button
-              onClick={handleSubmit}
-              disabled={!message.trim()}
-              size="icon"
-              className="h-8 w-8 sm:h-9 sm:w-9 rounded-full bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-            >
-              <ArrowUp className="h-4 w-4" />
-            </Button>
-          </div>
+        {/* Right actions: mic + send OR stop/regenerate if streaming */}
+        <div className="flex shrink-0 items-center gap-0.5 sm:gap-1">
+          {!isStreaming ? (
+            <>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="size-8 sm:size-9 rounded-full hover:bg-accent"
+              >
+                <Mic className="h-4 w-4" />
+              </Button>
+              <Button
+                type="submit"
+                size="icon"
+                className="size-8 sm:size-9 rounded-full bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+                disabled={!value.trim()}
+              >
+                <ArrowUp className="h-4 w-4" />
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={onStop}
+              >
+                Stop
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={onRegenerate}
+              >
+                Regenerate
+              </Button>
+            </>
+          )}
         </div>
       </div>
-    </div>
-  )
+    </form>
+  );
 }
