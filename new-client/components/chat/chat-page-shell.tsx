@@ -92,6 +92,7 @@ export default function ChatPageShell({
       timestamp: first.timestamp ?? new Date().toISOString(),
       projectId: projectId ?? first.projectId,
       messages: initialMessages.map((m) => ({
+        id: m.id,
         role: m.role,
         content: m.content,
         model: "GPT-5.1",
