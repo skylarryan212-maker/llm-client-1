@@ -1,5 +1,8 @@
 // app/c/[conversationId]/page.tsx
+import { notFound } from "next/navigation";
 import ChatPageShell from "@/components/chat/chat-page-shell";
+import { getConversationById, getConversationsForUser } from "@/lib/data/conversations";
+import { getMessagesForConversation } from "@/lib/data/messages";
 
 type PageParams = Promise<{ conversationId: string }>;
 type PageSearchParams = Promise<Record<string, string | string[] | undefined>>;
@@ -16,36 +19,30 @@ export default async function ConversationPage({
   const { conversationId } = await params;
   const resolvedSearchParams = await searchParams;
 
-  // Simple mock data to drive the UI
-  const conversations = [
-    {
-      id: conversationId,
-      title: "Demo conversation",
-      modelName: "GPT-5.1",
-      isStreaming: false,
-      tags: [],
-      messagesCount: 2,
-      isPinned: false,
-      createdAt: new Date().toISOString(),
-      lastUpdated: new Date().toISOString(),
-      timestamp: new Date().toISOString(),
-    },
-  ];
+  const conversation = await getConversationById(conversationId);
 
-  const messages = [
-    {
-      id: "m1",
-      role: "user" as const,
-      content: "Hey, can you show the new UI?",
-      timestamp: new Date().toISOString(),
-    },
-    {
-      id: "m2",
-      role: "assistant" as const,
-      content: "Here’s the static v0 chat layout wired up.",
-      timestamp: new Date().toISOString(),
-    },
-  ];
+  if (!conversation) {
+    return notFound();
+  }
+
+  const [messagesData, conversationsData] = await Promise.all([
+    getMessagesForConversation(conversationId),
+    getConversationsForUser({ projectId: conversation.project_id }),
+  ]);
+
+  const conversations = conversationsData.map((item) => ({
+    id: item.id,
+    title: item.title ?? "Untitled chat",
+    timestamp: item.created_at ?? new Date().toISOString(),
+    projectId: item.project_id ?? undefined,
+  }));
+
+  const messages = messagesData.map((message) => ({
+    id: message.id,
+    role: (message.role ?? "assistant") as "user" | "assistant",
+    content: message.content ?? "",
+    timestamp: message.created_at ?? new Date().toISOString(),
+  }));
 
   return (
     <main>
@@ -54,6 +51,7 @@ export default async function ConversationPage({
         activeConversationId={conversationId}
         messages={messages}
         searchParams={resolvedSearchParams}
+        projectId={conversation.project_id ?? undefined}
       />
     </main>
   );

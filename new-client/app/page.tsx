@@ -1,39 +1,23 @@
 // app/page.tsx
 import ChatPageShell from "@/components/chat/chat-page-shell";
+import { getConversationsForUser } from "@/lib/data/conversations";
 
-export default function HomePage() {
-  type ChatPageShellProps = Parameters<typeof ChatPageShell>[0];
+export default async function HomePage() {
+  const conversationsData = await getConversationsForUser();
 
-  // Seed one demo conversation so it shows up in the sidebar
-  const conversations: ChatPageShellProps["conversations"] = [
-    {
-      id: "1",
-      title: "Demo conversation",
-      timestamp: new Date().toISOString(),
-    },
-  ];
-
-  const messages: ChatPageShellProps["messages"] = [
-    {
-      id: "m1",
-      role: "user",
-      content: "Hey, can you show the new UI?",
-      timestamp: new Date().toISOString(),
-    },
-    {
-      id: "m2",
-      role: "assistant",
-      content: "Here’s the static v0 chat layout wired up.",
-      timestamp: new Date().toISOString(),
-    },
-  ];
+  const conversations = conversationsData.map((conversation) => ({
+    id: conversation.id,
+    title: conversation.title ?? "Untitled chat",
+    timestamp: conversation.created_at ?? new Date().toISOString(),
+    projectId: conversation.project_id ?? undefined,
+  }));
 
   return (
     <main>
       <ChatPageShell
         conversations={conversations}
-        activeConversationId={null}  // <- keeps `/` as “new chat”
-        messages={messages}
+        activeConversationId={null}
+        messages={[]}
         searchParams={{}}
       />
     </main>

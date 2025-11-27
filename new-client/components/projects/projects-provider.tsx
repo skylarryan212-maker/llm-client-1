@@ -43,10 +43,12 @@ const initialProjects: ProjectSummary[] = [
 
 export function ProjectsProvider({
   children,
+  initialProjects: initialProjectsProp = initialProjects,
 }: {
   children: React.ReactNode;
+  initialProjects?: ProjectSummary[];
 }) {
-  const [projects, setProjects] = useState<ProjectSummary[]>(initialProjects);
+  const [projects, setProjects] = useState<ProjectSummary[]>(initialProjectsProp);
 
   const addProject = (name: string): ProjectSummary => {
     const newProject: ProjectSummary = {

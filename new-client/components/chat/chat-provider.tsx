@@ -38,8 +38,13 @@ const getTitleFromMessages = (messages: StoredMessage[], fallback = "New chat") 
   return firstMessage?.content?.slice(0, 80) || fallback;
 };
 
-export function ChatProvider({ children }: { children: React.ReactNode }) {
-  const [chats, setChats] = useState<StoredChat[]>([]);
+interface ChatProviderProps {
+  children: React.ReactNode;
+  initialChats?: StoredChat[];
+}
+
+export function ChatProvider({ children, initialChats = [] }: ChatProviderProps) {
+  const [chats, setChats] = useState<StoredChat[]>(initialChats);
 
   const createChat = useCallback(
     ({ projectId, title, initialMessages = [] }: {
@@ -86,10 +91,36 @@ export function ChatProvider({ children }: { children: React.ReactNode }) {
 
   const ensureChat = useCallback((chat: StoredChat) => {
     setChats((prev) => {
-      if (prev.some((existing) => existing.id === chat.id)) {
+      const existingIndex = prev.findIndex((existing) => existing.id === chat.id);
+
+      if (existingIndex === -1) {
+        return [chat, ...prev];
+      }
+
+      const existing = prev[existingIndex];
+      const mergedMessages =
+        chat.messages.length >= existing.messages.length ? chat.messages : existing.messages;
+
+      const updated: StoredChat = {
+        ...existing,
+        ...chat,
+        title: chat.title || existing.title,
+        timestamp: chat.timestamp || existing.timestamp,
+        messages: mergedMessages,
+      };
+
+      if (
+        updated.title === existing.title &&
+        updated.timestamp === existing.timestamp &&
+        updated.projectId === existing.projectId &&
+        updated.messages === existing.messages
+      ) {
         return prev;
       }
-      return [chat, ...prev];
+
+      const next = [...prev];
+      next[existingIndex] = updated;
+      return next;
     });
   }, []);
 
