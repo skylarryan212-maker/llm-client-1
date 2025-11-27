@@ -19,7 +19,7 @@ import {
 } from "@/components/ui/select";
 import { useProjects } from "@/components/projects/projects-provider";
 import { NewProjectModal } from "@/components/projects/new-project-modal";
-import { useChatStore } from "@/components/chat/chat-provider";
+import { StoredMessage, useChatStore } from "@/components/chat/chat-provider";
 import { usePersistentSidebarOpen } from "@/lib/hooks/use-sidebar-open";
 
 interface ShellConversation {
@@ -34,14 +34,6 @@ interface ServerMessage {
   role: "user" | "assistant";
   content: string;
   timestamp: string;
-}
-
-interface Message {
-  role: "user" | "assistant";
-  content: string;
-  model?: string;
-  hasSources?: boolean;
-  timestamp?: string;
 }
 
 interface ChatPageShellProps {
@@ -114,8 +106,14 @@ export default function ChatPageShell({
 
   const handleSubmit = (message: string) => {
     const now = new Date().toISOString();
-    const newUserMessage: Message = { role: "user", content: message, timestamp: now };
-    const demoAssistantMessage: Message = {
+    const userMessage: StoredMessage = {
+      id: `user-${Date.now()}`,
+      role: "user",
+      content: message,
+      timestamp: now,
+    };
+    const assistantMessage: StoredMessage = {
+      id: `assistant-${Date.now()}`,
       role: "assistant",
       content: `This is a demo response to: "${message}". In a real app this would come from the model.`,
       model: currentModel,
@@ -126,10 +124,7 @@ export default function ChatPageShell({
       const targetProjectId = selectedProjectId || projectId;
       const newChatId = createChat({
         projectId: targetProjectId,
-        initialMessages: [
-          { ...newUserMessage, id: `user-${Date.now()}` },
-          { ...demoAssistantMessage, id: `assistant-${Date.now()}` },
-        ],
+        initialMessages: [userMessage, assistantMessage],
         title: message.slice(0, 80) || "New chat",
       });
       setSelectedChatId(newChatId);
@@ -140,10 +135,7 @@ export default function ChatPageShell({
         router.push(`/c/${newChatId}`);
       }
     } else {
-      appendMessages(selectedChatId, [
-        { ...newUserMessage, id: `user-${Date.now()}` },
-        { ...demoAssistantMessage, id: `assistant-${Date.now()}` },
-      ]);
+      appendMessages(selectedChatId, [userMessage, assistantMessage]);
     }
   };
 
