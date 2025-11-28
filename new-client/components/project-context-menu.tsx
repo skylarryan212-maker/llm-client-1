@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, type MouseEvent } from 'react'
 import { MoreHorizontal, Edit3, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
@@ -52,7 +52,8 @@ export function ProjectContextMenu({
         variant="ghost"
         size="icon"
         className="h-7 w-7 opacity-0 group-hover:opacity-100 group-hover/chat:opacity-100 transition-opacity duration-200"
-        onClick={(e) => {
+        onClick={(e: MouseEvent<HTMLButtonElement>) => {
+          e.preventDefault()
           e.stopPropagation()
           setIsOpen(!isOpen)
         }}
@@ -67,6 +68,7 @@ export function ProjectContextMenu({
         >
           <button
             onClick={(e) => {
+              e.preventDefault()
               e.stopPropagation()
               onRename?.()
               setIsOpen(false)
@@ -78,6 +80,7 @@ export function ProjectContextMenu({
           </button>
           <button
             onClick={(e) => {
+              e.preventDefault()
               e.stopPropagation()
               onDelete?.()
               setIsOpen(false)

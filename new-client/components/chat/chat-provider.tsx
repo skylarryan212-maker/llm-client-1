@@ -4,6 +4,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import supabaseClient from "@/lib/supabase/client";
 import { getCurrentUserId } from "@/lib/supabase/user";
 import type { Database } from "@/lib/supabase/types";
+import type { AssistantMessageMetadata } from "@/lib/chatTypes";
 
 export type StoredMessage = {
   id: string;
@@ -11,7 +12,7 @@ export type StoredMessage = {
   content: string;
   timestamp: string;
   model?: string;
-  metadata?: Record<string, unknown> | null;
+  metadata?: AssistantMessageMetadata | Record<string, unknown> | null;
 };
 
 export type StoredChat = {
@@ -78,6 +79,29 @@ export function ChatProvider({ children, initialChats = [] }: ChatProviderProps)
       }
 
       const rows = data ?? [];
+      const conversationIds = rows.map((row) => row.id);
+      const { data: messageRows } = await supabaseClient
+        .from("messages")
+        .select("*")
+        .in("conversation_id", conversationIds)
+        .order("created_at", { ascending: true })
+        .returns<Database["public"]["Tables"]["messages"]["Row"][]>();
+
+      const messageMap = new Map<string, StoredMessage[]>();
+      (messageRows ?? []).forEach((msg) => {
+        const convId = msg.conversation_id;
+        if (!convId) return;
+        const messages = messageMap.get(convId) ?? [];
+        messages.push({
+          id: msg.id,
+          role: (msg.role as "user" | "assistant") || "assistant",
+          content: msg.content ?? "",
+          timestamp: msg.created_at ?? new Date().toISOString(),
+          metadata: msg.metadata as AssistantMessageMetadata | Record<string, unknown> | null,
+        });
+        messageMap.set(convId, messages);
+      });
+
       // Preserve existing messages for chats already in memory; don't wipe messages to [] on refresh
       setChats((prev) => {
         const prevById = new Map(prev.map((c) => [c.id, c] as const));
@@ -88,7 +112,7 @@ export function ChatProvider({ children, initialChats = [] }: ChatProviderProps)
             title: row.title ?? existing?.title ?? "Untitled chat",
             timestamp: row.created_at ?? existing?.timestamp ?? new Date().toISOString(),
             projectId: row.project_id ?? existing?.projectId ?? undefined,
-            messages: existing?.messages ?? [],
+            messages: messageMap.get(row.id) ?? existing?.messages ?? [],
           };
         });
         return merged;
@@ -261,7 +285,7 @@ export function ChatProvider({ children, initialChats = [] }: ChatProviderProps)
               role: (m.role as "user" | "assistant") || "assistant",
               content: m.content ?? "",
               timestamp: m.created_at ?? new Date().toISOString(),
-              metadata: m.metadata as Record<string, unknown> | null | undefined,
+              metadata: m.metadata as AssistantMessageMetadata | Record<string, unknown> | null | undefined,
             };
 
             const updated: StoredChat = {

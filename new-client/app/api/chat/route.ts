@@ -10,7 +10,17 @@ import type {
   SpeedMode,
 } from "@/lib/modelConfig";
 import { normalizeModelFamily, normalizeSpeedMode } from "@/lib/modelConfig";
-import type { Database, MessageInsert } from "@/lib/supabase/types";
+import type { Database } from "@/lib/supabase/types";
+import type { AssistantMessageMetadata } from "@/lib/chatTypes";
+import {
+  buildAssistantMetadataPayload,
+  extractDomainFromUrl,
+  formatSearchSiteLabel,
+} from "@/lib/metadata";
+import type {
+  Tool,
+  ToolChoiceAllowed,
+} from "openai/resources/responses/responses";
 
 type MessageRow = Database["public"]["Tables"]["messages"]["Row"];
 type ConversationRow = Database["public"]["Tables"]["conversations"]["Row"];
@@ -23,32 +33,365 @@ interface ChatRequestBody {
   modelFamilyOverride?: ModelFamily;
   speedModeOverride?: SpeedMode;
   reasoningEffortOverride?: ReasoningEffort;
+  forceWebSearch?: boolean;
   skipUserInsert?: boolean;
 }
 
-interface StreamToken {
-  token: string;
+type SearchStatusEvent =
+  | { type: "search-start"; query: string }
+  | { type: "search-complete"; query: string; results?: number }
+  | { type: "search-error"; query: string; message?: string }
+  | { type: "file-reading-start" }
+  | { type: "file-reading-complete" }
+  | { type: "file-reading-error"; message?: string };
+
+const BASE_SYSTEM_PROMPT =
+  "You are a web-connected assistant with access to the `web_search` tool for live information.\n" +
+  "Follow these rules:\n" +
+  "- Use internal knowledge for timeless concepts, math, or historical context.\n" +
+  "- For questions about current events, market conditions, weather, schedules, releases, or other fast-changing facts, prefer calling `web_search` to gather fresh data.\n" +
+  "- When `web_search` returns results, treat them as live, up-to-date sources. Summarize them, cite domains inline using (Source: domain.com), and close with a short Sources list that repeats the referenced domains.\n" +
+  "- Never claim you lack internet access or that your knowledge is outdated in a turn where tool outputs were provided.\n" +
+  "- If the tool returns little or no information, acknowledge that gap before relying on older knowledge.\n" +
+  "- Do not send capability or identity questions to `web_search`; answer those directly.\n" +
+  "- Keep answers clear and grounded, blending background context with any live data you retrieved.";
+
+const FORCE_WEB_SEARCH_PROMPT =
+  "The user explicitly requested live web search. Ensure you call the `web_search` tool for this turn unless it would clearly be redundant.";
+
+const EXPLICIT_WEB_SEARCH_PROMPT =
+  "The user asked for live sources or links. You must call the `web_search` tool, base your answer on those results, and cite them directly.";
+
+const LIVE_DATA_HINTS = [
+  "current",
+  "today",
+  "tonight",
+  "latest",
+  "recent",
+  "breaking",
+  "news",
+  "update",
+  "updated",
+  "now",
+  "right now",
+  "this week",
+  "this month",
+  "this year",
+  "price",
+  "prices",
+  "market",
+  "stock",
+  "stocks",
+  "quote",
+  "report",
+  "earnings",
+  "forecast",
+  "weather",
+  "temperature",
+  "release",
+  "launch",
+  "trend",
+];
+
+const EMERGING_ENTITY_KEYWORDS = [
+  "buy",
+  "purchase",
+  "preorder",
+  "pre-order",
+  "release",
+  "released",
+  "launch",
+  "launched",
+  "announce",
+  "announced",
+  "available",
+  "availability",
+  "in stock",
+  "stock",
+  "price",
+  "prices",
+  "cost",
+  "ticket",
+  "tickets",
+  "order",
+  "exists",
+  "exist",
+  "new",
+  "latest",
+  "upcoming",
+];
+
+const KNOWN_ENTITY_PATTERNS = [
+  /rtx\s?\d{3,4}/i,
+  /geforce/i,
+  /radeon/i,
+  /iphone/i,
+  /galaxy/i,
+  /pixel/i,
+  /tesla/i,
+  /model\s?[sx3y]/i,
+  /macbook/i,
+  /ipad/i,
+  /playstation/i,
+  /xbox/i,
+  /gpu/i,
+  /cpu/i,
+  /summit/i,
+  /conference/i,
+  /expo/i,
+  /festival/i,
+  /tournament/i,
+  /world cup/i,
+  /olympics/i,
+];
+
+const PRODUCT_STYLE_PATTERN = /\b(?:[A-Z]{2,}[A-Za-z0-9+\-]*\d{2,5}|[A-Za-z]+\s?\d{4})\b/;
+
+const MUST_WEB_SEARCH_PATTERNS = [
+  /\bsearch (?:the )?(?:web|internet)\b/i,
+  /\bsearch online\b/i,
+  /\bweb search\b/i,
+  /\blook (?:this|that|it)? up\b/i,
+  /\bfind (?:links?|online|on the web)\b/i,
+  /\bcheck (?:the )?(?:internet|web)\b/i,
+  /\bbrowse the web\b/i,
+  /\bgoogle (?:it|this)?\b/i,
+  /\bcheck (?:current )?pricing\b/i,
+  /\bcurrent price\b/i,
+  /\bwhere to buy\b/i,
+  /\bfind where to buy\b/i,
+  /\bfind retailers?\b/i,
+  /\bneed sources\b/i,
+  /\bgive me (?:sources|citations)\b/i,
+  /\bprovide (?:links?|sources|citations)\b/i,
+  /\bshow (?:me )?(?:links?|sources)\b/i,
+];
+
+const SOURCE_REQUEST_PATTERNS = [
+  /\binclude (?:the )?sources\b/i,
+  /\bshare sources\b/i,
+  /\bcite (?:your )?sources\b/i,
+  /\bgive me references\b/i,
+  /\bneed citations?\b/i,
+];
+
+const META_QUESTION_PATTERNS = [
+  /\b(?:can|could|would) you (?:browse|access|use) (?:the )?(?:internet|web)/i,
+  /\b(?:do|can) you have internet/i,
+  /\bwhat(?:'s| is) your knowledge cutoff/i,
+  /\bwhen were you (?:trained|last updated)/i,
+  /\bare you able to search/i,
+  /\bwhat model are you/i,
+  /\bhow do your tools work/i,
+];
+
+type WebSearchAction = {
+  type?: string;
+  query?: string;
+  sources?: Array<{ url?: string }>;
+  results?: unknown;
+};
+
+type WebSearchCall = {
+  id?: string;
+  type?: string;
+  status?: string;
+  query?: string;
+  actions?: WebSearchAction[];
+  results?: unknown;
+  output?: unknown;
+  data?: { results?: unknown };
+  metadata?: { results?: unknown };
+};
+
+function isWebSearchCall(value: unknown): value is WebSearchCall {
+  return (
+    Boolean(value && typeof value === "object") &&
+    (value as { type?: string }).type === "web_search_call"
+  );
 }
 
-interface StreamMeta {
-  meta: {
-    assistantMessageRowId: string;
-    userMessageRowId?: string;
-    model: string;
-    reasoningEffort: ReasoningEffort;
-    resolvedFamily?: string;
-    speedModeUsed?: string;
-  };
+function resolveWebSearchPreference({
+  userText,
+  forceWebSearch,
+}: {
+  userText: string;
+  forceWebSearch: boolean;
+}) {
+  if (forceWebSearch) {
+    return { allow: true, require: true };
+  }
+  const trimmed = userText.trim();
+  if (!trimmed) {
+    return { allow: false, require: false };
+  }
+  if (META_QUESTION_PATTERNS.some((pattern) => pattern.test(trimmed))) {
+    return { allow: false, require: false };
+  }
+  if (MUST_WEB_SEARCH_PATTERNS.some((pattern) => pattern.test(trimmed))) {
+    return { allow: true, require: true };
+  }
+  if (SOURCE_REQUEST_PATTERNS.some((pattern) => pattern.test(trimmed))) {
+    return { allow: true, require: true };
+  }
+  const lower = trimmed.toLowerCase();
+  let allow = false;
+  if (LIVE_DATA_HINTS.some((hint) => lower.includes(hint))) {
+    allow = true;
+  }
+  if (/https?:\/\//i.test(trimmed) || /\bwww\./i.test(trimmed)) {
+    allow = true;
+  }
+  if (
+    /\b(?:price|pricing|cost|buy|purchase|availability|in stock|market|stocks?|earnings|forecast|release date|launch|ticket|schedule|ranking|news|headline)\b/i.test(
+      trimmed
+    )
+  ) {
+    allow = true;
+  }
+  if (/\bsources?\b/i.test(trimmed) || /\breference\b/i.test(trimmed)) {
+    allow = true;
+  }
+  if (referencesEmergingEntity(trimmed)) {
+    allow = true;
+  }
+  return { allow, require: false };
 }
 
-interface StreamDone {
-  done: true;
+function referencesEmergingEntity(text: string) {
+  if (!text.trim()) {
+    return false;
+  }
+  if (KNOWN_ENTITY_PATTERNS.some((pattern) => pattern.test(text))) {
+    return true;
+  }
+  const lower = text.toLowerCase();
+  const hasKeyword = EMERGING_ENTITY_KEYWORDS.some((keyword) =>
+    lower.includes(keyword)
+  );
+  if (!hasKeyword) {
+    return false;
+  }
+  return PRODUCT_STYLE_PATTERN.test(text);
+}
+
+function mergeDomainLabels(...lists: Array<string[] | undefined>) {
+  const merged: string[] = [];
+  const seen = new Set<string>();
+  lists.forEach((list) => {
+    if (!Array.isArray(list)) {
+      return;
+    }
+    list.forEach((label) => {
+      if (!label) {
+        return;
+      }
+      const normalized = label.toLowerCase();
+      if (seen.has(normalized)) {
+        return;
+      }
+      seen.add(normalized);
+      merged.push(label);
+    });
+  });
+  return merged;
+}
+
+function extractSearchDomainLabelsFromCall(call: WebSearchCall) {
+  const urls = collectUrlsFromValue(call);
+  const domains: string[] = [];
+  const seen = new Set<string>();
+  for (const url of urls) {
+    const domain = extractDomainFromUrl(url);
+    if (!domain) continue;
+    const label = formatSearchSiteLabel(domain) ?? domain;
+    const normalized = label.toLowerCase();
+    if (seen.has(normalized)) continue;
+    seen.add(normalized);
+    domains.push(label);
+  }
+  return domains;
+}
+
+function collectUrlsFromValue(value: unknown) {
+  const urls: string[] = [];
+  const stack: unknown[] = value ? [value] : [];
+  while (stack.length) {
+    const next = stack.pop();
+    if (!next) {
+      continue;
+    }
+    if (Array.isArray(next)) {
+      stack.push(...next);
+      continue;
+    }
+    if (typeof next === "object") {
+      const entry = next as Record<string, unknown>;
+      const candidateUrl =
+        typeof entry.url === "string"
+          ? entry.url
+          : typeof entry.link === "string"
+            ? entry.link
+            : undefined;
+      if (candidateUrl) {
+        urls.push(candidateUrl);
+      }
+      if (entry.results) {
+        stack.push(entry.results);
+      }
+      if (entry.actions) {
+        stack.push(entry.actions);
+      }
+      if (entry.output) {
+        stack.push(entry.output);
+      }
+      if (entry.data) {
+        stack.push(entry.data);
+      }
+      if (entry.metadata) {
+        stack.push(entry.metadata);
+      }
+      if (entry.sources) {
+        stack.push(entry.sources);
+      }
+      if (entry.content) {
+        stack.push(entry.content);
+      }
+      if (typeof entry.text === "string") {
+        const parsed = safeJsonParse(entry.text);
+        if (parsed) {
+          stack.push(parsed);
+        }
+      }
+    } else if (typeof next === "string") {
+      const parsed = safeJsonParse(next);
+      if (parsed) {
+        stack.push(parsed);
+      }
+    }
+  }
+  return urls;
+}
+
+function safeJsonParse(value: string) {
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
 }
 
 export async function POST(request: NextRequest) {
   try {
     const body = (await request.json()) as ChatRequestBody;
-    const { conversationId, projectId, message, modelFamilyOverride, speedModeOverride, reasoningEffortOverride, skipUserInsert } = body;
+    console.log("[chatApi] POST received", {
+      conversationId: body.conversationId,
+      projectId: body.projectId,
+      messagePreview: typeof body.message === 'string' ? body.message.slice(0,80) : null,
+      skipUserInsert: body.skipUserInsert,
+      timestamp: Date.now(),
+    });
+    const { conversationId, projectId, message, modelFamilyOverride, speedModeOverride, reasoningEffortOverride, skipUserInsert, forceWebSearch = false } = body;
 
     // Validate and normalize model settings
     const modelFamily = normalizeModelFamily(modelFamilyOverride ?? "auto");
@@ -142,18 +485,50 @@ export async function POST(request: NextRequest) {
     const modelConfig = getModelAndReasoningConfig(modelFamily, speedMode, message, reasoningEffortHint);
     const reasoningEffort = modelConfig.reasoning?.effort ?? "none";
 
-    // Build message history for API call
-    const systemPrompt =
-      "You are a helpful, accurate, and thoughtful AI assistant. Provide clear, concise, and well-structured responses.";
+    const { allow: allowWebSearch, require: requireWebSearch } = resolveWebSearchPreference({
+      userText: message,
+      forceWebSearch,
+    });
+
+    const systemMessages = [
+      {
+        role: "system",
+        content: BASE_SYSTEM_PROMPT,
+        type: "message",
+      },
+      ...(forceWebSearch
+        ? [
+            {
+              role: "system",
+              content: FORCE_WEB_SEARCH_PROMPT,
+              type: "message",
+            },
+          ]
+        : []),
+      ...(allowWebSearch && requireWebSearch && !forceWebSearch
+        ? [
+            {
+              role: "system",
+              content: EXPLICIT_WEB_SEARCH_PROMPT,
+              type: "message",
+            },
+          ]
+        : []),
+    ];
+
+    const historyMessages = (recentMessages || []).map((msg: any) => ({
+      role: msg.role as "user" | "assistant",
+      content: msg.content ?? "",
+      type: "message",
+    }));
 
     const messagesForAPI = [
-      ...(recentMessages || []).map((msg: any) => ({
-        role: msg.role as "user" | "assistant",
-        content: msg.content,
-      })),
+      ...systemMessages,
+      ...historyMessages,
       {
         role: "user" as const,
         content: message,
+        type: "message",
       },
     ];
 
@@ -194,50 +569,158 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Call OpenAI Responses API with streaming
-    const stream = await openai.responses.stream({
+    const webSearchTool = { type: "web_search" } satisfies Tool;
+    const toolsForRequest: Tool[] = [];
+    if (allowWebSearch) {
+      toolsForRequest.push(webSearchTool);
+    }
+    const toolChoice: ToolChoiceAllowed | undefined = allowWebSearch
+      ? {
+          type: "allowed_tools",
+          mode: requireWebSearch ? "required" : "auto",
+          tools: [webSearchTool],
+        }
+      : undefined;
+
+    const includeFields = allowWebSearch
+      ? ["web_search_call.results", "web_search_call.action.sources"]
+      : undefined;
+
+    const responseStream = await openai.responses.stream({
       model: modelConfig.model,
-      input: [
-        {
-          role: "system",
-          content: systemPrompt,
-          type: "message",
-        },
-        ...messagesForAPI.map((m) => ({
-          role: m.role as "user" | "assistant",
-          content: m.content,
-          type: "message",
-        })),
-      ],
+      input: messagesForAPI,
       stream: true,
+      ...(toolsForRequest.length ? { tools: toolsForRequest } : {}),
+      ...(toolChoice ? { tool_choice: toolChoice } : {}),
+      ...(includeFields ? { include: includeFields } : {}),
       ...(modelConfig.reasoning && { reasoning: modelConfig.reasoning }),
     });
     console.log("OpenAI stream started for model:", modelConfig.model);
 
-    // Stream the response back as NDJSON
-    const encoder = new TextEncoder();
+    const requestStartMs = Date.now();
     let assistantContent = "";
+    let firstTokenAtMs: number | null = null;
+    const liveSearchDomainSet = new Set<string>();
+    const liveSearchDomainList: string[] = [];
 
     const readableStream = new ReadableStream({
       async start(controller) {
+        const encoder = new TextEncoder();
+        const enqueueJson = (payload: Record<string, unknown>) => {
+          controller.enqueue(encoder.encode(`${JSON.stringify(payload)}\n`));
+        };
+        const sendStatusUpdate = (status: SearchStatusEvent) => {
+          enqueueJson({ status });
+        };
+        const recordLiveSearchDomain = (domain?: string | null) => {
+          const label = domain?.trim();
+          if (!label) {
+            return;
+          }
+          const normalized = label.toLowerCase();
+          if (liveSearchDomainSet.has(normalized)) {
+            return;
+          }
+          liveSearchDomainSet.add(normalized);
+          liveSearchDomainList.push(label);
+          enqueueJson({ type: "web_search_domain", domain: label });
+        };
+        const noteDomainsFromCall = (call: WebSearchCall | undefined) => {
+          if (!call) {
+            return;
+          }
+          const labels = extractSearchDomainLabelsFromCall(call);
+          labels.forEach((label) => recordLiveSearchDomain(label));
+        };
+        const noteDomainsFromMetadataChunk = (metadata: unknown) => {
+          if (!metadata || typeof metadata !== "object") {
+            return;
+          }
+          const entries = Array.isArray(
+            (metadata as { web_search?: unknown }).web_search
+          )
+            ? ((metadata as { web_search?: unknown[] }).web_search ?? [])
+            : [];
+          entries.forEach((entry) => {
+            if (!entry || typeof entry !== "object") {
+              return;
+            }
+            noteDomainsFromCall(entry as WebSearchCall);
+          });
+        };
+        let doneSent = false;
+
         try {
-          // Stream tokens from responses API
-          for await (const event of stream) {
+          for await (const event of responseStream) {
+            const chunkMetadata =
+              event && typeof event === "object"
+                ? (event as { metadata?: unknown }).metadata
+                : null;
+            if (chunkMetadata) {
+              noteDomainsFromMetadataChunk(chunkMetadata);
+            }
             if (event.type === "response.output_text.delta" && event.delta) {
               const token = event.delta;
               assistantContent += token;
-              const tokenLine = JSON.stringify({ token } as StreamToken);
-              controller.enqueue(encoder.encode(tokenLine + "\n"));
+              enqueueJson({ token });
+              if (!firstTokenAtMs) {
+                firstTokenAtMs = Date.now();
+              }
+            } else if (
+              event.type === "response.web_search_call.in_progress" ||
+              event.type === "response.web_search_call.searching"
+            ) {
+              sendStatusUpdate({
+                type: "search-start",
+                query: (event as { query?: string }).query ?? "web search",
+              });
+            } else if (event.type === "response.web_search_call.completed") {
+              sendStatusUpdate({
+                type: "search-complete",
+                query: (event as { query?: string }).query ?? "web search",
+              });
+              noteDomainsFromCall((event as { item?: unknown }).item as WebSearchCall);
+            } else if (
+              event.type === "response.output_item.added" ||
+              event.type === "response.output_item.done"
+            ) {
+              noteDomainsFromCall((event as { item?: unknown }).item as WebSearchCall);
             }
           }
 
-          // Get final response
-          const finalResponse = await stream.finalResponse();
+          const finalResponse = await responseStream.finalResponse();
           if (finalResponse.output_text) {
             assistantContent = finalResponse.output_text;
           }
 
-          // Save assistant message to Supabase
+          const thinkingDurationMs =
+            typeof firstTokenAtMs === "number"
+              ? Math.max(firstTokenAtMs - requestStartMs, 0)
+              : Math.max(Date.now() - requestStartMs, 0);
+          const metadataPayload = buildAssistantMetadataPayload({
+            base: {
+              modelUsed: modelConfig.model,
+              reasoningEffort,
+              resolvedFamily: modelConfig.resolvedFamily,
+              speedModeUsed: speedMode,
+              userRequestedFamily: modelFamily,
+              userRequestedSpeedMode: speedMode,
+              userRequestedReasoningEffort: reasoningEffortHint,
+            },
+            content: assistantContent,
+            thinkingDurationMs,
+          });
+          const combinedDomains = mergeDomainLabels(
+            metadataPayload.searchedDomains,
+            liveSearchDomainList
+          );
+          if (combinedDomains.length) {
+            metadataPayload.searchedDomains = combinedDomains;
+            metadataPayload.searchedSiteLabel =
+              combinedDomains[combinedDomains.length - 1] ||
+              metadataPayload.searchedSiteLabel;
+          }
+
           const { data: assistantMessageRow, error: assistantError } =
             await supabaseAny
               .from("messages")
@@ -246,14 +729,7 @@ export async function POST(request: NextRequest) {
                 conversation_id: conversationId,
                 role: "assistant",
                 content: assistantContent,
-                metadata: {
-                  modelUsed: modelConfig.model,
-                  reasoningEffort,
-                  resolvedFamily: modelConfig.resolvedFamily,
-                  speedModeUsed: speedMode,
-                  userRequestedFamily: modelFamily,
-                  userRequestedSpeedMode: speedMode,
-                },
+                metadata: metadataPayload,
               })
               .select()
               .single();
@@ -263,8 +739,7 @@ export async function POST(request: NextRequest) {
               "Failed to save assistant message:",
               assistantError
             );
-            // Still send done, but without row ID
-            const metaLine = JSON.stringify({
+            enqueueJson({
               meta: {
                 assistantMessageRowId: `error-${Date.now()}`,
                 userMessageRowId: userMessageRow?.id,
@@ -272,12 +747,11 @@ export async function POST(request: NextRequest) {
                 reasoningEffort,
                 resolvedFamily: modelConfig.resolvedFamily,
                 speedModeUsed: speedMode,
+                metadata: metadataPayload,
               },
-            } as StreamMeta);
-            controller.enqueue(encoder.encode(metaLine + "\n"));
+            });
           } else {
-            // Send metadata with persisted IDs
-            const metaLine = JSON.stringify({
+            enqueueJson({
               meta: {
                 assistantMessageRowId: assistantMessageRow.id,
                 userMessageRowId: userMessageRow?.id,
@@ -285,19 +759,21 @@ export async function POST(request: NextRequest) {
                 reasoningEffort,
                 resolvedFamily: modelConfig.resolvedFamily,
                 speedModeUsed: speedMode,
+                metadata:
+                  (assistantMessageRow.metadata as AssistantMessageMetadata | null) ??
+                  metadataPayload,
               },
-            } as StreamMeta);
-            controller.enqueue(encoder.encode(metaLine + "\n"));
+            });
           }
-
-          // Send done signal
-          const doneLine = JSON.stringify({ done: true } as StreamDone);
-          controller.enqueue(encoder.encode(doneLine + "\n"));
-
-          controller.close();
         } catch (error) {
           console.error("Stream error:", error);
-          controller.error(error);
+          enqueueJson({ error: "upstream_error" });
+        } finally {
+          if (!doneSent) {
+            enqueueJson({ done: true });
+            doneSent = true;
+          }
+          controller.close();
         }
       },
     });

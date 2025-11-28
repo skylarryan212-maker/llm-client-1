@@ -59,6 +59,7 @@ export function ChatContextMenu({
         size="icon"
         className="h-7 w-7 opacity-0 group-hover:opacity-100 group-hover/chat:opacity-100 transition-opacity duration-200"
         onClick={(e) => {
+          e.preventDefault()
           e.stopPropagation()
           setIsOpen(!isOpen)
         }}
@@ -73,6 +74,7 @@ export function ChatContextMenu({
         >
           <button
             onClick={(e) => {
+              e.preventDefault()
               e.stopPropagation()
               onShare?.()
               setIsOpen(false)
@@ -84,6 +86,7 @@ export function ChatContextMenu({
           </button>
           <button
             onClick={(e) => {
+              e.preventDefault()
               e.stopPropagation()
               onRename?.()
               setIsOpen(false)
@@ -95,6 +98,7 @@ export function ChatContextMenu({
           </button>
           <button
             onClick={(e) => {
+              e.preventDefault()
               e.stopPropagation()
               onMoveToProject?.()
               setIsOpen(false)
@@ -109,6 +113,7 @@ export function ChatContextMenu({
           </button>
           <button
             onClick={(e) => {
+              e.preventDefault()
               e.stopPropagation()
               onArchive?.()
               setIsOpen(false)
@@ -120,6 +125,7 @@ export function ChatContextMenu({
           </button>
           <button
             onClick={(e) => {
+              e.preventDefault()
               e.stopPropagation()
               onDelete?.()
               setIsOpen(false)

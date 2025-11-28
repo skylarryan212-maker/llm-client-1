@@ -11,6 +11,8 @@ import {
 import { Copy, ExternalLink, Check } from 'lucide-react'
 import Image from 'next/image'
 import { useState } from 'react'
+import type { AssistantMessageMetadata } from '@/lib/chatTypes'
+import { MessageInsightChips } from '@/components/chat/message-insight-chips'
 
 interface ChatMessageProps {
   role: 'user' | 'assistant'
@@ -21,6 +23,7 @@ interface ChatMessageProps {
   imageUrl?: string
   hasSources?: boolean
   onRetry?: (modelName: string) => void
+  showInsightChips?: boolean
 }
 
 export function ChatMessage({
@@ -31,12 +34,13 @@ export function ChatMessage({
   imageUrl,
   hasSources,
   onRetry,
+  showInsightChips = true,
 }: ChatMessageProps) {
   const [copied, setCopied] = useState(false)
   const [retryModel, setRetryModel] = useState('')
 
   // Extract metadata safely
-  let metadataObj: Record<string, unknown> | null = null
+  let metadataObj: AssistantMessageMetadata | Record<string, unknown> | null = null
   try {
     if (metadata && typeof metadata === 'object') {
       metadataObj = metadata
@@ -45,9 +49,11 @@ export function ChatMessage({
     // Silently ignore malformed metadata
   }
 
-  const modelUsed = metadataObj?.modelUsed as string | undefined
-  let resolvedFamily = metadataObj?.resolvedFamily as string | undefined
-  const reasoningEffort = metadataObj?.reasoningEffort as string | undefined
+  const typedMetadata = metadataObj as AssistantMessageMetadata | null
+
+  const modelUsed = typedMetadata?.modelUsed as string | undefined
+  let resolvedFamily = typedMetadata?.resolvedFamily as string | undefined
+  const reasoningEffort = typedMetadata?.reasoningEffort as string | undefined
 
   // Map resolved family to display name
   const getDisplayModelName = (family?: string): string => {
@@ -103,6 +109,8 @@ export function ChatMessage({
             <p className="text-base leading-relaxed text-foreground break-words">{content}</p>
           </div>
 
+          {showInsightChips && <MessageInsightChips metadata={typedMetadata} />}
+
           {hasImage && imageUrl && (
             <div className="relative overflow-hidden rounded-lg border border-border">
               <Image
@@ -135,7 +143,7 @@ export function ChatMessage({
               )}
             </Button>
             
-            {hasSources && (
+            {((hasSources ?? false) || (Array.isArray(typedMetadata?.citations) && typedMetadata.citations.length > 0)) && (
               <Button variant="ghost" size="sm" className="h-8 gap-1.5 text-xs text-muted-foreground hover:text-foreground flex-shrink-0">
                 <ExternalLink className="h-3.5 w-3.5" />
                 <span className="hidden xs:inline">Sources</span>

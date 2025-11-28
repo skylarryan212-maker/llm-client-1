@@ -5,6 +5,11 @@ import {
   createProjectConversationWithFirstMessage,
   createGlobalConversationWithFirstMessage,
 } from "@/lib/data/conversation-writes";
+import {
+  deleteConversation,
+  moveConversationToProject,
+  renameConversation,
+} from "@/lib/data/conversations";
 import type { Database } from "@/lib/supabase/types";
 
 type ConversationRow = Database["public"]["Tables"]["conversations"]["Row"];
@@ -62,4 +67,19 @@ export async function startProjectConversationAction(params: {
     });
 
   return { conversationId: conversation.id as string, message, conversation };
+}
+
+export async function renameConversationAction(conversationId: string, title: string) {
+  await renameConversation({ conversationId, title });
+}
+
+export async function moveConversationToProjectAction(
+  conversationId: string,
+  projectId: string | null
+) {
+  await moveConversationToProject({ conversationId, projectId });
+}
+
+export async function deleteConversationAction(conversationId: string) {
+  await deleteConversation(conversationId);
 }

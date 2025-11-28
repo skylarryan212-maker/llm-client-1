@@ -47,6 +47,55 @@ export async function createProject(params: { name: string }) {
   return data;
 }
 
+const uuidPattern =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function isValidUuid(value: string | null | undefined) {
+  return typeof value === "string" && uuidPattern.test(value);
+}
+
+export async function renameProject(params: { projectId: string; name: string }) {
+  if (!isValidUuid(params.projectId)) {
+    throw new Error("Invalid project ID");
+  }
+
+  const supabase = await supabaseServer();
+  const userId = getCurrentUserId();
+
+  const { data, error } = await supabase
+    .from("projects")
+    .update({ name: params.name })
+    .eq("id", params.projectId)
+    .eq("user_id", userId)
+    .select()
+    .single();
+
+  if (error || !data) {
+    throw new Error(`Failed to rename project: ${error?.message ?? "Unknown error"}`);
+  }
+
+  return data;
+}
+
+export async function deleteProject(projectId: string) {
+  if (!isValidUuid(projectId)) {
+    throw new Error("Invalid project ID");
+  }
+
+  const supabase = await supabaseServer();
+  const userId = getCurrentUserId();
+
+  const { error } = await supabase
+    .from("projects")
+    .delete()
+    .eq("id", projectId)
+    .eq("user_id", userId);
+
+  if (error) {
+    throw new Error(`Failed to delete project: ${error.message}`);
+  }
+}
+
 export async function getProjectById(projectId: string) {
   const supabase = await supabaseServer();
   const userId = getCurrentUserId();

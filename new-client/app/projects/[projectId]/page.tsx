@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { CalendarIcon, Menu, Plus, ArrowLeft } from "lucide-react";
+import { Menu, Plus, ArrowLeft } from "lucide-react";
 
 import { ChatSidebar } from "@/components/chat-sidebar";
 import { Button } from "@/components/ui/button";
@@ -12,6 +12,33 @@ import { usePersistentSidebarOpen } from "@/lib/hooks/use-sidebar-open";
 import { useChatStore } from "@/components/chat/chat-provider";
 import { ChatComposer } from "@/components/chat-composer";
 import { startProjectConversationAction } from "@/app/actions/chat-actions";
+import { requestAutoNaming } from "@/lib/autoNaming";
+
+import type { StoredChat, StoredMessage } from "@/components/chat/chat-provider";
+
+const formatShortDate = (value?: string) => {
+  if (!value) return "";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "";
+  return new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" }).format(parsed);
+};
+
+const getLatestUserPrompt = (messages: StoredMessage[]) => {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const msg = messages[i];
+    if (msg.role === "user" && msg.content?.trim()) {
+      return msg.content;
+    }
+  }
+  return messages.length ? messages[messages.length - 1].content : "";
+};
+
+const getLatestMessageTimestamp = (messages: StoredMessage[], fallback?: string) => {
+  if (messages.length) {
+    return messages[messages.length - 1].timestamp || fallback;
+  }
+  return fallback;
+};
 
 export default function ProjectDetailPage() {
   const params = useParams<{ projectId: string }>();
@@ -77,18 +104,19 @@ export default function ProjectDetailPage() {
   );
 
   const projectConversations = useMemo(() => {
-    const map: Record<string, { id: string; title: string; timestamp: string }[]> = {};
+    const map: Record<string, StoredChat[]> = {};
     chats.forEach((chat) => {
       if (!chat.projectId) return;
       if (!map[chat.projectId]) map[chat.projectId] = [];
-      map[chat.projectId].push({
-        id: chat.id,
-        title: chat.title,
-        timestamp: chat.timestamp,
-      });
+      map[chat.projectId].push(chat);
     });
     return map;
   }, [chats]);
+
+  const projectChatList = useMemo(() => {
+    const list = projectConversations[projectId] ?? [];
+    return [...list].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+  }, [projectConversations, projectId]);
 
   const handleProjectChatSubmit = async (message: string) => {
     const now = new Date().toISOString();
@@ -114,6 +142,9 @@ export default function ProjectDetailPage() {
 
     setSelectedChatId(chatId);
     setSelectedProjectId(projectId);
+    requestAutoNaming(conversationId, message).catch((err) =>
+      console.error("Failed to auto-name project chat:", err)
+    );
     router.push(`/projects/${projectId}/c/${chatId}`);
   };
 
@@ -141,64 +172,79 @@ export default function ProjectDetailPage() {
 
       <div className="flex-1 overflow-y-auto">
         <div className="mx-auto max-w-5xl px-4 sm:px-6 py-8 sm:py-12 lg:py-16">
-          <div className="flex items-center justify-between gap-3 mb-6">
-            <div className="flex items-center gap-3">
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => setIsSidebarOpen(true)}
-                className="h-8 w-8 lg:hidden"
-              >
-                <Menu className="h-4 w-4" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => router.push("/projects")}
-                className="h-8 w-8"
-                title="Back to projects"
-              >
-                <ArrowLeft className="h-4 w-4" />
-              </Button>
-              <div>
-                <p className="text-sm text-muted-foreground">Project</p>
-                <h1 className="text-3xl font-bold text-foreground">
-                  {project?.name ?? "Unknown project"}
-                </h1>
+          <div className="mx-auto w-full max-w-3xl space-y-6">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setIsSidebarOpen(true)}
+                  className="h-8 w-8 lg:hidden"
+                >
+                  <Menu className="h-4 w-4" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => router.push("/projects")}
+                  className="h-8 w-8"
+                  title="Back to projects"
+                >
+                  <ArrowLeft className="h-4 w-4" />
+                </Button>
+                <div>
+                  <p className="text-sm text-muted-foreground">Project</p>
+                  <h1 className="text-3xl font-bold text-foreground">
+                    {project?.name ?? "Unknown project"}
+                  </h1>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button onClick={handleNewProject} className="gap-2">
+                  <Plus className="h-4 w-4" />
+                  New Project
+                </Button>
               </div>
             </div>
-            <div className="flex items-center gap-2">
-              <Button onClick={handleNewProject} className="gap-2">
-                <Plus className="h-4 w-4" />
-                New Project
-              </Button>
-            </div>
-          </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
-            <div className="rounded-lg border border-border bg-card p-4 sm:col-span-2">
-              <h2 className="text-lg font-semibold text-foreground">About this project</h2>
-              <p className="mt-2 text-sm text-muted-foreground">
-                {project?.description ||
-                  "Project details are mocked for now. Use this space to describe goals, scope, or linked chats."}
-              </p>
-            </div>
-            <div className="rounded-lg border border-border bg-card p-4 space-y-2">
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <CalendarIcon className="h-4 w-4" />
-                <span>Created</span>
-              </div>
-              <p className="text-base font-medium text-foreground">{project?.createdAt}</p>
-            </div>
-          </div>
-
-          <div className="rounded-lg border border-dashed border-border bg-muted/20 p-6">
-            <p className="text-base font-semibold text-foreground">Project chats</p>
-            <p className="text-sm text-muted-foreground">
-              Chats started from here stay in local memory for now. Use the composer below to begin.
-            </p>
-            <div className="mt-4 mx-auto w-full max-w-3xl">
+            <div className="space-y-4">
               <ChatComposer onSubmit={handleProjectChatSubmit} />
+              <div className="border-t border-b border-border bg-transparent">
+                {projectChatList.length ? (
+                  <div className="max-h-[360px] divide-y divide-border overflow-y-auto">
+                    {projectChatList.map((chat) => {
+                      const preview = getLatestUserPrompt(chat.messages);
+                      const latestTimestamp = getLatestMessageTimestamp(chat.messages, chat.timestamp);
+                      return (
+                        <button
+                          key={chat.id}
+                          type="button"
+                          onClick={() => handleProjectChatSelect(projectId ?? "", chat.id)}
+                          className="group/chat w-full bg-transparent px-3 py-3 text-left transition hover:bg-muted"
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="text-sm font-semibold text-foreground">
+                              {chat.title || "Untitled chat"}
+                            </span>
+                            <span className="text-xs font-medium text-muted-foreground">
+                              {formatShortDate(latestTimestamp)}
+                            </span>
+                          </div>
+                          {preview && (
+                            <p className="text-xs text-muted-foreground truncate">
+                              {preview}
+                            </p>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="px-4 py-4 text-sm text-muted-foreground">
+                    No project chats yet. Send a prompt to start one.
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </div>

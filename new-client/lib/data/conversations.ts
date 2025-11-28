@@ -62,3 +62,68 @@ export async function getConversationById(conversationId: string) {
 
   return data;
 }
+
+export async function renameConversation(params: { conversationId: string; title: string }) {
+  if (!isValidUuid(params.conversationId)) {
+    throw new Error("Invalid conversation ID");
+  }
+
+  const supabase = await supabaseServer();
+  const userId = getCurrentUserId();
+
+  const { data, error } = await supabase
+    .from("conversations")
+    .update({ title: params.title })
+    .eq("id", params.conversationId)
+    .eq("user_id", userId)
+    .select()
+    .single();
+
+  if (error || !data) {
+    throw new Error(`Failed to rename conversation: ${error?.message ?? "Unknown error"}`);
+  }
+
+  return data;
+}
+
+export async function moveConversationToProject(params: { conversationId: string; projectId: string | null }) {
+  if (!isValidUuid(params.conversationId)) {
+    throw new Error("Invalid conversation ID");
+  }
+
+  if (params.projectId && !isValidUuid(params.projectId)) {
+    throw new Error("Invalid project ID");
+  }
+
+  const supabase = await supabaseServer();
+  const userId = getCurrentUserId();
+
+  const { error } = await supabase
+    .from("conversations")
+    .update({ project_id: params.projectId ?? null })
+    .eq("id", params.conversationId)
+    .eq("user_id", userId);
+
+  if (error) {
+    throw new Error(`Failed to move conversation: ${error.message}`);
+  }
+}
+
+export async function deleteConversation(conversationId: string) {
+  if (!isValidUuid(conversationId)) {
+    throw new Error("Invalid conversation ID");
+  }
+
+  const supabase = await supabaseServer();
+  const userId = getCurrentUserId();
+
+  const { error } = await supabase
+    .from("conversations")
+    .delete()
+    .eq("id", conversationId)
+    .eq("user_id", userId);
+
+  if (error) {
+    throw new Error(`Failed to delete conversation: ${error.message}`);
+  }
+}

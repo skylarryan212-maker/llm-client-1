@@ -10,6 +10,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
 import { ArrowDown, Check, ChevronDown, Menu } from "lucide-react";
 import { SettingsModal } from "@/components/settings-modal";
+import { StatusBubble } from "@/components/chat/status-bubble";
 import {
   appendUserMessageAction,
   startGlobalConversationAction,
@@ -32,6 +33,10 @@ import { usePersistentSidebarOpen } from "@/lib/hooks/use-sidebar-open";
 import { normalizeModelFamily, normalizeSpeedMode, getModelSettingsFromDisplayName } from "@/lib/modelConfig";
 import type { ModelFamily, SpeedMode, ReasoningEffort } from "@/lib/modelConfig";
 import { isPlaceholderTitle } from "@/lib/conversation-utils";
+import { requestAutoNaming } from "@/lib/autoNaming";
+import type { AssistantMessageMetadata } from "@/lib/chatTypes";
+import { formatSearchedDomainsLine } from "@/lib/metadata";
+import { MessageInsightChips } from "@/components/chat/message-insight-chips";
 
 interface ShellConversation {
   id: string;
@@ -48,6 +53,14 @@ interface ServerMessage {
   metadata?: Record<string, unknown> | null;
 }
 
+type SearchStatusEvent =
+  | { type: "search-start"; query: string }
+  | { type: "search-complete"; query: string; results?: number }
+  | { type: "search-error"; query: string; message?: string }
+  | { type: "file-reading-start" }
+  | { type: "file-reading-complete" }
+  | { type: "file-reading-error"; message?: string };
+
 interface ChatPageShellProps {
   conversations: ShellConversation[];
   activeConversationId: string | null; // allow null for "/"
@@ -61,7 +74,8 @@ export default function ChatPageShell({
   activeConversationId,
   messages: initialMessages,
   projectId,
-}: ChatPageShellProps) {
+  searchParams,
+}: ChatPageShellProps): JSX.Element {
   const router = useRouter();
   const { projects, addProject } = useProjects();
   const {
@@ -86,7 +100,205 @@ export default function ChatPageShell({
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isAutoScroll, setIsAutoScroll] = useState(true);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
+  const [thinkingStatus, setThinkingStatus] = useState<{ variant: "thinking" | "extended"; label: string } | null>(null);
+  const [searchIndicator, setSearchIndicator] = useState<
+    | {
+        message: string;
+        variant: "running" | "complete" | "error";
+        domains: string[];
+        subtext?: string;
+      }
+    | null
+  >(null);
+  const searchDomainListRef = useRef<string[]>([]);
+  const searchDomainSetRef = useRef(new Set<string>());
+  const [fileReadingIndicator, setFileReadingIndicator] = useState<"running" | "error" | null>(null);
+  const [activeIndicatorMessageId, setActiveIndicatorMessageId] = useState<string | null>(null);
   const scrollViewportRef = useRef<HTMLDivElement | null>(null);
+  const autoStreamedConversations = useRef<Set<string>>(new Set());
+  const inFlightRequests = useRef<Set<string>>(new Set());
+  const thinkingTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const thinkingStartRef = useRef<number | null>(null);
+  const searchIndicatorTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const fileIndicatorTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const AUTO_STREAM_KEY_PREFIX = "llm-client-auto-stream:";
+
+  const getAutoStreamKey = (conversationId: string) =>
+    `${AUTO_STREAM_KEY_PREFIX}${conversationId}`;
+
+  const hasSessionAutoStream = (conversationId: string) =>
+    typeof window !== "undefined" &&
+    sessionStorage.getItem(getAutoStreamKey(conversationId)) === "1";
+
+  const markConversationAsAutoStreamed = (conversationId: string) => {
+    autoStreamedConversations.current.add(conversationId);
+    if (typeof window !== "undefined") {
+      sessionStorage.setItem(getAutoStreamKey(conversationId), "1");
+    }
+  };
+
+  const clearConversationAutoStreamed = (conversationId: string) => {
+    autoStreamedConversations.current.delete(conversationId);
+    if (typeof window !== "undefined") {
+      sessionStorage.removeItem(getAutoStreamKey(conversationId));
+    }
+  };
+
+  const isConversationAutoStreamed = (conversationId: string) => {
+    if (!conversationId) return false;
+    return (
+      autoStreamedConversations.current.has(conversationId) ||
+      hasSessionAutoStream(conversationId)
+    );
+  };
+
+  const autoStreamHandled =
+    searchParams?.autoStreamHandled?.toString() === "true";
+
+  const resetThinkingIndicator = useCallback(() => {
+    if (thinkingTimerRef.current) {
+      clearTimeout(thinkingTimerRef.current);
+    }
+    thinkingTimerRef.current = null;
+    thinkingStartRef.current = null;
+    setThinkingStatus(null);
+  }, []);
+
+  const showThinkingIndicator = useCallback(
+    (effort?: ReasoningEffort | null) => {
+      resetThinkingIndicator();
+      thinkingStartRef.current = Date.now();
+      const label = effort === "high" ? "Thinking deeply…" : "Thinking";
+      setThinkingStatus({ variant: "thinking", label });
+      thinkingTimerRef.current = setTimeout(() => {
+        setThinkingStatus((prev) =>
+          prev ? { variant: "extended", label: "Thinking for longer…" } : prev
+        );
+      }, 12000);
+    },
+    [resetThinkingIndicator]
+  );
+
+  const clearSearchIndicator = useCallback(() => {
+    if (searchIndicatorTimerRef.current) {
+      clearTimeout(searchIndicatorTimerRef.current);
+    }
+    searchIndicatorTimerRef.current = null;
+    setSearchIndicator(null);
+    searchDomainSetRef.current.clear();
+    searchDomainListRef.current = [];
+  }, []);
+
+  const showSearchCompleteIndicator = useCallback(
+    (
+      domains: string[],
+      siteLabel?: string | null,
+      options?: { variant?: "complete" | "error"; message?: string }
+    ) => {
+      const variant = options?.variant === "error" ? "error" : "complete";
+      const summary = formatSearchedDomainsLine(domains);
+      const fallbackMessage = variant === "error" ? "Web search failed" : "Searched the web";
+      const message = options?.message ?? summary ?? fallbackMessage;
+      if (!message && !siteLabel) {
+        return;
+      }
+      if (searchIndicatorTimerRef.current) {
+        clearTimeout(searchIndicatorTimerRef.current);
+      }
+      setSearchIndicator({
+        message,
+        variant,
+        domains,
+        subtext: siteLabel && siteLabel !== summary ? siteLabel : undefined,
+      });
+      searchIndicatorTimerRef.current = setTimeout(() => {
+        setSearchIndicator(null);
+        searchIndicatorTimerRef.current = null;
+      }, 6000);
+    },
+    []
+  );
+
+  const addSearchDomain = useCallback((domain?: string | null) => {
+    const label = domain?.trim();
+    if (!label) {
+      return;
+    }
+    const normalized = label.toLowerCase();
+    if (searchDomainSetRef.current.has(normalized)) {
+      return;
+    }
+    searchDomainSetRef.current.add(normalized);
+    searchDomainListRef.current = [...searchDomainListRef.current, label];
+    setSearchIndicator((prev) =>
+      prev && prev.variant === "running"
+        ? { ...prev, domains: searchDomainListRef.current }
+        : prev
+    );
+  }, []);
+
+  const clearFileReadingIndicator = useCallback(() => {
+    if (fileIndicatorTimerRef.current) {
+      clearTimeout(fileIndicatorTimerRef.current);
+    }
+    fileIndicatorTimerRef.current = null;
+    setFileReadingIndicator(null);
+  }, []);
+
+  const showFileReadingIndicator = useCallback((variant: "running" | "error" = "running") => {
+    if (fileIndicatorTimerRef.current) {
+      clearTimeout(fileIndicatorTimerRef.current);
+    }
+    setFileReadingIndicator(variant);
+    fileIndicatorTimerRef.current = setTimeout(() => {
+      setFileReadingIndicator(null);
+      fileIndicatorTimerRef.current = null;
+    }, 4500);
+  }, []);
+
+  const handleStatusEvent = useCallback(
+    (status: SearchStatusEvent) => {
+      switch (status.type) {
+        case "search-start":
+          setSearchIndicator({
+            message: status.query || "Searching the web",
+            variant: "running",
+            domains: searchDomainListRef.current,
+          });
+          break;
+        case "search-complete":
+          showSearchCompleteIndicator(searchDomainListRef.current);
+          break;
+        case "search-error":
+          showSearchCompleteIndicator(searchDomainListRef.current, undefined, {
+            variant: "error",
+            message: status.message ?? "Web search failed",
+          });
+          break;
+        case "file-reading-start":
+          showFileReadingIndicator("running");
+          break;
+        case "file-reading-complete":
+          clearFileReadingIndicator();
+          break;
+        case "file-reading-error":
+          showFileReadingIndicator("error");
+          break;
+      }
+    },
+    [clearFileReadingIndicator, showFileReadingIndicator, showSearchCompleteIndicator]
+  );
+
+  useEffect(() => {
+    if (
+      activeIndicatorMessageId &&
+      !searchIndicator &&
+      !fileReadingIndicator &&
+      !thinkingStatus
+    ) {
+      setActiveIndicatorMessageId(null);
+    }
+  }, [activeIndicatorMessageId, searchIndicator, fileReadingIndicator, thinkingStatus]);
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
     const viewport = scrollViewportRef.current;
@@ -148,6 +360,7 @@ export default function ChatPageShell({
   }, [currentChat, selectedChatId]);
 
   const handleSubmit = async (message: string) => {
+    console.log("[chatDebug] handleSubmit called with message:", message.substring(0, 50));
     const now = new Date().toISOString();
     const userMessage: StoredMessage = {
       id: `user-${Date.now()}`,
@@ -157,6 +370,7 @@ export default function ChatPageShell({
     };
 
     if (!selectedChatId) {
+      console.log("[chatDebug] Creating new conversation");
       const targetProjectId = selectedProjectId || projectId;
       if (targetProjectId) {
         const { conversationId, message: createdMessage, conversation } =
@@ -180,7 +394,14 @@ export default function ChatPageShell({
         });
         setSelectedChatId(newChatId);
         setSelectedProjectId(targetProjectId);
-        router.push(`/projects/${targetProjectId}/c/${newChatId}`);
+        router.push(`/projects/${targetProjectId}/c/${newChatId}?autoStreamHandled=true`);
+        
+        // Mark this conversation as already auto-streamed to prevent duplicate in useEffect
+        console.log("[chatDebug] Marking conversation as auto-streamed:", conversationId);
+        markConversationAsAutoStreamed(conversationId);
+        
+        // Trigger auto-naming immediately (in parallel with streaming)
+        triggerAutoNaming(conversationId, message, conversation.title);
         
         // Stream the model response without inserting the user message again
         await streamModelResponse(conversationId, targetProjectId, message, newChatId, true);
@@ -202,12 +423,20 @@ export default function ChatPageShell({
         });
         setSelectedChatId(newChatId);
         setSelectedProjectId("");
-        router.push(`/c/${newChatId}`);
+        router.push(`/c/${newChatId}?autoStreamHandled=true`);
+        
+        // Mark this conversation as already auto-streamed to prevent duplicate in useEffect
+        console.log("[chatDebug] Marking conversation as auto-streamed:", conversationId);
+        markConversationAsAutoStreamed(conversationId);
+        
+        // Trigger auto-naming immediately (in parallel with streaming)
+        triggerAutoNaming(conversationId, message, conversation.title);
         
         // Stream the model response without inserting the user message again
         await streamModelResponse(conversationId, undefined, message, newChatId, true);
       }
     } else {
+      console.log("[chatDebug] Adding message to existing chat:", selectedChatId);
       // For existing chats, just append the user message to UI
       // (The /api/chat endpoint will persist it to the database)
       appendMessages(selectedChatId, [userMessage]);
@@ -222,36 +451,22 @@ export default function ChatPageShell({
     userMessage: string,
     conversationTitle: string | undefined
   ) => {
+    console.log(`[titleDebug] triggerAutoNaming called for ${conversationId}, title: "${conversationTitle}"`);
+  
     // Only generate title if this is a new conversation with placeholder title
     if (!isPlaceholderTitle(conversationTitle)) {
+      console.log(`[titleDebug] skipping auto-naming - title is not a placeholder: "${conversationTitle}"`);
       return;
     }
 
-    // Fire-and-forget title generation
-    try {
-      const response = await fetch("/api/conversations/generate-title", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          conversationId,
-          userMessage,
-        }),
-      });
-      
-      if (response.ok) {
-        const data = await response.json();
-        console.log(`[titleDebug] auto-naming succeeded with title: ${data.title}`);
-        
-        // Refresh chats to get the updated title from Supabase
-        // The realtime subscription should handle this, but force a refresh to be sure
-        setTimeout(() => {
-          refreshChats().catch((err: unknown) => console.error("Failed to refresh after auto-naming:", err));
-        }, 500);
-      } else {
-        console.error("Auto-naming API returned error:", response.status);
-      }
-    } catch (error) {
-      console.error("Auto-naming trigger failed:", error);
+    console.log(`[titleDebug] initiating auto-naming for conversation ${conversationId}`);
+  
+    const data = await requestAutoNaming(conversationId, userMessage);
+    if (data?.title) {
+      console.log(`[titleDebug] auto-naming succeeded with title: ${data.title}`);
+      setTimeout(() => {
+        refreshChats().catch((err: unknown) => console.error("Failed to refresh after auto-naming:", err));
+      }, 500);
     }
   };
 
@@ -262,9 +477,21 @@ export default function ChatPageShell({
     chatId: string,
     skipUserInsert: boolean = false
   ) => {
+    const requestKey = `${conversationId}:${message}`;
+    if (inFlightRequests.current.has(requestKey)) {
+      console.log("[chatDebug] Duplicate streamModelResponse skipped for", requestKey);
+      return;
+    }
+    inFlightRequests.current.add(requestKey);
+
+    console.log("[chatDebug] streamModelResponse start", { conversationId, chatId, skipUserInsert, shortMessage: message.slice(0,40) });
+
     try {
       // Get model settings from current display selection
       const { modelFamily, speedMode, reasoningEffort } = getModelSettingsFromDisplayName(currentModel);
+      showThinkingIndicator(reasoningEffort);
+      clearSearchIndicator();
+      clearFileReadingIndicator();
 
       const response = await fetch("/api/chat", {
         method: "POST",
@@ -294,7 +521,7 @@ export default function ChatPageShell({
       const decoder = new TextDecoder();
       let assistantContent = "";
       const assistantMessageId = `assistant-streaming-${Date.now()}`;
-      let messageMetadata: Record<string, unknown> | null = null;
+      let messageMetadata: AssistantMessageMetadata | null = null;
 
       // Add the initial empty assistant message
       appendMessages(chatId, [
@@ -305,6 +532,7 @@ export default function ChatPageShell({
           timestamp: new Date().toISOString(),
         },
       ]);
+      setActiveIndicatorMessageId(assistantMessageId);
 
       try {
         while (true) {
@@ -324,9 +552,12 @@ export default function ChatPageShell({
                 updateMessage(chatId, assistantMessageId, {
                   content: assistantContent,
                 });
+                  } else if (parsed.status) {
+                    handleStatusEvent(parsed.status as SearchStatusEvent);
+                  } else if (parsed.type === "web_search_domain" && typeof parsed.domain === "string") {
+                    addSearchDomain(parsed.domain);
               } else if (parsed.meta) {
-                // Capture metadata from API response
-                messageMetadata = {
+                const fallbackMeta: AssistantMessageMetadata = {
                   modelUsed: parsed.meta.model,
                   reasoningEffort: parsed.meta.reasoningEffort,
                   resolvedFamily: parsed.meta.resolvedFamily,
@@ -335,12 +566,30 @@ export default function ChatPageShell({
                   userRequestedSpeedMode: speedMode,
                   userRequestedReasoningEffort: reasoningEffort,
                 };
+                const resolvedMetadata: AssistantMessageMetadata =
+                  (parsed.meta.metadata as AssistantMessageMetadata | null) ?? fallbackMeta;
+                messageMetadata = resolvedMetadata;
                 // Replace the temporary ID with the persisted row ID and store metadata
                 const newId = parsed.meta.assistantMessageRowId;
                 updateMessage(chatId, assistantMessageId, { 
                   id: newId,
-                  metadata: messageMetadata,
+                  metadata: resolvedMetadata,
                 });
+                if (
+                  Array.isArray(resolvedMetadata.searchedDomains) &&
+                  resolvedMetadata.searchedDomains.length > 0
+                ) {
+                  showSearchCompleteIndicator(
+                    resolvedMetadata.searchedDomains,
+                    resolvedMetadata.searchedSiteLabel
+                  );
+                }
+                if (
+                  Array.isArray(resolvedMetadata.citations) &&
+                  resolvedMetadata.citations.length > 0
+                ) {
+                  showFileReadingIndicator();
+                }
               } else if (parsed.done) {
                 // Streaming complete
                 break;
@@ -353,32 +602,33 @@ export default function ChatPageShell({
       } finally {
         reader.releaseLock();
       }
-
-      // After streaming completes, check if we need to auto-generate a title
-      // Count assistant messages before this one (skip the one we just added)
-      const assistantMessagesBeforeThis = messages.filter(m => m.role === "assistant").length;
-      
-      // Only trigger auto-naming after the first assistant response
-      if (assistantMessagesBeforeThis === 0) {
-        const conversation = chats.find(c => c.id === conversationId);
-        if (conversation) {
-          await triggerAutoNaming(conversationId, message, conversation.title);
-        }
-      }
     } catch (error) {
       console.error("Error streaming model response:", error);
+    } finally {
+      inFlightRequests.current.delete(requestKey);
+      resetThinkingIndicator();
     }
   };
 
   // Check if we need to auto-start streaming for a new chat with only a user message
   // This handles the case where a chat was created from the project page and redirected here
   useEffect(() => {
-    if (!activeConversationId || !initialMessages.length) return;
+    if (!activeConversationId || !initialMessages.length || autoStreamHandled) return;
+    
+    // Skip if we've already auto-streamed this conversation (e.g., from handleSubmit)
+    if (isConversationAutoStreamed(activeConversationId)) {
+      console.log("[chatDebug] Skipping auto-stream - already processed:", activeConversationId);
+      clearConversationAutoStreamed(activeConversationId);
+      return;
+    }
     
     // Only trigger if there's exactly 1 message and it's a user message
     if (initialMessages.length === 1 && initialMessages[0].role === "user") {
       const userMessage = initialMessages[0];
       console.log("[chatDebug] Detected new chat with only user message, triggering stream");
+      
+      // Mark as auto-streamed before triggering
+      autoStreamedConversations.current.add(activeConversationId);
       
       streamModelResponse(
         activeConversationId,
@@ -390,7 +640,7 @@ export default function ChatPageShell({
         console.error("Failed to stream initial message:", err);
       });
     }
-  }, [activeConversationId]); // Only run when activeConversationId changes
+  }, [activeConversationId, initialMessages.length, autoStreamHandled]); // Run when conversation changes or message count changes
 
   const handleRetryWithModel = async (retryModelName: string, messageId: string) => {
     if (!selectedChatId) return;
@@ -463,7 +713,11 @@ export default function ChatPageShell({
        const decoder = new TextDecoder();
        let assistantContent = "";
        const assistantMessageId = `assistant-streaming-${Date.now()}`;
-       let messageMetadata: Record<string, unknown> | null = null;
+       let messageMetadata: AssistantMessageMetadata | null = null;
+
+       showThinkingIndicator(undefined);
+       clearSearchIndicator();
+      clearFileReadingIndicator();
 
        // Add the initial empty assistant message
        appendMessages(selectedChatId, [
@@ -474,6 +728,7 @@ export default function ChatPageShell({
            timestamp: new Date().toISOString(),
          },
        ]);
+        setActiveIndicatorMessageId(assistantMessageId);
 
        try {
          while (true) {
@@ -493,23 +748,44 @@ export default function ChatPageShell({
                  updateMessage(selectedChatId, assistantMessageId, {
                    content: assistantContent,
                  });
+                  } else if (parsed.status) {
+                    handleStatusEvent(parsed.status as SearchStatusEvent);
+                  } else if (parsed.type === "web_search_domain" && typeof parsed.domain === "string") {
+                    addSearchDomain(parsed.domain);
                } else if (parsed.meta) {
-                 // Capture metadata from API response
-                 messageMetadata = {
-                   modelUsed: parsed.meta.model,
-                   reasoningEffort: parsed.meta.reasoningEffort,
-                   resolvedFamily: parsed.meta.resolvedFamily,
-                   speedModeUsed: parsed.meta.speedModeUsed,
-                   userRequestedFamily: retryModelFamily,
-                   userRequestedSpeedMode: retrySpeedMode,
-                   userRequestedReasoningEffort: undefined,
-                 };
+                  const fallbackMeta: AssistantMessageMetadata = {
+                    modelUsed: parsed.meta.model,
+                    reasoningEffort: parsed.meta.reasoningEffort,
+                    resolvedFamily: parsed.meta.resolvedFamily,
+                    speedModeUsed: parsed.meta.speedModeUsed,
+                    userRequestedFamily: retryModelFamily,
+                    userRequestedSpeedMode: retrySpeedMode,
+                    userRequestedReasoningEffort: undefined,
+                  };
+                  const resolvedMetadata: AssistantMessageMetadata =
+                    (parsed.meta.metadata as AssistantMessageMetadata | null) ?? fallbackMeta;
+                  messageMetadata = resolvedMetadata;
                  // Replace the temporary ID with the persisted row ID and store metadata
                  const newId = parsed.meta.assistantMessageRowId;
                  updateMessage(selectedChatId, assistantMessageId, { 
                    id: newId,
-                   metadata: messageMetadata,
+                    metadata: resolvedMetadata,
                  });
+                  if (
+                    Array.isArray(resolvedMetadata.searchedDomains) &&
+                    resolvedMetadata.searchedDomains.length > 0
+                  ) {
+                    showSearchCompleteIndicator(
+                      resolvedMetadata.searchedDomains,
+                      resolvedMetadata.searchedSiteLabel
+                    );
+                  }
+                  if (
+                    Array.isArray(resolvedMetadata.citations) &&
+                    resolvedMetadata.citations.length > 0
+                  ) {
+                    showFileReadingIndicator();
+                  }
                } else if (parsed.done) {
                  // Streaming complete
                  break;
@@ -524,6 +800,8 @@ export default function ChatPageShell({
        }
      } catch (error) {
        console.error("Error retrying with model:", error);
+        } finally {
+          resetThinkingIndicator();
      }
   };
 
@@ -579,6 +857,20 @@ export default function ChatPageShell({
       setShowScrollToBottom(true);
     }
   }, [messages.length, isAutoScroll, messages]);
+
+  useEffect(() => {
+    return () => {
+      if (thinkingTimerRef.current) {
+        clearTimeout(thinkingTimerRef.current);
+      }
+      if (searchIndicatorTimerRef.current) {
+        clearTimeout(searchIndicatorTimerRef.current);
+      }
+      if (fileIndicatorTimerRef.current) {
+        clearTimeout(fileIndicatorTimerRef.current);
+      }
+    };
+  }, []);
 
   const handleNewProject = () => {
     setIsNewProjectOpen(true);
@@ -894,13 +1186,74 @@ export default function ChatPageShell({
             <div className="py-4 pb-4">
               {/* Wide desktop layout with padded container */}
               <div className="w-full px-4 sm:px-6 lg:px-12 space-y-4">
-                {messages.map((message, index) => (
-                  <ChatMessage 
-                    key={index} 
-                    {...message}
-                    onRetry={message.role === 'assistant' ? (model) => handleRetryWithModel(model, message.id) : undefined}
-                  />
-                ))}
+                {messages.map((message) => {
+                  const metadata = message.metadata as AssistantMessageMetadata | null;
+                  const metadataIndicators =
+                    Boolean(metadata?.thoughtDurationLabel) ||
+                    Boolean(metadata?.searchedDomains?.length) ||
+                    Boolean(metadata?.citations?.length);
+                  const isStreamingMessage = message.id === activeIndicatorMessageId;
+                  const showIndicatorBlock =
+                    message.role === "assistant" && (metadataIndicators || isStreamingMessage);
+                  const showStatusRow =
+                    isStreamingMessage &&
+                    (Boolean(fileReadingIndicator) ||
+                      Boolean(searchIndicator) ||
+                      Boolean(thinkingStatus));
+                  return (
+                    <div key={message.id}>
+                      {showIndicatorBlock && (
+                        <div className="flex flex-col gap-2 pb-2">
+                          {showStatusRow && (
+                            <div className="flex flex-wrap gap-2">
+                              {fileReadingIndicator && (
+                                <StatusBubble
+                                  label="Reading documents"
+                                  variant={
+                                    fileReadingIndicator === "error" ? "error" : "reading"
+                                  }
+                                />
+                              )}
+                              {searchIndicator && (
+                                <StatusBubble
+                                  label={searchIndicator.message}
+                                  variant={
+                                    searchIndicator.variant === "error"
+                                      ? "error"
+                                      : "search"
+                                  }
+                                  subtext={searchIndicator.subtext}
+                                />
+                              )}
+                              {thinkingStatus && (
+                                <StatusBubble
+                                  label={thinkingStatus.label}
+                                  variant={
+                                    thinkingStatus.variant === "extended"
+                                      ? "extended"
+                                      : "default"
+                                  }
+                                />
+                              )}
+                            </div>
+                          )}
+                          {metadataIndicators && (
+                            <MessageInsightChips metadata={metadata} />
+                          )}
+                        </div>
+                      )}
+                      <ChatMessage
+                        {...message}
+                        showInsightChips={!showIndicatorBlock}
+                        onRetry={
+                          message.role === "assistant"
+                            ? (model) => handleRetryWithModel(model, message.id)
+                            : undefined
+                        }
+                      />
+                    </div>
+                  );
+                })}
               </div>
             </div>
           </ScrollArea>

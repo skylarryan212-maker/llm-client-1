@@ -1,14 +1,22 @@
 'use client'
 
-import { KeyboardEvent, useMemo, useState } from 'react'
+import { KeyboardEvent, useEffect, useMemo, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Plus, Sparkles, ChevronDown, ChevronRight, FolderPlus, X } from 'lucide-react'
 import Link from 'next/link'
 import { UserProfileMenu } from '@/components/user-profile-menu'
 import { usePathname } from 'next/navigation'
+import {
+  deleteConversationAction,
+  moveConversationToProjectAction,
+  renameConversationAction,
+} from '@/app/actions/chat-actions'
+import { deleteProjectAction, renameProjectAction } from '@/app/actions/project-actions'
 import { ChatContextMenu } from '@/components/chat-context-menu'
 import { ProjectContextMenu } from '@/components/project-context-menu'
+import { Dialog } from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
 
 interface Conversation {
   id: string
@@ -101,6 +109,120 @@ export function ChatSidebar({
     }
   }
 
+  type ActiveAction =
+    | { type: 'renameProject'; projectId: string; currentName?: string }
+    | { type: 'deleteProject'; projectId: string; currentName?: string }
+    | { type: 'renameChat'; chatId: string; currentTitle?: string }
+    | { type: 'moveChat'; chatId: string; currentProjectId?: string }
+    | { type: 'deleteChat'; chatId: string; currentTitle?: string }
+
+  const [activeAction, setActiveAction] = useState<ActiveAction | null>(null)
+  const [pendingName, setPendingName] = useState('')
+
+  useEffect(() => {
+    if (!activeAction) {
+      setPendingName('')
+      return
+    }
+
+    if (activeAction.type === 'renameChat') {
+      setPendingName(activeAction.currentTitle ?? '')
+    } else if (activeAction.type === 'renameProject') {
+      setPendingName(activeAction.currentName ?? '')
+    }
+  }, [activeAction])
+
+  const clearAction = () => {
+    setActiveAction(null)
+    setPendingName('')
+  }
+
+  const queueRenameProject = (projectId: string, currentName?: string) => {
+    setActiveAction({ type: 'renameProject', projectId, currentName })
+  }
+
+  const queueDeleteProject = (projectId: string, currentName?: string) => {
+    setActiveAction({ type: 'deleteProject', projectId, currentName })
+  }
+
+  const queueRenameChat = (chatId: string, currentTitle?: string) => {
+    setActiveAction({ type: 'renameChat', chatId, currentTitle })
+  }
+
+  const queueMoveChat = (chatId: string, currentProjectId?: string) => {
+    setActiveAction({ type: 'moveChat', chatId, currentProjectId })
+  }
+
+  const queueDeleteChat = (chatId: string, currentTitle?: string) => {
+    setActiveAction({ type: 'deleteChat', chatId, currentTitle })
+  }
+
+  const renameAction =
+    activeAction && (activeAction.type === 'renameProject' || activeAction.type === 'renameChat')
+      ? activeAction
+      : null
+  const deleteAction =
+    activeAction && (activeAction.type === 'deleteProject' || activeAction.type === 'deleteChat')
+      ? activeAction
+      : null
+  const moveAction = activeAction && activeAction.type === 'moveChat' ? activeAction : null
+
+  const confirmRename = async () => {
+    if (!renameAction) return
+
+    const nextName = pendingName.trim()
+    if (!nextName) return
+
+    try {
+      if (renameAction.type === 'renameProject') {
+        await renameProjectAction(renameAction.projectId, nextName)
+      } else {
+        await renameConversationAction(renameAction.chatId, nextName)
+      }
+      clearAction()
+    } catch (error) {
+      console.error('Failed to rename', error)
+      window.alert('Unable to rename. Please try again later.')
+    }
+  }
+
+  const confirmDelete = async () => {
+    if (!deleteAction) return
+
+    try {
+      if (deleteAction.type === 'deleteProject') {
+        await deleteProjectAction(deleteAction.projectId)
+      } else {
+        await deleteConversationAction(deleteAction.chatId)
+      }
+      clearAction()
+    } catch (error) {
+      console.error('Failed to delete', error)
+      window.alert('Unable to delete. Please try again later.')
+    }
+  }
+
+  const handleMoveTargetSelect = async (targetProjectId: string | null) => {
+    if (!moveAction) return
+
+    if (targetProjectId === moveAction.currentProjectId) {
+      clearAction()
+      return
+    }
+
+    try {
+      await moveConversationToProjectAction(moveAction.chatId, targetProjectId)
+      clearAction()
+    } catch (error) {
+      console.error('Failed to move chat', error)
+      window.alert('Unable to move the chat. Please try again later.')
+    }
+  }
+
+  const renameExistingName =
+    renameAction && (renameAction.type === 'renameProject' ? renameAction.currentName : renameAction.currentTitle)
+  const renameDisabled = !pendingName.trim() || pendingName.trim() === renameExistingName?.trim()
+
   return (
     <>
       {isOpen && (
@@ -184,7 +306,7 @@ export function ChatSidebar({
                         <Button
                           onClick={onNewProject}
                           variant="ghost"
-                          className="h-9 w-full justify-start gap-2 px-2.5 text-sidebar-foreground hover:bg-sidebar-accent"
+                            className="h-9 w-full max-w-[231px] justify-start gap-2 px-2.5 text-sidebar-foreground hover:bg-sidebar-accent"
                         >
                           <FolderPlus className="h-4 w-4" />
                           New project
@@ -205,7 +327,7 @@ export function ChatSidebar({
                               <Link
                                 href={`/projects/${project.id}`}
                                 onClick={() => onProjectSelect?.(project.id)}
-                                className={`group relative flex w-full items-center gap-2 rounded-lg px-2.5 py-2 transition-colors ${
+                                className={`group relative flex w-full max-w-[231px] items-center gap-2 rounded-lg px-2.5 py-2 transition-colors ${
                                   isProjectActive
                                     ? 'bg-zinc-800 text-white'
                                     : 'hover:bg-sidebar-accent'
@@ -213,14 +335,14 @@ export function ChatSidebar({
                               >
                                 <div className="flex items-center gap-2 flex-1 min-w-0">
                                   <span className="text-base">{project.icon}</span>
-                                  <span className="truncate text-sm text-sidebar-foreground pr-8">
+                                  <span className="min-w-0 truncate text-sm text-sidebar-foreground pr-2.5">
                                     {project.name}
                                   </span>
                                 </div>
                                 <div className="flex-shrink-0">
                                   <ProjectContextMenu
-                                    onRename={() => console.log('Rename project', project.id)}
-                                    onDelete={() => console.log('Delete project', project.id)}
+                                    onRename={() => void queueRenameProject(project.id, project.name)}
+                                    onDelete={() => void queueDeleteProject(project.id, project.name)}
                                   />
                                 </div>
                               </Link>
@@ -236,24 +358,24 @@ export function ChatSidebar({
                                       onKeyDown={(event) =>
                                         handleListItemKeyDown(event, () => onProjectChatSelect?.(project.id, chat.id))
                                       }
-                                      className={`group/chat flex w-full items-center gap-2 rounded-md pl-8 pr-2.5 py-1.5 text-left transition-colors ${
+                                      className={`group/chat flex w-full max-w-[231px] items-center gap-2 rounded-lg pl-8 pr-2.5 py-1.5 text-left transition-colors ${
                                         selectedChatId === chat.id
                                           ? 'bg-zinc-800 text-white'
                                           : 'hover:bg-sidebar-accent'
                                       }`}
                                     >
-                                      <div className="flex-1 min-w-0">
-                                        <span className="block truncate text-sm text-sidebar-foreground pr-8">
+                                      <div className="flex-1 min-w-0 pr-2">
+                                        <span className="block min-w-0 truncate text-sm text-sidebar-foreground">
                                           {chat.title}
                                         </span>
                                       </div>
                                       <div className="flex-shrink-0">
                                         <ChatContextMenu
                                           onShare={() => console.log('Share', chat.id)}
-                                          onRename={() => console.log('Rename', chat.id)}
-                                          onMoveToProject={() => console.log('Move to project', chat.id)}
+                                          onRename={() => void queueRenameChat(chat.id, chat.title)}
+                                          onMoveToProject={() => void queueMoveChat(chat.id, project.id)}
                                           onArchive={() => console.log('Archive', chat.id)}
-                                          onDelete={() => console.log('Delete', chat.id)}
+                                          onDelete={() => void queueDeleteChat(chat.id, chat.title)}
                                         />
                                       </div>
                                     </div>
@@ -261,7 +383,7 @@ export function ChatSidebar({
                                   {hasMoreChats && (
                                     <Link
                                       href={`/projects/${project.id}`}
-                                      className="block rounded-md px-2.5 py-1.5 text-sm text-muted-foreground hover:bg-sidebar-accent"
+                                      className="block rounded-lg px-2.5 py-1.5 text-sm text-muted-foreground hover:bg-sidebar-accent"
                                       onClick={() => onProjectSelect?.(project.id)}
                                     >
                                       See more…
@@ -274,46 +396,48 @@ export function ChatSidebar({
                         })}
 
                         {moreProjects.length > 0 && (
-                          <div className="relative">
-                            <button
-                              onClick={() => setShowMoreProjects(!showMoreProjects)}
-                              className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-muted-foreground hover:bg-sidebar-accent transition-colors"
-                            >
-                              <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <circle cx="12" cy="12" r="1" fill="currentColor"/>
-                                <circle cx="19" cy="12" r="1" fill="currentColor"/>
-                                <circle cx="5" cy="12" r="1" fill="currentColor"/>
-                              </svg>
-                              See more
-                            </button>
+                              <div className="relative">
+                                <button
+                                  onClick={() => setShowMoreProjects(!showMoreProjects)}
+                                  className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm text-muted-foreground hover:bg-sidebar-accent transition-colors"
+                                >
+                                  <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <circle cx="12" cy="12" r="1" fill="currentColor"/>
+                                    <circle cx="19" cy="12" r="1" fill="currentColor"/>
+                                    <circle cx="5" cy="12" r="1" fill="currentColor"/>
+                                  </svg>
+                                  See more
+                                </button>
 
                             {showMoreProjects && (
                               <div className="absolute left-full top-0 ml-2 w-56 rounded-lg border border-border bg-popover p-1 shadow-lg z-50">
                                 {moreProjects.map((project) => (
-                                  <Link
-                                    key={project.id}
-                                    href={`/projects/${project.id}`}
-                                    onClick={() => {
-                                      onProjectSelect?.(project.id)
-                                      setShowMoreProjects(false)
-                                    }}
-                                    className={`group block w-full text-left rounded-lg transition-colors ${
-                                      isProjectRootView && activeProjectId === project.id
-                                        ? 'bg-zinc-800 text-white'
-                                        : 'hover:bg-accent'
-                                    }`}
-                                  >
-                                    <div className="py-2 px-3 flex items-center justify-between gap-2">
-                                      <div className="flex items-center gap-2 flex-1 min-w-0">
-                                        <span className="text-base">{project.icon}</span>
-                                        <span className="truncate text-sm">{project.name}</span>
+                                    <Link
+                                      key={project.id}
+                                      href={`/projects/${project.id}`}
+                                      onClick={() => {
+                                        onProjectSelect?.(project.id)
+                                        setShowMoreProjects(false)
+                                      }}
+                                      className={`group block w-full max-w-[231px] text-left rounded-lg transition-colors ${
+                                        isProjectRootView && activeProjectId === project.id
+                                          ? 'bg-zinc-800 text-white'
+                                          : 'hover:bg-accent'
+                                      }`}
+                                    >
+                                      <div className="py-2 px-3 flex items-center justify-between gap-2">
+                                        <div className="flex items-center gap-2 flex-1 min-w-0">
+                                          <span className="text-base">{project.icon}</span>
+                                          <span className="min-w-0 truncate text-sm">
+                                            {project.name}
+                                          </span>
+                                        </div>
+                                        <ProjectContextMenu
+                                          onRename={() => void queueRenameProject(project.id, project.name)}
+                                          onDelete={() => void queueDeleteProject(project.id, project.name)}
+                                        />
                                       </div>
-                                      <ProjectContextMenu
-                                        onRename={() => console.log('Rename project', project.id)}
-                                        onDelete={() => console.log('Delete project', project.id)}
-                                      />
-                                    </div>
-                                  </Link>
+                                    </Link>
                                 ))}
                               </div>
                             )}
@@ -343,22 +467,24 @@ export function ChatSidebar({
                             onKeyDown={(event) =>
                               handleListItemKeyDown(event, () => onChatSelect?.(conv.id))
                             }
-                            className={`group/chat w-full text-left rounded-lg px-2.5 py-2 flex items-center gap-2 transition-colors ${
+                            className={`group/chat w-full max-w-[231px] text-left rounded-lg px-2.5 py-2 flex items-center gap-2 transition-colors ${
                               selectedChatId === conv.id && !isAgentsPage
                                 ? 'bg-zinc-800 text-white'
                                 : 'hover:bg-sidebar-accent'
                             }`}
                           >
-                            <div className="flex-1 min-w-0">
-                              <div className="truncate text-sm text-sidebar-foreground pr-8">{conv.title}</div>
+                            <div className="flex-1 min-w-0 pr-2">
+                              <div className="min-w-0 truncate text-sm text-sidebar-foreground">
+                                {conv.title}
+                              </div>
                             </div>
                             <div className="flex-shrink-0">
                               <ChatContextMenu
                                 onShare={() => console.log('Share', conv.id)}
-                                onRename={() => console.log('Rename', conv.id)}
-                                onMoveToProject={() => console.log('Move to project', conv.id)}
+                                onRename={() => void queueRenameChat(conv.id, conv.title)}
+                                onMoveToProject={() => void queueMoveChat(conv.id)}
                                 onArchive={() => console.log('Archive', conv.id)}
-                                onDelete={() => console.log('Delete', conv.id)}
+                                onDelete={() => void queueDeleteChat(conv.id, conv.title)}
                               />
                             </div>
                           </div>
@@ -376,6 +502,146 @@ export function ChatSidebar({
           <UserProfileMenu isCompressed={!isOpen} onSettingsOpen={onSettingsOpen} />
         </div>
       </div>
+
+      <Dialog open={Boolean(renameAction)} onClose={clearAction}>
+        <div className="space-y-3">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-lg font-semibold text-foreground">
+                {renameAction?.type === 'renameProject' ? 'Rename project' : 'Rename chat'}
+              </p>
+              <p className="text-sm text-muted-foreground">
+                {renameAction?.type === 'renameProject'
+                  ? 'Give this project a descriptive name so it is easier to find.'
+                  : 'Give this chat a descriptive title so you can find it later.'}
+              </p>
+            </div>
+            <Button variant="ghost" size="icon" onClick={clearAction} aria-label="Close">
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+          <Input
+            autoFocus
+            placeholder="New name"
+            value={pendingName}
+            onChange={(event) => setPendingName(event.target.value)}
+          />
+          <div className="flex items-center justify-end gap-2">
+            <Button variant="ghost" size="sm" onClick={clearAction}>
+              Cancel
+            </Button>
+            <Button variant="default" size="sm" onClick={confirmRename} disabled={renameDisabled}>
+              Rename
+            </Button>
+          </div>
+        </div>
+      </Dialog>
+
+      <Dialog open={Boolean(moveAction)} onClose={clearAction}>
+        <div className="space-y-4">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-lg font-semibold text-foreground">Move to project</p>
+              <p className="text-sm text-muted-foreground">
+                Select a destination for this chat.
+              </p>
+            </div>
+            <Button variant="ghost" size="icon" onClick={clearAction} aria-label="Close">
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+          <div className="space-y-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                if (!onNewProject) return
+                onNewProject()
+                clearAction()
+              }}
+              disabled={!onNewProject}
+              className="w-full justify-start gap-2 rounded-lg border border-border bg-background px-3 py-2 text-sm font-medium text-foreground hover:bg-accent"
+            >
+              <FolderPlus className="h-4 w-4" />
+              New project
+            </Button>
+            {projects.length ? (
+              <div className="space-y-1 rounded-lg border border-border bg-background p-1">
+                <button
+                  type="button"
+                  onClick={() => handleMoveTargetSelect(null)}
+                  className={`flex w-full items-center justify-between rounded-md px-3 py-2 text-sm font-medium transition-colors ${
+                    !moveAction?.currentProjectId
+                      ? 'bg-primary/10 text-primary'
+                      : 'text-foreground hover:bg-accent'
+                  }`}
+                >
+                  <span className="flex items-center gap-2">
+                    <span className="text-base">🌐</span>
+                    <span>Global chat</span>
+                  </span>
+                  {!moveAction?.currentProjectId && (
+                    <span className="text-xs font-semibold text-primary">Current</span>
+                  )}
+                </button>
+                {projects.map((project) => {
+                  const isSelected = moveAction?.currentProjectId === project.id
+                  return (
+                    <button
+                      type="button"
+                      key={project.id}
+                      onClick={() => handleMoveTargetSelect(project.id)}
+                      className={`flex w-full items-center justify-between rounded-md px-3 py-2 text-sm font-medium transition-colors ${
+                        isSelected ? 'bg-primary/10 text-primary' : 'text-foreground hover:bg-accent'
+                      }`}
+                    >
+                      <span className="flex items-center gap-2">
+                        <span className="text-base">{project.icon}</span>
+                        <span className="truncate">{project.name}</span>
+                      </span>
+                      {isSelected && (
+                        <span className="text-xs font-semibold text-primary">Current</span>
+                      )}
+                    </button>
+                  )
+                })}
+              </div>
+            ) : (
+              <div className="rounded-lg border border-border bg-background p-3 text-sm text-muted-foreground">
+                Create a project to move chats here.
+              </div>
+            )}
+          </div>
+        </div>
+      </Dialog>
+
+      <Dialog open={Boolean(deleteAction)} onClose={clearAction}>
+        <div className="space-y-4">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-lg font-semibold text-foreground">
+                {deleteAction?.type === 'deleteProject' ? 'Delete project?' : 'Delete chat?'}
+              </p>
+              <p className="text-sm text-muted-foreground">
+                {deleteAction?.type === 'deleteProject'
+                  ? `This will delete ${deleteAction?.currentName ?? 'the project'} and all its chats.`
+                  : `This will delete ${deleteAction?.currentTitle ?? 'this chat'}.`}
+              </p>
+            </div>
+            <Button variant="ghost" size="icon" onClick={clearAction} aria-label="Close">
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+          <div className="flex items-center justify-end gap-2">
+            <Button variant="ghost" size="sm" onClick={clearAction}>
+              Cancel
+            </Button>
+            <Button variant="destructive" size="sm" onClick={confirmDelete}>
+              Delete
+            </Button>
+          </div>
+        </div>
+      </Dialog>
     </>
   )
 }
