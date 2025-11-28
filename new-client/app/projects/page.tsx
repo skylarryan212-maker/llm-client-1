@@ -25,8 +25,8 @@ export default function ProjectsPage() {
     setIsNewProjectOpen(true);
   };
 
-  const handleProjectCreate = (name: string) => {
-    const newProject = addProject(name);
+  const handleProjectCreate = async (name: string) => {
+    const newProject = await addProject(name);
     setSelectedProjectId(newProject.id);
     setIsNewProjectOpen(false);
     router.push(`/projects/${newProject.id}`);

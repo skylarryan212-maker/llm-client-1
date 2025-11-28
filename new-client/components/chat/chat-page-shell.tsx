@@ -13,6 +13,7 @@ import { SettingsModal } from "@/components/settings-modal";
 import {
   appendUserMessageAction,
   startGlobalConversationAction,
+  startProjectConversationAction,
 } from "@/app/actions/chat-actions";
 import {
   DropdownMenu,
@@ -158,30 +159,52 @@ export default function ChatPageShell({
     if (!selectedChatId) {
       const targetProjectId = selectedProjectId || projectId;
       if (targetProjectId) {
+        const { conversationId, message: createdMessage, conversation } =
+          await startProjectConversationAction({
+            projectId: targetProjectId,
+            firstMessageContent: message,
+          });
+
+        const mappedMessage: StoredMessage = {
+          id: createdMessage.id,
+          role: "user",
+          content: createdMessage.content ?? message,
+          timestamp: createdMessage.created_at ?? now,
+        };
+
         const newChatId = createChat({
+          id: conversationId,
           projectId: targetProjectId,
-          initialMessages: [userMessage, assistantMessage],
-          title: message.slice(0, 80) || "New chat",
+          initialMessages: [mappedMessage, assistantMessage],
+          title:
+            conversation.title ?? (message.slice(0, 80) || "New chat"),
         });
         setSelectedChatId(newChatId);
         setSelectedProjectId(targetProjectId);
         router.push(`/projects/${targetProjectId}/c/${newChatId}`);
       } else {
-        const { conversationId } = await startGlobalConversationAction(message);
+        const { conversationId, message: createdMessage, conversation } =
+          await startGlobalConversationAction(message);
+
+        const mappedMessage: StoredMessage = {
+          id: createdMessage.id,
+          role: "user",
+          content: createdMessage.content ?? message,
+          timestamp: createdMessage.created_at ?? now,
+        };
+
         const newChatId = createChat({
           id: conversationId,
-          initialMessages: [userMessage, assistantMessage],
-          title: message.slice(0, 80) || "New chat",
+          initialMessages: [mappedMessage, assistantMessage],
+          title:
+            conversation.title ?? (message.slice(0, 80) || "New chat"),
         });
         setSelectedChatId(newChatId);
         setSelectedProjectId("");
         router.push(`/c/${newChatId}`);
       }
     } else {
-      const isProjectChat = currentChat?.projectId ?? false;
-      if (!isProjectChat) {
-        await appendUserMessageAction(selectedChatId, message);
-      }
+      await appendUserMessageAction(selectedChatId, message);
       appendMessages(selectedChatId, [userMessage, assistantMessage]);
     }
   };
@@ -243,8 +266,8 @@ export default function ChatPageShell({
     setIsNewProjectOpen(true);
   };
 
-  const handleProjectCreate = (name: string) => {
-    const newProject = addProject(name);
+  const handleProjectCreate = async (name: string) => {
+    const newProject = await addProject(name);
     setSelectedProjectId(newProject.id);
     setIsNewProjectOpen(false);
     router.push(`/projects/${newProject.id}`);

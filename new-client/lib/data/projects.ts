@@ -22,6 +22,28 @@ export async function getProjectsForUser() {
   return data ?? [];
 }
 
+export async function createProject(params: { name: string }) {
+  const supabase = await supabaseServer();
+  const userId = getCurrentUserId();
+
+  const { data, error } = await supabase
+    .from("projects")
+    .insert([
+      {
+        user_id: userId,
+        name: params.name,
+      },
+    ])
+    .select()
+    .single<ProjectRow>();
+
+  if (error || !data) {
+    throw new Error(`Failed to create project: ${error?.message ?? "Unknown error"}`);
+  }
+
+  return data;
+}
+
 export async function getProjectById(projectId: string) {
   const supabase = await supabaseServer();
   const userId = getCurrentUserId();

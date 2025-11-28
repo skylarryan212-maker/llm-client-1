@@ -28,21 +28,7 @@ export default async function RootLayout({
   children: React.ReactNode;
 }) {
   const projects = await getProjectsForUser();
-
-  const globalConversationsPromise = getConversationsForUser();
-  const projectConversationsPromise = Promise.all(
-    projects.map((project) => getConversationsForUser({ projectId: project.id }))
-  );
-
-  const [globalConversations, projectScopedConversations] = await Promise.all([
-    globalConversationsPromise,
-    projectConversationsPromise,
-  ]);
-
-  const conversations = [
-    ...globalConversations,
-    ...projectScopedConversations.flat(),
-  ];
+  const conversations = await getConversationsForUser();
 
   const initialProjectSummaries = projects.map((project) => ({
     id: project.id,

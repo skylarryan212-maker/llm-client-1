@@ -21,13 +21,15 @@ export async function getConversationsForUser(options?: { projectId?: string | n
     .eq("user_id", userId)
     .order("created_at", { ascending: false });
 
-  if (options?.projectId) {
-    if (!isValidUuid(options.projectId)) {
-      return [];
+  if (options) {
+    if (options.projectId) {
+      if (!isValidUuid(options.projectId)) {
+        return [];
+      }
+      query.eq("project_id", options.projectId);
+    } else {
+      query.is("project_id", null);
     }
-    query.eq("project_id", options.projectId);
-  } else {
-    query.is("project_id", null);
   }
 
   const { data, error } = await query.returns<ConversationRow[]>();
