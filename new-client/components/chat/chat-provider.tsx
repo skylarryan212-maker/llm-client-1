@@ -219,6 +219,20 @@ export function ChatProvider({ children, initialChats = [] }: ChatProviderProps)
     };
   }, [userId]);
 
+  // Ensure we hydrate from Supabase on initial client mount so the UI shows
+  // the latest conversations even when server-rendered props are missing.
+  useEffect(() => {
+    // Only attempt to refresh if we don't already have chats loaded.
+    // This allows server-provided initialChats to remain authoritative on first paint,
+    // but will fetch latest data for fresh page loads.
+    if (!userId) return;
+    refreshChats().catch((err) => {
+      // swallow errors in client-side hydration to avoid breaking UI
+      console.warn("chat-provider: refreshChats failed", err);
+    });
+    // We intentionally do not add `chats` here: we want this to run once on mount
+  }, [refreshChats, userId]);
+
   const ensureChat = useCallback((chat: StoredChat) => {
     setChats((prev) => {
       const existingIndex = prev.findIndex((existing) => existing.id === chat.id);
