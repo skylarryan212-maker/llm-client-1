@@ -16,6 +16,7 @@ export type ProjectSummary = {
 type ProjectsContextValue = {
   projects: ProjectSummary[];
   addProject: (name: string) => Promise<ProjectSummary>;
+  refreshProjects: () => Promise<void>;
 };
 
 const ProjectsContext = createContext<ProjectsContextValue | null>(null);
@@ -30,42 +31,111 @@ export function ProjectsProvider({
   initialProjects?: ProjectSummary[];
 }) {
   const [projects, setProjects] = useState<ProjectSummary[]>(initialProjectsProp);
+  const userId = getCurrentUserId();
 
-  // Fetch projects on client mount to ensure the provider is hydrated when
-  // the page is opened directly or manually reloaded.
-  useEffect(() => {
-    const hydrate = async () => {
-      try {
-        const userId = getCurrentUserId();
-        if (!userId) return;
-        const { data, error } = await supabaseClient
-          .from("projects")
-          .select("*")
-          .eq("user_id", userId)
-          .order("created_at", { ascending: false });
+  const refreshProjects = useCallback(async () => {
+    try {
+      if (!userId) return;
+      const { data, error } = await supabaseClient
+        .from("projects")
+        .select("*")
+        .eq("user_id", userId)
+        .order("created_at", { ascending: false });
 
-        if (error) {
-          console.warn("Failed to load projects (client):", error);
-          return;
-        }
-
-        const rows = data ?? [];
-        const mapped = rows.map((r: any) => ({
-          id: r.id,
-          name: r.name,
-          createdAt: r.created_at ?? new Date().toISOString(),
-          icon: r.icon ?? "🧭",
-          description: r.description ?? "",
-        } as ProjectSummary));
-
-        setProjects(mapped);
-      } catch (err) {
-        console.warn("projects-provider hydrate error", err);
+      if (error) {
+        console.warn("Failed to load projects (client):", error);
+        return;
       }
-    };
 
-    hydrate();
-  }, []);
+      const rows = data ?? [];
+      const mapped = rows.map((r: any) => ({
+        id: r.id,
+        name: r.name,
+        createdAt: r.created_at ?? new Date().toISOString(),
+        icon: r.icon ?? "🧭",
+        description: r.description ?? "",
+      } as ProjectSummary));
+
+      setProjects(mapped);
+    } catch (err) {
+      console.warn("projects-provider refresh error", err);
+    }
+  }, [userId]);
+
+  // Hydrate on mount
+  useEffect(() => {
+    refreshProjects();
+  }, [refreshProjects]);
+
+  // Realtime updates for projects table (INSERT/UPDATE/DELETE)
+  useEffect(() => {
+    if (!userId) return;
+    const channel = supabaseClient
+      .channel("public:projects")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "projects", filter: `user_id=eq.${userId}` },
+        (payload) => {
+          const newRow = payload.new as any | null;
+          const oldRow = payload.old as any | null;
+
+          if (payload.eventType === "INSERT" && newRow) {
+            setProjects((prev) => [
+              {
+                id: newRow.id,
+                name: newRow.name,
+                createdAt: newRow.created_at ?? new Date().toISOString(),
+                icon: newRow.icon ?? "🧭",
+                description: newRow.description ?? "",
+              },
+              ...prev.filter((p) => p.id !== newRow.id),
+            ]);
+            return;
+          }
+
+          if (payload.eventType === "UPDATE" && newRow) {
+            setProjects((prev) =>
+              prev.map((p) =>
+                p.id === newRow.id
+                  ? {
+                      id: newRow.id,
+                      name: newRow.name,
+                      createdAt: newRow.created_at ?? p.createdAt,
+                      icon: newRow.icon ?? p.icon,
+                      description: newRow.description ?? p.description,
+                    }
+                  : p
+              )
+            );
+            return;
+          }
+
+          if (payload.eventType === "DELETE" && oldRow) {
+            setProjects((prev) => prev.filter((p) => p.id !== oldRow.id));
+            return;
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      try { channel.unsubscribe(); } catch {}
+    };
+  }, [userId]);
+
+  // Refresh on tab focus/visibility gain to recover from missed events
+  useEffect(() => {
+    const onFocus = () => refreshProjects();
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") refreshProjects();
+    };
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [refreshProjects]);
 
   const addProject = useCallback(async (name: string): Promise<ProjectSummary> => {
     const created = await createProjectAction(name);
@@ -86,8 +156,9 @@ export function ProjectsProvider({
     () => ({
       projects,
       addProject,
+      refreshProjects,
     }),
-    [addProject, projects]
+    [addProject, projects, refreshProjects]
   );
 
   return (

@@ -29,6 +29,9 @@ import { useProjects } from "@/components/projects/projects-provider";
 import { NewProjectModal } from "@/components/projects/new-project-modal";
 import { StoredMessage, useChatStore } from "@/components/chat/chat-provider";
 import { usePersistentSidebarOpen } from "@/lib/hooks/use-sidebar-open";
+import { normalizeModelFamily, normalizeSpeedMode, getModelSettingsFromDisplayName } from "@/lib/modelConfig";
+import type { ModelFamily, SpeedMode, ReasoningEffort } from "@/lib/modelConfig";
+import { isPlaceholderTitle } from "@/lib/conversation-utils";
 
 interface ShellConversation {
   id: string;
@@ -42,6 +45,7 @@ interface ServerMessage {
   role: "user" | "assistant";
   content: string;
   timestamp: string;
+  metadata?: Record<string, unknown> | null;
 }
 
 interface ChatPageShellProps {
@@ -65,6 +69,8 @@ export default function ChatPageShell({
     globalChats,
     createChat,
     appendMessages,
+    updateMessage,
+    removeMessage,
     ensureChat,
   } = useChatStore();
 
@@ -102,8 +108,8 @@ export default function ChatPageShell({
             id: m.id,
             role: m.role,
             content: m.content,
-            model: "GPT 5.1",
             timestamp: m.timestamp,
+            metadata: m.metadata ?? null,
           }))
         : [];
 
@@ -148,13 +154,6 @@ export default function ChatPageShell({
       content: message,
       timestamp: now,
     };
-    const assistantMessage: StoredMessage = {
-      id: `assistant-${Date.now()}`,
-      role: "assistant",
-      content: `This is a demo response to: "${message}". In a real app this would come from the model.`,
-      model: currentModel,
-      timestamp: now,
-    };
 
     if (!selectedChatId) {
       const targetProjectId = selectedProjectId || projectId;
@@ -175,13 +174,15 @@ export default function ChatPageShell({
         const newChatId = createChat({
           id: conversationId,
           projectId: targetProjectId,
-          initialMessages: [mappedMessage, assistantMessage],
-          title:
-            conversation.title ?? (message.slice(0, 80) || "New chat"),
+          initialMessages: [mappedMessage],
+          title: conversation.title ?? "New chat",
         });
         setSelectedChatId(newChatId);
         setSelectedProjectId(targetProjectId);
         router.push(`/projects/${targetProjectId}/c/${newChatId}`);
+        
+        // Stream the model response without inserting the user message again
+        await streamModelResponse(conversationId, targetProjectId, message, newChatId, true);
       } else {
         const { conversationId, message: createdMessage, conversation } =
           await startGlobalConversationAction(message);
@@ -195,18 +196,300 @@ export default function ChatPageShell({
 
         const newChatId = createChat({
           id: conversationId,
-          initialMessages: [mappedMessage, assistantMessage],
-          title:
-            conversation.title ?? (message.slice(0, 80) || "New chat"),
+          initialMessages: [mappedMessage],
+          title: conversation.title ?? "New chat",
         });
         setSelectedChatId(newChatId);
         setSelectedProjectId("");
         router.push(`/c/${newChatId}`);
+        
+        // Stream the model response without inserting the user message again
+        await streamModelResponse(conversationId, undefined, message, newChatId, true);
       }
     } else {
-      await appendUserMessageAction(selectedChatId, message);
-      appendMessages(selectedChatId, [userMessage, assistantMessage]);
+      // For existing chats, just append the user message to UI
+      // (The /api/chat endpoint will persist it to the database)
+      appendMessages(selectedChatId, [userMessage]);
+      
+        // Stream the model response and insert the user message on server
+        await streamModelResponse(selectedChatId, selectedProjectId || undefined, message, selectedChatId, false);
     }
+  };
+
+  const triggerAutoNaming = async (
+    conversationId: string,
+    userMessage: string,
+    conversationTitle: string | undefined
+  ) => {
+    // Only generate title if this is a new conversation with placeholder title
+    if (!isPlaceholderTitle(conversationTitle)) {
+      return;
+    }
+
+    // Fire-and-forget title generation
+    try {
+      await fetch("/api/conversations/generate-title", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          conversationId,
+          userMessage,
+        }),
+      });
+      console.log(`[titleDebug] triggered auto-naming for conversation ${conversationId}`);
+    } catch (error) {
+      console.error("Auto-naming trigger failed:", error);
+    }
+  };
+
+  const streamModelResponse = async (
+    conversationId: string,
+    projectId: string | undefined,
+    message: string,
+    chatId: string,
+    skipUserInsert: boolean = false
+  ) => {
+    try {
+      // Get model settings from current display selection
+      const { modelFamily, speedMode, reasoningEffort } = getModelSettingsFromDisplayName(currentModel);
+
+      const response = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          conversationId,
+          projectId,
+          message,
+          modelFamilyOverride: modelFamily,
+          speedModeOverride: speedMode,
+          reasoningEffortOverride: reasoningEffort,
+          skipUserInsert,
+        }),
+      });
+
+      if (!response.ok) {
+        console.error("Chat API error:", response.status, response.statusText);
+        return;
+      }
+
+      const reader = response.body?.getReader();
+      if (!reader) {
+        console.error("No response body reader");
+        return;
+      }
+
+      const decoder = new TextDecoder();
+      let assistantContent = "";
+      const assistantMessageId = `assistant-streaming-${Date.now()}`;
+      let messageMetadata: Record<string, unknown> | null = null;
+
+      // Add the initial empty assistant message
+      appendMessages(chatId, [
+        {
+          id: assistantMessageId,
+          role: "assistant",
+          content: "",
+          timestamp: new Date().toISOString(),
+        },
+      ]);
+
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          const chunk = decoder.decode(value, { stream: true });
+          const lines = chunk.split("\n").filter((l) => l.trim());
+
+          for (const line of lines) {
+            try {
+              const parsed = JSON.parse(line);
+
+              if (parsed.token) {
+                assistantContent += parsed.token;
+                // Update the assistant message with new content
+                updateMessage(chatId, assistantMessageId, {
+                  content: assistantContent,
+                });
+              } else if (parsed.meta) {
+                // Capture metadata from API response
+                messageMetadata = {
+                  modelUsed: parsed.meta.model,
+                  reasoningEffort: parsed.meta.reasoningEffort,
+                  resolvedFamily: parsed.meta.resolvedFamily,
+                  speedModeUsed: parsed.meta.speedModeUsed,
+                  userRequestedFamily: modelFamily,
+                  userRequestedSpeedMode: speedMode,
+                  userRequestedReasoningEffort: reasoningEffort,
+                };
+                // Replace the temporary ID with the persisted row ID and store metadata
+                const newId = parsed.meta.assistantMessageRowId;
+                updateMessage(chatId, assistantMessageId, { 
+                  id: newId,
+                  metadata: messageMetadata,
+                });
+              } else if (parsed.done) {
+                // Streaming complete
+                break;
+              }
+            } catch (parseError) {
+              // Skip lines that aren't valid JSON
+            }
+          }
+        }
+      } finally {
+        reader.releaseLock();
+      }
+
+      // After streaming completes, check if we need to auto-generate a title
+      // Count assistant messages before this one (skip the one we just added)
+      const assistantMessagesBeforeThis = messages.filter(m => m.role === "assistant").length;
+      
+      // Only trigger auto-naming after the first assistant response
+      if (assistantMessagesBeforeThis === 0) {
+        const conversation = chats.find(c => c.id === conversationId);
+        if (conversation) {
+          await triggerAutoNaming(conversationId, message, conversation.title);
+        }
+      }
+    } catch (error) {
+      console.error("Error streaming model response:", error);
+    }
+  };
+
+  const handleRetryWithModel = async (retryModelName: string, messageId: string) => {
+    if (!selectedChatId) return;
+
+    // Find the user message that precedes this assistant message
+    const messageIndex = messages.findIndex((m) => m.id === messageId);
+    if (messageIndex <= 0) return;
+
+    const userMessage = messages[messageIndex - 1];
+    if (!userMessage || userMessage.role !== "user") return;
+
+     // Map retry model name to model settings (without changing the UI dropdown)
+     let retryModelFamily = "gpt-5-mini";
+     let retrySpeedMode = "auto";
+     if (retryModelName === "GPT 5 Nano") {
+       retryModelFamily = "gpt-5-nano";
+       retrySpeedMode = "auto";
+     } else if (retryModelName === "GPT 5 Mini") {
+       retryModelFamily = "gpt-5-mini";
+       retrySpeedMode = "auto";
+     } else if (retryModelName === "GPT 5.1") {
+       retryModelFamily = "gpt-5.1";
+       retrySpeedMode = "auto";
+     } else if (retryModelName === "GPT 5 Pro") {
+       retryModelFamily = "gpt-5-pro-2025-10-06";
+       retrySpeedMode = "auto";
+     }
+
+    // Delete the old assistant message from Supabase
+    try {
+      await fetch("/api/chat", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messageId }),
+      });
+    } catch (error) {
+      console.error("Error deleting old assistant message:", error);
+    }
+
+    // Remove the assistant message from UI (local state)
+    removeMessage(selectedChatId, messageId);
+
+     // Re-stream with the specific retry model (not changing currentModel)
+     try {
+       const response = await fetch("/api/chat", {
+         method: "POST",
+         headers: { "Content-Type": "application/json" },
+         body: JSON.stringify({
+           conversationId: selectedChatId,
+           projectId: selectedProjectId || undefined,
+           message: userMessage.content,
+           modelFamilyOverride: retryModelFamily,
+           speedModeOverride: retrySpeedMode,
+            reasoningEffortOverride: undefined, // Let API auto-calculate
+            skipUserInsert: true,
+         }),
+       });
+
+       if (!response.ok) {
+         console.error("Chat API error:", response.status, response.statusText);
+         return;
+       }
+
+       const reader = response.body?.getReader();
+       if (!reader) {
+         console.error("No response body reader");
+         return;
+       }
+
+       const decoder = new TextDecoder();
+       let assistantContent = "";
+       const assistantMessageId = `assistant-streaming-${Date.now()}`;
+       let messageMetadata: Record<string, unknown> | null = null;
+
+       // Add the initial empty assistant message
+       appendMessages(selectedChatId, [
+         {
+           id: assistantMessageId,
+           role: "assistant",
+           content: "",
+           timestamp: new Date().toISOString(),
+         },
+       ]);
+
+       try {
+         while (true) {
+           const { done, value } = await reader.read();
+           if (done) break;
+
+           const chunk = decoder.decode(value, { stream: true });
+           const lines = chunk.split("\n").filter((l) => l.trim());
+
+           for (const line of lines) {
+             try {
+               const parsed = JSON.parse(line);
+
+               if (parsed.token) {
+                 assistantContent += parsed.token;
+                 // Update the assistant message with new content
+                 updateMessage(selectedChatId, assistantMessageId, {
+                   content: assistantContent,
+                 });
+               } else if (parsed.meta) {
+                 // Capture metadata from API response
+                 messageMetadata = {
+                   modelUsed: parsed.meta.model,
+                   reasoningEffort: parsed.meta.reasoningEffort,
+                   resolvedFamily: parsed.meta.resolvedFamily,
+                   speedModeUsed: parsed.meta.speedModeUsed,
+                   userRequestedFamily: retryModelFamily,
+                   userRequestedSpeedMode: retrySpeedMode,
+                   userRequestedReasoningEffort: undefined,
+                 };
+                 // Replace the temporary ID with the persisted row ID and store metadata
+                 const newId = parsed.meta.assistantMessageRowId;
+                 updateMessage(selectedChatId, assistantMessageId, { 
+                   id: newId,
+                   metadata: messageMetadata,
+                 });
+               } else if (parsed.done) {
+                 // Streaming complete
+                 break;
+               }
+             } catch (parseError) {
+               // Skip lines that aren't valid JSON
+             }
+           }
+         }
+       } finally {
+         reader.releaseLock();
+       }
+     } catch (error) {
+       console.error("Error retrying with model:", error);
+     }
   };
 
   const handleChatSelect = (id: string) => {
@@ -260,7 +543,7 @@ export default function ChatPageShell({
     } else {
       setShowScrollToBottom(true);
     }
-  }, [messages.length, isAutoScroll]);
+  }, [messages.length, isAutoScroll, messages]);
 
   const handleNewProject = () => {
     setIsNewProjectOpen(true);
@@ -364,7 +647,7 @@ export default function ChatPageShell({
                   <div className="flex flex-1 flex-col">
                     <span className="font-medium leading-none">Auto</span>
                     <span className="text-xs text-muted-foreground">
-                      Decides how long to think
+                      Auto routing
                     </span>
                   </div>
                   <span className="flex w-4 justify-end">
@@ -399,9 +682,11 @@ export default function ChatPageShell({
                     {currentModel === "Thinking" && <Check className="h-4 w-4" />}
                   </span>
                 </DropdownMenuItem>
+
                 <div className="px-2">
                   <div className="h-px bg-border" />
                 </div>
+
                 <DropdownMenuSub>
                   <DropdownMenuSubTrigger className="items-center gap-3 px-3 py-2">
                     <div className="flex flex-col text-left">
@@ -411,7 +696,89 @@ export default function ChatPageShell({
                     </div>
                   </DropdownMenuSubTrigger>
                   <DropdownMenuPortal>
-                    <DropdownMenuSubContent className="w-56 p-2">
+                    <DropdownMenuSubContent className="w-56 p-2 space-y-1">
+                      <div className="px-3 pb-1 text-sm font-semibold text-muted-foreground">
+                        GPT 5 Nano
+                      </div>
+                      <DropdownMenuItem
+                        className="items-center gap-3 px-3 py-2"
+                        onSelect={() => setCurrentModel("GPT 5 Nano Auto")}
+                      >
+                        <div className="flex flex-1 flex-col">
+                          <span className="font-medium leading-none">Auto</span>
+                        </div>
+                        <span className="flex w-4 justify-end">
+                          {currentModel === "GPT 5 Nano Auto" && <Check className="h-4 w-4" />}
+                        </span>
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        className="items-center gap-3 px-3 py-2"
+                        onSelect={() => setCurrentModel("GPT 5 Nano Instant")}
+                      >
+                        <div className="flex flex-1 flex-col">
+                          <span className="font-medium leading-none">Instant</span>
+                        </div>
+                        <span className="flex w-4 justify-end">
+                          {currentModel === "GPT 5 Nano Instant" && <Check className="h-4 w-4" />}
+                        </span>
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        className="items-center gap-3 px-3 py-2"
+                        onSelect={() => setCurrentModel("GPT 5 Nano Thinking")}
+                      >
+                        <div className="flex flex-1 flex-col">
+                          <span className="font-medium leading-none">Thinking</span>
+                        </div>
+                        <span className="flex w-4 justify-end">
+                          {currentModel === "GPT 5 Nano Thinking" && <Check className="h-4 w-4" />}
+                        </span>
+                      </DropdownMenuItem>
+
+                      <div className="px-2">
+                        <div className="h-px bg-border" />
+                      </div>
+
+                      <div className="px-3 pb-1 text-sm font-semibold text-muted-foreground">
+                        GPT 5 Mini
+                      </div>
+                      <DropdownMenuItem
+                        className="items-center gap-3 px-3 py-2"
+                        onSelect={() => setCurrentModel("GPT 5 Mini Auto")}
+                      >
+                        <div className="flex flex-1 flex-col">
+                          <span className="font-medium leading-none">Auto</span>
+                        </div>
+                        <span className="flex w-4 justify-end">
+                          {currentModel === "GPT 5 Mini Auto" && <Check className="h-4 w-4" />}
+                        </span>
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        className="items-center gap-3 px-3 py-2"
+                        onSelect={() => setCurrentModel("GPT 5 Mini Instant")}
+                      >
+                        <div className="flex flex-1 flex-col">
+                          <span className="font-medium leading-none">Instant</span>
+                        </div>
+                        <span className="flex w-4 justify-end">
+                          {currentModel === "GPT 5 Mini Instant" && <Check className="h-4 w-4" />}
+                        </span>
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        className="items-center gap-3 px-3 py-2"
+                        onSelect={() => setCurrentModel("GPT 5 Mini Thinking")}
+                      >
+                        <div className="flex flex-1 flex-col">
+                          <span className="font-medium leading-none">Thinking</span>
+                        </div>
+                        <span className="flex w-4 justify-end">
+                          {currentModel === "GPT 5 Mini Thinking" && <Check className="h-4 w-4" />}
+                        </span>
+                      </DropdownMenuItem>
+
+                      <div className="px-2">
+                        <div className="h-px bg-border" />
+                      </div>
+
                       <DropdownMenuItem
                         className="items-center gap-3 px-3 py-2"
                         onSelect={() => setCurrentModel("GPT 5 Pro")}
@@ -493,7 +860,11 @@ export default function ChatPageShell({
               {/* Wide desktop layout with padded container */}
               <div className="w-full px-4 sm:px-6 lg:px-12 space-y-4">
                 {messages.map((message, index) => (
-                  <ChatMessage key={index} {...message} />
+                  <ChatMessage 
+                    key={index} 
+                    {...message}
+                    onRetry={message.role === 'assistant' ? (model) => handleRetryWithModel(model, message.id) : undefined}
+                  />
                 ))}
               </div>
             </div>

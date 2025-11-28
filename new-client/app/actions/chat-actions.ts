@@ -18,7 +18,7 @@ export async function startGlobalConversationAction(
   conversation: ConversationRow;
 }> {
   const { conversation, message } = await createGlobalConversationWithFirstMessage({
-    title: firstMessageContent.slice(0, 80) || null,
+    title: "New chat",
     firstMessageContent,
   });
 

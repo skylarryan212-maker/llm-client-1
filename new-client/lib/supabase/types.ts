@@ -32,6 +32,7 @@ export interface Message {
 }
 
 export interface MessageInsert {
+  user_id: string;
   conversation_id: string;
   role: string;
   content: string;

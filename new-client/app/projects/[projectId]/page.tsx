@@ -108,15 +108,8 @@ export default function ProjectDetailPage() {
           content: createdMessage.content ?? message,
           timestamp: createdMessage.created_at ?? now,
         },
-        {
-          id: `assistant-${Date.now()}`,
-          role: "assistant",
-          content: `This is a demo response to: "${message}". In a real app this would come from the model.`,
-          timestamp: now,
-          model: currentModel,
-        },
       ],
-      title: conversation.title ?? (message.slice(0, 80) || "New chat"),
+      title: conversation.title ?? "New chat",
     });
 
     setSelectedChatId(chatId);

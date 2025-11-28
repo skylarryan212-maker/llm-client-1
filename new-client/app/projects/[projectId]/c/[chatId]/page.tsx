@@ -43,6 +43,7 @@ export default async function ProjectChatPage({
     role: (message.role ?? "assistant") as "user" | "assistant",
     content: message.content ?? "",
     timestamp: message.created_at ?? new Date().toISOString(),
+    metadata: (message as any).metadata ?? null,
   }));
 
   return (

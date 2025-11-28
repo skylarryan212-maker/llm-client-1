@@ -11,6 +11,7 @@ export type StoredMessage = {
   content: string;
   timestamp: string;
   model?: string;
+  metadata?: Record<string, unknown> | null;
 };
 
 export type StoredChat = {
@@ -33,7 +34,9 @@ type ChatContextValue = {
     initialMessages?: StoredMessage[];
   }) => string;
   appendMessages: (chatId: string, newMessages: StoredMessage[]) => void;
+  updateMessage: (chatId: string, messageId: string, updates: Partial<StoredMessage>) => void;
   ensureChat: (chat: StoredChat) => void;
+  removeMessage: (chatId: string, messageId: string) => void;
 };
 
 const ChatContext = createContext<ChatContextValue | null>(null);
@@ -75,15 +78,21 @@ export function ChatProvider({ children, initialChats = [] }: ChatProviderProps)
       }
 
       const rows = data ?? [];
-      const hydrated: StoredChat[] = rows.map((row) => ({
-        id: row.id,
-        title: row.title ?? "Untitled chat",
-        timestamp: row.created_at ?? new Date().toISOString(),
-        projectId: row.project_id ?? undefined,
-        messages: [],
-      }));
-
-      setChats(hydrated);
+      // Preserve existing messages for chats already in memory; don't wipe messages to [] on refresh
+      setChats((prev) => {
+        const prevById = new Map(prev.map((c) => [c.id, c] as const));
+        const merged: StoredChat[] = rows.map((row) => {
+          const existing = prevById.get(row.id);
+          return {
+            id: row.id,
+            title: row.title ?? existing?.title ?? "Untitled chat",
+            timestamp: row.created_at ?? existing?.timestamp ?? new Date().toISOString(),
+            projectId: row.project_id ?? existing?.projectId ?? undefined,
+            messages: existing?.messages ?? [],
+          };
+        });
+        return merged;
+      });
     } catch (err) {
       console.warn("refreshChats error", err);
     }
@@ -133,6 +142,44 @@ export function ChatProvider({ children, initialChats = [] }: ChatProviderProps)
     );
   }, []);
 
+  const updateMessage = useCallback(
+    (chatId: string, messageId: string, updates: Partial<StoredMessage>) => {
+      setChats((prev) =>
+        prev.map((chat) => {
+          if (chat.id !== chatId) return chat;
+
+          const messageIndex = chat.messages.findIndex((m) => m.id === messageId);
+          if (messageIndex < 0) return chat;
+
+          const updatedMessages = [...chat.messages];
+          updatedMessages[messageIndex] = {
+            ...updatedMessages[messageIndex],
+            ...updates,
+          };
+
+          return {
+            ...chat,
+            messages: updatedMessages,
+          };
+        })
+      );
+    },
+    []
+  );
+
+  const removeMessage = useCallback((chatId: string, messageId: string) => {
+    setChats((prev) =>
+      prev.map((chat) => {
+        if (chat.id !== chatId) return chat;
+        return {
+          ...chat,
+          messages: chat.messages.filter((m) => m.id !== messageId),
+          timestamp: new Date().toISOString(),
+        };
+      })
+    );
+  }, []);
+
   // Subscribe to realtime updates (conversations + messages) and apply changes to the local store.
   useEffect(() => {
     // If supabase client is not configured or no user id, skip
@@ -148,14 +195,18 @@ export function ChatProvider({ children, initialChats = [] }: ChatProviderProps)
           const oldRow = payload.old as Database["public"]["Tables"]["conversations"]["Row"] | null;
 
           if (payload.eventType === "INSERT" && newRow) {
-            const toAdd: StoredChat = {
-              id: newRow.id,
-              title: newRow.title ?? "Untitled chat",
-              timestamp: newRow.created_at ?? new Date().toISOString(),
-              projectId: newRow.project_id ?? undefined,
-              messages: [],
-            };
-            setChats((prev) => [toAdd, ...prev.filter((c) => c.id !== toAdd.id)]);
+            setChats((prev) => {
+              const existing = prev.find((c) => c.id === newRow.id);
+              const toAdd: StoredChat = {
+                id: newRow.id,
+                title: newRow.title ?? existing?.title ?? "Untitled chat",
+                timestamp: newRow.created_at ?? existing?.timestamp ?? new Date().toISOString(),
+                projectId: newRow.project_id ?? existing?.projectId ?? undefined,
+                messages: existing?.messages ?? [],
+              };
+              const filtered = prev.filter((c) => c.id !== toAdd.id);
+              return [toAdd, ...filtered];
+            });
             return;
           }
 
@@ -189,16 +240,57 @@ export function ChatProvider({ children, initialChats = [] }: ChatProviderProps)
             if (idx === -1) return prev;
 
             const existing = prev[idx];
+            
+            // Check if this message is already in the chat (avoid duplicates)
+            // Skip if exact ID match or if it has a temporary ID and same content/role/timing
+            const alreadyExists = existing.messages.some((msg) => {
+              if (msg.id === m.id) return true;
+              // Also match temporary IDs to their persisted versions by comparing content and role
+              if ((msg.id.startsWith('user-') || msg.id.startsWith('assistant-streaming-')) &&
+                  msg.role === m.role &&
+                  msg.content === (m.content ?? '') &&
+                  Math.abs(new Date(msg.timestamp).getTime() - new Date(m.created_at ?? '').getTime()) < 1000) {
+                return true;
+              }
+              return false;
+            });
+            if (alreadyExists) return prev;
+            
             const newMessage: StoredMessage = {
               id: m.id,
               role: (m.role as "user" | "assistant") || "assistant",
               content: m.content ?? "",
               timestamp: m.created_at ?? new Date().toISOString(),
+              metadata: m.metadata as Record<string, unknown> | null | undefined,
             };
 
             const updated: StoredChat = {
               ...existing,
               messages: [...existing.messages, newMessage],
+              timestamp: new Date().toISOString(),
+            };
+            const next = [...prev];
+            next[idx] = updated;
+            return next;
+          });
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "DELETE", schema: "public", table: "messages" },
+        (payload) => {
+          const m = payload.old as Database["public"]["Tables"]["messages"]["Row"] | null;
+          if (!m) return;
+
+          // Remove the deleted message from the chat
+          setChats((prev) => {
+            const idx = prev.findIndex((c) => c.id === m.conversation_id);
+            if (idx === -1) return prev;
+
+            const existing = prev[idx];
+            const updated: StoredChat = {
+              ...existing,
+              messages: existing.messages.filter((msg) => msg.id !== m.id),
               timestamp: new Date().toISOString(),
             };
             const next = [...prev];
@@ -231,6 +323,24 @@ export function ChatProvider({ children, initialChats = [] }: ChatProviderProps)
       console.warn("chat-provider: refreshChats failed", err);
     });
     // We intentionally do not add `chats` here: we want this to run once on mount
+  }, [refreshChats, userId]);
+
+  // Also refresh chats when tab regains focus/visibility (helps when changes are made elsewhere)
+  useEffect(() => {
+    const onFocus = () => {
+      if (userId) refreshChats().catch(() => {});
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === "visible" && userId) {
+        refreshChats().catch(() => {});
+      }
+    };
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
   }, [refreshChats, userId]);
 
   const ensureChat = useCallback((chat: StoredChat) => {
@@ -281,9 +391,11 @@ export function ChatProvider({ children, initialChats = [] }: ChatProviderProps)
       refreshChats,
       createChat,
       appendMessages,
+      updateMessage,
       ensureChat,
+      removeMessage,
     }),
-    [appendMessages, chats, createChat, ensureChat, getProjectChats, refreshChats]
+    [appendMessages, chats, createChat, ensureChat, getProjectChats, refreshChats, updateMessage, removeMessage]
   );
 
   return <ChatContext.Provider value={value}>{children}</ChatContext.Provider>;

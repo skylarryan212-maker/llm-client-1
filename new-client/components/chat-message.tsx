@@ -16,27 +16,71 @@ interface ChatMessageProps {
   role: 'user' | 'assistant'
   content: string
   model?: string
+  metadata?: Record<string, unknown> | null
   hasImage?: boolean
   imageUrl?: string
   hasSources?: boolean
+  onRetry?: (modelName: string) => void
 }
 
 export function ChatMessage({
   role,
   content,
+  metadata,
   hasImage,
   imageUrl,
   hasSources,
+  onRetry,
 }: ChatMessageProps) {
   const [copied, setCopied] = useState(false)
-  const [retryModel, setRetryModel] = useState('GPT 5.1')
+  const [retryModel, setRetryModel] = useState('')
 
-  const displayModel = 'GPT 5.1'
+  // Extract metadata safely
+  let metadataObj: Record<string, unknown> | null = null
+  try {
+    if (metadata && typeof metadata === 'object') {
+      metadataObj = metadata
+    }
+  } catch {
+    // Silently ignore malformed metadata
+  }
+
+  const modelUsed = metadataObj?.modelUsed as string | undefined
+  let resolvedFamily = metadataObj?.resolvedFamily as string | undefined
+  const reasoningEffort = metadataObj?.reasoningEffort as string | undefined
+
+  // Map resolved family to display name
+  const getDisplayModelName = (family?: string): string => {
+    if (!family) return 'Unknown'
+    if (family.includes('nano')) return 'GPT 5 Nano'
+    if (family.includes('mini')) return 'GPT 5 Mini'
+    if (family.includes('5.1')) return 'GPT 5.1'
+    if (family.includes('pro')) return 'GPT 5 Pro'
+    return family
+  }
+
+  // Fallback: derive family from modelUsed if resolvedFamily is missing
+  if (!resolvedFamily && modelUsed) {
+    const lower = modelUsed.toLowerCase()
+    if (lower.includes('nano')) resolvedFamily = 'gpt-5-nano'
+    else if (lower.includes('mini')) resolvedFamily = 'gpt-5-mini'
+    else if (lower.includes('5.1')) resolvedFamily = 'gpt-5.1'
+    else if (lower.includes('pro')) resolvedFamily = 'gpt-5-pro-2025-10-06'
+  }
+
+  const displayModelName = getDisplayModelName(resolvedFamily)
 
   const handleCopy = async () => {
     await navigator.clipboard.writeText(content)
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
+  }
+
+  const handleRetryWithModel = (model: string) => {
+    if (onRetry) {
+      onRetry(model)
+    }
+    setRetryModel(model)
   }
 
   if (role === 'user') {
@@ -101,26 +145,26 @@ export function ChatMessage({
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" size="sm" className="h-8 text-xs text-muted-foreground hover:text-foreground flex-shrink-0">
-                  {displayModel}
+                  {displayModelName}
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start" className="w-56">
-                <DropdownMenuRadioGroup
-                  value={retryModel}
-                  onValueChange={setRetryModel}
-                >
+                <DropdownMenuRadioGroup value={retryModel} onValueChange={handleRetryWithModel}>
                   <DropdownMenuRadioItem value="GPT 5 Nano">
-                    GPT 5 Nano
+                    <span className="flex-1">Retry with GPT 5 Nano</span>
+                    {displayModelName === 'GPT 5 Nano' && <span className="text-xs text-muted-foreground ml-2">(current)</span>}
                   </DropdownMenuRadioItem>
                   <DropdownMenuRadioItem value="GPT 5 Mini">
-                    GPT 5 Mini
+                    <span className="flex-1">Retry with GPT 5 Mini</span>
+                    {displayModelName === 'GPT 5 Mini' && <span className="text-xs text-muted-foreground ml-2">(current)</span>}
                   </DropdownMenuRadioItem>
-                  <DropdownMenuRadioItem value="GPT 5.1" className="flex items-center justify-between gap-2">
-                    <span className="flex-1">GPT 5.1</span>
-                    <span className="text-xs text-muted-foreground">Current</span>
+                  <DropdownMenuRadioItem value="GPT 5.1">
+                    <span className="flex-1">Retry with GPT 5.1</span>
+                    {displayModelName === 'GPT 5.1' && <span className="text-xs text-muted-foreground ml-2">(current)</span>}
                   </DropdownMenuRadioItem>
                   <DropdownMenuRadioItem value="GPT 5 Pro">
-                    GPT 5 Pro
+                    <span className="flex-1">Retry with GPT 5 Pro</span>
+                    {displayModelName === 'GPT 5 Pro' && <span className="text-xs text-muted-foreground ml-2">(current)</span>}
                   </DropdownMenuRadioItem>
                 </DropdownMenuRadioGroup>
               </DropdownMenuContent>
