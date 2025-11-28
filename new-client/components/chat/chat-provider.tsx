@@ -58,11 +58,16 @@ export function ChatProvider({ children, initialChats = [] }: ChatProviderProps)
   const refreshChats = useCallback(async () => {
     try {
       if (!userId) return;
-      const { data, error } = await supabaseClient
-        .from<Database["public"]["Tables"]["conversations"]["Row"]>("conversations")
+
+      type ConversationRow = Database["public"]["Tables"]["conversations"]["Row"];
+
+      const query = supabaseClient
+        .from("conversations")
         .select("*")
         .eq("user_id", userId)
         .order("created_at", { ascending: false });
+
+      const { data, error } = await query.returns<ConversationRow[]>();
 
       if (error) {
         console.warn("Failed to refresh conversations", error);
