@@ -3,6 +3,9 @@ import { notFound } from "next/navigation";
 import ChatPageShell from "@/components/chat/chat-page-shell";
 import { getConversationById } from "@/lib/data/conversations";
 import { getMessagesForConversation } from "@/lib/data/messages";
+import type { Database } from "@/lib/supabase/types";
+
+type MessageRow = Database["public"]["Tables"]["messages"]["Row"];
 
 type PageParams = Promise<{ conversationId: string }>;
 type PageSearchParams = Promise<Record<string, string | string[] | undefined>>;
@@ -36,7 +39,7 @@ export default async function ConversationPage({
     },
   ];
 
-  const messages = messagesData.map((message) => ({
+  const messages = messagesData.map((message: MessageRow) => ({
     id: message.id,
     role: (message.role ?? "assistant") as "user" | "assistant",
     content: message.content ?? "",
