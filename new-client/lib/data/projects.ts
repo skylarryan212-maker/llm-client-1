@@ -62,8 +62,8 @@ export async function renameProject(params: { projectId: string; name: string })
   const supabase = await supabaseServer();
   const userId = getCurrentUserId();
 
-  const { data, error } = await supabase
-    .from("projects")
+  const { data, error } = await (supabase
+    .from("projects") as any)
     .update({ name: params.name })
     .eq("id", params.projectId)
     .eq("user_id", userId)

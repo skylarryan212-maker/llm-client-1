@@ -71,8 +71,8 @@ export async function renameConversation(params: { conversationId: string; title
   const supabase = await supabaseServer();
   const userId = getCurrentUserId();
 
-  const { data, error } = await supabase
-    .from("conversations")
+  const { data, error } = await (supabase
+    .from("conversations") as any)
     .update({ title: params.title })
     .eq("id", params.conversationId)
     .eq("user_id", userId)
@@ -98,8 +98,8 @@ export async function moveConversationToProject(params: { conversationId: string
   const supabase = await supabaseServer();
   const userId = getCurrentUserId();
 
-  const { error } = await supabase
-    .from("conversations")
+  const { error } = await (supabase
+    .from("conversations") as any)
     .update({ project_id: params.projectId ?? null })
     .eq("id", params.conversationId)
     .eq("user_id", userId);
