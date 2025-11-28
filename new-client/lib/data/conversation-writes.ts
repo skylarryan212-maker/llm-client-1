@@ -1,14 +1,27 @@
 import { supabaseServer } from "@/lib/supabase/server";
 import { getCurrentUserId } from "@/lib/supabase/user";
+import type { Database } from "@/lib/supabase/types";
+
+type ConversationRow = Database["public"]["Tables"]["conversations"]["Row"];
+type MessageRow = Database["public"]["Tables"]["messages"]["Row"];
+
+function buildDemoAssistantContent(userContent: string): string {
+  // Match the demo text from ChatPageShell:
+  return `This is a demo response to: "${userContent}". In a real app this would come from the model.`;
+}
 
 export async function createGlobalConversationWithFirstMessage(params: {
   title?: string | null;
   firstMessageContent: string;
-}) {
+}): Promise<{
+  conversation: ConversationRow;
+  message: MessageRow; // first user message
+}> {
   const supabase = await supabaseServer();
   const userId = getCurrentUserId();
   const supabaseAny = supabase as any;
 
+  // 1) Create conversation
   const { data: conversation, error: conversationError } = await supabaseAny
     .from("conversations")
     .insert([
@@ -17,7 +30,7 @@ export async function createGlobalConversationWithFirstMessage(params: {
         title: params.title ?? null,
         project_id: null,
         metadata: {},
-      } as any,
+      },
     ])
     .select()
     .single();
@@ -30,6 +43,7 @@ export async function createGlobalConversationWithFirstMessage(params: {
     );
   }
 
+  // 2) Insert first USER message
   const { data: message, error: messageError } = await supabaseAny
     .from("messages")
     .insert([
@@ -39,15 +53,40 @@ export async function createGlobalConversationWithFirstMessage(params: {
         role: "user",
         content: params.firstMessageContent,
         metadata: {},
-      } as any,
+      },
     ])
     .select()
     .single();
 
   if (messageError || !message) {
     throw new Error(
-      `Failed to create first message: ${messageError?.message ?? "Unknown error"}`
+      `Failed to create first message: ${
+        messageError?.message ?? "Unknown error"
+      }`
     );
+  }
+
+  // 3) Insert DEMO ASSISTANT reply (so DB always has both sides)
+  const demoAssistantContent = buildDemoAssistantContent(
+    params.firstMessageContent
+  );
+
+  const { error: assistantError } = await supabaseAny
+    .from("messages")
+    .insert([
+      {
+        user_id: userId,
+        conversation_id: conversation.id,
+        role: "assistant",
+        content: demoAssistantContent,
+        metadata: {},
+      },
+    ]);
+
+  if (assistantError) {
+    // We don't throw here, to avoid breaking UX if only the assistant write fails
+    // but you can log this later.
+    console.error("Failed to create assistant demo message:", assistantError);
   }
 
   return { conversation, message };
@@ -55,34 +94,38 @@ export async function createGlobalConversationWithFirstMessage(params: {
 
 export async function createProjectConversationWithFirstMessage(params: {
   projectId: string;
-  title?: string | null;
   firstMessageContent: string;
-}) {
+}): Promise<{
+  conversation: ConversationRow;
+  message: MessageRow; // first user message
+}> {
   const supabase = await supabaseServer();
   const userId = getCurrentUserId();
   const supabaseAny = supabase as any;
 
+  // 1) Create project-scoped conversation
   const { data: conversation, error: conversationError } = await supabaseAny
     .from("conversations")
     .insert([
       {
         user_id: userId,
-        title: params.title ?? params.firstMessageContent.slice(0, 80) ?? null,
+        title: params.firstMessageContent.slice(0, 80) || null,
         project_id: params.projectId,
         metadata: {},
-      } as any,
+      },
     ])
     .select()
     .single();
 
   if (conversationError || !conversation) {
     throw new Error(
-      `Failed to create conversation: ${
+      `Failed to create project conversation: ${
         conversationError?.message ?? "Unknown error"
       }`
     );
   }
 
+  // 2) Insert first USER message
   const { data: message, error: messageError } = await supabaseAny
     .from("messages")
     .insert([
@@ -92,14 +135,40 @@ export async function createProjectConversationWithFirstMessage(params: {
         role: "user",
         content: params.firstMessageContent,
         metadata: {},
-      } as any,
+      },
     ])
     .select()
     .single();
 
   if (messageError || !message) {
     throw new Error(
-      `Failed to create first message: ${messageError?.message ?? "Unknown error"}`
+      `Failed to create first project message: ${
+        messageError?.message ?? "Unknown error"
+      }`
+    );
+  }
+
+  // 3) Insert DEMO ASSISTANT reply
+  const demoAssistantContent = buildDemoAssistantContent(
+    params.firstMessageContent
+  );
+
+  const { error: assistantError } = await supabaseAny
+    .from("messages")
+    .insert([
+      {
+        user_id: userId,
+        conversation_id: conversation.id,
+        role: "assistant",
+        content: demoAssistantContent,
+        metadata: {},
+      },
+    ]);
+
+  if (assistantError) {
+    console.error(
+      "Failed to create assistant demo message for project convo:",
+      assistantError
     );
   }
 
@@ -110,11 +179,12 @@ export async function appendMessageToConversation(params: {
   conversationId: string;
   role: "user" | "assistant";
   content: string;
-}) {
+}): Promise<MessageRow> {
   const supabase = await supabaseServer();
   const userId = getCurrentUserId();
   const supabaseAny = supabase as any;
 
+  // 1) Insert the primary message (user or assistant)
   const { data, error } = await supabaseAny
     .from("messages")
     .insert([
@@ -124,7 +194,7 @@ export async function appendMessageToConversation(params: {
         role: params.role,
         content: params.content,
         metadata: {},
-      } as any,
+      },
     ])
     .select()
     .single();
@@ -133,6 +203,30 @@ export async function appendMessageToConversation(params: {
     throw new Error(
       `Failed to append message: ${error?.message ?? "Unknown error"}`
     );
+  }
+
+  // 2) If this is a USER message in the demo UI, also insert a DEMO assistant reply
+  if (params.role === "user") {
+    const demoAssistantContent = buildDemoAssistantContent(params.content);
+
+    const { error: assistantError } = await supabaseAny
+      .from("messages")
+      .insert([
+        {
+          user_id: userId,
+          conversation_id: params.conversationId,
+          role: "assistant",
+          content: demoAssistantContent,
+          metadata: {},
+        },
+      ]);
+
+    if (assistantError) {
+      console.error(
+        "Failed to append assistant demo message:",
+        assistantError
+      );
+    }
   }
 
   return data;

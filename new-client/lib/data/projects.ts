@@ -3,6 +3,7 @@ import { getCurrentUserId } from "@/lib/supabase/user";
 import type { Database } from "@/lib/supabase/types";
 
 type ProjectRow = Database["public"]["Tables"]["projects"]["Row"];
+type ProjectInsert = Database["public"]["Tables"]["projects"]["Insert"];
 
 export async function getProjectsForUser() {
   const supabase = await supabaseServer();
@@ -26,19 +27,21 @@ export async function createProject(params: { name: string }) {
   const supabase = await supabaseServer();
   const userId = getCurrentUserId();
 
-  const { data, error } = await supabase
+  const newProject: ProjectInsert = {
+    user_id: userId,
+    name: params.name,
+  };
+
+  const { data, error } = await (supabase
     .from("projects")
-    .insert([
-      {
-        user_id: userId,
-        name: params.name,
-      },
-    ])
+    .insert([newProject] as any))
     .select()
     .single<ProjectRow>();
 
   if (error || !data) {
-    throw new Error(`Failed to create project: ${error?.message ?? "Unknown error"}`);
+    throw new Error(
+      `Failed to create project: ${error?.message ?? "Unknown error"}`
+    );
   }
 
   return data;
