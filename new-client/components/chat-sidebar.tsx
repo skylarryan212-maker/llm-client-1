@@ -236,7 +236,7 @@ export function ChatSidebar({
                                       onKeyDown={(event) =>
                                         handleListItemKeyDown(event, () => onProjectChatSelect?.(project.id, chat.id))
                                       }
-                                      className={`group/chat flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left transition-colors ${
+                                      className={`group/chat flex w-full items-center gap-2 rounded-md pl-8 pr-2.5 py-1.5 text-left transition-colors ${
                                         selectedChatId === chat.id
                                           ? 'bg-zinc-800 text-white'
                                           : 'hover:bg-sidebar-accent'

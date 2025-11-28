@@ -1,6 +1,9 @@
 "use client";
 
-import { createContext, useCallback, useContext, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import supabaseClient from "@/lib/supabase/client";
+import { getCurrentUserId } from "@/lib/supabase/user";
+import type { Database } from "@/lib/supabase/types";
 
 export type StoredMessage = {
   id: string;
@@ -22,6 +25,7 @@ type ChatContextValue = {
   chats: StoredChat[];
   globalChats: StoredChat[];
   getProjectChats: (projectId: string) => StoredChat[];
+  refreshChats: () => Promise<void>;
   createChat: (options: {
     id?: string;
     projectId?: string;
@@ -46,6 +50,39 @@ interface ChatProviderProps {
 
 export function ChatProvider({ children, initialChats = [] }: ChatProviderProps) {
   const [chats, setChats] = useState<StoredChat[]>(initialChats);
+
+  // Keep a stable ref to user id used for client subscriptions/queries
+  const userId = getCurrentUserId();
+
+  // Refresh chats from Supabase client-side (used for manual refresh or initial hydration fallback)
+  const refreshChats = useCallback(async () => {
+    try {
+      if (!userId) return;
+      const { data, error } = await supabaseClient
+        .from<Database["public"]["Tables"]["conversations"]["Row"]>("conversations")
+        .select("*")
+        .eq("user_id", userId)
+        .order("created_at", { ascending: false });
+
+      if (error) {
+        console.warn("Failed to refresh conversations", error);
+        return;
+      }
+
+      const rows = data ?? [];
+      const hydrated: StoredChat[] = rows.map((row) => ({
+        id: row.id,
+        title: row.title ?? "Untitled chat",
+        timestamp: row.created_at ?? new Date().toISOString(),
+        projectId: row.project_id ?? undefined,
+        messages: [],
+      }));
+
+      setChats(hydrated);
+    } catch (err) {
+      console.warn("refreshChats error", err);
+    }
+  }, [userId]);
 
   const createChat = useCallback(
     ({ id, projectId, title, initialMessages = [] }: {
@@ -90,6 +127,92 @@ export function ChatProvider({ children, initialChats = [] }: ChatProviderProps)
       })
     );
   }, []);
+
+  // Subscribe to realtime updates (conversations + messages) and apply changes to the local store.
+  useEffect(() => {
+    // If supabase client is not configured or no user id, skip
+    if (!supabaseClient || !userId) return;
+
+    const convChannel = supabaseClient
+      .channel("public:conversations")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "conversations", filter: `user_id=eq.${userId}` },
+        (payload) => {
+          const newRow = payload.new as Database["public"]["Tables"]["conversations"]["Row"] | null;
+          const oldRow = payload.old as Database["public"]["Tables"]["conversations"]["Row"] | null;
+
+          if (payload.eventType === "INSERT" && newRow) {
+            const toAdd: StoredChat = {
+              id: newRow.id,
+              title: newRow.title ?? "Untitled chat",
+              timestamp: newRow.created_at ?? new Date().toISOString(),
+              projectId: newRow.project_id ?? undefined,
+              messages: [],
+            };
+            setChats((prev) => [toAdd, ...prev.filter((c) => c.id !== toAdd.id)]);
+            return;
+          }
+
+          if (payload.eventType === "UPDATE" && newRow) {
+            setChats((prev) =>
+              prev.map((c) => (c.id === newRow.id ? { ...c, title: newRow.title ?? c.title, timestamp: newRow.created_at ?? c.timestamp, projectId: newRow.project_id ?? c.projectId } : c))
+            );
+            return;
+          }
+
+          if (payload.eventType === "DELETE" && oldRow) {
+            setChats((prev) => prev.filter((c) => c.id !== oldRow.id));
+            return;
+          }
+        }
+      )
+      .subscribe();
+
+    const msgChannel = supabaseClient
+      .channel("public:messages")
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "messages" },
+        (payload) => {
+          const m = payload.new as Database["public"]["Tables"]["messages"]["Row"] | null;
+          if (!m) return;
+
+          // Only apply if we already have the chat in the store. Ignore otherwise.
+          setChats((prev) => {
+            const idx = prev.findIndex((c) => c.id === m.conversation_id);
+            if (idx === -1) return prev;
+
+            const existing = prev[idx];
+            const newMessage: StoredMessage = {
+              id: m.id,
+              role: (m.role as "user" | "assistant") || "assistant",
+              content: m.content ?? "",
+              timestamp: m.created_at ?? new Date().toISOString(),
+            };
+
+            const updated: StoredChat = {
+              ...existing,
+              messages: [...existing.messages, newMessage],
+              timestamp: new Date().toISOString(),
+            };
+            const next = [...prev];
+            next[idx] = updated;
+            return next;
+          });
+        }
+      )
+      .subscribe();
+
+    return () => {
+      try {
+        convChannel.unsubscribe();
+      } catch {}
+      try {
+        msgChannel.unsubscribe();
+      } catch {}
+    };
+  }, [userId]);
 
   const ensureChat = useCallback((chat: StoredChat) => {
     setChats((prev) => {
@@ -136,11 +259,12 @@ export function ChatProvider({ children, initialChats = [] }: ChatProviderProps)
       chats,
       globalChats: chats.filter((chat) => !chat.projectId),
       getProjectChats,
+      refreshChats,
       createChat,
       appendMessages,
       ensureChat,
     }),
-    [appendMessages, chats, createChat, ensureChat, getProjectChats]
+    [appendMessages, chats, createChat, ensureChat, getProjectChats, refreshChats]
   );
 
   return <ChatContext.Provider value={value}>{children}</ChatContext.Provider>;
