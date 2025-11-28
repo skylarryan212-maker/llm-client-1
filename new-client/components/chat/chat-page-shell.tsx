@@ -72,6 +72,7 @@ export default function ChatPageShell({
     updateMessage,
     removeMessage,
     ensureChat,
+    refreshChats,
   } = useChatStore();
 
   const [isSidebarOpen, setIsSidebarOpen] = usePersistentSidebarOpen(true);
@@ -228,7 +229,7 @@ export default function ChatPageShell({
 
     // Fire-and-forget title generation
     try {
-      await fetch("/api/conversations/generate-title", {
+      const response = await fetch("/api/conversations/generate-title", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -236,7 +237,19 @@ export default function ChatPageShell({
           userMessage,
         }),
       });
-      console.log(`[titleDebug] triggered auto-naming for conversation ${conversationId}`);
+      
+      if (response.ok) {
+        const data = await response.json();
+        console.log(`[titleDebug] auto-naming succeeded with title: ${data.title}`);
+        
+        // Refresh chats to get the updated title from Supabase
+        // The realtime subscription should handle this, but force a refresh to be sure
+        setTimeout(() => {
+          refreshChats().catch((err: unknown) => console.error("Failed to refresh after auto-naming:", err));
+        }, 500);
+      } else {
+        console.error("Auto-naming API returned error:", response.status);
+      }
     } catch (error) {
       console.error("Auto-naming trigger failed:", error);
     }
@@ -356,6 +369,28 @@ export default function ChatPageShell({
       console.error("Error streaming model response:", error);
     }
   };
+
+  // Check if we need to auto-start streaming for a new chat with only a user message
+  // This handles the case where a chat was created from the project page and redirected here
+  useEffect(() => {
+    if (!activeConversationId || !initialMessages.length) return;
+    
+    // Only trigger if there's exactly 1 message and it's a user message
+    if (initialMessages.length === 1 && initialMessages[0].role === "user") {
+      const userMessage = initialMessages[0];
+      console.log("[chatDebug] Detected new chat with only user message, triggering stream");
+      
+      streamModelResponse(
+        activeConversationId,
+        projectId,
+        userMessage.content,
+        activeConversationId,
+        true // skipUserInsert since message is already in DB
+      ).catch((err: unknown) => {
+        console.error("Failed to stream initial message:", err);
+      });
+    }
+  }, [activeConversationId]); // Only run when activeConversationId changes
 
   const handleRetryWithModel = async (retryModelName: string, messageId: string) => {
     if (!selectedChatId) return;
