@@ -260,18 +260,18 @@ function StatusBubble({
 
   return (
     <div
-      className={`flex flex-col items-center gap-1 rounded-full border px-3 py-1 text-xs ${baseClassMap[variant]} sm:flex-row sm:items-center sm:gap-2`}
+      className={`inline-flex max-w-full items-center rounded-full border px-3 py-1 text-xs overflow-hidden ${baseClassMap[variant]}`}
       aria-live="polite"
     >
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 min-w-0">
         <span
-          className={`h-2 w-2 rounded-full ${dotMap[variant]} ${pulseClass}`}
+          className={`h-2 w-2 flex-shrink-0 rounded-full ${dotMap[variant]} ${pulseClass}`}
           aria-hidden
         />
-        <span>{label}</span>
+        <span className="min-w-0 truncate">{label}</span>
       </div>
       {subtext ? (
-        <span className="text-[11px] opacity-80">{subtext}</span>
+        <span className="ml-2 text-[11px] opacity-80 truncate">{subtext}</span>
       ) : null}
     </div>
   );
@@ -2585,7 +2585,8 @@ export function MainApp({
               })}
 
               {(searchIndicator || fileReadingIndicator || thinkingStatus) && (
-                <div className="flex flex-wrap gap-2">
+                <div className="mx-auto w-full max-w-3xl">
+                  <div className="flex flex-wrap gap-2">
                   {fileReadingIndicator && (
                     <StatusBubble
                       label="Reading documents"
@@ -2622,6 +2623,7 @@ export function MainApp({
                       }
                     />
                   )}
+                  </div>
                 </div>
               )}
             </div>

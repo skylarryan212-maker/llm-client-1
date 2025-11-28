@@ -1,5 +1,6 @@
 "use client";
 
+import React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
@@ -75,7 +76,7 @@ export default function ChatPageShell({
   messages: initialMessages,
   projectId,
   searchParams,
-}: ChatPageShellProps): JSX.Element {
+}: ChatPageShellProps) {
   const router = useRouter();
   const { projects, addProject } = useProjects();
   const {
@@ -401,7 +402,7 @@ export default function ChatPageShell({
         markConversationAsAutoStreamed(conversationId);
         
         // Trigger auto-naming immediately (in parallel with streaming)
-        triggerAutoNaming(conversationId, message, conversation.title);
+        triggerAutoNaming(conversationId, message, conversation.title ?? undefined);
         
         // Stream the model response without inserting the user message again
         await streamModelResponse(conversationId, targetProjectId, message, newChatId, true);
@@ -430,7 +431,7 @@ export default function ChatPageShell({
         markConversationAsAutoStreamed(conversationId);
         
         // Trigger auto-naming immediately (in parallel with streaming)
-        triggerAutoNaming(conversationId, message, conversation.title);
+        triggerAutoNaming(conversationId, message, conversation.title ?? undefined);
         
         // Stream the model response without inserting the user message again
         await streamModelResponse(conversationId, undefined, message, newChatId, true);
@@ -652,9 +653,9 @@ export default function ChatPageShell({
     const userMessage = messages[messageIndex - 1];
     if (!userMessage || userMessage.role !== "user") return;
 
-     // Map retry model name to model settings (without changing the UI dropdown)
-     let retryModelFamily = "gpt-5-mini";
-     let retrySpeedMode = "auto";
+    // Map retry model name to model settings (without changing the UI dropdown)
+    let retryModelFamily = "gpt-5-mini";
+    let retrySpeedMode: SpeedMode | undefined = "auto";
      if (retryModelName === "GPT 5 Nano") {
        retryModelFamily = "gpt-5-nano";
        retrySpeedMode = "auto";
@@ -1205,36 +1206,38 @@ export default function ChatPageShell({
                       {showIndicatorBlock && (
                         <div className="flex flex-col gap-2 pb-2">
                           {showStatusRow && (
-                            <div className="flex flex-wrap gap-2">
-                              {fileReadingIndicator && (
-                                <StatusBubble
-                                  label="Reading documents"
-                                  variant={
-                                    fileReadingIndicator === "error" ? "error" : "reading"
-                                  }
-                                />
-                              )}
-                              {searchIndicator && (
-                                <StatusBubble
-                                  label={searchIndicator.message}
-                                  variant={
-                                    searchIndicator.variant === "error"
-                                      ? "error"
-                                      : "search"
-                                  }
-                                  subtext={searchIndicator.subtext}
-                                />
-                              )}
-                              {thinkingStatus && (
-                                <StatusBubble
-                                  label={thinkingStatus.label}
-                                  variant={
-                                    thinkingStatus.variant === "extended"
-                                      ? "extended"
-                                      : "default"
-                                  }
-                                />
-                              )}
+                            <div className="mx-auto w-full max-w-3xl">
+                              <div className="flex flex-wrap gap-2">
+                                {fileReadingIndicator && (
+                                  <StatusBubble
+                                    label="Reading documents"
+                                    variant={
+                                      fileReadingIndicator === "error" ? "error" : "reading"
+                                    }
+                                  />
+                                )}
+                                {searchIndicator && (
+                                  <StatusBubble
+                                    label={searchIndicator.message}
+                                    variant={
+                                      searchIndicator.variant === "error"
+                                        ? "error"
+                                        : "search"
+                                    }
+                                    subtext={searchIndicator.subtext}
+                                  />
+                                )}
+                                {thinkingStatus && (
+                                  <StatusBubble
+                                    label={thinkingStatus.label}
+                                    variant={
+                                      thinkingStatus.variant === "extended"
+                                        ? "extended"
+                                        : "default"
+                                    }
+                                  />
+                                )}
+                              </div>
                             </div>
                           )}
                           {metadataIndicators && (

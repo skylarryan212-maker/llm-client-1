@@ -30,19 +30,19 @@ export function StatusBubble({ label, variant = "default", subtext }: StatusBubb
   return (
     <div
       className={cn(
-        "flex flex-col items-center gap-1 rounded-full border px-3 py-1 text-xs sm:flex-row sm:items-center sm:gap-2",
+        "inline-flex max-w-full items-center rounded-full border px-3 py-1 text-xs overflow-hidden",
         baseClassMap[variant]
       )}
       aria-live="polite"
     >
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 min-w-0">
         <span
-          className={cn("h-2 w-2 rounded-full animate-pulse", dotClassMap[variant])}
+          className={cn("h-2 w-2 flex-shrink-0 rounded-full animate-pulse", dotClassMap[variant])}
           aria-hidden
         />
-        <span>{label}</span>
+        <span className="min-w-0 truncate">{label}</span>
       </div>
-      {subtext ? <span className="text-[11px] opacity-80">{subtext}</span> : null}
+      {subtext ? <span className="ml-2 text-[11px] opacity-80 truncate">{subtext}</span> : null}
     </div>
   );
 }
