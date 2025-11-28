@@ -11,6 +11,7 @@ import { NewProjectModal } from "@/components/projects/new-project-modal";
 import { usePersistentSidebarOpen } from "@/lib/hooks/use-sidebar-open";
 import { useChatStore } from "@/components/chat/chat-provider";
 import { ChatComposer } from "@/components/chat-composer";
+import { startProjectConversationAction } from "@/app/actions/chat-actions";
 
 export default function ProjectDetailPage() {
   const params = useParams<{ projectId: string }>();
@@ -35,8 +36,8 @@ export default function ProjectDetailPage() {
     setIsNewProjectOpen(true);
   };
 
-  const handleProjectCreate = (name: string) => {
-    const newProject = addProject(name);
+  const handleProjectCreate = async (name: string) => {
+    const newProject = await addProject(name);
     setIsNewProjectOpen(false);
     router.push(`/projects/${newProject.id}`);
   };
@@ -89,12 +90,24 @@ export default function ProjectDetailPage() {
     return map;
   }, [chats]);
 
-  const handleProjectChatSubmit = (message: string) => {
+  const handleProjectChatSubmit = async (message: string) => {
     const now = new Date().toISOString();
+    const { conversationId, message: createdMessage, conversation } =
+      await startProjectConversationAction({
+        projectId,
+        firstMessageContent: message,
+      });
+
     const chatId = createChat({
+      id: conversationId,
       projectId,
       initialMessages: [
-        { id: `user-${Date.now()}`, role: "user", content: message, timestamp: now },
+        {
+          id: createdMessage.id,
+          role: "user",
+          content: createdMessage.content ?? message,
+          timestamp: createdMessage.created_at ?? now,
+        },
         {
           id: `assistant-${Date.now()}`,
           role: "assistant",
@@ -103,7 +116,7 @@ export default function ProjectDetailPage() {
           model: currentModel,
         },
       ],
-      title: message.slice(0, 80) || "New chat",
+      title: conversation.title ?? (message.slice(0, 80) || "New chat"),
     });
 
     setSelectedChatId(chatId);

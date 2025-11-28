@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 interface NewProjectModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onCreate: (name: string) => void;
+  onCreate: (name: string) => Promise<void>;
 }
 
 export function NewProjectModal({ isOpen, onClose, onCreate }: NewProjectModalProps) {
@@ -16,11 +16,11 @@ export function NewProjectModal({ isOpen, onClose, onCreate }: NewProjectModalPr
 
   if (!isOpen) return null;
 
-  const handleSubmit = (event: FormEvent) => {
+  const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
     const trimmed = name.trim();
     if (!trimmed) return;
-    onCreate(trimmed);
+    await onCreate(trimmed);
     setName("New Project");
   };
 
@@ -37,9 +37,7 @@ export function NewProjectModal({ isOpen, onClose, onCreate }: NewProjectModalPr
 
         <div className="space-y-1 pb-4">
           <h2 className="text-xl font-semibold text-foreground">Create project</h2>
-          <p className="text-sm text-muted-foreground">
-            Mock-only for now — we&apos;ll add this project to your local list.
-          </p>
+          <p className="text-sm text-muted-foreground">Create a new project.</p>
         </div>
 
         <form className="space-y-4" onSubmit={handleSubmit}>

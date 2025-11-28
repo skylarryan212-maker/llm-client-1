@@ -1,55 +1,50 @@
 "use server";
 
-import { supabaseServer } from "@/lib/supabase/server";
-import { getCurrentUserId } from "@/lib/supabase/user";
+import {
+  appendMessageToConversation,
+  createProjectConversationWithFirstMessage,
+  createGlobalConversationWithFirstMessage,
+} from "@/lib/data/conversation-writes";
+import type { Database } from "@/lib/supabase/types";
 
 export async function startGlobalConversationAction(
   firstMessageContent: string
-): Promise<{ conversationId: string }> {
-  // Cast locally to relax the broken Supabase generic inference for this file only
-  const supabase = (await supabaseServer()) as any;
-  const userId = getCurrentUserId();
+): Promise<{
+  conversationId: string;
+  message: Database["public"]["Tables"]["messages"]["Row"];
+  conversation: Database["public"]["Tables"]["conversations"]["Row"];
+}> {
+  const { conversation, message } = await createGlobalConversationWithFirstMessage({
+    title: firstMessageContent.slice(0, 80) || null,
+    firstMessageContent,
+  });
 
-  const { data, error } = await supabase
-    .from("conversations")
-    .insert([
-      {
-        user_id: userId,
-        title: firstMessageContent.slice(0, 80) || null,
-        project_id: null,
-        metadata: {},
-      },
-    ])
-    .select();
-
-  if (error || !data || !data[0]) {
-    throw new Error("Failed to create conversation");
-  }
-
-  const conversation = data[0];
-  return { conversationId: conversation.id as string };
+  return { conversationId: conversation.id as string, message, conversation };
 }
 
 export async function appendUserMessageAction(
   conversationId: string,
   content: string
 ): Promise<void> {
-  const supabase = (await supabaseServer()) as any;
-  const userId = getCurrentUserId();
+  await appendMessageToConversation({
+    conversationId,
+    role: "user",
+    content,
+  });
+}
 
-  const { error } = await supabase
-    .from("messages")
-    .insert([
-      {
-        user_id: userId,
-        conversation_id: conversationId,
-        role: "user",
-        content,
-        metadata: {},
-      },
-    ]);
+export async function startProjectConversationAction(params: {
+  projectId: string;
+  firstMessageContent: string;
+}): Promise<{
+  conversationId: string;
+  message: Database["public"]["Tables"]["messages"]["Row"];
+  conversation: Database["public"]["Tables"]["conversations"]["Row"];
+}> {
+  const { conversation, message } = await createProjectConversationWithFirstMessage({
+    projectId: params.projectId,
+    firstMessageContent: params.firstMessageContent,
+  });
 
-  if (error) {
-    throw new Error("Failed to append message");
-  }
+  return { conversationId: conversation.id as string, message, conversation };
 }

@@ -1,6 +1,7 @@
 "use client";
 
-import { createContext, useContext, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useMemo, useState } from "react";
+import { createProjectAction } from "@/app/actions/project-actions";
 
 export type ProjectSummary = {
   id: string;
@@ -12,34 +13,12 @@ export type ProjectSummary = {
 
 type ProjectsContextValue = {
   projects: ProjectSummary[];
-  addProject: (name: string) => ProjectSummary;
+  addProject: (name: string) => Promise<ProjectSummary>;
 };
 
 const ProjectsContext = createContext<ProjectsContextValue | null>(null);
 
-const initialProjects: ProjectSummary[] = [
-  {
-    id: "proj-1",
-    name: "Demo Project",
-    createdAt: "2025-01-01",
-    icon: "🚀",
-    description: "Starter playground for LLM workflows.",
-  },
-  {
-    id: "proj-2",
-    name: "Marketing Launch Kit",
-    createdAt: "2025-02-14",
-    icon: "📣",
-    description: "Assets and prompts for the spring product launch.",
-  },
-  {
-    id: "proj-3",
-    name: "Docs Migration",
-    createdAt: "2025-03-05",
-    icon: "📚",
-    description: "Move legacy docs into the new knowledge base.",
-  },
-];
+const initialProjects: ProjectSummary[] = [];
 
 export function ProjectsProvider({
   children,
@@ -50,25 +29,27 @@ export function ProjectsProvider({
 }) {
   const [projects, setProjects] = useState<ProjectSummary[]>(initialProjectsProp);
 
-  const addProject = (name: string): ProjectSummary => {
+  const addProject = useCallback(async (name: string): Promise<ProjectSummary> => {
+    const created = await createProjectAction(name);
+
     const newProject: ProjectSummary = {
-      id: `proj-${Date.now()}`,
-      name,
-      createdAt: new Date().toISOString().slice(0, 10),
+      id: created.id,
+      name: created.name,
+      createdAt: created.created_at ?? new Date().toISOString(),
       icon: "🧭",
       description: "Newly created project",
     };
 
     setProjects((prev) => [newProject, ...prev]);
     return newProject;
-  };
+  }, []);
 
   const value = useMemo(
     () => ({
       projects,
       addProject,
     }),
-    [projects]
+    [addProject, projects]
   );
 
   return (
