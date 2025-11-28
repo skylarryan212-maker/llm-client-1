@@ -22,6 +22,12 @@ export interface ConversationInsert {
   metadata?: Json | null;
 }
 
+export interface ConversationUpdate {
+  title?: string | null;
+  project_id?: string | null;
+  metadata?: Json | null;
+}
+
 export interface Message {
   id: string;
   conversation_id: string;
@@ -51,12 +57,17 @@ export interface ProjectInsert {
   name: string;
 }
 
+export interface ProjectUpdate {
+  name?: string;
+}
+
 export interface Database {
   public: {
     Tables: {
       conversations: {
         Row: Conversation;
         Insert: ConversationInsert;
+        Update: ConversationUpdate;
       };
       messages: {
         Row: Message;
@@ -65,6 +76,7 @@ export interface Database {
       projects: {
         Row: Project;
         Insert: ProjectInsert;
+        Update: ProjectUpdate;
       };
     };
   };

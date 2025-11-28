@@ -19,7 +19,8 @@ import {
 } from "@/lib/metadata";
 import type {
   Tool,
-  ToolChoiceAllowed,
+  ToolChoiceOptions,
+  WebSearchTool,
 } from "openai/resources/responses/responses";
 
 type MessageRow = Database["public"]["Tables"]["messages"]["Row"];
@@ -569,17 +570,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const webSearchTool = { type: "web_search" } satisfies Tool;
+    const webSearchTool: WebSearchTool = { type: "web_search_preview" };
     const toolsForRequest: Tool[] = [];
     if (allowWebSearch) {
       toolsForRequest.push(webSearchTool);
     }
-    const toolChoice: ToolChoiceAllowed | undefined = allowWebSearch
-      ? {
-          type: "allowed_tools",
-          mode: requireWebSearch ? "required" : "auto",
-          tools: [webSearchTool],
-        }
+    const toolChoice: ToolChoiceOptions | undefined = allowWebSearch
+      ? requireWebSearch
+        ? "required"
+        : "auto"
       : undefined;
 
     const includeFields = allowWebSearch
