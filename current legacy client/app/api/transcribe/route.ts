@@ -26,7 +26,7 @@ export async function POST(request: Request) {
     const buffer = Buffer.from(arrayBuffer);
     const fileName = (audioBlob as File).name || "voice-message.webm";
     const mimeType = audioBlob.type || "audio/webm";
-    const audioFile = new File([buffer], fileName, { type: mimeType });
+    const audioFile = new File([new Uint8Array(buffer)], fileName, { type: mimeType });
 
     const client = getOpenAIClient();
     const transcription = await client.audio.transcriptions.create({

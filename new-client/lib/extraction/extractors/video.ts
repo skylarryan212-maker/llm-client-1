@@ -9,7 +9,7 @@ async function transcribeVideo(
 ) {
   const { OpenAI } = await import("openai");
   const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-  const blob = new Blob([buffer], {
+  const blob = new Blob([new Uint8Array(buffer)], {
     type: mime || "application/octet-stream",
   });
   const file = new File([blob], name || "video");

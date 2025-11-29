@@ -832,7 +832,7 @@ async function uploadFilesToVectorStore({
   for (const file of files) {
     try {
       const buffer = dataUrlToBuffer(file.dataUrl);
-      const uploadable = new File([buffer], file.name || "file", {
+      const uploadable = new File([new Uint8Array(buffer)], file.name || "file", {
         type: file.mimeType || "application/octet-stream",
       });
       await openai.vectorStores.files.uploadAndPoll(vectorStoreId, uploadable);
