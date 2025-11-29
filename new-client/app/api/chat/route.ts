@@ -579,6 +579,108 @@ export async function POST(request: NextRequest) {
       const buffer = dataUrlToBuffer(dataUrl);
       const contentType = mime || "";
       const lower = contentType.toLowerCase();
+      const extension = (name || '').toLowerCase().split('.').pop() || '';
+
+      // Helper utilities for structured formats
+      function summarizeObject(obj: any, depth = 0, maxDepth = 3): string {
+        if (obj === null) return 'null';
+        if (typeof obj !== 'object') return String(obj).slice(0, 200);
+        if (depth >= maxDepth) return '[...]';
+        const entries = Object.entries(obj).slice(0, 25);
+        return entries.map(([k, v]) => `${k}: ${summarizeObject(v, depth + 1, maxDepth)}`).join('\n');
+      }
+      function truncate(str: string, limit = 32768) { return str.length > limit ? str.slice(0, limit) : str; }
+
+      // RTF (basic cleanup) prior to generic text branch
+      if (extension === 'rtf' || lower.includes('rtf')) {
+        console.log(`[extractAttachmentContent] Attempting RTF extraction for ${name}`);
+        let raw = buffer.toString('utf-8');
+        let cleaned = raw
+          .replace(/\{\\[^}]*\}/g, ' ') // groups
+          .replace(/\\'[0-9a-fA-F]{2}/g, ' ') // hex escapes
+          .replace(/\\par[\s]?/g, '\n')
+          .replace(/\\tab/g, '\t')
+          .replace(/\\[a-zA-Z]+-?\d* ?/g, ' ') // control words
+          .replace(/[{}]/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim();
+        const preview = truncate(cleaned);
+        return preview.length ? preview : null;
+      }
+
+      // HTML extraction
+      if (extension === 'html' || lower.includes('html')) {
+        console.log(`[extractAttachmentContent] Attempting HTML extraction for ${name}`);
+        try {
+          const { convert } = require('html-to-text');
+          const html = buffer.toString('utf-8');
+          const text = convert(html, { wordwrap: false, selectors: [ { selector: 'script', format: 'skip' }, { selector: 'style', format: 'skip' } ] });
+          const preview = truncate(text);
+          return preview.trim().length ? preview : null;
+        } catch (htmlErr) {
+          console.error(`[extractAttachmentContent] HTML extraction failed for ${name}:`, htmlErr);
+        }
+      }
+
+      // XML extraction
+      if (extension === 'xml' || lower.includes('xml')) {
+        console.log(`[extractAttachmentContent] Attempting XML extraction for ${name}`);
+        try {
+          const { XMLParser } = require('fast-xml-parser');
+          const parser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '@_' });
+          const xmlStr = buffer.toString('utf-8');
+          const parsed = parser.parse(xmlStr);
+          const summary = summarizeObject(parsed);
+          const preview = truncate(summary);
+          return preview.trim().length ? preview : null;
+        } catch (xmlErr) {
+          console.error(`[extractAttachmentContent] XML extraction failed for ${name}:`, xmlErr);
+        }
+      }
+
+      // JSON extraction (structured summary)
+      if (extension === 'json' || lower.includes('application/json')) {
+        console.log(`[extractAttachmentContent] Attempting JSON extraction for ${name}`);
+        try {
+          const jsonStr = buffer.toString('utf-8');
+          const parsed = JSON.parse(jsonStr);
+          const summary = summarizeObject(parsed);
+          const preview = truncate(summary);
+          return preview.trim().length ? preview : null;
+        } catch (jsonErr) {
+          console.error(`[extractAttachmentContent] JSON extraction failed for ${name}:`, jsonErr);
+        }
+      }
+
+      // YAML extraction
+      if (['yaml','yml'].includes(extension) || lower.includes('yaml') || lower.includes('yml')) {
+        console.log(`[extractAttachmentContent] Attempting YAML extraction for ${name}`);
+        try {
+          const yaml = require('yaml');
+          const yamlStr = buffer.toString('utf-8');
+          const parsed = yaml.parse(yamlStr);
+          const summary = summarizeObject(parsed);
+          const preview = truncate(summary);
+          return preview.trim().length ? preview : null;
+        } catch (yamlErr) {
+          console.error(`[extractAttachmentContent] YAML extraction failed for ${name}:`, yamlErr);
+        }
+      }
+
+      // TOML extraction
+      if (extension === 'toml' || lower.includes('toml')) {
+        console.log(`[extractAttachmentContent] Attempting TOML extraction for ${name}`);
+        try {
+          const toml = require('@iarna/toml');
+          const tomlStr = buffer.toString('utf-8');
+          const parsed = toml.parse(tomlStr);
+          const summary = summarizeObject(parsed);
+          const preview = truncate(summary);
+          return preview.trim().length ? preview : null;
+        } catch (tomlErr) {
+          console.error(`[extractAttachmentContent] TOML extraction failed for ${name}:`, tomlErr);
+        }
+      }
 
       // PDF extraction
       if (lower.includes("pdf")) {
@@ -742,6 +844,12 @@ export async function POST(request: NextRequest) {
           
             // For other text files, take a larger sample
             text = text.slice(0, 32768);
+              if (/\.(js|ts|jsx|tsx|py|java|cpp|c|h|cs|php|rb|go|rs|swift|kt)$/i.test(name || '')) {
+                const lines = text.split(/\r?\n/);
+                const fnCount = lines.filter(l => /\b(function|def|fn)\b/.test(l)).length;
+                const classCount = lines.filter(l => /\b(class|struct|interface)\b/.test(l)).length;
+                text = `[Code Summary]\nLines: ${lines.length}\nFunctions: ${fnCount}\nClasses/Structs: ${classCount}\n---\n` + text;
+              }
             console.log(`[extractAttachmentContent] Text extracted ${text.length} chars from ${name}`);
             return text.trim().length ? text : null;
           } catch (textErr) {
@@ -835,26 +943,19 @@ export async function POST(request: NextRequest) {
       }
     }
     
-    // Second pass: extract previews for all files
+    // Second pass: extract previews for all files (no HEAD requests for dataUrls)
     for (const att of body.attachments) {
       if (!att?.dataUrl) continue;
       console.log(`[chatApi] Extracting content from: ${att.name} (${att.mime})`);
       const preview = await extractAttachmentContent(att.dataUrl, att.name, att.mime);
       console.log(`[chatApi] Extraction result for ${att.name}: ${preview ? preview.length + ' chars' : 'null'}`);
       if (preview) {
-        const label = att.name || "attachment";
-        
-        // Check if this file was uploaded to OpenAI
-        const headRes = await fetch(att.dataUrl, { method: "HEAD" });
-        const contentLength = headRes.headers.get("content-length");
-        const fileSize = contentLength ? parseInt(contentLength, 10) : 0;
+        const label = att.name || 'attachment';
+        const sizeBuffer = dataUrlToBuffer(att.dataUrl);
+        const fileSize = sizeBuffer.length;
         const isLargeFile = fileSize > 100 * 1024;
-        
-        const truncationNote = isLargeFile
-          ? " [Preview truncated; full content searchable via file_search tool]"
-          : "";
-        
-        expandedMessageWithAttachments += `\n\n[Attachment preview: ${label}${truncationNote}]\n` + preview + "\n";
+        const truncationNote = isLargeFile ? ' [Preview truncated; full content searchable via file_search tool]' : '';
+        expandedMessageWithAttachments += `\n\n[Attachment preview: ${label}${truncationNote}]\n` + preview + '\n';
         console.log(`[chatApi] Added preview for ${label}: ${preview.length} chars`);
       } else {
         console.warn(`[chatApi] No preview extracted for ${att.name}`);
