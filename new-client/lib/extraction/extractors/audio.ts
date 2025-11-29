@@ -18,10 +18,8 @@ async function transcribe(buffer: Buffer, name: string, mime: string | null) {
     typeof (res as { text?: unknown }).text === "string"
       ? (res as { text: string }).text
       : "";
-  const language =
-    typeof (res as { language?: unknown }).language === "string"
-      ? (res as { language: string }).language
-      : undefined;
+  const langAny = (res as Record<string, unknown> | null | undefined)?.language;
+  const language = typeof langAny === "string" ? (langAny as string) : undefined;
   return { text, language };
 }
 
