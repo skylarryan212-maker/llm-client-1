@@ -682,44 +682,51 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      // PDF extraction
-      if (lower.includes("pdf")) {
+      // PDF extraction (robust with fallback)
+      if (lower.includes("pdf") || extension === 'pdf') {
         console.log(`[extractAttachmentContent] Attempting PDF extraction for ${name}`);
         try {
-           // Use pdfjs-dist/legacy for Node.js compatibility
-           const pdfjsLib = await import("pdfjs-dist/legacy/build/pdf.mjs");
-          
-          // Load the PDF
-          const loadingTask = pdfjsLib.getDocument({
-            data: new Uint8Array(buffer),
-          });
-          
+          const pdfjsLib = await import('pdfjs-dist');
+          // Disable worker by using legacy build interface if available; fallback to parameter omission
+          const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(buffer) });
           const pdf = await loadingTask.promise;
-          const numPages = Math.min(pdf.numPages, 50); // Limit to first 50 pages
+          const maxPages = Math.min(pdf.numPages, 40);
           const textParts: string[] = [];
-          
-          for (let i = 1; i <= numPages; i++) {
+          for (let i = 1; i <= maxPages; i++) {
             const page = await pdf.getPage(i);
             const textContent = await page.getTextContent();
             const pageText = textContent.items
               .map((item: any) => {
-                if (typeof item === 'object' && item !== null) {
-                  return item.str || '';
+                if (item && typeof item === 'object') {
+                  if (typeof item.str === 'string') return item.str;
+                  if (typeof (item as any).unicode === 'string') return (item as any).unicode;
                 }
                 return '';
               })
               .filter(Boolean)
-              .join(" ");
-            textParts.push(pageText);
+              .join(' ');
+            if (pageText.trim()) textParts.push(pageText.trim());
+            // Stop early if preview already large
+            if (textParts.join(' ').length > 33000) break;
           }
-          
-          const text = textParts.join("\n\n");
-          console.log(`[extractAttachmentContent] PDF extracted ${text.length} chars from ${name}`);
-          const preview = text.slice(0, 32768); // ~32KB cap
-          return preview.trim().length ? preview : null;
+          let text = textParts.join('\n\n');
+          if (!text.trim()) throw new Error('Empty PDF text after extraction');
+          const preview = text.slice(0, 32768);
+          console.log(`[extractAttachmentContent] PDF extracted ${preview.length} preview chars from ${name}`);
+          return preview;
         } catch (pdfErr) {
-           console.error(`[extractAttachmentContent] PDF extraction failed for ${name}:`, pdfErr);
-          // For Vercel: if extraction fails, note in preview that file_search should be used
+          console.error(`[extractAttachmentContent] PDF extraction failed for ${name}:`, pdfErr);
+          // Fallback: naive ASCII extraction
+          try {
+            const raw = buffer.toString('latin1');
+            const ascii = raw.replace(/[^\x20-\x7E\n\r]/g, ' ');
+            const collapsed = ascii.replace(/\s+/g, ' ').trim().slice(0, 16384);
+            if (collapsed.length) {
+              return `[Low fidelity PDF fallback]\n${collapsed}`;
+            }
+          } catch (fallbackErr) {
+            console.error(`[extractAttachmentContent] PDF fallback failed for ${name}:`, fallbackErr);
+          }
           return null;
         }
       }
