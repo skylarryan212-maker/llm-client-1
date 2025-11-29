@@ -64,3 +64,11 @@ npm run dev
 See **IMPLEMENTATION_SUMMARY.md** for detailed docs.
 
 See **TESTING_GUIDE.md** for testing procedures.
+
+## File Extraction
+
+- Dispatcher in `new-client/lib/extraction` covers PDFs, archives (zip/tar/gzip), ODF, EPUB, CSV/TSV/PSV, NDJSON, logs, JSON/YAML/TOML stats, code summaries, OCR-able images, and audio/video Whisper transcription.
+- Status taxonomy is prefixed on every preview: `[status: OK|TOO_LARGE|UNSUPPORTED|PARSE_ERROR|ENCRYPTED|EMPTY]`; heavy work is gated by `LARGE_FILE_THRESHOLD`.
+- Flags/limits live in `new-client/lib/extraction/config.ts`: `ENABLE_OCR`, `ENABLE_TRANSCRIPTION`, `ENABLE_LEGACY_CONVERT`, `MAX_PREVIEW_BYTES`, `PDF_MAX_PAGES`, `ARCHIVE_MAX_ENTRIES`, `NDJSON_MAX_LINES`, `LOG_MAX_LINES`.
+- Chat route now calls the dispatcher for attachment previews while still uploading large files to OpenAI vector stores for `file_search`.
+- Quick harness: `cd new-client && npx ts-node scripts/test-extraction.ts <path>` to print meta + preview sample.

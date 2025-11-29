@@ -18,6 +18,7 @@ import {
   extractDomainFromUrl,
   formatSearchSiteLabel,
 } from "@/lib/metadata";
+import { dispatchExtract } from "@/lib/extraction/dispatcher";
 import type {
   Tool,
   ToolChoiceOptions,
@@ -568,316 +569,11 @@ export async function POST(request: NextRequest) {
 
   // Helper to convert dataUrl to buffer
   function dataUrlToBuffer(dataUrl: string): Buffer {
-    const base64Data = dataUrl.split(',')[1] || dataUrl;
-    return Buffer.from(base64Data, 'base64');
+    const base64Data = dataUrl.split(",")[1] || dataUrl;
+    return Buffer.from(base64Data, "base64");
   }
 
-  // Comprehensive server-side attachment extraction from base64 dataUrl
-  async function extractAttachmentContent(dataUrl: string, name?: string | null, mime?: string | null) {
-    try {
-      console.log(`[extractAttachmentContent] Extracting ${name || 'unknown'} from dataUrl`);
-      const buffer = dataUrlToBuffer(dataUrl);
-      const contentType = mime || "";
-      const lower = contentType.toLowerCase();
-      const extension = (name || '').toLowerCase().split('.').pop() || '';
-
-      // Helper utilities for structured formats
-      function summarizeObject(obj: any, depth = 0, maxDepth = 3): string {
-        if (obj === null) return 'null';
-        if (typeof obj !== 'object') return String(obj).slice(0, 200);
-        if (depth >= maxDepth) return '[...]';
-        const entries = Object.entries(obj).slice(0, 25);
-        return entries.map(([k, v]) => `${k}: ${summarizeObject(v, depth + 1, maxDepth)}`).join('\n');
-      }
-      function truncate(str: string, limit = 32768) { return str.length > limit ? str.slice(0, limit) : str; }
-
-      // RTF (basic cleanup) prior to generic text branch
-      if (extension === 'rtf' || lower.includes('rtf')) {
-        console.log(`[extractAttachmentContent] Attempting RTF extraction for ${name}`);
-        let raw = buffer.toString('utf-8');
-        let cleaned = raw
-          .replace(/\{\\[^}]*\}/g, ' ') // groups
-          .replace(/\\'[0-9a-fA-F]{2}/g, ' ') // hex escapes
-          .replace(/\\par[\s]?/g, '\n')
-          .replace(/\\tab/g, '\t')
-          .replace(/\\[a-zA-Z]+-?\d* ?/g, ' ') // control words
-          .replace(/[{}]/g, ' ')
-          .replace(/\s+/g, ' ')
-          .trim();
-        const preview = truncate(cleaned);
-        return preview.length ? preview : null;
-      }
-
-      // HTML extraction
-      if (extension === 'html' || lower.includes('html')) {
-        console.log(`[extractAttachmentContent] Attempting HTML extraction for ${name}`);
-        try {
-          const { convert } = require('html-to-text');
-          const html = buffer.toString('utf-8');
-          const text = convert(html, { wordwrap: false, selectors: [ { selector: 'script', format: 'skip' }, { selector: 'style', format: 'skip' } ] });
-          const preview = truncate(text);
-          return preview.trim().length ? preview : null;
-        } catch (htmlErr) {
-          console.error(`[extractAttachmentContent] HTML extraction failed for ${name}:`, htmlErr);
-        }
-      }
-
-      // XML extraction
-      if (extension === 'xml' || lower.includes('xml')) {
-        console.log(`[extractAttachmentContent] Attempting XML extraction for ${name}`);
-        try {
-          const { XMLParser } = require('fast-xml-parser');
-          const parser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '@_' });
-          const xmlStr = buffer.toString('utf-8');
-          const parsed = parser.parse(xmlStr);
-          const summary = summarizeObject(parsed);
-          const preview = truncate(summary);
-          return preview.trim().length ? preview : null;
-        } catch (xmlErr) {
-          console.error(`[extractAttachmentContent] XML extraction failed for ${name}:`, xmlErr);
-        }
-      }
-
-      // JSON extraction (structured summary)
-      if (extension === 'json' || lower.includes('application/json')) {
-        console.log(`[extractAttachmentContent] Attempting JSON extraction for ${name}`);
-        try {
-          const jsonStr = buffer.toString('utf-8');
-          const parsed = JSON.parse(jsonStr);
-          const summary = summarizeObject(parsed);
-          const preview = truncate(summary);
-          return preview.trim().length ? preview : null;
-        } catch (jsonErr) {
-          console.error(`[extractAttachmentContent] JSON extraction failed for ${name}:`, jsonErr);
-        }
-      }
-
-      // YAML extraction
-      if (['yaml','yml'].includes(extension) || lower.includes('yaml') || lower.includes('yml')) {
-        console.log(`[extractAttachmentContent] Attempting YAML extraction for ${name}`);
-        try {
-          const yaml = require('yaml');
-          const yamlStr = buffer.toString('utf-8');
-          const parsed = yaml.parse(yamlStr);
-          const summary = summarizeObject(parsed);
-          const preview = truncate(summary);
-          return preview.trim().length ? preview : null;
-        } catch (yamlErr) {
-          console.error(`[extractAttachmentContent] YAML extraction failed for ${name}:`, yamlErr);
-        }
-      }
-
-      // TOML extraction
-      if (extension === 'toml' || lower.includes('toml')) {
-        console.log(`[extractAttachmentContent] Attempting TOML extraction for ${name}`);
-        try {
-          const toml = require('@iarna/toml');
-          const tomlStr = buffer.toString('utf-8');
-          const parsed = toml.parse(tomlStr);
-          const summary = summarizeObject(parsed);
-          const preview = truncate(summary);
-          return preview.trim().length ? preview : null;
-        } catch (tomlErr) {
-          console.error(`[extractAttachmentContent] TOML extraction failed for ${name}:`, tomlErr);
-        }
-      }
-
-      // PDF extraction (robust with fallback)
-      if (lower.includes("pdf") || extension === 'pdf') {
-        console.log(`[extractAttachmentContent] Attempting PDF extraction for ${name}`);
-        try {
-          const pdfjsLib = await import('pdfjs-dist');
-          // Disable worker by using legacy build interface if available; fallback to parameter omission
-          const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(buffer) });
-          const pdf = await loadingTask.promise;
-          const maxPages = Math.min(pdf.numPages, 40);
-          const textParts: string[] = [];
-          for (let i = 1; i <= maxPages; i++) {
-            const page = await pdf.getPage(i);
-            const textContent = await page.getTextContent();
-            const pageText = textContent.items
-              .map((item: any) => {
-                if (item && typeof item === 'object') {
-                  if (typeof item.str === 'string') return item.str;
-                  if (typeof (item as any).unicode === 'string') return (item as any).unicode;
-                }
-                return '';
-              })
-              .filter(Boolean)
-              .join(' ');
-            if (pageText.trim()) textParts.push(pageText.trim());
-            // Stop early if preview already large
-            if (textParts.join(' ').length > 33000) break;
-          }
-          let text = textParts.join('\n\n');
-          if (!text.trim()) throw new Error('Empty PDF text after extraction');
-          const preview = text.slice(0, 32768);
-          console.log(`[extractAttachmentContent] PDF extracted ${preview.length} preview chars from ${name}`);
-          return preview;
-        } catch (pdfErr) {
-          console.error(`[extractAttachmentContent] PDF extraction failed for ${name}:`, pdfErr);
-          // Fallback: naive ASCII extraction
-          try {
-            const raw = buffer.toString('latin1');
-            const ascii = raw.replace(/[^\x20-\x7E\n\r]/g, ' ');
-            const collapsed = ascii.replace(/\s+/g, ' ').trim().slice(0, 16384);
-            if (collapsed.length) {
-              return `[Low fidelity PDF fallback]\n${collapsed}`;
-            }
-          } catch (fallbackErr) {
-            console.error(`[extractAttachmentContent] PDF fallback failed for ${name}:`, fallbackErr);
-          }
-          return null;
-        }
-      }
-
-      // DOCX extraction
-      if (lower.includes("wordprocessingml") || lower.includes("msword") || name?.toLowerCase().endsWith(".docx") || name?.toLowerCase().endsWith(".doc")) {
-        console.log(`[extractAttachmentContent] Attempting DOCX extraction for ${name}`);
-        try {
-          const mammoth = require("mammoth");
-          const result = await mammoth.extractRawText({ buffer });
-          const text = result.value || "";
-          console.log(`[extractAttachmentContent] DOCX extracted ${text.length} chars from ${name}`);
-          const preview = text.slice(0, 32768);
-          return preview.trim().length ? preview : null;
-        } catch (docxErr) {
-           console.error(`[extractAttachmentContent] Word document extraction failed for ${name}:`, docxErr);
-          return null;
-        }
-      }
-
-      // PPTX extraction
-      if (lower.includes("presentationml") || name?.toLowerCase().endsWith(".pptx")) {
-          console.log(`[extractAttachmentContent] Attempting PPTX extraction for ${name}`);
-        try {
-          const JSZip = require("jszip");
-          const zip = await JSZip.loadAsync(buffer);
-          const slideTexts: string[] = [];
-          const slideFiles = Object.keys(zip.files).filter(f => f.startsWith("ppt/slides/slide") && f.endsWith(".xml"));
-          for (const slideFile of slideFiles.slice(0, 20)) {
-            const content = await zip.files[slideFile].async("string");
-            const textMatches = content.match(/<a:t>([^<]+)<\/a:t>/g);
-            if (textMatches) {
-              const texts = textMatches.map((m: string) => m.replace(/<\/?a:t>/g, ""));
-              slideTexts.push(texts.join(" "));
-            }
-          }
-            console.log(`[extractAttachmentContent] PPTX extracted ${slideTexts.length} slides from ${name}`);
-          const preview = slideTexts.join("\n\n").slice(0, 32768);
-          return preview.trim().length ? preview : null;
-          } catch (pptxErr) {
-            console.error(`[extractAttachmentContent] PPTX extraction failed for ${name}:`, pptxErr);
-          return null;
-        }
-      }
-
-      // XLSX extraction
-      if (lower.includes("spreadsheetml") || lower.includes("excel") || name?.toLowerCase().endsWith(".xlsx") || name?.toLowerCase().endsWith(".xls")) {
-          console.log(`[extractAttachmentContent] Attempting Excel extraction for ${name}`);
-        try {
-          const XLSX = require("xlsx");
-          const workbook = XLSX.read(buffer, { type: "buffer" });
-          const sheetNames = workbook.SheetNames.slice(0, 5);
-          const parts: string[] = [];
-          for (const sheetName of sheetNames) {
-            const sheet = workbook.Sheets[sheetName];
-            const csv = XLSX.utils.sheet_to_csv(sheet);
-            const lines = csv.split("\n").slice(0, 50);
-            parts.push(`[Sheet: ${sheetName}]\n${lines.join("\n")}`);
-          }
-            console.log(`[extractAttachmentContent] Excel extracted ${sheetNames.length} sheets from ${name}`);
-          const preview = parts.join("\n\n").slice(0, 32768);
-          return preview.trim().length ? preview : null;
-          } catch (xlsxErr) {
-            console.error(`[extractAttachmentContent] Excel extraction failed for ${name}:`, xlsxErr);
-          return null;
-        }
-      }
-
-      // ZIP archive listing
-      if (lower.includes("zip") || lower.includes("x-compressed") || name?.toLowerCase().endsWith(".zip")) {
-          console.log(`[extractAttachmentContent] Attempting ZIP extraction for ${name}`);
-        try {
-          const JSZip = require("jszip");
-          const zip = await JSZip.loadAsync(buffer);
-          const fileList = Object.keys(zip.files).slice(0, 100);
-            console.log(`[extractAttachmentContent] ZIP listed ${fileList.length} files from ${name}`);
-          const preview = `[Archive contents]\n${fileList.join("\n")}`;
-          return preview.slice(0, 16384);
-          } catch (zipErr) {
-            console.error(`[extractAttachmentContent] ZIP extraction failed for ${name}:`, zipErr);
-          return null;
-        }
-      }
-
-      // Text-like fallback (CSV, JSON, Markdown, plain text, code)
-      if (
-        lower.startsWith("text/") ||
-        lower.includes("json") ||
-        lower.includes("csv") ||
-        lower.includes("markdown") ||
-        lower.includes("javascript") ||
-        lower.includes("typescript") ||
-          lower.includes("python") ||
-          lower.includes("html") ||
-          lower.includes("xml") ||
-          lower.includes("yaml") ||
-          lower.includes("yml") ||
-          lower.includes("rtf") ||
-          lower.includes("sql") ||
-          lower.includes("java") ||
-          lower.includes("cpp") ||
-          lower.includes("csharp") ||
-          lower.includes("php") ||
-          lower.includes("ruby") ||
-          lower.includes("go") ||
-          lower.includes("rust") ||
-          lower.includes("swift") ||
-          lower.includes("kotlin") ||
-          name?.match(/\.(txt|md|csv|json|xml|html|css|js|ts|jsx|tsx|py|java|cpp|c|h|cs|php|rb|go|rs|swift|kt|sql|yaml|yml|sh|bash|log|conf|config|ini)$/i)
-      ) {
-        console.log(`[extractAttachmentContent] Attempting text extraction for ${name} (type: ${lower})`);
-          try {
-            let text = buffer.toString("utf-8");
-          
-            // Special handling for CSV - provide more context
-            if (lower.includes("csv") || name?.toLowerCase().endsWith(".csv")) {
-              const lines = text.split("\n");
-              const preview = lines.slice(0, 200).join("\n"); // First 200 rows
-              console.log(`[extractAttachmentContent] CSV extracted ${preview.length} chars (${lines.length} rows) from ${name}`);
-              return preview.slice(0, 32768).trim().length ? preview.slice(0, 32768) : null;
-            }
-          
-            // For other text files, take a larger sample
-            text = text.slice(0, 32768);
-              if (/\.(js|ts|jsx|tsx|py|java|cpp|c|h|cs|php|rb|go|rs|swift|kt)$/i.test(name || '')) {
-                const lines = text.split(/\r?\n/);
-                const fnCount = lines.filter(l => /\b(function|def|fn)\b/.test(l)).length;
-                const classCount = lines.filter(l => /\b(class|struct|interface)\b/.test(l)).length;
-                text = `[Code Summary]\nLines: ${lines.length}\nFunctions: ${fnCount}\nClasses/Structs: ${classCount}\n---\n` + text;
-              }
-            console.log(`[extractAttachmentContent] Text extracted ${text.length} chars from ${name}`);
-            return text.trim().length ? text : null;
-          } catch (textErr) {
-            console.error(`[extractAttachmentContent] Text extraction failed for ${name}:`, textErr);
-            return null;
-          }
-        }
-
-        // Image files - note that OCR is not available, but user can use file_search
-        if (lower.startsWith("image/")) {
-          console.log(`[extractAttachmentContent] Image file detected: ${name} (${lower})`);
-          return `[Image: ${name}]\nNote: Image content analysis available via file_search tool for large files.`;
-      }
-
-      console.warn(`[extractAttachmentContent] No handler for content type: ${lower}`);
-      return null;
-    } catch (err) {
-      console.error(`[extractAttachmentContent] Error extracting ${name}:`, err);
-      return null;
-    }
-  }    let expandedMessageWithAttachments = expandedMessage;
+  let expandedMessageWithAttachments = expandedMessage;
     if (attachmentLines.length) {
       expandedMessageWithAttachments += `\n\n${attachmentLines.join("\n")}`;
       // Emit a file-reading-start status for client UI
@@ -954,18 +650,25 @@ export async function POST(request: NextRequest) {
     for (const att of body.attachments) {
       if (!att?.dataUrl) continue;
       console.log(`[chatApi] Extracting content from: ${att.name} (${att.mime})`);
-      const preview = await extractAttachmentContent(att.dataUrl, att.name, att.mime);
-      console.log(`[chatApi] Extraction result for ${att.name}: ${preview ? preview.length + ' chars' : 'null'}`);
-      if (preview) {
-        const label = att.name || 'attachment';
-        const sizeBuffer = dataUrlToBuffer(att.dataUrl);
-        const fileSize = sizeBuffer.length;
-        const isLargeFile = fileSize > 100 * 1024;
-        const truncationNote = isLargeFile ? ' [Preview truncated; full content searchable via file_search tool]' : '';
-        expandedMessageWithAttachments += `\n\n[Attachment preview: ${label}${truncationNote}]\n` + preview + '\n';
-        console.log(`[chatApi] Added preview for ${label}: ${preview.length} chars`);
-      } else {
-        console.warn(`[chatApi] No preview extracted for ${att.name}`);
+      const buffer = dataUrlToBuffer(att.dataUrl);
+      const extraction = await dispatchExtract(
+        buffer,
+        att.name ?? "attachment",
+        att.mime ?? null,
+      );
+      const { preview, meta } = extraction;
+      console.log(
+        `[chatApi] Extraction result for ${att.name}: ${preview ? preview.length + " chars" : "null"}`,
+      );
+      const label = att.name || "attachment";
+      const fileSize = buffer.length;
+      const isLargeFile = fileSize > 100 * 1024;
+      const truncationNote = isLargeFile
+        ? " [Preview truncated; full content searchable via file_search tool]"
+        : "";
+      expandedMessageWithAttachments += `\n\n[Attachment preview: ${label}${truncationNote}]\n${preview}\n`;
+      if (meta?.notes?.length) {
+        expandedMessageWithAttachments += `Notes: ${meta.notes.join(" | ")}\n`;
       }
     }
   }
@@ -1054,7 +757,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const webSearchTool: WebSearchTool = { type: "web_search_preview" };
+    const webSearchTool: WebSearchTool = { type: "web_search" };
     const fileSearchTool = { type: "file_search" as const, ...(vectorStoreId ? { vector_store_ids: [vectorStoreId] } : {}) };
     const toolsForRequest: Tool[] = [];
     if (allowWebSearch) {
