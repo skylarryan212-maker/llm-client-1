@@ -1,4 +1,5 @@
 export const runtime = "nodejs";
+export const maxDuration = 60; // Allow up to 60 seconds for file processing
 
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase/server";
@@ -583,70 +584,50 @@ export async function POST(request: NextRequest) {
       if (lower.includes("pdf")) {
         console.log(`[extractAttachmentContent] Attempting PDF extraction for ${name}`);
         try {
-          // Try pdf2json first (Node.js friendly)
-          const PDFParser = require("pdf2json");
-          const pdfParser = new PDFParser();
+          // Use pdfjs-dist which is Vercel-compatible
+          const pdfjsLib = await import("pdfjs-dist");
           
-          const text = await new Promise<string>((resolve, reject) => {
-            pdfParser.on("pdfParser_dataReady", (pdfData: any) => {
-              try {
-                // Extract text from all pages
-                const texts: string[] = [];
-                if (pdfData.Pages) {
-                  for (const page of pdfData.Pages) {
-                    if (page.Texts) {
-                      for (const text of page.Texts) {
-                        if (text.R) {
-                          for (const r of text.R) {
-                            if (r.T) {
-                              texts.push(decodeURIComponent(r.T));
-                            }
-                          }
-                        }
-                      }
-                    }
-                  }
-                }
-                resolve(texts.join(" "));
-              } catch (err) {
-                reject(err);
-              }
-            });
-            
-            pdfParser.on("pdfParser_dataError", (errData: any) => {
-              reject(new Error(errData.parserError));
-            });
-            
-            pdfParser.parseBuffer(buffer);
+          // Load the PDF
+          const loadingTask = pdfjsLib.getDocument({
+            data: new Uint8Array(buffer),
+            useSystemFonts: true,
           });
           
+          const pdf = await loadingTask.promise;
+          const numPages = Math.min(pdf.numPages, 50); // Limit to first 50 pages
+          const textParts: string[] = [];
+          
+          for (let i = 1; i <= numPages; i++) {
+            const page = await pdf.getPage(i);
+            const textContent = await page.getTextContent();
+            const pageText = textContent.items.map((item: any) => item.str).join(" ");
+            textParts.push(pageText);
+          }
+          
+          const text = textParts.join("\n\n");
           console.log(`[extractAttachmentContent] PDF extracted ${text.length} chars from ${name}`);
           const preview = text.slice(0, 32768); // ~32KB cap
           return preview.trim().length ? preview : null;
         } catch (pdfErr) {
           console.error(`[extractAttachmentContent] PDF extraction failed:`, pdfErr);
-          // Fallback: try to extract raw text if it's a text-based PDF
-          try {
-            const rawText = buffer.toString("utf-8");
-            if (rawText.includes("stream") && rawText.includes("endstream")) {
-              console.log(`[extractAttachmentContent] Attempting raw text extraction from ${name}`);
-              const preview = rawText.slice(0, 32768);
-              return preview.trim().length > 100 ? preview : null;
-            }
-          } catch {}
+          // For Vercel: if extraction fails, note in preview that file_search should be used
+          console.warn(`[extractAttachmentContent] PDF extraction not available, relying on file_search for ${name}`);
           return null;
         }
       }
 
       // DOCX extraction
       if (lower.includes("wordprocessingml") || lower.includes("msword") || name?.toLowerCase().endsWith(".docx")) {
+        console.log(`[extractAttachmentContent] Attempting DOCX extraction for ${name}`);
         try {
           const mammoth = require("mammoth");
           const result = await mammoth.extractRawText({ buffer });
           const text = result.value || "";
+          console.log(`[extractAttachmentContent] DOCX extracted ${text.length} chars from ${name}`);
           const preview = text.slice(0, 32768);
           return preview.trim().length ? preview : null;
-        } catch {
+        } catch (docxErr) {
+          console.error(`[extractAttachmentContent] DOCX extraction failed:`, docxErr);
           return null;
         }
       }

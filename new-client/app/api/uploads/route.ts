@@ -1,4 +1,5 @@
 export const runtime = "nodejs";
+export const maxDuration = 60; // Allow time for large file uploads
 
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
