@@ -584,13 +584,12 @@ export async function POST(request: NextRequest) {
       if (lower.includes("pdf")) {
         console.log(`[extractAttachmentContent] Attempting PDF extraction for ${name}`);
         try {
-          // Use pdfjs-dist which is Vercel-compatible
-          const pdfjsLib = await import("pdfjs-dist");
+           // Use pdfjs-dist/legacy for Node.js compatibility
+           const pdfjsLib = await import("pdfjs-dist/legacy/build/pdf.mjs");
           
           // Load the PDF
           const loadingTask = pdfjsLib.getDocument({
             data: new Uint8Array(buffer),
-            useSystemFonts: true,
           });
           
           const pdf = await loadingTask.promise;
@@ -600,7 +599,15 @@ export async function POST(request: NextRequest) {
           for (let i = 1; i <= numPages; i++) {
             const page = await pdf.getPage(i);
             const textContent = await page.getTextContent();
-            const pageText = textContent.items.map((item: any) => item.str).join(" ");
+            const pageText = textContent.items
+              .map((item: any) => {
+                if (typeof item === 'object' && item !== null) {
+                  return item.str || '';
+                }
+                return '';
+              })
+              .filter(Boolean)
+              .join(" ");
             textParts.push(pageText);
           }
           
@@ -609,15 +616,14 @@ export async function POST(request: NextRequest) {
           const preview = text.slice(0, 32768); // ~32KB cap
           return preview.trim().length ? preview : null;
         } catch (pdfErr) {
-          console.error(`[extractAttachmentContent] PDF extraction failed:`, pdfErr);
+           console.error(`[extractAttachmentContent] PDF extraction failed for ${name}:`, pdfErr);
           // For Vercel: if extraction fails, note in preview that file_search should be used
-          console.warn(`[extractAttachmentContent] PDF extraction not available, relying on file_search for ${name}`);
           return null;
         }
       }
 
       // DOCX extraction
-      if (lower.includes("wordprocessingml") || lower.includes("msword") || name?.toLowerCase().endsWith(".docx")) {
+      if (lower.includes("wordprocessingml") || lower.includes("msword") || name?.toLowerCase().endsWith(".docx") || name?.toLowerCase().endsWith(".doc")) {
         console.log(`[extractAttachmentContent] Attempting DOCX extraction for ${name}`);
         try {
           const mammoth = require("mammoth");
@@ -627,13 +633,14 @@ export async function POST(request: NextRequest) {
           const preview = text.slice(0, 32768);
           return preview.trim().length ? preview : null;
         } catch (docxErr) {
-          console.error(`[extractAttachmentContent] DOCX extraction failed:`, docxErr);
+           console.error(`[extractAttachmentContent] Word document extraction failed for ${name}:`, docxErr);
           return null;
         }
       }
 
       // PPTX extraction
       if (lower.includes("presentationml") || name?.toLowerCase().endsWith(".pptx")) {
+          console.log(`[extractAttachmentContent] Attempting PPTX extraction for ${name}`);
         try {
           const JSZip = require("jszip");
           const zip = await JSZip.loadAsync(buffer);
@@ -647,15 +654,18 @@ export async function POST(request: NextRequest) {
               slideTexts.push(texts.join(" "));
             }
           }
+            console.log(`[extractAttachmentContent] PPTX extracted ${slideTexts.length} slides from ${name}`);
           const preview = slideTexts.join("\n\n").slice(0, 32768);
           return preview.trim().length ? preview : null;
-        } catch {
+          } catch (pptxErr) {
+            console.error(`[extractAttachmentContent] PPTX extraction failed for ${name}:`, pptxErr);
           return null;
         }
       }
 
       // XLSX extraction
       if (lower.includes("spreadsheetml") || lower.includes("excel") || name?.toLowerCase().endsWith(".xlsx") || name?.toLowerCase().endsWith(".xls")) {
+          console.log(`[extractAttachmentContent] Attempting Excel extraction for ${name}`);
         try {
           const XLSX = require("xlsx");
           const workbook = XLSX.read(buffer, { type: "buffer" });
@@ -667,22 +677,27 @@ export async function POST(request: NextRequest) {
             const lines = csv.split("\n").slice(0, 50);
             parts.push(`[Sheet: ${sheetName}]\n${lines.join("\n")}`);
           }
+            console.log(`[extractAttachmentContent] Excel extracted ${sheetNames.length} sheets from ${name}`);
           const preview = parts.join("\n\n").slice(0, 32768);
           return preview.trim().length ? preview : null;
-        } catch {
+          } catch (xlsxErr) {
+            console.error(`[extractAttachmentContent] Excel extraction failed for ${name}:`, xlsxErr);
           return null;
         }
       }
 
       // ZIP archive listing
       if (lower.includes("zip") || lower.includes("x-compressed") || name?.toLowerCase().endsWith(".zip")) {
+          console.log(`[extractAttachmentContent] Attempting ZIP extraction for ${name}`);
         try {
           const JSZip = require("jszip");
           const zip = await JSZip.loadAsync(buffer);
           const fileList = Object.keys(zip.files).slice(0, 100);
+            console.log(`[extractAttachmentContent] ZIP listed ${fileList.length} files from ${name}`);
           const preview = `[Archive contents]\n${fileList.join("\n")}`;
           return preview.slice(0, 16384);
-        } catch {
+          } catch (zipErr) {
+            console.error(`[extractAttachmentContent] ZIP extraction failed for ${name}:`, zipErr);
           return null;
         }
       }
@@ -695,12 +710,50 @@ export async function POST(request: NextRequest) {
         lower.includes("markdown") ||
         lower.includes("javascript") ||
         lower.includes("typescript") ||
-        lower.includes("python")
+          lower.includes("python") ||
+          lower.includes("html") ||
+          lower.includes("xml") ||
+          lower.includes("yaml") ||
+          lower.includes("yml") ||
+          lower.includes("rtf") ||
+          lower.includes("sql") ||
+          lower.includes("java") ||
+          lower.includes("cpp") ||
+          lower.includes("csharp") ||
+          lower.includes("php") ||
+          lower.includes("ruby") ||
+          lower.includes("go") ||
+          lower.includes("rust") ||
+          lower.includes("swift") ||
+          lower.includes("kotlin") ||
+          name?.match(/\.(txt|md|csv|json|xml|html|css|js|ts|jsx|tsx|py|java|cpp|c|h|cs|php|rb|go|rs|swift|kt|sql|yaml|yml|sh|bash|log|conf|config|ini)$/i)
       ) {
         console.log(`[extractAttachmentContent] Attempting text extraction for ${name} (type: ${lower})`);
-        const text = buffer.toString("utf-8").slice(0, 16384);
-        console.log(`[extractAttachmentContent] Text extracted ${text.length} chars from ${name}`);
-        return text.trim().length ? text : null;
+          try {
+            let text = buffer.toString("utf-8");
+          
+            // Special handling for CSV - provide more context
+            if (lower.includes("csv") || name?.toLowerCase().endsWith(".csv")) {
+              const lines = text.split("\n");
+              const preview = lines.slice(0, 200).join("\n"); // First 200 rows
+              console.log(`[extractAttachmentContent] CSV extracted ${preview.length} chars (${lines.length} rows) from ${name}`);
+              return preview.slice(0, 32768).trim().length ? preview.slice(0, 32768) : null;
+            }
+          
+            // For other text files, take a larger sample
+            text = text.slice(0, 32768);
+            console.log(`[extractAttachmentContent] Text extracted ${text.length} chars from ${name}`);
+            return text.trim().length ? text : null;
+          } catch (textErr) {
+            console.error(`[extractAttachmentContent] Text extraction failed for ${name}:`, textErr);
+            return null;
+          }
+        }
+
+        // Image files - note that OCR is not available, but user can use file_search
+        if (lower.startsWith("image/")) {
+          console.log(`[extractAttachmentContent] Image file detected: ${name} (${lower})`);
+          return `[Image: ${name}]\nNote: Image content analysis available via file_search tool for large files.`;
       }
 
       console.warn(`[extractAttachmentContent] No handler for content type: ${lower}`);
