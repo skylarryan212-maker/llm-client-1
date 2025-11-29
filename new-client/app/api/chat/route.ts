@@ -582,7 +582,23 @@ export async function POST(request: NextRequest) {
 
   // Upload large files to OpenAI for file_search tool
   const openaiFileIds: string[] = [];
+  // Try to reuse an existing vector store from recent messages
   let vectorStoreId: string | undefined;
+  try {
+    const priorVectorIds: string[] = [];
+    for (const msg of (recentMessages || [])) {
+      const meta = (msg as { metadata?: unknown }).metadata as Record<string, unknown> | null | undefined;
+      const raw = meta && (meta as { vector_store_ids?: unknown }).vector_store_ids;
+      if (Array.isArray(raw)) {
+        for (const id of raw) {
+          if (typeof id === "string" && id.trim().length) priorVectorIds.push(id);
+        }
+      }
+    }
+    if (priorVectorIds.length) {
+      vectorStoreId = priorVectorIds[priorVectorIds.length - 1];
+    }
+  } catch {}
   
   if (Array.isArray(body.attachments) && body.attachments.length) {
     console.log(`[chatApi] Processing ${body.attachments.length} attachments`);
@@ -638,6 +654,27 @@ export async function POST(request: NextRequest) {
           
           vectorStoreId = vectorStore.id;
           console.log(`Created vector store ${vectorStoreId} with ${openaiFileIds.length} files`);
+          // Persist the vector store id to the latest user message metadata for reuse in future turns
+          try {
+            const latestUser = userMessageRow ?? null;
+            if (latestUser) {
+              const nextMeta = {
+                ...(latestUser.metadata || {}),
+                vector_store_ids: [vectorStoreId],
+              } as Record<string, unknown>;
+              const { error: updateErr } = await supabaseAny
+                .from("messages")
+                .update({ metadata: nextMeta })
+                .eq("id", latestUser.id);
+              if (updateErr) {
+                console.warn("Failed to persist vector store id on user message:", updateErr);
+              } else {
+                userMessageRow = { ...latestUser, metadata: nextMeta } as MessageRow;
+              }
+            }
+          } catch (persistErr) {
+            console.warn("Unable to persist vector store id:", persistErr);
+          }
         } else {
           console.warn("Vector stores API not available in OpenAI SDK version");
         }
