@@ -64,7 +64,7 @@ export const epubExtractor: Extractor = async (buffer, _name, _mime, ctx) => {
           ? (itemRef as Record<string, unknown>).idref
           : null;
       if (!idref) continue;
-      const href = manifest[idref];
+      const href = manifest[idref as string];
       if (!href) continue;
       const fullPath = `${baseDir}${href}`.replace(/\\/g, "/");
       const file = zip.file(fullPath);
