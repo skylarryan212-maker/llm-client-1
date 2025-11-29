@@ -653,10 +653,15 @@ export async function POST(request: NextRequest) {
             ? ((latestUser.metadata as any).vector_store_ids as string[])
             : [];
           const mergedIds = Array.from(new Set([...priorIds, vectorStoreId]));
-          const nextMeta = {
-            ...(latestUser.metadata || {}),
+          // Safely derive a base metadata object; avoid spreading non-object types
+          const baseMeta: Record<string, unknown> =
+            latestUser.metadata && typeof latestUser.metadata === "object" && !Array.isArray(latestUser.metadata)
+              ? (latestUser.metadata as Record<string, unknown>)
+              : {};
+          const nextMeta: Record<string, unknown> = {
+            ...baseMeta,
             vector_store_ids: mergedIds,
-          } as Record<string, unknown>;
+          };
           const { error: updateErr } = await supabaseAny
             .from("messages")
             .update({ metadata: nextMeta })
