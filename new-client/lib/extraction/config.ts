@@ -2,6 +2,14 @@ export const ENABLE_OCR = process.env.ENABLE_OCR === "true";
 export const ENABLE_TRANSCRIPTION = process.env.ENABLE_TRANSCRIPTION === "true";
 export const ENABLE_LEGACY_CONVERT =
   process.env.ENABLE_LEGACY_CONVERT === "true";
+export const OCR_MAX_MS = parseInt(
+  process.env.OCR_MAX_MS || "7000",
+  10,
+);
+export const IMAGE_MAX_WIDTH = parseInt(
+  process.env.IMAGE_MAX_WIDTH || "1200",
+  10,
+);
 export const MAX_PREVIEW_BYTES = parseInt(
   process.env.MAX_PREVIEW_BYTES || "32768",
   10,

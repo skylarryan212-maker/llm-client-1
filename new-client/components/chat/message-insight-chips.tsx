@@ -39,18 +39,6 @@ export function MessageInsightChips({ metadata }: MessageInsightChipsProps) {
     );
   }
 
-  const citationCount = Array.isArray(typed.citations) ? typed.citations.length : 0;
-  if (citationCount > 0) {
-    chips.push(
-      <StatusBubble
-        key="citations"
-        label="Reading documents"
-        subtext={`Cited ${citationCount} source${citationCount === 1 ? "" : "s"}`}
-        variant="reading"
-      />
-    );
-  }
-
   if (!chips.length) return null;
 
   return <div className="flex flex-wrap items-center gap-1.5 pt-1">{chips}</div>;

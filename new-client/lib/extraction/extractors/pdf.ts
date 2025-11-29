@@ -1,4 +1,25 @@
-import * as pdfjsLib from "pdfjs-dist";
+// Load pdf.js dynamically to handle different package entry paths across environments
+let pdfjsLibPromise: Promise<any> | null = null;
+async function loadPdfJs() {
+  if (!pdfjsLibPromise) {
+    pdfjsLibPromise = (async () => {
+      try {
+        // Preferred: legacy build without DOM dependencies
+        const mod = await import("pdfjs-dist/legacy/build/pdf");
+        return mod;
+      } catch {
+        try {
+          // Fallback: classic build
+          const mod = await import("pdfjs-dist/build/pdf");
+          return mod;
+        } catch (err) {
+          throw err;
+        }
+      }
+    })();
+  }
+  return pdfjsLibPromise;
+}
 import { PDF_MAX_PAGES } from "../config";
 import type { Extractor } from "../types";
 import { truncateUtf8 } from "../utils/text";
@@ -10,7 +31,8 @@ type PdfTextItem = {
 
 export const pdfExtractor: Extractor = async (buffer, _name, _mime, ctx) => {
   try {
-    const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(buffer) });
+    const pdfjsLib = await loadPdfJs();
+    const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(buffer), useWorker: false });
     const pdf = await loadingTask.promise;
     const maxPages = Math.min(pdf.numPages, PDF_MAX_PAGES);
     const parts: string[] = [];

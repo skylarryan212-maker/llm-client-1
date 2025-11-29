@@ -83,7 +83,6 @@ const HEAVY_KINDS = new Set([
   "gzip",
   "audio",
   "video",
-  "image",
 ]);
 
 export async function dispatchExtract(

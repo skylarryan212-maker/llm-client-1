@@ -580,7 +580,7 @@ export async function POST(request: NextRequest) {
       // Note: actual streaming statuses are sent later, but we will include previews inline here.
     }
 
-  // Upload large files to OpenAI for file_search tool
+  // Upload files to OpenAI vector store for persistent file_search across turns
   const openaiFileIds: string[] = [];
   // Try to reuse an existing vector store from recent messages
   let vectorStoreId: string | undefined;
@@ -602,7 +602,7 @@ export async function POST(request: NextRequest) {
   
   if (Array.isArray(body.attachments) && body.attachments.length) {
     console.log(`[chatApi] Processing ${body.attachments.length} attachments`);
-    // First pass: check file sizes and upload large files
+    // First pass: collect and upload any non-image files and large images for file_search (PDFs, docs, etc.)
     for (const att of body.attachments) {
       if (!att?.dataUrl) continue;
       
@@ -610,26 +610,31 @@ export async function POST(request: NextRequest) {
       try {
         const buffer = dataUrlToBuffer(att.dataUrl);
         const fileSize = buffer.length;
-        
-        // If file is >100KB, upload to OpenAI for file_search
-        if (fileSize > 100 * 1024) {
+        const isImage = typeof att.mime === 'string' && att.mime.startsWith('image/');
+        const shouldUpload = !isImage || fileSize > 100 * 1024;
+        // Upload to OpenAI for file_search when not a small image
+        if (shouldUpload) {
           try {
             // Convert Buffer to Uint8Array for Blob compatibility
             const uint8Array = new Uint8Array(buffer);
             const blob = new Blob([uint8Array], { type: att.mime || "application/octet-stream" });
             const file = new File([blob], att.name || "file", { type: att.mime || "application/octet-stream" });
             
-            // Upload to OpenAI
+            // Upload to OpenAI vector store directly (like legacy)
             const { OpenAI } = require("openai");
             const tempOpenAI = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-            
-            const uploadedFile = await tempOpenAI.files.create({
-              file: file,
-              purpose: "assistants",
-            });
-            
-            openaiFileIds.push(uploadedFile.id);
-            console.log(`Uploaded large file to OpenAI: ${att.name} (${fileSize} bytes) -> ${uploadedFile.id}`);
+            // Ensure vector store
+            if (!vectorStoreId) {
+              const vs = await tempOpenAI.vectorStores.create({
+                name: `conversation-${conversationId}`,
+                metadata: { conversation_id: conversationId },
+              });
+              vectorStoreId = vs.id;
+              console.log(`Created vector store ${vectorStoreId}`);
+            }
+            await tempOpenAI.vectorStores.files.uploadAndPoll(vectorStoreId!, file);
+            openaiFileIds.push(att.name || 'file');
+            console.log(`Uploaded to vector store: ${att.name} (${fileSize} bytes)`);
           } catch (uploadErr) {
             console.error(`Failed to upload ${att.name} to OpenAI:`, uploadErr);
           }
@@ -639,47 +644,31 @@ export async function POST(request: NextRequest) {
       }
     }
     
-    // Create vector store if we have uploaded files
-    if (openaiFileIds.length > 0) {
+    // Persist the vector store id if created/uploads succeeded
+    if (vectorStoreId) {
       try {
-        const { OpenAI } = require("openai");
-        const tempOpenAI = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-        
-        // Check if beta API exists
-        if (tempOpenAI.beta && tempOpenAI.beta.vectorStores) {
-          const vectorStore = await tempOpenAI.beta.vectorStores.create({
-            name: `conversation-${conversationId}-${Date.now()}`,
-            file_ids: openaiFileIds,
-          });
-          
-          vectorStoreId = vectorStore.id;
-          console.log(`Created vector store ${vectorStoreId} with ${openaiFileIds.length} files`);
-          // Persist the vector store id to the latest user message metadata for reuse in future turns
-          try {
-            const latestUser = userMessageRow ?? null;
-            if (latestUser) {
-              const nextMeta = {
-                ...(latestUser.metadata || {}),
-                vector_store_ids: [vectorStoreId],
-              } as Record<string, unknown>;
-              const { error: updateErr } = await supabaseAny
-                .from("messages")
-                .update({ metadata: nextMeta })
-                .eq("id", latestUser.id);
-              if (updateErr) {
-                console.warn("Failed to persist vector store id on user message:", updateErr);
-              } else {
-                userMessageRow = { ...latestUser, metadata: nextMeta } as MessageRow;
-              }
-            }
-          } catch (persistErr) {
-            console.warn("Unable to persist vector store id:", persistErr);
+        const latestUser = userMessageRow ?? null;
+        if (latestUser) {
+          const priorIds = Array.isArray((latestUser.metadata as any)?.vector_store_ids)
+            ? ((latestUser.metadata as any).vector_store_ids as string[])
+            : [];
+          const mergedIds = Array.from(new Set([...priorIds, vectorStoreId]));
+          const nextMeta = {
+            ...(latestUser.metadata || {}),
+            vector_store_ids: mergedIds,
+          } as Record<string, unknown>;
+          const { error: updateErr } = await supabaseAny
+            .from("messages")
+            .update({ metadata: nextMeta })
+            .eq("id", latestUser.id);
+          if (updateErr) {
+            console.warn("Failed to persist vector store id on user message:", updateErr);
+          } else {
+            userMessageRow = { ...latestUser, metadata: nextMeta } as MessageRow;
           }
-        } else {
-          console.warn("Vector stores API not available in OpenAI SDK version");
         }
-      } catch (vsErr) {
-        console.error("Failed to create vector store:", vsErr);
+      } catch (persistErr) {
+        console.warn("Unable to persist vector store id:", persistErr);
       }
     }
     
@@ -747,12 +736,45 @@ export async function POST(request: NextRequest) {
       type: "message",
     }));
 
+    // Build user content with native image inputs when available to leverage model vision
+    const userContentParts: any[] = [
+      { type: "input_text", text: expandedMessageWithAttachments },
+    ];
+    // Include current-turn image attachments directly for vision
+    if (Array.isArray(body.attachments)) {
+      for (const att of body.attachments) {
+        const isImage = typeof att?.mime === "string" && att.mime.startsWith("image/");
+        if (isImage && att?.dataUrl) {
+          userContentParts.push({ type: "input_image", image_url: att.dataUrl });
+        }
+      }
+    }
+    // If no current attachments, attempt to reuse the most recent user message's image attachments
+    if (!Array.isArray(body.attachments) || body.attachments.length === 0) {
+      try {
+        const recentUserMessages = (recentMessages || []).filter((m: any) => m.role === "user");
+        const latestUser = recentUserMessages[recentUserMessages.length - 1];
+        const meta = latestUser ? (latestUser.metadata as Record<string, any> | null) : null;
+        const priorFiles: Array<{ name?: string; mimeType?: string; dataUrl?: string }> = Array.isArray(meta?.files)
+          ? meta!.files
+          : [];
+        let added = 0;
+        for (const f of priorFiles) {
+          if (typeof f?.mimeType === "string" && f.mimeType.startsWith("image/") && typeof f?.dataUrl === "string") {
+            userContentParts.push({ type: "input_image", image_url: f.dataUrl });
+            added++;
+            if (added >= 3) break; // cap to avoid excessive payload
+          }
+        }
+      } catch {}
+    }
+
     const messagesForAPI = [
       ...systemMessages,
       ...historyMessages,
       {
         role: "user" as const,
-        content: expandedMessageWithAttachments,
+        content: userContentParts,
         type: "message",
       },
     ];
@@ -819,16 +841,92 @@ export async function POST(request: NextRequest) {
     }
     const finalIncludeFields = includeFields.length > 0 ? includeFields : undefined;
 
-    const responseStream = await openai.responses.stream({
-      model: modelConfig.model,
-      input: messagesForAPI,
-      stream: true,
-      ...(toolsForRequest.length ? { tools: toolsForRequest } : {}),
-      ...(toolChoice ? { tool_choice: toolChoice } : {}),
-      ...(finalIncludeFields ? { include: finalIncludeFields } : {}),
-      ...(modelConfig.reasoning && { reasoning: modelConfig.reasoning }),
-    });
-    console.log("OpenAI stream started for model:", modelConfig.model);
+    let responseStream: any;
+    try {
+      responseStream = await openai.responses.stream({
+        model: modelConfig.model,
+        input: messagesForAPI,
+        stream: true,
+        ...(toolsForRequest.length ? { tools: toolsForRequest } : {}),
+        ...(toolChoice ? { tool_choice: toolChoice } : {}),
+        ...(finalIncludeFields ? { include: finalIncludeFields } : {}),
+        ...(modelConfig.reasoning && { reasoning: modelConfig.reasoning }),
+      });
+      console.log("OpenAI stream started for model:", modelConfig.model);
+    } catch (streamErr) {
+      console.error("Failed to start OpenAI stream:", streamErr);
+      // Fallback: respond with a simple assistant message summarizing attachments, avoiding 500s
+      const fallbackContent = (() => {
+        const names = Array.isArray(body.attachments)
+          ? body.attachments.map((a) => a?.name || "file").filter(Boolean)
+          : [];
+        const listed = names.length ? `Attached: ${names.join(", ")}.` : "";
+        return `I couldn't start the model stream just now. ${listed}\n` +
+          `Please retry in a moment. If this keeps happening, check your OPENAI_API_KEY and network.`;
+      })();
+
+      const readableStream = new ReadableStream({
+        async start(controller) {
+          const encoder = new TextEncoder();
+          const enqueueJson = (payload: Record<string, unknown>) => {
+            controller.enqueue(encoder.encode(`${JSON.stringify(payload)}\n`));
+          };
+          try {
+            // Save assistant fallback message
+            const thinkingDurationMs = 0;
+            const metadataPayload = buildAssistantMetadataPayload({
+              base: {
+                modelUsed: modelConfig.model,
+                reasoningEffort,
+                resolvedFamily: modelConfig.resolvedFamily,
+                speedModeUsed: speedMode,
+                userRequestedFamily: modelFamily,
+                userRequestedSpeedMode: speedMode,
+                userRequestedReasoningEffort: reasoningEffortHint,
+              },
+              content: fallbackContent,
+              thinkingDurationMs,
+            });
+            const { data: assistantMessageRow, error: assistantError } = await supabaseAny
+              .from("messages")
+              .insert({
+                user_id: userId,
+                conversation_id: conversationId,
+                role: "assistant",
+                content: fallbackContent,
+                metadata: metadataPayload,
+              })
+              .select()
+              .single();
+
+            enqueueJson({ token: fallbackContent });
+            enqueueJson({
+              meta: {
+                assistantMessageRowId: assistantMessageRow?.id ?? `fallback-${Date.now()}`,
+                userMessageRowId: userMessageRow?.id,
+                model: modelConfig.model,
+                reasoningEffort,
+                resolvedFamily: modelConfig.resolvedFamily,
+                speedModeUsed: speedMode,
+                metadata: metadataPayload,
+              },
+            });
+          } catch (err) {
+            enqueueJson({ error: "fallback_error" });
+          } finally {
+            enqueueJson({ done: true });
+            controller.close();
+          }
+        },
+      });
+
+      return new NextResponse(readableStream, {
+        headers: {
+          "Content-Type": "application/x-ndjson",
+          "Cache-Control": "no-cache",
+        },
+      });
+    }
 
     const requestStartMs = Date.now();
     let assistantContent = "";
@@ -898,6 +996,15 @@ export async function POST(request: NextRequest) {
               enqueueJson({ token });
               if (!firstTokenAtMs) {
                 firstTokenAtMs = Date.now();
+                // Send model metadata on first token so UI can update model tag immediately
+                enqueueJson({
+                  model_info: {
+                    model: modelConfig.model,
+                    resolvedFamily: modelConfig.resolvedFamily,
+                    speedModeUsed: speedMode,
+                    reasoningEffort,
+                  },
+                });
               }
             } else if (
               event.type === "response.web_search_call.in_progress" ||
@@ -1035,13 +1142,28 @@ export async function POST(request: NextRequest) {
       stack: errorStack,
       error,
     });
-    return NextResponse.json(
-      { 
-        error: "Internal server error",
-        details: errorMessage,
+    // Graceful NDJSON fallback instead of 500 to avoid client crashes
+    const readableStream = new ReadableStream({
+      async start(controller) {
+        const encoder = new TextEncoder();
+        const enqueueJson = (payload: Record<string, unknown>) => {
+          controller.enqueue(encoder.encode(`${JSON.stringify(payload)}\n`));
+        };
+        try {
+          enqueueJson({ error: "internal_error", details: errorMessage });
+          enqueueJson({ token: "Sorry, something went wrong starting the model. Please retry." });
+          enqueueJson({ done: true });
+        } finally {
+          controller.close();
+        }
       },
-      { status: 500 }
-    );
+    });
+    return new NextResponse(readableStream, {
+      headers: {
+        "Content-Type": "application/x-ndjson",
+        "Cache-Control": "no-cache",
+      },
+    });
   }
 }
 

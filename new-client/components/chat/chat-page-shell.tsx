@@ -331,11 +331,23 @@ export default function ChatPageShell({
     }
     searchDomainSetRef.current.add(normalized);
     searchDomainListRef.current = [...searchDomainListRef.current, label];
-    setSearchIndicator((prev) =>
-      prev && prev.variant === "running"
-        ? { ...prev, domains: searchDomainListRef.current }
-        : prev
-    );
+    setSearchIndicator((prev) => {
+      // If indicator isn't running yet but we got domains, start it as "Reading results"
+      if (!prev) {
+        return {
+          message: "Reading results…",
+          variant: "running",
+          domains: searchDomainListRef.current,
+        };
+      }
+      if (prev.variant === "running") {
+        const baseMessage = prev.message?.toLowerCase().includes("searching")
+          ? "Reading results…"
+          : prev.message;
+        return { ...prev, domains: searchDomainListRef.current, message: baseMessage };
+      }
+      return prev;
+    });
   }, []);
 
   const clearFileReadingIndicator = useCallback(() => {
@@ -362,9 +374,9 @@ export default function ChatPageShell({
       switch (status.type) {
         case "search-start":
           setSearchIndicator({
-            message: status.query || "Searching the web",
+            message: "Searching the Web",
             variant: "running",
-            domains: searchDomainListRef.current,
+            domains: [],
           });
           break;
         case "search-complete":
@@ -647,10 +659,7 @@ export default function ChatPageShell({
       clearSearchIndicator();
       clearFileReadingIndicator();
 
-      // If attachments are present, show a transient file-reading indicator before first token
-      if (attachments && attachments.length > 0) {
-        showFileReadingIndicator("running");
-      }
+      // Do not show a file-reading indicator unless prompted by server status events
 
       const response = await fetch("/api/chat", {
         method: "POST",
@@ -682,7 +691,7 @@ export default function ChatPageShell({
       const decoder = new TextDecoder();
       let assistantContent = "";
       const assistantMessageId = `assistant-streaming-${Date.now()}`;
-      let messageMetadata: AssistantMessageMetadata | null = null;
+      let messageMetadata: AssistantMessageMetadata | null = {};
 
       // Set active indicator BEFORE adding message so indicators show
       setActiveIndicatorMessageId(assistantMessageId);
@@ -722,14 +731,55 @@ export default function ChatPageShell({
                 );
                 // Hide file-reading indicator on first token
                 clearFileReadingIndicator();
-                // Update the assistant message with new content
+                // Clear the search indicator bubble on first token so it doesn't persist
+                clearSearchIndicator();
+                // If we have accumulated search domains, push them into metadata immediately
+                if (searchDomainListRef.current.length > 0 && messageMetadata) {
+                  const updatedMetadata: AssistantMessageMetadata = {
+                    ...messageMetadata,
+                    searchedDomains: [...searchDomainListRef.current],
+                  };
+                  messageMetadata = updatedMetadata;
+                }
+                // Update the assistant message with new content and metadata
                 updateMessage(chatId, currentMessageId, {
                   content: assistantContent,
+                  metadata: messageMetadata,
                 });
               } else if (parsed.status) {
                 handleStatusEvent(parsed.status as SearchStatusEvent);
               } else if (parsed.type === "web_search_domain" && typeof parsed.domain === "string") {
                 addSearchDomain(parsed.domain);
+                // Immediately update message metadata with accumulated domains so chip appears at top
+                const currentMessageId =
+                  responseTimingRef.current.assistantMessageId ?? assistantMessageId;
+                if (messageMetadata) {
+                  const updatedMetadata: AssistantMessageMetadata = {
+                    ...messageMetadata,
+                    searchedDomains: [...searchDomainListRef.current],
+                  };
+                  messageMetadata = updatedMetadata;
+                  updateMessage(chatId, currentMessageId, {
+                    metadata: messageMetadata,
+                  });
+                }
+              } else if (parsed.model_info) {
+                // Update model metadata early so model tag switches from unknown immediately
+                const currentMessageId =
+                  responseTimingRef.current.assistantMessageId ?? assistantMessageId;
+                if (messageMetadata) {
+                  const updatedMetadata: AssistantMessageMetadata = {
+                    ...messageMetadata,
+                    modelUsed: parsed.model_info.model,
+                    resolvedFamily: parsed.model_info.resolvedFamily,
+                    speedModeUsed: parsed.model_info.speedModeUsed,
+                    reasoningEffort: parsed.model_info.reasoningEffort,
+                  };
+                  messageMetadata = updatedMetadata;
+                  updateMessage(chatId, currentMessageId, {
+                    metadata: messageMetadata,
+                  });
+                }
               } else if (parsed.meta) {
                 const fallbackMeta: AssistantMessageMetadata = {
                   modelUsed: parsed.meta.model,
@@ -758,15 +808,6 @@ export default function ChatPageShell({
                   metadata: metadataWithTiming,
                 });
                 responseTimingRef.current.assistantMessageId = newId;
-                if (
-                  Array.isArray(resolvedMetadata.searchedDomains) &&
-                  resolvedMetadata.searchedDomains.length > 0
-                ) {
-                  showSearchCompleteIndicator(
-                    resolvedMetadata.searchedDomains,
-                    resolvedMetadata.searchedSiteLabel
-                  );
-                }
                 // Do not persist file-reading indicator based on citations; it's ephemeral.
               } else if (parsed.done) {
                 // Streaming complete
@@ -795,6 +836,8 @@ export default function ChatPageShell({
       inFlightRequests.current.delete(requestKey);
       setIsStreaming(false);
       resetThinkingIndicator();
+      // Clear active indicator so buttons appear after streaming completes
+      setActiveIndicatorMessageId(null);
     }
   };
 
@@ -910,7 +953,7 @@ export default function ChatPageShell({
        const decoder = new TextDecoder();
        let assistantContent = "";
        const assistantMessageId = `assistant-streaming-${Date.now()}`;
-       let messageMetadata: AssistantMessageMetadata | null = null;
+       let messageMetadata: AssistantMessageMetadata | null = {};
 
       const retryPreviewConfig = getModelAndReasoningConfig(
         retryModelFamily,
@@ -967,6 +1010,36 @@ export default function ChatPageShell({
                 handleStatusEvent(parsed.status as SearchStatusEvent);
               } else if (parsed.type === "web_search_domain" && typeof parsed.domain === "string") {
                 addSearchDomain(parsed.domain);
+                // Immediately update message metadata with accumulated domains
+                const currentMessageId =
+                  responseTimingRef.current.assistantMessageId ?? assistantMessageId;
+                if (messageMetadata) {
+                  const updatedMetadata: AssistantMessageMetadata = {
+                    ...messageMetadata,
+                    searchedDomains: [...searchDomainListRef.current],
+                  };
+                  messageMetadata = updatedMetadata;
+                  updateMessage(selectedChatId, currentMessageId, {
+                    metadata: messageMetadata,
+                  });
+                }
+              } else if (parsed.model_info) {
+                // Update model metadata early so model tag switches from unknown immediately
+                const currentMessageId =
+                  responseTimingRef.current.assistantMessageId ?? assistantMessageId;
+                if (messageMetadata) {
+                  const updatedMetadata: AssistantMessageMetadata = {
+                    ...messageMetadata,
+                    modelUsed: parsed.model_info.model,
+                    resolvedFamily: parsed.model_info.resolvedFamily,
+                    speedModeUsed: parsed.model_info.speedModeUsed,
+                    reasoningEffort: parsed.model_info.reasoningEffort,
+                  };
+                  messageMetadata = updatedMetadata;
+                  updateMessage(selectedChatId, currentMessageId, {
+                    metadata: messageMetadata,
+                  });
+                }
               } else if (parsed.meta) {
                 const fallbackMeta: AssistantMessageMetadata = {
                   modelUsed: parsed.meta.model,
@@ -995,21 +1068,6 @@ export default function ChatPageShell({
                   metadata: metadataWithTiming,
                 });
                 responseTimingRef.current.assistantMessageId = newId;
-                if (
-                  Array.isArray(resolvedMetadata.searchedDomains) &&
-                  resolvedMetadata.searchedDomains.length > 0
-                ) {
-                  showSearchCompleteIndicator(
-                    resolvedMetadata.searchedDomains,
-                    resolvedMetadata.searchedSiteLabel
-                  );
-                }
-                if (
-                  Array.isArray(resolvedMetadata.citations) &&
-                  resolvedMetadata.citations.length > 0
-                ) {
-                  showFileReadingIndicator();
-                }
               } else if (parsed.done) {
                  // Streaming complete
                  break;
@@ -1026,6 +1084,8 @@ export default function ChatPageShell({
        console.error("Error retrying with model:", error);
         } finally {
           resetThinkingIndicator();
+          // Clear active indicator so buttons appear after streaming completes
+          setActiveIndicatorMessageId(null);
      }
   };
 
@@ -1414,10 +1474,10 @@ export default function ChatPageShell({
               <div className="w-full space-y-4">
                 {messages.map((message) => {
                   const metadata = message.metadata as AssistantMessageMetadata | null;
+                  // Show insight chips for thinking duration and web search domains as soon as metadata arrives (on first token)
                   const metadataIndicators =
                     Boolean(metadata?.thoughtDurationLabel) ||
-                    Boolean(metadata?.searchedDomains?.length) ||
-                    Boolean(metadata?.citations?.length);
+                    Boolean(metadata?.searchedDomains?.length);
                   const isStreamingMessage = message.id === activeIndicatorMessageId;
                   const showIndicatorBlock = message.role === "assistant" && metadataIndicators;
                   
@@ -1435,7 +1495,8 @@ export default function ChatPageShell({
                       <div className="px-4 sm:px-6">
                         <ChatMessage
                           {...message}
-                          showInsightChips={!showIndicatorBlock}
+                          showInsightChips={false}
+                          isStreaming={isStreamingMessage}
                           onRetry={
                             message.role === "assistant"
                               ? (model) => handleRetryWithModel(model, message.id)
