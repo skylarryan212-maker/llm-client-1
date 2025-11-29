@@ -5,7 +5,8 @@ import { truncateUtf8 } from "../utils/text";
 async function transcribe(buffer: Buffer, name: string, mime: string | null) {
   const { OpenAI } = await import("openai");
   const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-  const blob = new Blob([buffer], {
+  // Create a Blob from a Uint8Array view to satisfy TS and browser BlobPart types
+  const blob = new Blob([new Uint8Array(buffer)], {
     type: mime || "application/octet-stream",
   });
   const file = new File([blob], name || "audio");
