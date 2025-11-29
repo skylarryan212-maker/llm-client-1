@@ -18,11 +18,11 @@ export const pdfExtractor: Extractor = async (buffer, _name, _mime, ctx) => {
       const page = await pdf.getPage(i);
       const textContent = await page.getTextContent();
       const pageText = textContent.items
-        .map((item: PdfTextItem) =>
-          typeof item.str === "string"
-            ? item.str
-            : typeof item.unicode === "string"
-              ? item.unicode
+        .map((item: any) =>
+          typeof (item as { str?: unknown }).str === "string"
+            ? (item as { str: string }).str
+            : typeof (item as { unicode?: unknown }).unicode === "string"
+              ? (item as { unicode: string }).unicode
               : "",
         )
         .filter(Boolean)
