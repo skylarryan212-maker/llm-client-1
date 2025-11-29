@@ -2,8 +2,7 @@
 
 import { Button } from '@/components/ui/button'
 import { Copy, ExternalLink } from 'lucide-react'
-import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
-import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism'
+import { MarkdownContent } from '@/components/markdown-content'
 
 interface CodexChatMessageProps {
   role: 'user' | 'assistant'
@@ -29,31 +28,7 @@ export function CodexChatMessage({ role, content, model, hasCode, code, language
     <div className="px-4 py-6">
       <div className="mx-auto max-w-4xl">
         <div className="space-y-4">
-          <p className="text-sm leading-relaxed text-foreground">{content}</p>
-
-          {hasCode && code && (
-            <div className="overflow-hidden rounded-lg border border-border bg-[#1e1e1e]">
-              <div className="flex items-center justify-between border-b border-border/50 bg-[#252526] px-4 py-2">
-                <span className="text-xs font-mono text-muted-foreground">{language}</span>
-                <Button variant="ghost" size="sm" className="h-7 gap-2 text-xs text-muted-foreground hover:text-foreground">
-                  <Copy className="h-3.5 w-3.5" />
-                  Copy
-                </Button>
-              </div>
-              <SyntaxHighlighter
-                language={language}
-                style={vscDarkPlus}
-                customStyle={{
-                  margin: 0,
-                  padding: '1rem',
-                  background: '#1e1e1e',
-                  fontSize: '0.875rem',
-                }}
-              >
-                {code}
-              </SyntaxHighlighter>
-            </div>
-          )}
+          <MarkdownContent content={content} />
 
           <div className="flex items-center gap-2 pt-2">
             <Button variant="ghost" size="sm" className="h-8 gap-2 text-xs text-muted-foreground hover:text-foreground">

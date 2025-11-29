@@ -30,10 +30,12 @@ export function AttachmentMenu({
   trigger,
   open,
   onOpenChange,
+  onPickFiles,
 }: {
   trigger: ReactNode;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
+  onPickFiles?: () => void;
 }) {
   return (
     <DropdownMenu open={open} onOpenChange={onOpenChange}>
@@ -52,6 +54,10 @@ export function AttachmentMenu({
               className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm text-foreground"
               onSelect={(event) => {
                 event.preventDefault();
+                if (item.label === "Add photos & files") {
+                  onPickFiles?.();
+                  return;
+                }
                 console.log(`TODO: ${item.label}`);
               }}
             >
@@ -73,14 +79,17 @@ export function AttachmentMenu({
 export function AttachmentMenuButton({
   open,
   onOpenChange,
+  onPickFiles,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onPickFiles?: () => void;
 }) {
   return (
     <AttachmentMenu
       open={open}
       onOpenChange={onOpenChange}
+      onPickFiles={onPickFiles}
       trigger={
         <Button
           type="button"

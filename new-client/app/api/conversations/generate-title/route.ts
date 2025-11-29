@@ -60,14 +60,14 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Generate title using GPT 5 Nano
+    // Generate title using GPT 5 Nano with streaming
     console.log(
       `[titleDebug] generating quick title for conversation ${conversationId}`
     );
 
-    const response = await openai.responses.create({
+    const stream = await openai.chat.completions.create({
       model: "gpt-5-nano-2025-08-07",
-      input: [
+      messages: [
         {
           role: "system",
           content:
@@ -78,44 +78,77 @@ export async function POST(req: NextRequest) {
           content: `User message:\n${userMessage}\n\nTitle:`,
         },
       ],
-      reasoning: {
-        effort: "low",
+      stream: true,
+    });
+
+    const encoder = new TextEncoder();
+    const readable = new ReadableStream({
+      async start(controller) {
+        let fullTitle = "";
+        
+        try {
+          for await (const chunk of stream) {
+            const token = chunk.choices[0]?.delta?.content || "";
+            if (token) {
+              fullTitle += token;
+              // Send each token as it arrives
+              controller.enqueue(
+                encoder.encode(JSON.stringify({ token, fullTitle }) + "\n")
+              );
+            }
+          }
+
+          const normalizedTitle = normalizeGeneratedTitle(fullTitle.trim());
+
+          if (!normalizedTitle) {
+            console.warn(
+              `[titleDebug] title generation failed or produced invalid result: ${fullTitle}`
+            );
+            controller.enqueue(
+              encoder.encode(JSON.stringify({ error: "Title generation failed" }) + "\n")
+            );
+            controller.close();
+            return;
+          }
+
+          // Update conversation title in database
+          const { error: updateError } = await supabaseAny
+            .from("conversations")
+            .update({ title: normalizedTitle })
+            .eq("id", conversationId)
+            .eq("user_id", userId);
+
+          if (updateError) {
+            console.error(`[titleDebug] failed to update title:`, updateError);
+            controller.enqueue(
+              encoder.encode(JSON.stringify({ error: "Failed to update title" }) + "\n")
+            );
+          } else {
+            console.log(
+              `[titleDebug] successfully updated conversation ${conversationId} with title: ${normalizedTitle}`
+            );
+            controller.enqueue(
+              encoder.encode(JSON.stringify({ done: true, title: normalizedTitle }) + "\n")
+            );
+          }
+        } catch (error) {
+          console.error("Streaming error:", error);
+          controller.enqueue(
+            encoder.encode(JSON.stringify({ error: "Streaming failed" }) + "\n")
+          );
+        } finally {
+          controller.close();
+        }
       },
     });
 
-    const rawTitle = response.output_text?.trim() || null;
-    const normalizedTitle = normalizeGeneratedTitle(rawTitle);
-
-    if (!normalizedTitle) {
-      console.warn(
-        `[titleDebug] title generation failed or produced invalid result: ${rawTitle}`
-      );
-      return NextResponse.json(
-        { error: "Title generation failed" },
-        { status: 500 }
-      );
-    }
-
-    // Update conversation title
-    const { error: updateError } = await supabaseAny
-      .from("conversations")
-      .update({ title: normalizedTitle })
-      .eq("id", conversationId)
-      .eq("user_id", userId);
-
-    if (updateError) {
-      console.error(`[titleDebug] failed to update title:`, updateError);
-      return NextResponse.json(
-        { error: "Failed to update title" },
-        { status: 500 }
-      );
-    }
-
-    console.log(
-      `[titleDebug] successfully updated conversation ${conversationId} with title: ${normalizedTitle}`
-    );
-
-    return NextResponse.json({ title: normalizedTitle }, { status: 200 });
+    return new Response(readable, {
+      headers: {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        Connection: "keep-alive",
+      },
+    });
   } catch (error) {
     console.error("Generate title error:", error);
     return NextResponse.json(

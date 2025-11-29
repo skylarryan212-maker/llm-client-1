@@ -1,5 +1,6 @@
 "use server";
 
+import { revalidatePath } from "next/cache";
 import {
   appendMessageToConversation,
   createProjectConversationWithFirstMessage,
@@ -71,6 +72,8 @@ export async function startProjectConversationAction(params: {
 
 export async function renameConversationAction(conversationId: string, title: string) {
   await renameConversation({ conversationId, title });
+  revalidatePath("/");
+  revalidatePath("/c/[conversationId]", "page");
 }
 
 export async function moveConversationToProjectAction(
@@ -78,8 +81,13 @@ export async function moveConversationToProjectAction(
   projectId: string | null
 ) {
   await moveConversationToProject({ conversationId, projectId });
+  revalidatePath("/");
+  revalidatePath("/projects/[projectId]", "page");
 }
 
 export async function deleteConversationAction(conversationId: string) {
   await deleteConversation(conversationId);
+  revalidatePath("/");
+  revalidatePath("/c/[conversationId]", "page");
+  revalidatePath("/projects/[projectId]", "page");
 }

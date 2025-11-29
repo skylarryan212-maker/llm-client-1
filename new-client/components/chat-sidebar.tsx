@@ -15,6 +15,7 @@ import {
 import { deleteProjectAction, renameProjectAction } from '@/app/actions/project-actions'
 import { ChatContextMenu } from '@/components/chat-context-menu'
 import { ProjectContextMenu } from '@/components/project-context-menu'
+import { AnimatedTitle } from '@/components/chat/animated-title'
 import { Dialog } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 
@@ -49,6 +50,8 @@ interface ChatSidebarProps {
   onProjectSelect?: (id: string) => void
   selectedProjectId?: string
   onSettingsOpen?: () => void
+  onRefreshChats?: () => void | Promise<void>
+  onRefreshProjects?: () => void | Promise<void>
 }
 
 export function ChatSidebar({ 
@@ -66,7 +69,9 @@ export function ChatSidebar({
   onNewProject,
   onProjectSelect,
   selectedProjectId,
-  onSettingsOpen
+  onSettingsOpen,
+  onRefreshChats,
+  onRefreshProjects,
 }: ChatSidebarProps) {
   const pathname = usePathname()
   const isAgentsPage = pathname === '/agents'
@@ -176,8 +181,10 @@ export function ChatSidebar({
     try {
       if (renameAction.type === 'renameProject') {
         await renameProjectAction(renameAction.projectId, nextName)
+        onRefreshProjects?.()
       } else {
         await renameConversationAction(renameAction.chatId, nextName)
+        onRefreshChats?.()
       }
       clearAction()
     } catch (error) {
@@ -192,8 +199,10 @@ export function ChatSidebar({
     try {
       if (deleteAction.type === 'deleteProject') {
         await deleteProjectAction(deleteAction.projectId)
+        onRefreshProjects?.()
       } else {
         await deleteConversationAction(deleteAction.chatId)
+        onRefreshChats?.()
       }
       clearAction()
     } catch (error) {
@@ -212,6 +221,7 @@ export function ChatSidebar({
 
     try {
       await moveConversationToProjectAction(moveAction.chatId, targetProjectId)
+      onRefreshChats?.()
       clearAction()
     } catch (error) {
       console.error('Failed to move chat', error)
@@ -348,7 +358,7 @@ export function ChatSidebar({
                               </Link>
 
                               {shouldShowChats && visibleChats.length > 0 && (
-                                <div className="px-1.5 pb-2 space-y-1">
+                                <div className="space-y-1">
                                   {visibleChats.map((chat) => (
                                     <div
                                       key={chat.id}
@@ -358,18 +368,20 @@ export function ChatSidebar({
                                       onKeyDown={(event) =>
                                         handleListItemKeyDown(event, () => onProjectChatSelect?.(project.id, chat.id))
                                       }
-                                      className={`group/chat flex w-full max-w-[231px] items-center gap-2 rounded-lg pl-8 pr-2.5 py-1.5 text-left transition-colors ${
+                                      className={`group/chat flex w-full max-w-[231px] items-center gap-2 rounded-lg pl-7 pr-2.5 py-1.5 text-left transition-colors ${
                                         selectedChatId === chat.id
                                           ? 'bg-zinc-800 text-white'
                                           : 'hover:bg-sidebar-accent'
                                       }`}
                                     >
-                                      <div className="flex-1 min-w-0 pr-2">
-                                        <span className="block min-w-0 truncate text-sm text-sidebar-foreground">
-                                          {chat.title}
-                                        </span>
+                                      <div className="flex-1 min-w-0 pr-0">
+                                        <AnimatedTitle 
+                                          chatId={chat.id}
+                                          title={chat.title}
+                                          className="block min-w-0 w-full truncate text-sm text-sidebar-foreground"
+                                        />
                                       </div>
-                                      <div className="flex-shrink-0">
+                                      <div className="flex-shrink-0 ml-2">
                                         <ChatContextMenu
                                           onShare={() => console.log('Share', chat.id)}
                                           onRename={() => void queueRenameChat(chat.id, chat.title)}
@@ -383,7 +395,7 @@ export function ChatSidebar({
                                   {hasMoreChats && (
                                     <Link
                                       href={`/projects/${project.id}`}
-                                      className="block rounded-lg px-2.5 py-1.5 text-sm text-muted-foreground hover:bg-sidebar-accent"
+                                      className="block max-w-[231px] rounded-lg pl-7 pr-2.5 py-1.5 text-sm text-muted-foreground hover:bg-sidebar-accent"
                                       onClick={() => onProjectSelect?.(project.id)}
                                     >
                                       See more…
@@ -473,12 +485,14 @@ export function ChatSidebar({
                                 : 'hover:bg-sidebar-accent'
                             }`}
                           >
-                            <div className="flex-1 min-w-0 pr-2">
-                              <div className="min-w-0 truncate text-sm text-sidebar-foreground">
-                                {conv.title}
-                              </div>
+                            <div className="flex-1 min-w-0 pr-0">
+                              <AnimatedTitle 
+                                chatId={conv.id}
+                                title={conv.title}
+                                className="min-w-0 w-full truncate text-sm text-sidebar-foreground"
+                              />
                             </div>
-                            <div className="flex-shrink-0">
+                            <div className="flex-shrink-0 ml-2">
                               <ChatContextMenu
                                 onShare={() => console.log('Share', conv.id)}
                                 onRename={() => void queueRenameChat(conv.id, conv.title)}
@@ -530,7 +544,13 @@ export function ChatSidebar({
             <Button variant="ghost" size="sm" onClick={clearAction}>
               Cancel
             </Button>
-            <Button variant="default" size="sm" onClick={confirmRename} disabled={renameDisabled}>
+            <Button 
+              variant="default" 
+              size="sm" 
+              onClick={confirmRename} 
+              disabled={renameDisabled}
+              className="dark:bg-white dark:text-black dark:hover:bg-white/90"
+            >
               Rename
             </Button>
           </div>

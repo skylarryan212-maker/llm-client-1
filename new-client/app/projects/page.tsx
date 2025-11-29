@@ -17,8 +17,8 @@ export default function ProjectsPage() {
   const [currentModel, setCurrentModel] = useState("GPT-5.1");
   const [selectedProjectId, setSelectedProjectId] = useState("");
   const [isNewProjectOpen, setIsNewProjectOpen] = useState(false);
-  const { projects, addProject } = useProjects();
-  const { globalChats, chats } = useChatStore();
+  const { projects, addProject, refreshProjects } = useProjects();
+  const { globalChats, chats, refreshChats } = useChatStore();
   const router = useRouter();
 
   const handleNewProject = () => {
@@ -98,6 +98,8 @@ export default function ProjectsPage() {
         onNewProject={handleNewProject}
         onProjectSelect={handleProjectSelect}
         selectedProjectId={selectedProjectId}
+        onRefreshChats={refreshChats}
+        onRefreshProjects={refreshProjects}
       />
 
       <div className="flex-1 overflow-y-auto">

@@ -1,5 +1,5 @@
 // app/c/[conversationId]/page.tsx
-import { notFound } from "next/navigation";
+import { redirect } from "next/navigation";
 import ChatPageShell from "@/components/chat/chat-page-shell";
 import { getConversationById } from "@/lib/data/conversations";
 import { getMessagesForConversation } from "@/lib/data/messages";
@@ -25,7 +25,7 @@ export default async function ConversationPage({
   const conversation = await getConversationById(conversationId);
 
   if (!conversation) {
-    return notFound();
+    redirect('/');
   }
 
   const messagesData = await getMessagesForConversation(conversationId);

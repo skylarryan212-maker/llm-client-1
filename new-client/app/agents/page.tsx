@@ -42,8 +42,8 @@ const agents = [
 
 export default function AgentsPage() {
   const router = useRouter();
-  const { projects } = useProjects();
-  const { chats, globalChats } = useChatStore();
+  const { projects, refreshProjects } = useProjects();
+  const { chats, globalChats, refreshChats } = useChatStore();
   const [isSidebarOpen, setIsSidebarOpen] = usePersistentSidebarOpen(true);
 
   const sidebarConversations = useMemo(
@@ -99,6 +99,8 @@ export default function AgentsPage() {
         onNewChat={() => router.push("/")}
         onNewProject={() => router.push("/projects")}
         onProjectSelect={(projectId) => router.push(`/projects/${projectId}`)}
+        onRefreshChats={refreshChats}
+        onRefreshProjects={refreshProjects}
       />
 
       <div className="flex-1 overflow-y-auto">

@@ -31,12 +31,12 @@ import { useProjects } from "@/components/projects/projects-provider";
 import { NewProjectModal } from "@/components/projects/new-project-modal";
 import { StoredMessage, useChatStore } from "@/components/chat/chat-provider";
 import { usePersistentSidebarOpen } from "@/lib/hooks/use-sidebar-open";
-import { normalizeModelFamily, normalizeSpeedMode, getModelSettingsFromDisplayName } from "@/lib/modelConfig";
+import { normalizeModelFamily, normalizeSpeedMode, getModelAndReasoningConfig, getModelSettingsFromDisplayName } from "@/lib/modelConfig";
 import type { ModelFamily, SpeedMode, ReasoningEffort } from "@/lib/modelConfig";
 import { isPlaceholderTitle } from "@/lib/conversation-utils";
 import { requestAutoNaming } from "@/lib/autoNaming";
 import type { AssistantMessageMetadata } from "@/lib/chatTypes";
-import { formatSearchedDomainsLine } from "@/lib/metadata";
+import { formatSearchedDomainsLine, formatThoughtDurationLabel } from "@/lib/metadata";
 import { MessageInsightChips } from "@/components/chat/message-insight-chips";
 
 interface ShellConversation {
@@ -58,6 +58,8 @@ type SearchStatusEvent =
   | { type: "search-start"; query: string }
   | { type: "search-complete"; query: string; results?: number }
   | { type: "search-error"; query: string; message?: string }
+  | { type: "file-search-start"; query: string }
+  | { type: "file-search-complete"; query: string }
   | { type: "file-reading-start" }
   | { type: "file-reading-complete" }
   | { type: "file-reading-error"; message?: string };
@@ -70,6 +72,38 @@ interface ChatPageShellProps {
   projectId?: string;
 }
 
+type ThinkingTimingInfo = {
+  durationMs: number;
+  durationSeconds: number;
+  label: string;
+  effort?: ReasoningEffort | null;
+};
+
+function mergeThinkingTimingIntoMetadata(
+  metadata: AssistantMessageMetadata | null,
+  timing: ThinkingTimingInfo | null
+): AssistantMessageMetadata | null {
+  if (!timing) {
+    return metadata;
+  }
+  const base = (metadata && typeof metadata === "object" ? metadata : {}) as AssistantMessageMetadata;
+  const nextThinking: AssistantMessageMetadata["thinking"] = {
+    ...(base.thinking || {}),
+    durationMs: timing.durationMs,
+    durationSeconds: timing.durationSeconds,
+  };
+  if (typeof timing.effort !== "undefined") {
+    nextThinking.effort = timing.effort;
+  }
+  return {
+    ...base,
+    thinkingDurationMs: timing.durationMs,
+    thinkingDurationSeconds: timing.durationSeconds,
+    thoughtDurationLabel: timing.label,
+    thinking: nextThinking,
+  };
+}
+
 export default function ChatPageShell({
   conversations: initialConversations,
   activeConversationId,
@@ -78,13 +112,14 @@ export default function ChatPageShell({
   searchParams,
 }: ChatPageShellProps) {
   const router = useRouter();
-  const { projects, addProject } = useProjects();
+  const { projects, addProject, refreshProjects } = useProjects();
   const {
     chats,
     globalChats,
     createChat,
     appendMessages,
     updateMessage,
+    updateChatTitle,
     removeMessage,
     ensureChat,
     refreshChats,
@@ -101,6 +136,7 @@ export default function ChatPageShell({
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isAutoScroll, setIsAutoScroll] = useState(true);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
+  const [isStreaming, setIsStreaming] = useState(false);
   const [thinkingStatus, setThinkingStatus] = useState<{ variant: "thinking" | "extended"; label: string } | null>(null);
   const [searchIndicator, setSearchIndicator] = useState<
     | {
@@ -118,8 +154,14 @@ export default function ChatPageShell({
   const scrollViewportRef = useRef<HTMLDivElement | null>(null);
   const autoStreamedConversations = useRef<Set<string>>(new Set());
   const inFlightRequests = useRef<Set<string>>(new Set());
+  const streamAbortControllerRef = useRef<AbortController | null>(null);
   const thinkingTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const thinkingStartRef = useRef<number | null>(null);
+  const responseTimingRef = useRef({
+    start: null as number | null,
+    firstToken: null as number | null,
+    assistantMessageId: null as string | null,
+  });
+  const pendingThinkingInfoRef = useRef<ThinkingTimingInfo | null>(null);
   const searchIndicatorTimerRef = useRef<NodeJS.Timeout | null>(null);
   const fileIndicatorTimerRef = useRef<NodeJS.Timeout | null>(null);
   const AUTO_STREAM_KEY_PREFIX = "llm-client-auto-stream:";
@@ -156,28 +198,86 @@ export default function ChatPageShell({
   const autoStreamHandled =
     searchParams?.autoStreamHandled?.toString() === "true";
 
-  const resetThinkingIndicator = useCallback(() => {
+  const hideThinkingIndicator = useCallback(() => {
     if (thinkingTimerRef.current) {
       clearTimeout(thinkingTimerRef.current);
+      thinkingTimerRef.current = null;
     }
-    thinkingTimerRef.current = null;
-    thinkingStartRef.current = null;
     setThinkingStatus(null);
   }, []);
 
-  const showThinkingIndicator = useCallback(
-    (effort?: ReasoningEffort | null) => {
-      resetThinkingIndicator();
-      thinkingStartRef.current = Date.now();
-      const label = effort === "high" ? "Thinking deeply…" : "Thinking";
-      setThinkingStatus({ variant: "thinking", label });
-      thinkingTimerRef.current = setTimeout(() => {
-        setThinkingStatus((prev) =>
-          prev ? { variant: "extended", label: "Thinking for longer…" } : prev
-        );
-      }, 12000);
+  const resetThinkingIndicator = useCallback(() => {
+    hideThinkingIndicator();
+    responseTimingRef.current = {
+      start: null,
+      firstToken: null,
+      assistantMessageId: null,
+    };
+    pendingThinkingInfoRef.current = null;
+  }, [hideThinkingIndicator]);
+
+  const showThinkingIndicator = useCallback((effort?: ReasoningEffort | null) => {
+    const normalizedEffort: ReasoningEffort = effort ?? "low";
+    if (thinkingTimerRef.current) {
+      clearTimeout(thinkingTimerRef.current);
+      thinkingTimerRef.current = null;
+    }
+    if (normalizedEffort === "medium" || normalizedEffort === "high") {
+      setThinkingStatus({ variant: "extended", label: "Thinking for longer…" });
+      return;
+    }
+    setThinkingStatus({ variant: "thinking", label: "Thinking" });
+    thinkingTimerRef.current = setTimeout(() => {
+      setThinkingStatus((prev) =>
+        prev ? { variant: "extended", label: "Thinking for longer…" } : prev
+      );
+      thinkingTimerRef.current = null;
+    }, 4000);
+  }, []);
+
+  const startResponseTiming = useCallback(() => {
+    resetThinkingIndicator();
+    responseTimingRef.current = {
+      start: typeof performance !== "undefined" ? performance.now() : Date.now(),
+      firstToken: null,
+      assistantMessageId: null,
+    };
+    pendingThinkingInfoRef.current = null;
+  }, [resetThinkingIndicator]);
+
+  const recordFirstTokenTiming = useCallback(
+    (
+      chatId: string,
+      messageId: string,
+      metadata: AssistantMessageMetadata | null,
+      reasoningEffort?: ReasoningEffort | null
+    ) => {
+      const timing = responseTimingRef.current;
+      if (!timing.start || timing.firstToken !== null) {
+        return metadata;
+      }
+      const now = typeof performance !== "undefined" ? performance.now() : Date.now();
+      const elapsedMs = Math.max(0, now - timing.start);
+      timing.firstToken = now;
+      timing.start = null;
+      hideThinkingIndicator();
+      const seconds = elapsedMs / 1000;
+      const label = formatThoughtDurationLabel(seconds);
+      const thinkingInfo: ThinkingTimingInfo = {
+        durationMs: elapsedMs,
+        durationSeconds: seconds,
+        label,
+        effort: reasoningEffort ?? null,
+      };
+      pendingThinkingInfoRef.current = thinkingInfo;
+      const nextMetadata = mergeThinkingTimingIntoMetadata(metadata, thinkingInfo);
+      if (nextMetadata) {
+        updateMessage(chatId, messageId, { metadata: nextMetadata });
+        return nextMetadata;
+      }
+      return metadata;
     },
-    [resetThinkingIndicator]
+    [hideThinkingIndicator, updateMessage]
   );
 
   const clearSearchIndicator = useCallback(() => {
@@ -276,6 +376,12 @@ export default function ChatPageShell({
             message: status.message ?? "Web search failed",
           });
           break;
+        case "file-search-start":
+          showFileReadingIndicator("running");
+          break;
+        case "file-search-complete":
+          clearFileReadingIndicator();
+          break;
         case "file-reading-start":
           showFileReadingIndicator("running");
           break;
@@ -360,7 +466,8 @@ export default function ChatPageShell({
     }
   }, [currentChat, selectedChatId]);
 
-  const handleSubmit = async (message: string) => {
+  type UploadedFragment = { id: string; name: string; url: string; mime?: string };
+  const handleSubmit = async (message: string, attachments?: UploadedFragment[]) => {
     console.log("[chatDebug] handleSubmit called with message:", message.substring(0, 50));
     const now = new Date().toISOString();
     const userMessage: StoredMessage = {
@@ -368,6 +475,7 @@ export default function ChatPageShell({
       role: "user",
       content: message,
       timestamp: now,
+      metadata: attachments && attachments.length ? { files: attachments.map(a => ({ name: a.name, mimeType: a.mime, url: a.url })) } : undefined,
     };
 
     if (!selectedChatId) {
@@ -385,6 +493,16 @@ export default function ChatPageShell({
           role: "user",
           content: createdMessage.content ?? message,
           timestamp: createdMessage.created_at ?? now,
+          metadata:
+            attachments && attachments.length
+              ? {
+                  files: attachments.map((a) => ({
+                    name: a.name,
+                    mimeType: a.mime,
+                    url: a.url,
+                  })),
+                }
+              : undefined,
         };
 
         const newChatId = createChat({
@@ -395,7 +513,6 @@ export default function ChatPageShell({
         });
         setSelectedChatId(newChatId);
         setSelectedProjectId(targetProjectId);
-        router.push(`/projects/${targetProjectId}/c/${newChatId}?autoStreamHandled=true`);
         
         // Mark this conversation as already auto-streamed to prevent duplicate in useEffect
         console.log("[chatDebug] Marking conversation as auto-streamed:", conversationId);
@@ -404,8 +521,11 @@ export default function ChatPageShell({
         // Trigger auto-naming immediately (in parallel with streaming)
         triggerAutoNaming(conversationId, message, conversation.title ?? undefined);
         
-        // Stream the model response without inserting the user message again
-        await streamModelResponse(conversationId, targetProjectId, message, newChatId, true);
+        // Stream the model response fully BEFORE navigation to preserve streaming state
+        await streamModelResponse(conversationId, targetProjectId, message, newChatId, true, attachments);
+        
+        // Navigate after streaming completes
+        router.push(`/projects/${targetProjectId}/c/${newChatId}?autoStreamHandled=true`);
       } else {
         const { conversationId, message: createdMessage, conversation } =
           await startGlobalConversationAction(message);
@@ -415,6 +535,16 @@ export default function ChatPageShell({
           role: "user",
           content: createdMessage.content ?? message,
           timestamp: createdMessage.created_at ?? now,
+          metadata:
+            attachments && attachments.length
+              ? {
+                  files: attachments.map((a) => ({
+                    name: a.name,
+                    mimeType: a.mime,
+                    url: a.url,
+                  })),
+                }
+              : undefined,
         };
 
         const newChatId = createChat({
@@ -424,7 +554,6 @@ export default function ChatPageShell({
         });
         setSelectedChatId(newChatId);
         setSelectedProjectId("");
-        router.push(`/c/${newChatId}?autoStreamHandled=true`);
         
         // Mark this conversation as already auto-streamed to prevent duplicate in useEffect
         console.log("[chatDebug] Marking conversation as auto-streamed:", conversationId);
@@ -433,8 +562,11 @@ export default function ChatPageShell({
         // Trigger auto-naming immediately (in parallel with streaming)
         triggerAutoNaming(conversationId, message, conversation.title ?? undefined);
         
-        // Stream the model response without inserting the user message again
-        await streamModelResponse(conversationId, undefined, message, newChatId, true);
+        // Stream the model response fully BEFORE navigation to preserve streaming state
+        await streamModelResponse(conversationId, undefined, message, newChatId, true, attachments);
+        
+        // Navigate after streaming completes
+        router.push(`/c/${newChatId}?autoStreamHandled=true`);
       }
     } else {
       console.log("[chatDebug] Adding message to existing chat:", selectedChatId);
@@ -443,7 +575,7 @@ export default function ChatPageShell({
       appendMessages(selectedChatId, [userMessage]);
       
         // Stream the model response and insert the user message on server
-        await streamModelResponse(selectedChatId, selectedProjectId || undefined, message, selectedChatId, false);
+        await streamModelResponse(selectedChatId, selectedProjectId || undefined, message, selectedChatId, false, attachments);
     }
   };
 
@@ -462,12 +594,15 @@ export default function ChatPageShell({
 
     console.log(`[titleDebug] initiating auto-naming for conversation ${conversationId}`);
   
-    const data = await requestAutoNaming(conversationId, userMessage);
+    const data = await requestAutoNaming(conversationId, userMessage, (partialTitle) => {
+      // Stream each word update to the sidebar
+      updateChatTitle(conversationId, partialTitle);
+    });
+    
     if (data?.title) {
       console.log(`[titleDebug] auto-naming succeeded with title: ${data.title}`);
-      setTimeout(() => {
-        refreshChats().catch((err: unknown) => console.error("Failed to refresh after auto-naming:", err));
-      }, 500);
+      // Final title update
+      updateChatTitle(conversationId, data.title);
     }
   };
 
@@ -476,7 +611,8 @@ export default function ChatPageShell({
     projectId: string | undefined,
     message: string,
     chatId: string,
-    skipUserInsert: boolean = false
+    skipUserInsert: boolean = false,
+    attachments?: UploadedFragment[]
   ) => {
     const requestKey = `${conversationId}:${message}`;
     if (inFlightRequests.current.has(requestKey)) {
@@ -484,15 +620,37 @@ export default function ChatPageShell({
       return;
     }
     inFlightRequests.current.add(requestKey);
+    const controller = new AbortController();
+    streamAbortControllerRef.current = controller;
+    setIsStreaming(true);
 
     console.log("[chatDebug] streamModelResponse start", { conversationId, chatId, skipUserInsert, shortMessage: message.slice(0,40) });
 
     try {
       // Get model settings from current display selection
-      const { modelFamily, speedMode, reasoningEffort } = getModelSettingsFromDisplayName(currentModel);
-      showThinkingIndicator(reasoningEffort);
+      const {
+        modelFamily,
+        speedMode,
+        reasoningEffort: reasoningEffortOverride,
+      } = getModelSettingsFromDisplayName(currentModel);
+      const previewFamilyForReasoning: ModelFamily =
+        currentModel === "Auto" ? "gpt-5-mini" : modelFamily;
+      const previewModelConfig = getModelAndReasoningConfig(
+        previewFamilyForReasoning,
+        speedMode,
+        message,
+        reasoningEffortOverride
+      );
+      const indicatorEffort = previewModelConfig.reasoning?.effort ?? null;
+      startResponseTiming();
+      showThinkingIndicator(indicatorEffort);
       clearSearchIndicator();
       clearFileReadingIndicator();
+
+      // If attachments are present, show a transient file-reading indicator before first token
+      if (attachments && attachments.length > 0) {
+        showFileReadingIndicator("running");
+      }
 
       const response = await fetch("/api/chat", {
         method: "POST",
@@ -503,9 +661,11 @@ export default function ChatPageShell({
           message,
           modelFamilyOverride: modelFamily,
           speedModeOverride: speedMode,
-          reasoningEffortOverride: reasoningEffort,
+          reasoningEffortOverride: reasoningEffortOverride,
           skipUserInsert,
+          attachments,
         }),
+        signal: controller.signal,
       });
 
       if (!response.ok) {
@@ -524,6 +684,9 @@ export default function ChatPageShell({
       const assistantMessageId = `assistant-streaming-${Date.now()}`;
       let messageMetadata: AssistantMessageMetadata | null = null;
 
+      // Set active indicator BEFORE adding message so indicators show
+      setActiveIndicatorMessageId(assistantMessageId);
+
       // Add the initial empty assistant message
       appendMessages(chatId, [
         {
@@ -533,7 +696,7 @@ export default function ChatPageShell({
           timestamp: new Date().toISOString(),
         },
       ]);
-      setActiveIndicatorMessageId(assistantMessageId);
+      responseTimingRef.current.assistantMessageId = assistantMessageId;
 
       try {
         while (true) {
@@ -549,14 +712,24 @@ export default function ChatPageShell({
 
               if (parsed.token) {
                 assistantContent += parsed.token;
+                const currentMessageId =
+                  responseTimingRef.current.assistantMessageId ?? assistantMessageId;
+                messageMetadata = recordFirstTokenTiming(
+                  chatId,
+                  currentMessageId,
+                  messageMetadata,
+                  indicatorEffort
+                );
+                // Hide file-reading indicator on first token
+                clearFileReadingIndicator();
                 // Update the assistant message with new content
-                updateMessage(chatId, assistantMessageId, {
+                updateMessage(chatId, currentMessageId, {
                   content: assistantContent,
                 });
-                  } else if (parsed.status) {
-                    handleStatusEvent(parsed.status as SearchStatusEvent);
-                  } else if (parsed.type === "web_search_domain" && typeof parsed.domain === "string") {
-                    addSearchDomain(parsed.domain);
+              } else if (parsed.status) {
+                handleStatusEvent(parsed.status as SearchStatusEvent);
+              } else if (parsed.type === "web_search_domain" && typeof parsed.domain === "string") {
+                addSearchDomain(parsed.domain);
               } else if (parsed.meta) {
                 const fallbackMeta: AssistantMessageMetadata = {
                   modelUsed: parsed.meta.model,
@@ -565,17 +738,26 @@ export default function ChatPageShell({
                   speedModeUsed: parsed.meta.speedModeUsed,
                   userRequestedFamily: modelFamily,
                   userRequestedSpeedMode: speedMode,
-                  userRequestedReasoningEffort: reasoningEffort,
+                  userRequestedReasoningEffort: reasoningEffortOverride,
                 };
                 const resolvedMetadata: AssistantMessageMetadata =
                   (parsed.meta.metadata as AssistantMessageMetadata | null) ?? fallbackMeta;
-                messageMetadata = resolvedMetadata;
-                // Replace the temporary ID with the persisted row ID and store metadata
+                const metadataWithTiming = mergeThinkingTimingIntoMetadata(
+                  resolvedMetadata,
+                  pendingThinkingInfoRef.current
+                );
+                pendingThinkingInfoRef.current = null;
+                messageMetadata = metadataWithTiming;
                 const newId = parsed.meta.assistantMessageRowId;
-                updateMessage(chatId, assistantMessageId, { 
+                setActiveIndicatorMessageId(newId);
+                // Clear thinking indicator when metadata arrives
+                resetThinkingIndicator();
+                // Replace the temporary ID with the persisted row ID and store metadata
+                updateMessage(chatId, assistantMessageId, {
                   id: newId,
-                  metadata: resolvedMetadata,
+                  metadata: metadataWithTiming,
                 });
+                responseTimingRef.current.assistantMessageId = newId;
                 if (
                   Array.isArray(resolvedMetadata.searchedDomains) &&
                   resolvedMetadata.searchedDomains.length > 0
@@ -585,12 +767,7 @@ export default function ChatPageShell({
                     resolvedMetadata.searchedSiteLabel
                   );
                 }
-                if (
-                  Array.isArray(resolvedMetadata.citations) &&
-                  resolvedMetadata.citations.length > 0
-                ) {
-                  showFileReadingIndicator();
-                }
+                // Do not persist file-reading indicator based on citations; it's ephemeral.
               } else if (parsed.done) {
                 // Streaming complete
                 break;
@@ -604,12 +781,31 @@ export default function ChatPageShell({
         reader.releaseLock();
       }
     } catch (error) {
-      console.error("Error streaming model response:", error);
+      const isAbortError =
+        error instanceof DOMException
+          ? error.name === "AbortError"
+          : (error as { name?: string })?.name === "AbortError";
+      if (!isAbortError) {
+        console.error("Error streaming model response:", error);
+      }
     } finally {
+      if (streamAbortControllerRef.current === controller) {
+        streamAbortControllerRef.current = null;
+      }
       inFlightRequests.current.delete(requestKey);
+      setIsStreaming(false);
       resetThinkingIndicator();
     }
   };
+
+  const handleStopGeneration = useCallback(() => {
+    const controller = streamAbortControllerRef.current;
+    if (!controller) return;
+    controller.abort();
+    streamAbortControllerRef.current = null;
+    setIsStreaming(false);
+    resetThinkingIndicator();
+  }, [resetThinkingIndicator]);
 
   // Check if we need to auto-start streaming for a new chat with only a user message
   // This handles the case where a chat was created from the project page and redirected here
@@ -654,7 +850,7 @@ export default function ChatPageShell({
     if (!userMessage || userMessage.role !== "user") return;
 
     // Map retry model name to model settings (without changing the UI dropdown)
-    let retryModelFamily = "gpt-5-mini";
+    let retryModelFamily: ModelFamily = "gpt-5-mini";
     let retrySpeedMode: SpeedMode | undefined = "auto";
      if (retryModelName === "GPT 5 Nano") {
        retryModelFamily = "gpt-5-nano";
@@ -716,9 +912,19 @@ export default function ChatPageShell({
        const assistantMessageId = `assistant-streaming-${Date.now()}`;
        let messageMetadata: AssistantMessageMetadata | null = null;
 
-       showThinkingIndicator(undefined);
+      const retryPreviewConfig = getModelAndReasoningConfig(
+        retryModelFamily,
+        retrySpeedMode ?? "auto",
+        userMessage.content
+      );
+       const retryIndicatorEffort = retryPreviewConfig.reasoning?.effort ?? null;
+       startResponseTiming();
+       showThinkingIndicator(retryIndicatorEffort);
        clearSearchIndicator();
-      clearFileReadingIndicator();
+       clearFileReadingIndicator();
+
+       // Set active indicator BEFORE adding message so indicators show
+        setActiveIndicatorMessageId(assistantMessageId);
 
        // Add the initial empty assistant message
        appendMessages(selectedChatId, [
@@ -729,7 +935,7 @@ export default function ChatPageShell({
            timestamp: new Date().toISOString(),
          },
        ]);
-        setActiveIndicatorMessageId(assistantMessageId);
+       responseTimingRef.current.assistantMessageId = assistantMessageId;
 
        try {
          while (true) {
@@ -743,51 +949,68 @@ export default function ChatPageShell({
              try {
                const parsed = JSON.parse(line);
 
-               if (parsed.token) {
-                 assistantContent += parsed.token;
-                 // Update the assistant message with new content
-                 updateMessage(selectedChatId, assistantMessageId, {
-                   content: assistantContent,
-                 });
-                  } else if (parsed.status) {
-                    handleStatusEvent(parsed.status as SearchStatusEvent);
-                  } else if (parsed.type === "web_search_domain" && typeof parsed.domain === "string") {
-                    addSearchDomain(parsed.domain);
-               } else if (parsed.meta) {
-                  const fallbackMeta: AssistantMessageMetadata = {
-                    modelUsed: parsed.meta.model,
-                    reasoningEffort: parsed.meta.reasoningEffort,
-                    resolvedFamily: parsed.meta.resolvedFamily,
-                    speedModeUsed: parsed.meta.speedModeUsed,
-                    userRequestedFamily: retryModelFamily,
-                    userRequestedSpeedMode: retrySpeedMode,
-                    userRequestedReasoningEffort: undefined,
-                  };
-                  const resolvedMetadata: AssistantMessageMetadata =
-                    (parsed.meta.metadata as AssistantMessageMetadata | null) ?? fallbackMeta;
-                  messageMetadata = resolvedMetadata;
-                 // Replace the temporary ID with the persisted row ID and store metadata
-                 const newId = parsed.meta.assistantMessageRowId;
-                 updateMessage(selectedChatId, assistantMessageId, { 
-                   id: newId,
-                    metadata: resolvedMetadata,
-                 });
-                  if (
-                    Array.isArray(resolvedMetadata.searchedDomains) &&
-                    resolvedMetadata.searchedDomains.length > 0
-                  ) {
-                    showSearchCompleteIndicator(
-                      resolvedMetadata.searchedDomains,
-                      resolvedMetadata.searchedSiteLabel
-                    );
-                  }
-                  if (
-                    Array.isArray(resolvedMetadata.citations) &&
-                    resolvedMetadata.citations.length > 0
-                  ) {
-                    showFileReadingIndicator();
-                  }
-               } else if (parsed.done) {
+              if (parsed.token) {
+                assistantContent += parsed.token;
+                const currentMessageId =
+                  responseTimingRef.current.assistantMessageId ?? assistantMessageId;
+                messageMetadata = recordFirstTokenTiming(
+                  selectedChatId,
+                  currentMessageId,
+                  messageMetadata,
+                  retryIndicatorEffort
+                );
+                // Update the assistant message with new content
+                updateMessage(selectedChatId, currentMessageId, {
+                  content: assistantContent,
+                });
+              } else if (parsed.status) {
+                handleStatusEvent(parsed.status as SearchStatusEvent);
+              } else if (parsed.type === "web_search_domain" && typeof parsed.domain === "string") {
+                addSearchDomain(parsed.domain);
+              } else if (parsed.meta) {
+                const fallbackMeta: AssistantMessageMetadata = {
+                  modelUsed: parsed.meta.model,
+                  reasoningEffort: parsed.meta.reasoningEffort,
+                  resolvedFamily: parsed.meta.resolvedFamily,
+                  speedModeUsed: parsed.meta.speedModeUsed,
+                  userRequestedFamily: retryModelFamily,
+                  userRequestedSpeedMode: retrySpeedMode,
+                  userRequestedReasoningEffort: undefined,
+                };
+                const resolvedMetadata: AssistantMessageMetadata =
+                  (parsed.meta.metadata as AssistantMessageMetadata | null) ?? fallbackMeta;
+                const metadataWithTiming = mergeThinkingTimingIntoMetadata(
+                  resolvedMetadata,
+                  pendingThinkingInfoRef.current
+                );
+                pendingThinkingInfoRef.current = null;
+                messageMetadata = metadataWithTiming;
+                const newId = parsed.meta.assistantMessageRowId;
+                setActiveIndicatorMessageId(newId);
+                // Clear thinking indicator when metadata arrives
+                resetThinkingIndicator();
+                // Replace the temporary ID with the persisted row ID and store metadata
+                updateMessage(selectedChatId, assistantMessageId, {
+                  id: newId,
+                  metadata: metadataWithTiming,
+                });
+                responseTimingRef.current.assistantMessageId = newId;
+                if (
+                  Array.isArray(resolvedMetadata.searchedDomains) &&
+                  resolvedMetadata.searchedDomains.length > 0
+                ) {
+                  showSearchCompleteIndicator(
+                    resolvedMetadata.searchedDomains,
+                    resolvedMetadata.searchedSiteLabel
+                  );
+                }
+                if (
+                  Array.isArray(resolvedMetadata.citations) &&
+                  resolvedMetadata.citations.length > 0
+                ) {
+                  showFileReadingIndicator();
+                }
+              } else if (parsed.done) {
                  // Streaming complete
                  break;
                }
@@ -930,6 +1153,8 @@ export default function ChatPageShell({
         onProjectSelect={handleProjectSelect}
         selectedProjectId={selectedProjectId}
         onSettingsOpen={() => setIsSettingsOpen(true)}
+        onRefreshChats={refreshChats}
+        onRefreshProjects={refreshProjects}
       />
 
       {/* Right column: header + messages + composer */}
@@ -1186,7 +1411,7 @@ export default function ChatPageShell({
           >
             <div className="py-4 pb-4">
               {/* Wide desktop layout with padded container */}
-              <div className="w-full px-4 sm:px-6 lg:px-12 space-y-4">
+              <div className="w-full space-y-4">
                 {messages.map((message) => {
                   const metadata = message.metadata as AssistantMessageMetadata | null;
                   const metadataIndicators =
@@ -1194,69 +1419,60 @@ export default function ChatPageShell({
                     Boolean(metadata?.searchedDomains?.length) ||
                     Boolean(metadata?.citations?.length);
                   const isStreamingMessage = message.id === activeIndicatorMessageId;
-                  const showIndicatorBlock =
-                    message.role === "assistant" && (metadataIndicators || isStreamingMessage);
-                  const showStatusRow =
-                    isStreamingMessage &&
-                    (Boolean(fileReadingIndicator) ||
-                      Boolean(searchIndicator) ||
-                      Boolean(thinkingStatus));
+                  const showIndicatorBlock = message.role === "assistant" && metadataIndicators;
+                  
                   return (
                     <div key={message.id}>
                       {showIndicatorBlock && (
-                        <div className="flex flex-col gap-2 pb-2">
-                          {showStatusRow && (
-                            <div className="mx-auto w-full max-w-3xl">
-                              <div className="flex flex-wrap gap-2">
-                                {fileReadingIndicator && (
-                                  <StatusBubble
-                                    label="Reading documents"
-                                    variant={
-                                      fileReadingIndicator === "error" ? "error" : "reading"
-                                    }
-                                  />
-                                )}
-                                {searchIndicator && (
-                                  <StatusBubble
-                                    label={searchIndicator.message}
-                                    variant={
-                                      searchIndicator.variant === "error"
-                                        ? "error"
-                                        : "search"
-                                    }
-                                    subtext={searchIndicator.subtext}
-                                  />
-                                )}
-                                {thinkingStatus && (
-                                  <StatusBubble
-                                    label={thinkingStatus.label}
-                                    variant={
-                                      thinkingStatus.variant === "extended"
-                                        ? "extended"
-                                        : "default"
-                                    }
-                                  />
-                                )}
-                              </div>
+                        <div className="flex flex-col gap-2 pb-2 px-4 sm:px-6">
+                          <div className="mx-auto w-full max-w-3xl">
+                            <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                              <MessageInsightChips metadata={metadata} />
                             </div>
-                          )}
-                          {metadataIndicators && (
-                            <MessageInsightChips metadata={metadata} />
-                          )}
+                          </div>
                         </div>
                       )}
-                      <ChatMessage
-                        {...message}
-                        showInsightChips={!showIndicatorBlock}
-                        onRetry={
-                          message.role === "assistant"
-                            ? (model) => handleRetryWithModel(model, message.id)
-                            : undefined
-                        }
-                      />
+                      <div className="px-4 sm:px-6">
+                        <ChatMessage
+                          {...message}
+                          showInsightChips={!showIndicatorBlock}
+                          onRetry={
+                            message.role === "assistant"
+                              ? (model) => handleRetryWithModel(model, message.id)
+                              : undefined
+                          }
+                        />
+                      </div>
                     </div>
                   );
                 })}
+                {(thinkingStatus || searchIndicator || fileReadingIndicator) && (
+                  <div className="flex flex-col gap-2 pb-2 px-4 sm:px-6">
+                    <div className="mx-auto w-full max-w-3xl">
+                      <div className="flex flex-wrap gap-2">
+                        {fileReadingIndicator && (
+                          <StatusBubble
+                            label="Reading documents"
+                            variant={fileReadingIndicator === "error" ? "error" : "reading"}
+                          />
+                        )}
+                        {searchIndicator && (
+                          <StatusBubble
+                            label={searchIndicator.message}
+                            variant={searchIndicator.variant === "error" ? "error" : "search"}
+                            subtext={searchIndicator.subtext}
+                          />
+                        )}
+                        {thinkingStatus && (
+                          <StatusBubble
+                            label={thinkingStatus.label}
+                            variant={thinkingStatus.variant === "extended" ? "extended" : "default"}
+                          />
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </ScrollArea>
@@ -1283,11 +1499,14 @@ export default function ChatPageShell({
             </Button>
           </div>
           <div className="mx-auto w-full max-w-3xl">
-            <ChatComposer onSubmit={handleSubmit} />
+            <ChatComposer
+              onSubmit={handleSubmit}
+              isStreaming={isStreaming}
+              onStop={handleStopGeneration}
+            />
           </div>
         </div>
       </div>
-
       <SettingsModal
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}

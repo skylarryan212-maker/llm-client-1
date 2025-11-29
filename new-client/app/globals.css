@@ -1,6 +1,9 @@
 @import 'tailwindcss';
 /*@import 'tw-animate-css'; */
 
+/* KaTeX styles for math rendering */
+@import 'katex/dist/katex.min.css';
+
 @custom-variant dark (&:is(.dark *));
 
 :root {
@@ -121,5 +124,16 @@
   }
   body {
     @apply bg-background text-foreground;
+  }
+  
+  /* Better text selection contrast for all elements */
+  ::selection {
+    background-color: rgba(0, 0, 0, 0.15);
+    color: inherit;
+  }
+  
+  .dark ::selection {
+    background-color: rgba(255, 255, 255, 0.2);
+    color: inherit;
   }
 }

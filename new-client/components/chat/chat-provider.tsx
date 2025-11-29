@@ -36,6 +36,7 @@ type ChatContextValue = {
   }) => string;
   appendMessages: (chatId: string, newMessages: StoredMessage[]) => void;
   updateMessage: (chatId: string, messageId: string, updates: Partial<StoredMessage>) => void;
+  updateChatTitle: (chatId: string, title: string) => void;
   ensureChat: (chat: StoredChat) => void;
   removeMessage: (chatId: string, messageId: string) => void;
 };
@@ -199,6 +200,18 @@ export function ChatProvider({ children, initialChats = [] }: ChatProviderProps)
           ...chat,
           messages: chat.messages.filter((m) => m.id !== messageId),
           timestamp: new Date().toISOString(),
+        };
+      })
+    );
+  }, []);
+
+  const updateChatTitle = useCallback((chatId: string, title: string) => {
+    setChats((prev) =>
+      prev.map((chat) => {
+        if (chat.id !== chatId) return chat;
+        return {
+          ...chat,
+          title,
         };
       })
     );
@@ -416,10 +429,11 @@ export function ChatProvider({ children, initialChats = [] }: ChatProviderProps)
       createChat,
       appendMessages,
       updateMessage,
+      updateChatTitle,
       ensureChat,
       removeMessage,
     }),
-    [appendMessages, chats, createChat, ensureChat, getProjectChats, refreshChats, updateMessage, removeMessage]
+    [appendMessages, chats, createChat, ensureChat, getProjectChats, refreshChats, updateMessage, updateChatTitle, removeMessage]
   );
 
   return <ChatContext.Provider value={value}>{children}</ChatContext.Provider>;

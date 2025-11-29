@@ -43,8 +43,8 @@ const getLatestMessageTimestamp = (messages: StoredMessage[], fallback?: string)
 export default function ProjectDetailPage() {
   const params = useParams<{ projectId: string }>();
   const router = useRouter();
-  const { projects, addProject } = useProjects();
-  const { globalChats, chats, createChat } = useChatStore();
+  const { projects, addProject, refreshProjects } = useProjects();
+  const { globalChats, chats, createChat, refreshChats } = useChatStore();
 
   const [isSidebarOpen, setIsSidebarOpen] = usePersistentSidebarOpen(true);
   const [currentModel, setCurrentModel] = useState("GPT-5.1");
@@ -58,6 +58,12 @@ export default function ProjectDetailPage() {
     () => projects.find((item) => item.id === projectId),
     [projects, projectId]
   );
+
+  // Redirect to projects page if project doesn't exist
+  if (projects.length > 0 && !project) {
+    router.push("/projects");
+    return null;
+  }
 
   const handleNewProject = () => {
     setIsNewProjectOpen(true);
@@ -168,6 +174,8 @@ export default function ProjectDetailPage() {
           router.push(`/projects/${id}`);
         }}
         selectedProjectId={selectedProjectId}
+        onRefreshChats={refreshChats}
+        onRefreshProjects={refreshProjects}
       />
 
       <div className="flex-1 overflow-y-auto">
