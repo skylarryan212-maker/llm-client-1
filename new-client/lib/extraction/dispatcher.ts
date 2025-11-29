@@ -3,42 +3,76 @@ import { detectKind } from "./detect";
 import type { Extractor, ExtractionResult } from "./types";
 import { formatPreview } from "./utils/text";
 import { fallbackExtractor } from "./extractors/fallback";
-import { pdfExtractor } from "./extractors/pdf";
-import { odfExtractor } from "./extractors/odf";
-import { epubExtractor } from "./extractors/epub";
-import { tsvPsvExtractor } from "./extractors/tsvPsv";
-import { archiveZipExtractor } from "./extractors/archiveZip";
-import { archiveTarGzipExtractor } from "./extractors/archiveTarGzip";
-import { ndjsonExtractor } from "./extractors/ndjson";
 import { logExtractor } from "./extractors/log";
 import { structuredExtractor } from "./extractors/structured";
-import { rtfExtractor } from "./extractors/rtf";
 import { codeExtractor } from "./extractors/code";
-import { imageOcrExtractor } from "./extractors/imageOcr";
-import { audioExtractor } from "./extractors/audio";
-import { videoExtractor } from "./extractors/video";
-import { legacyOfficeExtractor } from "./extractors/legacyOffice";
+import { tsvPsvExtractor } from "./extractors/tsvPsv";
+import { ndjsonExtractor } from "./extractors/ndjson";
 
-const EXTRACTOR_MAP: Record<string, Extractor> = {
-  pdf: pdfExtractor,
-  zip: archiveZipExtractor,
-  odf: odfExtractor,
-  epub: epubExtractor,
-  tsv: tsvPsvExtractor,
-  psv: tsvPsvExtractor,
-  tar: archiveTarGzipExtractor,
-  gzip: archiveTarGzipExtractor,
-  ndjson: ndjsonExtractor,
-  log: logExtractor,
-  structured: structuredExtractor,
-  rtf: rtfExtractor,
-  code: codeExtractor,
-  image: imageOcrExtractor,
-  audio: audioExtractor,
-  video: videoExtractor,
-  legacy_office: legacyOfficeExtractor,
-  text: codeExtractor, // code extractor handles generic text summarization too
-};
+async function loadExtractor(kind: string): Promise<Extractor> {
+  switch (kind) {
+    case "pdf": {
+      const mod = await import("./extractors/pdf");
+      return mod.pdfExtractor;
+    }
+    case "zip": {
+      const mod = await import("./extractors/archiveZip");
+      return mod.archiveZipExtractor;
+    }
+    case "odf": {
+      const mod = await import("./extractors/odf");
+      return mod.odfExtractor;
+    }
+    case "epub": {
+      const mod = await import("./extractors/epub");
+      return mod.epubExtractor;
+    }
+    case "tar":
+    case "gzip": {
+      const mod = await import("./extractors/archiveTarGzip");
+      return mod.archiveTarGzipExtractor;
+    }
+    case "ndjson": {
+      return ndjsonExtractor;
+    }
+    case "log": {
+      return logExtractor;
+    }
+    case "structured": {
+      return structuredExtractor;
+    }
+    case "rtf": {
+      const mod = await import("./extractors/rtf");
+      return mod.rtfExtractor;
+    }
+    case "image": {
+      const mod = await import("./extractors/imageOcr");
+      return mod.imageOcrExtractor;
+    }
+    case "audio": {
+      const mod = await import("./extractors/audio");
+      return mod.audioExtractor;
+    }
+    case "video": {
+      const mod = await import("./extractors/video");
+      return mod.videoExtractor;
+    }
+    case "legacy_office": {
+      const mod = await import("./extractors/legacyOffice");
+      return mod.legacyOfficeExtractor;
+    }
+    case "tsv":
+    case "psv": {
+      return tsvPsvExtractor;
+    }
+    case "code":
+    case "text": {
+      return codeExtractor; // code extractor handles generic text summarization too
+    }
+    default:
+      return fallbackExtractor;
+  }
+}
 
 const HEAVY_KINDS = new Set([
   "pdf",
@@ -67,7 +101,7 @@ export async function dispatchExtract(
   }
 
   const detectedKind = detectKind(buffer, name, mime);
-  const extractor: Extractor = EXTRACTOR_MAP[detectedKind] || fallbackExtractor;
+  const extractor: Extractor = await loadExtractor(detectedKind);
 
   if (size > LARGE_FILE_THRESHOLD && HEAVY_KINDS.has(detectedKind)) {
     const preview = formatPreview(
