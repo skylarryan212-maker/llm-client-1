@@ -1,4 +1,5 @@
 import * as tar from "tar-stream";
+import type { Headers } from "tar-stream";
 import pako from "pako";
 import { ARCHIVE_MAX_ENTRIES } from "../config";
 import type { Extractor } from "../types";
@@ -36,7 +37,7 @@ export const archiveTarGzipExtractor: Extractor = async (
     const entries: string[] = [];
     const extract = tar.extract();
     const listing = new Promise<void>((resolve, reject) => {
-      extract.on("entry", (header, stream, next) => {
+      extract.on("entry", (header: Headers, stream: NodeJS.ReadableStream, next: () => void) => {
         if (entries.length < ARCHIVE_MAX_ENTRIES) {
           entries.push(sanitizeEntryPath(header.name));
         }
