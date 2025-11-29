@@ -466,7 +466,7 @@ export default function ChatPageShell({
     }
   }, [currentChat, selectedChatId]);
 
-  type UploadedFragment = { id: string; name: string; url: string; mime?: string };
+  type UploadedFragment = { id: string; name: string; dataUrl: string; mime?: string };
   const handleSubmit = async (message: string, attachments?: UploadedFragment[]) => {
     console.log("[chatDebug] handleSubmit called with message:", message.substring(0, 50));
     const now = new Date().toISOString();
@@ -475,7 +475,7 @@ export default function ChatPageShell({
       role: "user",
       content: message,
       timestamp: now,
-      metadata: attachments && attachments.length ? { files: attachments.map(a => ({ name: a.name, mimeType: a.mime, url: a.url })) } : undefined,
+      metadata: attachments && attachments.length ? { files: attachments.map(a => ({ name: a.name, mimeType: a.mime, dataUrl: a.dataUrl })) } : undefined,
     };
 
     if (!selectedChatId) {
@@ -499,7 +499,7 @@ export default function ChatPageShell({
                   files: attachments.map((a) => ({
                     name: a.name,
                     mimeType: a.mime,
-                    url: a.url,
+                    dataUrl: a.dataUrl,
                   })),
                 }
               : undefined,
@@ -541,7 +541,7 @@ export default function ChatPageShell({
                   files: attachments.map((a) => ({
                     name: a.name,
                     mimeType: a.mime,
-                    url: a.url,
+                    dataUrl: a.dataUrl,
                   })),
                 }
               : undefined,

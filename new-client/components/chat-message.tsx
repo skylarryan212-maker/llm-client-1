@@ -96,10 +96,10 @@ export function ChatMessage({
           <div className="max-w-[92%] sm:max-w-4xl lg:max-w-5xl xl:max-w-[1200px] 2xl:max-w-[1400px]">
             {Array.isArray((metadata as any)?.files) && (metadata as any).files.length > 0 && (
               <div className="mb-2 flex flex-wrap gap-2 justify-end">
-                {((metadata as any).files as Array<{ name?: string; mimeType?: string; url: string }>).map((file, idx) => (
+                {((metadata as any).files as Array<{ name?: string; mimeType?: string; dataUrl: string }>).map((file, idx) => (
                   <a
                     key={`user-file-${idx}`}
-                    href={file.url}
+                    href={file.dataUrl}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="group flex items-center gap-2 rounded-2xl border border-border bg-muted/40 px-3 py-2 hover:bg-muted/60 text-foreground"
@@ -107,7 +107,7 @@ export function ChatMessage({
                     <div className="h-8 w-8 overflow-hidden rounded-lg bg-muted flex items-center justify-center">
                       {file.mimeType?.startsWith("image/") ? (
                         // eslint-disable-next-line @next/next/no-img-element
-                        <img src={file.url} alt={file.name || "Image"} className="h-full w-full object-cover" />
+                        <img src={file.dataUrl} alt={file.name || "Image"} className="h-full w-full object-cover" />
                       ) : (
                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={1.5}>
                           <path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9Z" />
@@ -116,7 +116,7 @@ export function ChatMessage({
                       )}
                     </div>
                     <div className="min-w-0 flex-1">
-                      <div className="truncate text-xs font-medium">{file.name || file.url}</div>
+                      <div className="truncate text-xs font-medium">{file.name || file.dataUrl}</div>
                       <div className="text-[10px] text-muted-foreground">
                         {file.mimeType?.toUpperCase() || "FILE"}
                       </div>

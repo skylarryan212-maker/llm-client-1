@@ -37,7 +37,7 @@ interface ChatRequestBody {
   reasoningEffortOverride?: ReasoningEffort;
   forceWebSearch?: boolean;
   skipUserInsert?: boolean;
-  attachments?: Array<{ name?: string; mime?: string; url: string }>;
+  attachments?: Array<{ name?: string; mime?: string; dataUrl: string }>;
 }
 
 type SearchStatusEvent =
@@ -475,7 +475,7 @@ export async function POST(request: NextRequest) {
           role: "user",
           content: message,
           metadata: attachments && attachments.length
-            ? { files: attachments.map(a => ({ name: a.name, mimeType: a.mime, url: a.url })) }
+            ? { files: attachments.map(a => ({ name: a.name, mimeType: a.mime, dataUrl: a.dataUrl })) }
             : {},
         })
         .select()
@@ -502,7 +502,7 @@ export async function POST(request: NextRequest) {
       if (!latestErr && latestUser) {
         const nextMeta = {
           ...(latestUser.metadata || {}),
-          files: attachments.map(a => ({ name: a.name, mimeType: a.mime, url: a.url })),
+          files: attachments.map(a => ({ name: a.name, mimeType: a.mime, dataUrl: a.dataUrl })),
         } as Record<string, unknown>;
         const { error: updateErr } = await supabaseAny
           .from("messages")
@@ -562,23 +562,23 @@ export async function POST(request: NextRequest) {
   const expandedMessage = await expandInlineFileTokens(message);
   const attachmentLines = Array.isArray(body.attachments)
     ? body.attachments
-        .map((a) => (a?.url ? `Attachment: ${a.name ?? 'file'} -> ${a.url}` : ""))
+        .map((a) => (a?.dataUrl ? `Attachment: ${a.name ?? 'file'} (${a.mime || 'unknown type'})` : ""))
         .filter((line) => line.length > 0)
     : [];
 
-  // Comprehensive server-side attachment extraction
-  async function extractAttachmentContent(url: string, name?: string | null, mime?: string | null) {
+  // Helper to convert dataUrl to buffer
+  function dataUrlToBuffer(dataUrl: string): Buffer {
+    const base64Data = dataUrl.split(',')[1] || dataUrl;
+    return Buffer.from(base64Data, 'base64');
+  }
+
+  // Comprehensive server-side attachment extraction from base64 dataUrl
+  async function extractAttachmentContent(dataUrl: string, name?: string | null, mime?: string | null) {
     try {
-      console.log(`[extractAttachmentContent] Fetching ${name || 'unknown'} from ${url.slice(0, 60)}...`);
-      const res = await fetch(url, { method: "GET" });
-      if (!res.ok) {
-        console.warn(`[extractAttachmentContent] Failed to fetch: ${res.status} ${res.statusText}`);
-        return null;
-      }
-      const contentType = mime || res.headers.get("content-type") || "";
+      console.log(`[extractAttachmentContent] Extracting ${name || 'unknown'} from dataUrl`);
+      const buffer = dataUrlToBuffer(dataUrl);
+      const contentType = mime || "";
       const lower = contentType.toLowerCase();
-      const buf = await res.arrayBuffer();
-      const buffer = Buffer.from(buf);
 
       // PDF extraction
       if (lower.includes("pdf")) {
@@ -724,21 +724,20 @@ export async function POST(request: NextRequest) {
     console.log(`[chatApi] Processing ${body.attachments.length} attachments`);
     // First pass: check file sizes and upload large files
     for (const att of body.attachments) {
-      if (!att?.url) continue;
+      if (!att?.dataUrl) continue;
       
-      // Check file size via HEAD request
+      // Calculate file size from base64 dataUrl
       try {
-        const headRes = await fetch(att.url, { method: "HEAD" });
-        const contentLength = headRes.headers.get("content-length");
-        const fileSize = contentLength ? parseInt(contentLength, 10) : 0;
+        const buffer = dataUrlToBuffer(att.dataUrl);
+        const fileSize = buffer.length;
         
         // If file is >100KB, upload to OpenAI for file_search
         if (fileSize > 100 * 1024) {
           try {
-            // Download file
-            const fileRes = await fetch(att.url);
-            const fileBlob = await fileRes.blob();
-            const file = new File([fileBlob], att.name || "file", { type: att.mime || "application/octet-stream" });
+            // Convert Buffer to Uint8Array for Blob compatibility
+            const uint8Array = new Uint8Array(buffer);
+            const blob = new Blob([uint8Array], { type: att.mime || "application/octet-stream" });
+            const file = new File([blob], att.name || "file", { type: att.mime || "application/octet-stream" });
             
             // Upload to OpenAI
             const { OpenAI } = require("openai");
@@ -755,8 +754,8 @@ export async function POST(request: NextRequest) {
             console.error(`Failed to upload ${att.name} to OpenAI:`, uploadErr);
           }
         }
-      } catch (headErr) {
-        console.warn(`Failed to check size for ${att.url}:`, headErr);
+      } catch (sizeErr) {
+        console.warn(`Failed to process ${att.name}:`, sizeErr);
       }
     }
     
@@ -785,15 +784,15 @@ export async function POST(request: NextRequest) {
     
     // Second pass: extract previews for all files
     for (const att of body.attachments) {
-      if (!att?.url) continue;
+      if (!att?.dataUrl) continue;
       console.log(`[chatApi] Extracting content from: ${att.name} (${att.mime})`);
-      const preview = await extractAttachmentContent(att.url, att.name, att.mime);
+      const preview = await extractAttachmentContent(att.dataUrl, att.name, att.mime);
       console.log(`[chatApi] Extraction result for ${att.name}: ${preview ? preview.length + ' chars' : 'null'}`);
       if (preview) {
         const label = att.name || "attachment";
         
         // Check if this file was uploaded to OpenAI
-        const headRes = await fetch(att.url, { method: "HEAD" });
+        const headRes = await fetch(att.dataUrl, { method: "HEAD" });
         const contentLength = headRes.headers.get("content-length");
         const fileSize = contentLength ? parseInt(contentLength, 10) : 0;
         const isLargeFile = fileSize > 100 * 1024;

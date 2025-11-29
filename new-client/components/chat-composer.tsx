@@ -5,12 +5,11 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Mic, ArrowUp, Square } from "lucide-react";
 import { AttachmentMenuButton } from "@/components/chat/attachment-menu";
-import { uploadFilesAndGetUrls, type UploadedFileInfo } from "../lib/uploads";
 
 type UploadedFragment = {
   id: string;
   name: string;
-  url: string;
+  dataUrl: string;
   mime?: string;
   size?: number;
 };
@@ -68,22 +67,33 @@ export function ChatComposer({
   const handleFilesSelected = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
     try {
-      const uploads: UploadedFileInfo[] = await uploadFilesAndGetUrls(Array.from(files));
-      if (!uploads.length) return;
-      const newItems: UploadedFragment[] = uploads.map((u) => ({
-        id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
-        name: u.name,
-        url: u.url,
-        mime: u.mime,
-      }));
+      // Convert files to base64 data URLs (like legacy client)
+      const fileReads = Array.from(files).map(file => {
+        return new Promise<UploadedFragment>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => {
+            resolve({
+              id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+              name: file.name,
+              dataUrl: reader.result as string,
+              mime: file.type || undefined,
+              size: file.size,
+            });
+          };
+          reader.onerror = () => reject(reader.error);
+          reader.readAsDataURL(file);
+        });
+      });
+      
+      const newItems = await Promise.all(fileReads);
       setAttachments((prev) => [...prev, ...newItems]);
-      // Do not modify text; rely on attachments preview and metadata
+      
       // Reset the file input to allow re-selecting the same file later
       if (fileInputRef.current) {
         fileInputRef.current.value = "";
       }
     } catch (err) {
-      console.error("Upload error:", err);
+      console.error("File read error:", err);
     }
   };
 
@@ -97,7 +107,7 @@ export function ChatComposer({
               <div className="h-8 w-8 overflow-hidden rounded-lg bg-background/40 flex items-center justify-center">
                 {a.mime?.startsWith("image/") ? (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img src={a.url} alt={a.name} className="h-full w-full object-cover" />
+                  <img src={a.dataUrl} alt={a.name} className="h-full w-full object-cover" />
                 ) : (
                   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={1.5}>
                     <path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9Z" />
