@@ -757,7 +757,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const webSearchTool: WebSearchTool = { type: "web_search" };
+    // Use generic Tool to avoid strict preview-only type union on WebSearchTool in SDK types
+    const webSearchTool: Tool = { type: "web_search" as any };
     const fileSearchTool = { type: "file_search" as const, ...(vectorStoreId ? { vector_store_ids: [vectorStoreId] } : {}) };
     const toolsForRequest: Tool[] = [];
     if (allowWebSearch) {

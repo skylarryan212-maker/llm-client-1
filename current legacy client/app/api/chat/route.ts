@@ -1249,7 +1249,7 @@ export async function POST(req: Request) {
     });
     const allowWebSearch = searchPreference.allow;
     const requireWebSearch = searchPreference.require;
-    const webSearchTool = { type: "web_search" } satisfies Tool & {
+    const webSearchTool = { type: "web_search" as any } satisfies Tool & {
       [key: string]: unknown;
     };
     const toolsForRequest: Tool[] = [];
