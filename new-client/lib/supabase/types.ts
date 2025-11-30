@@ -45,6 +45,10 @@ export interface MessageInsert {
   metadata?: Json | null;
 }
 
+export interface MessageUpdate {
+  metadata?: Json | null;
+}
+
 export interface Project {
   id: string;
   user_id: string;
@@ -90,6 +94,7 @@ export interface Database {
       messages: {
         Row: Message;
         Insert: MessageInsert;
+        Update: MessageUpdate;
       };
       projects: {
         Row: Project;
