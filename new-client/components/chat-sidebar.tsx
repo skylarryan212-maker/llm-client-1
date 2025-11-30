@@ -18,6 +18,7 @@ import { ProjectContextMenu } from '@/components/project-context-menu'
 import { AnimatedTitle } from '@/components/chat/animated-title'
 import { Dialog } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
+import { getProjectIcon, getProjectColor } from '@/components/project-icon-picker'
 
 interface Conversation {
   id: string
@@ -344,7 +345,11 @@ export function ChatSidebar({
                                 }`}
                               >
                                 <div className="flex items-center gap-2 flex-1 min-w-0">
-                                  <span className="text-base">{project.icon}</span>
+                                  {(() => {
+                                    const IconComponent = getProjectIcon(project.icon || 'file')
+                                    const iconColor = getProjectColor(project.color || 'white')
+                                    return <IconComponent className="h-5 w-5 flex-shrink-0" style={{ color: iconColor }} />
+                                  })()}
                                   <span className="min-w-0 truncate text-sm text-sidebar-foreground pr-2.5">
                                     {project.name}
                                   </span>
@@ -439,7 +444,11 @@ export function ChatSidebar({
                                     >
                                       <div className="py-2 px-3 flex items-center justify-between gap-2">
                                         <div className="flex items-center gap-2 flex-1 min-w-0">
-                                          <span className="text-base">{project.icon}</span>
+                                          {(() => {
+                                            const IconComponent = getProjectIcon(project.icon || 'file')
+                                            const iconColor = getProjectColor(project.color || 'white')
+                                            return <IconComponent className="h-5 w-5 flex-shrink-0" style={{ color: iconColor }} />
+                                          })()}
                                           <span className="min-w-0 truncate text-sm">
                                             {project.name}
                                           </span>
@@ -616,7 +625,11 @@ export function ChatSidebar({
                       }`}
                     >
                       <span className="flex items-center gap-2">
-                        <span className="text-base">{project.icon}</span>
+                        {(() => {
+                          const IconComponent = getProjectIcon(project.icon || 'file')
+                          const iconColor = getProjectColor(project.color || 'white')
+                          return <IconComponent className="h-4 w-4 flex-shrink-0" style={{ color: iconColor }} />
+                        })()}
                         <span className="truncate">{project.name}</span>
                       </span>
                       {isSelected && (

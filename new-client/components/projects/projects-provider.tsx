@@ -10,12 +10,13 @@ export type ProjectSummary = {
   name: string;
   createdAt: string;
   icon?: string;
+  color?: string;
   description?: string;
 };
 
 type ProjectsContextValue = {
   projects: ProjectSummary[];
-  addProject: (name: string) => Promise<ProjectSummary>;
+  addProject: (name: string, icon?: string, color?: string) => Promise<ProjectSummary>;
   refreshProjects: () => Promise<void>;
 };
 
@@ -52,7 +53,8 @@ export function ProjectsProvider({
         id: r.id,
         name: r.name,
         createdAt: r.created_at ?? new Date().toISOString(),
-        icon: r.icon ?? "🧭",
+        icon: r.icon ?? "file",
+        color: r.color ?? "white",
         description: r.description ?? "",
       } as ProjectSummary));
 
@@ -85,7 +87,8 @@ export function ProjectsProvider({
                 id: newRow.id,
                 name: newRow.name,
                 createdAt: newRow.created_at ?? new Date().toISOString(),
-                icon: newRow.icon ?? "🧭",
+                icon: newRow.icon ?? "file",
+                color: newRow.color ?? "white",
                 description: newRow.description ?? "",
               },
               ...prev.filter((p) => p.id !== newRow.id),
@@ -102,6 +105,7 @@ export function ProjectsProvider({
                       name: newRow.name,
                       createdAt: newRow.created_at ?? p.createdAt,
                       icon: newRow.icon ?? p.icon,
+                      color: newRow.color ?? p.color,
                       description: newRow.description ?? p.description,
                     }
                   : p
@@ -137,14 +141,15 @@ export function ProjectsProvider({
     };
   }, [refreshProjects]);
 
-  const addProject = useCallback(async (name: string): Promise<ProjectSummary> => {
-    const created = await createProjectAction(name);
+  const addProject = useCallback(async (name: string, icon?: string, color?: string): Promise<ProjectSummary> => {
+    const created = await createProjectAction(name, icon, color);
 
     const newProject: ProjectSummary = {
       id: created.id,
       name: created.name,
       createdAt: created.created_at ?? new Date().toISOString(),
-      icon: "🧭",
+      icon: created.icon ?? icon ?? "file",
+      color: created.color ?? color ?? "white",
       description: "Newly created project",
     };
 

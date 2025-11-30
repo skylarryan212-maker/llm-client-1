@@ -1249,8 +1249,8 @@ export default function ChatPageShell({
     setIsNewProjectOpen(true);
   };
 
-  const handleProjectCreate = async (name: string) => {
-    const newProject = await addProject(name);
+  const handleProjectCreate = async (name: string, icon?: string, color?: string) => {
+    const newProject = await addProject(name, icon, color);
     setSelectedProjectId(newProject.id);
     setIsNewProjectOpen(false);
     router.push(`/projects/${newProject.id}`);

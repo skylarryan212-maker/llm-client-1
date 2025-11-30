@@ -53,16 +53,22 @@ export interface Project {
   id: string;
   user_id: string;
   name: string;
+  icon?: string;
+  color?: string;
   created_at: string | null;
 }
 
 export interface ProjectInsert {
   user_id: string;
   name: string;
+  icon?: string;
+  color?: string;
 }
 
 export interface ProjectUpdate {
   name?: string;
+  icon?: string;
+  color?: string;
 }
 
 export interface UserPreferences {

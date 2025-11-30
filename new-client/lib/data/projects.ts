@@ -23,13 +23,15 @@ export async function getProjectsForUser() {
   return data ?? [];
 }
 
-export async function createProject(params: { name: string }) {
+export async function createProject(params: { name: string; icon?: string; color?: string }) {
   const supabase = await supabaseServer();
   const userId = getCurrentUserId();
 
   const newProject: ProjectInsert = {
     user_id: userId,
     name: params.name,
+    icon: params.icon,
+    color: params.color,
   };
 
   const { data, error } = await (supabase

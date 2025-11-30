@@ -1,36 +1,63 @@
-'use client'
+"use client"
 
 import { useState, useRef, useEffect } from 'react'
-import { MoreHorizontal, Share, Edit3, FolderInput, Archive, Trash2 } from 'lucide-react'
+import { createPortal } from 'react-dom'
+import { MoreHorizontal, Edit3, FolderInput, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
 interface ChatContextMenuProps {
-  onShare?: () => void
   onRename?: () => void
   onMoveToProject?: () => void
-  onArchive?: () => void
+  onRemoveFromProject?: () => void
   onDelete?: () => void
+  removeLabel?: string
 }
 
-export function ChatContextMenu({
-  onShare,
-  onRename,
-  onMoveToProject,
-  onArchive,
-  onDelete
-}: ChatContextMenuProps) {
+export function ChatContextMenu({ onRename, onMoveToProject, onRemoveFromProject, onDelete, removeLabel }: ChatContextMenuProps) {
   const [isOpen, setIsOpen] = useState(false)
-  const [menuPosition, setMenuPosition] = useState<'above' | 'below'>('below')
+  const [menuCoords, setMenuCoords] = useState<{ left: number; top: number } | null>(null)
   const menuRef = useRef<HTMLDivElement>(null)
   const buttonRef = useRef<HTMLButtonElement>(null)
 
   useEffect(() => {
-    if (isOpen && buttonRef.current && menuRef.current) {
+    // When the menu opens, render it first (so `menuRef` is available),
+    // then measure and update `menuCoords`. We intentionally don't gate
+    // rendering on `menuCoords` to avoid a circular dependency where the
+    // menu never renders and therefore can never be measured.
+    if (!isOpen) return
+
+    const reposition = () => {
+      if (!buttonRef.current || !menuRef.current) return
       const buttonRect = buttonRef.current.getBoundingClientRect()
-      const menuHeight = menuRef.current.offsetHeight
+      const menuEl = menuRef.current
+      const menuHeight = menuEl.offsetHeight
+      const menuWidth = menuEl.offsetWidth
       const spaceBelow = window.innerHeight - buttonRect.bottom
-      
-      setMenuPosition(spaceBelow < menuHeight + 10 ? 'above' : 'below')
+
+      const position = spaceBelow < menuHeight + 10 ? 'above' : 'below'
+
+      let left = Math.round(buttonRect.right - menuWidth)
+      left = Math.min(Math.max(left, 8), Math.max(window.innerWidth - menuWidth - 8, 8))
+
+      const top = position === 'above'
+        ? Math.round(buttonRect.top - menuHeight - 8)
+        : Math.round(buttonRect.bottom + 8)
+
+      setMenuCoords({ left, top })
+    }
+
+    // Use requestAnimationFrame to ensure layout has settled and the
+    // portal DOM is attached before measuring.
+    const raf = requestAnimationFrame(reposition)
+
+    // Also reposition on resize/scroll to keep the menu aligned.
+    window.addEventListener('resize', reposition)
+    window.addEventListener('scroll', reposition, true)
+
+    return () => {
+      cancelAnimationFrame(raf)
+      window.removeEventListener('resize', reposition)
+      window.removeEventListener('scroll', reposition, true)
     }
   }, [isOpen])
 
@@ -67,23 +94,21 @@ export function ChatContextMenu({
         <MoreHorizontal className="h-4 w-4" />
       </Button>
 
-      {isOpen && (
+      {isOpen && createPortal(
         <div
           ref={menuRef}
-          className={`absolute right-0 ${menuPosition === 'above' ? 'bottom-full mb-1' : 'top-full mt-1'} z-50 w-48 rounded-lg border border-border bg-popover p-1 shadow-lg`}
+          style={{
+            position: 'fixed',
+            left: menuCoords ? `${menuCoords.left}px` : '-9999px',
+            top: menuCoords ? `${menuCoords.top}px` : '-9999px',
+            // allow width to size to content
+            width: 'auto',
+            minWidth: 160,
+            // Keep the menu visually hidden until we compute its coords
+            visibility: menuCoords ? 'visible' : 'hidden',
+          }}
+          className={`z-50 rounded-lg border border-border bg-popover p-1 shadow-lg`}
         >
-          <button
-            onClick={(e) => {
-              e.preventDefault()
-              e.stopPropagation()
-              onShare?.()
-              setIsOpen(false)
-            }}
-            className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-popover-foreground hover:bg-accent"
-          >
-            <Share className="h-4 w-4" />
-            Share
-          </button>
           <button
             onClick={(e) => {
               e.preventDefault()
@@ -115,14 +140,15 @@ export function ChatContextMenu({
             onClick={(e) => {
               e.preventDefault()
               e.stopPropagation()
-              onArchive?.()
+              onRemoveFromProject?.()
               setIsOpen(false)
             }}
             className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-popover-foreground hover:bg-accent"
           >
-            <Archive className="h-4 w-4" />
-            Archive
+            <FolderInput className="h-4 w-4" />
+            {typeof removeLabel === 'string' ? removeLabel : 'Remove from (project)'}
           </button>
+          <div className="border-t border-border mt-1" />
           <button
             onClick={(e) => {
               e.preventDefault()
@@ -135,7 +161,8 @@ export function ChatContextMenu({
             <Trash2 className="h-4 w-4" />
             Delete
           </button>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   )

@@ -4,15 +4,18 @@ import { FormEvent, useState } from "react";
 import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { ProjectIconPicker } from "@/components/project-icon-picker";
 
 interface NewProjectModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onCreate: (name: string) => Promise<void>;
+  onCreate: (name: string, icon?: string, color?: string) => Promise<void>;
 }
 
 export function NewProjectModal({ isOpen, onClose, onCreate }: NewProjectModalProps) {
   const [name, setName] = useState("New Project");
+  const [selectedIcon, setSelectedIcon] = useState("file");
+  const [selectedColor, setSelectedColor] = useState("white");
 
   if (!isOpen) return null;
 
@@ -20,8 +23,10 @@ export function NewProjectModal({ isOpen, onClose, onCreate }: NewProjectModalPr
     event.preventDefault();
     const trimmed = name.trim();
     if (!trimmed) return;
-    await onCreate(trimmed);
+    await onCreate(trimmed, selectedIcon, selectedColor);
     setName("New Project");
+    setSelectedIcon("file");
+    setSelectedColor("white");
   };
 
   return (
@@ -45,22 +50,35 @@ export function NewProjectModal({ isOpen, onClose, onCreate }: NewProjectModalPr
             <label className="text-sm font-medium text-foreground" htmlFor="project-name">
               Project name
             </label>
-            <Input
-              id="project-name"
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              placeholder="My next idea"
-              autoFocus
-            />
+            <div className="flex gap-3">
+              <ProjectIconPicker
+                selectedIcon={selectedIcon}
+                selectedColor={selectedColor}
+                onIconChange={setSelectedIcon}
+                onColorChange={setSelectedColor}
+              />
+              <Input
+                id="project-name"
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+                placeholder="My next idea"
+                autoFocus
+                className="flex-1"
+              />
+            </div>
           </div>
 
           <div className="flex justify-end gap-2">
             <Button variant="ghost" type="button" onClick={onClose}>
               Cancel
             </Button>
-            <Button type="submit" disabled={!name.trim()}>
+            <button
+              type="submit"
+              disabled={!name.trim()}
+              className="accent-new-project-button inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-all disabled:pointer-events-none disabled:opacity-50 h-9 px-4 py-2"
+            >
               Create
-            </Button>
+            </button>
           </div>
         </form>
       </div>
