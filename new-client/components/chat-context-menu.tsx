@@ -2,14 +2,16 @@
 
 import { useState, useRef, useEffect } from 'react'
 import { createPortal } from 'react-dom'
-import { MoreHorizontal, Edit3, FolderInput, Trash2 } from 'lucide-react'
+import { MoreHorizontal, Share, Edit3, FolderInput, Archive, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
 interface ChatContextMenuProps {
+  onShare?: () => void
   onRename?: () => void
   onMoveToProject?: () => void
   onRemoveFromProject?: () => void
   onDelete?: () => void
+  onArchive?: () => void
   removeLabel?: string
 }
 
@@ -113,6 +115,19 @@ export function ChatContextMenu({ onRename, onMoveToProject, onRemoveFromProject
             onClick={(e) => {
               e.preventDefault()
               e.stopPropagation()
+              onShare?.()
+              setIsOpen(false)
+            }}
+            className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-popover-foreground hover:bg-accent"
+          >
+            <Share className="h-4 w-4" />
+            Share
+          </button>
+
+          <button
+            onClick={(e) => {
+              e.preventDefault()
+              e.stopPropagation()
               onRename?.()
               setIsOpen(false)
             }}
@@ -149,6 +164,18 @@ export function ChatContextMenu({ onRename, onMoveToProject, onRemoveFromProject
             {typeof removeLabel === 'string' ? removeLabel : 'Remove from (project)'}
           </button>
           <div className="border-t border-border mt-1" />
+          <button
+            onClick={(e) => {
+              e.preventDefault()
+              e.stopPropagation()
+              onArchive?.()
+              setIsOpen(false)
+            }}
+            className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-popover-foreground hover:bg-accent"
+          >
+            <Archive className="h-4 w-4" />
+            Archive
+          </button>
           <button
             onClick={(e) => {
               e.preventDefault()
