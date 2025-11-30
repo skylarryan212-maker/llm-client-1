@@ -468,7 +468,7 @@ export function ChatComposer({
               placeholder={isTranscribing ? "Transcribing…" : placeholder ?? "Message LLM Client..."}
               rows={1}
               disabled={isRecording || isTranscribing}
-              className="flex-1 min-h-[36px] max-h-[200px] border-0 bg-transparent dark:bg-transparent px-0 py-2 text-sm leading-5 resize-none focus-visible:ring-0 focus-visible:ring-offset-0 shadow-none rounded-none"
+              className="flex-1 min-h-[36px] max-h-[200px] border-0 bg-transparent dark:bg-transparent px-0 py-2 text-base sm:text-sm leading-6 resize-none focus-visible:ring-0 focus-visible:ring-offset-0 shadow-none rounded-none"
             />
 
             {/* Right actions: mic + send OR transcribing OR stop if streaming */}
