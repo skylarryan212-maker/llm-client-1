@@ -1284,7 +1284,7 @@ export default function ChatPageShell({
   }, [chats]);
 
   return (
-    <div className="flex h-screen overflow-hidden bg-background text-foreground dark">
+    <div className="flex h-[100dvh] min-h-screen overflow-hidden bg-background text-foreground dark">
       {/* Sidebar */}
       <ChatSidebar
         isOpen={isSidebarOpen}
@@ -1307,9 +1307,12 @@ export default function ChatPageShell({
       />
 
       {/* Right column: header + messages + composer */}
-      <div className="flex flex-1 flex-col w-full min-w-0">
+      <div className="flex h-full max-h-full flex-1 flex-col w-full min-w-0">
         {/* Header bar */}
-        <div className="flex h-[53px] items-center justify-between border-b border-border px-3 lg:px-6">
+        <div
+          className="sticky top-0 z-30 flex min-h-[53px] items-center justify-between border-b border-border bg-background/95 px-3 lg:px-6 backdrop-blur supports-[backdrop-filter]:bg-background/60"
+          style={{ paddingTop: "env(safe-area-inset-top, 0px)" }}
+        >
           <div className="flex items-center gap-2 min-w-0">
             {/* Mobile sidebar toggle */}
             <Button
@@ -1544,24 +1547,25 @@ export default function ChatPageShell({
         </div>
 
         {/* Messages */}
-        {!selectedChatId || messages.length === 0 ? (
-          <div className="flex flex-1 items-center justify-center px-4 overflow-hidden">
-            <div className="text-center">
-              <h2 className="text-xl sm:text-2xl font-semibold text-foreground mb-2">
-                Where should we begin?
-              </h2>
+        <div className="flex-1 min-h-0">
+          {!selectedChatId || messages.length === 0 ? (
+            <div className="flex h-full items-center justify-center px-4 overflow-hidden">
+              <div className="text-center">
+                <h2 className="text-xl sm:text-2xl font-semibold text-foreground mb-2">
+                  Where should we begin?
+                </h2>
+              </div>
             </div>
-          </div>
-        ) : (
-          <ScrollArea
-            className="flex-1 overflow-auto"
-            viewportRef={scrollViewportRef}
-            onViewportScroll={handleScroll}
-          >
-            <div className="py-4 pb-4">
-              {/* Wide desktop layout with padded container */}
-              <div className="w-full space-y-4">
-                {messages.map((message) => {
+          ) : (
+            <ScrollArea
+              className="flex h-full max-h-full flex-1 overflow-auto"
+              viewportRef={scrollViewportRef}
+              onViewportScroll={handleScroll}
+            >
+              <div className="py-4 pb-6 sm:pb-8">
+                {/* Wide desktop layout with padded container */}
+                <div className="w-full space-y-4">
+                  {messages.map((message) => {
                   const metadata = message.metadata as AssistantMessageMetadata | null;
                   const isStreamingMessage = message.id === activeIndicatorMessageId;
 
@@ -1642,40 +1646,44 @@ export default function ChatPageShell({
                     </div>
                   );
                 })}
-                {(thinkingStatus || searchIndicator || fileReadingIndicator) && (
-                  <div className="flex flex-col gap-2 pb-2 px-4 sm:px-6">
-                    <div className="mx-auto w-full max-w-3xl">
-                      <div className="flex flex-wrap gap-2">
-                        {fileReadingIndicator && (
-                          <StatusBubble
-                            label="Reading documents"
-                            variant={fileReadingIndicator === "error" ? "error" : "reading"}
-                          />
-                        )}
-                        {searchIndicator && (
-                          <StatusBubble
-                            label={searchIndicator.message}
-                            variant={searchIndicator.variant === "error" ? "error" : "search"}
-                            subtext={searchIndicator.subtext}
-                          />
-                        )}
-                        {thinkingStatus && (
-                          <StatusBubble
-                            label={thinkingStatus.label}
-                            variant={thinkingStatus.variant === "extended" ? "extended" : "default"}
-                          />
-                        )}
+                  {(thinkingStatus || searchIndicator || fileReadingIndicator) && (
+                    <div className="flex flex-col gap-2 pb-2 px-4 sm:px-6">
+                      <div className="mx-auto w-full max-w-3xl">
+                        <div className="flex flex-wrap gap-2">
+                          {fileReadingIndicator && (
+                            <StatusBubble
+                              label="Reading documents"
+                              variant={fileReadingIndicator === "error" ? "error" : "reading"}
+                            />
+                          )}
+                          {searchIndicator && (
+                            <StatusBubble
+                              label={searchIndicator.message}
+                              variant={searchIndicator.variant === "error" ? "error" : "search"}
+                              subtext={searchIndicator.subtext}
+                            />
+                          )}
+                          {thinkingStatus && (
+                            <StatusBubble
+                              label={thinkingStatus.label}
+                              variant={thinkingStatus.variant === "extended" ? "extended" : "default"}
+                            />
+                          )}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                )}
+                  )}
+                </div>
               </div>
-            </div>
-          </ScrollArea>
-        )}
+            </ScrollArea>
+          )}
+        </div>
 
         {/* Composer: full-width bar, centered pill like ChatGPT */}
-        <div className="bg-background px-4 sm:px-6 lg:px-12 py-3 sm:py-4 relative">
+        <div
+          className="relative sticky bottom-0 z-30 border-t border-border bg-background/95 px-4 sm:px-6 lg:px-12 pt-3 sm:pt-4 backdrop-blur supports-[backdrop-filter]:bg-background/60"
+          style={{ paddingBottom: "calc(env(safe-area-inset-bottom, 0px) + 12px)" }}
+        >
           <div
             className={`pointer-events-none absolute left-1/2 -translate-x-1/2 -top-7 transition-opacity duration-200 ${
               showScrollToBottom ? "opacity-100" : "opacity-0"

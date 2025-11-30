@@ -1649,9 +1649,10 @@ export function MainApp({
     panelVariant: ComposerPanelVariant = "default"
   ) => {
     const wrapperClassMap: Record<ComposerPanelVariant, string> = {
-      default: "shrink-0 border-t border-[#202123] bg-[#212121] px-4 py-3",
+      default:
+        "sticky bottom-0 z-30 shrink-0 border-t border-[#202123] bg-[#212121]/95 px-4 py-3 backdrop-blur md:static md:bg-[#212121]",
       codexBottom:
-        "shrink-0 border-t border-white/10 bg-[#050509] px-6 py-5",
+        "sticky bottom-0 z-30 shrink-0 border-t border-white/10 bg-[#050509]/95 px-6 py-5 backdrop-blur md:static md:bg-[#050509]",
       codexTop: "w-full px-6 pt-6",
     };
     const innerClass =
@@ -1659,7 +1660,14 @@ export function MainApp({
         ? "mx-auto flex w-full max-w-3xl flex-col gap-3"
         : "mx-auto flex w-full flex-col gap-3";
     return (
-      <div className={wrapperClassMap[panelVariant]}>
+      <div
+        className={wrapperClassMap[panelVariant]}
+        style={
+          panelVariant === "codexTop"
+            ? undefined
+            : { paddingBottom: "max(env(safe-area-inset-bottom), 0.75rem)" }
+        }
+      >
         <div className={innerClass} style={{ maxWidth: MAX_MESSAGE_WIDTH }}>
           <div className="flex flex-col gap-2">
             <div className="flex flex-wrap items-center gap-2 text-[11px]">
@@ -1967,7 +1975,7 @@ export function MainApp({
                         <div className="flex flex-1 items-center self-stretch">
                           <textarea
                             ref={textareaRef}
-                            className="block w-full resize-none border-none bg-transparent py-1.5 text-[15px] leading-[1.5] text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:ring-0"
+                            className="block w-full resize-none border-none bg-transparent py-1.5 text-base leading-[1.5] text-zinc-100 placeholder:text-zinc-500 focus:outline-none focus:ring-0 md:text-[15px]"
                             style={{
                               maxHeight: MAX_INPUT_HEIGHT,
                               minHeight: resolvedMinInputHeight,
@@ -2042,7 +2050,7 @@ export function MainApp({
     const {
       composerVariant = "default",
       messageContainerClass =
-        "flex h-full flex-col overflow-y-auto overflow-x-hidden px-4 py-6 pb-32",
+        "flex h-full flex-col overflow-y-auto overflow-x-hidden px-4 py-6 pb-36 md:pb-32",
       showInlineTitle = true,
       wrapperClass = "",
     } = options;
@@ -5246,7 +5254,7 @@ type RetryOptions = {
 
   return (
     <>
-      <div className="flex h-screen min-h-0 bg-[#212121] text-zinc-100">
+      <div className="flex h-[100dvh] min-h-0 min-h-[100dvh] bg-[#212121] text-zinc-100 md:h-screen">
       {/* Desktop Sidebar */}
       <aside className="hidden w-64 min-h-0 flex-col border-r border-[#202123] bg-[#181818] md:flex">
         <SidebarSections />
@@ -5278,7 +5286,10 @@ type RetryOptions = {
       {/* Main Content */}
       <main className="flex flex-1 min-h-0 flex-col bg-[#212121]">
         {/* Header */}
-        <header className="relative flex shrink-0 items-center justify-between border-b border-[#2a2a2a] bg-transparent px-4 py-3">
+        <header
+          className="sticky top-0 z-30 flex shrink-0 items-center justify-between border-b border-[#2a2a2a] bg-[#212121]/95 px-4 py-3 backdrop-blur md:static md:bg-transparent md:px-4"
+          style={{ paddingTop: "max(env(safe-area-inset-top), 0.75rem)" }}
+        >
           <div className="flex items-center gap-2">
             <button
               className="rounded-md border border-[#2f2f32] px-2 py-1 text-sm text-zinc-300 hover:bg-[#2a2a2e] md:hidden"

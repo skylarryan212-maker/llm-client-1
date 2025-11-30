@@ -157,4 +157,13 @@
     background-color: rgba(255, 255, 255, 0.2);
     color: inherit;
   }
+
+  /* Prevent mobile browsers from zooming form controls on focus */
+  @media (max-width: 640px) {
+    input,
+    textarea,
+    select {
+      font-size: 16px;
+    }
+  }
 }
