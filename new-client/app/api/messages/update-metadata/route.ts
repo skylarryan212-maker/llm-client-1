@@ -17,7 +17,7 @@ export async function POST(request: Request) {
 
     const { error } = await supabase
       .from("messages")
-      .update({ metadata: metadata as Json })
+      .update({ metadata } as any)
       .eq("id", messageId);
 
     if (error) {
