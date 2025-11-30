@@ -46,8 +46,14 @@ async function loadExtractor(kind: string): Promise<Extractor> {
       return mod.rtfExtractor;
     }
     case "image": {
-      const mod = await import("./extractors/imageOcr");
-      return mod.imageOcrExtractor;
+      // Disable server-side OCR. Let the model handle images directly via vision inputs.
+      const inlineImageExtractor: Extractor = async (_buffer, name, _mime, ctx) => {
+        return {
+          preview: `Image attachment: ${name || "image"}. Text will be read by the model directly from the image (no server OCR).`,
+          meta: { kind: "image", size: ctx.size, status: "ok", notes: ["server OCR disabled"] },
+        };
+      };
+      return inlineImageExtractor;
     }
     case "audio": {
       const mod = await import("./extractors/audio");

@@ -61,6 +61,24 @@ export interface ProjectUpdate {
   name?: string;
 }
 
+export interface UserPreferences {
+  id: string;
+  user_id: string;
+  accent_color: string;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface UserPreferencesInsert {
+  user_id: string;
+  accent_color?: string;
+}
+
+export interface UserPreferencesUpdate {
+  accent_color?: string;
+  updated_at?: string;
+}
+
 export interface Database {
   public: {
     Tables: {
@@ -77,6 +95,11 @@ export interface Database {
         Row: Project;
         Insert: ProjectInsert;
         Update: ProjectUpdate;
+      };
+      user_preferences: {
+        Row: UserPreferences;
+        Insert: UserPreferencesInsert;
+        Update: UserPreferencesUpdate;
       };
     };
   };

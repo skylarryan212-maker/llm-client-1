@@ -94,7 +94,7 @@ export function CreateProjectModal({ isOpen, onClose, onCreate }: CreateProjectM
           <Button
             onClick={handleCreate}
             disabled={!projectName.trim()}
-            className="bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+            className="accent-new-project-button disabled:opacity-50"
           >
             Create project
           </Button>

@@ -549,7 +549,7 @@ export function ChatSidebar({
               size="sm" 
               onClick={confirmRename} 
               disabled={renameDisabled}
-              className="dark:bg-white dark:text-black dark:hover:bg-white/90"
+              className="accent-new-project-button disabled:opacity-50"
             >
               Rename
             </Button>

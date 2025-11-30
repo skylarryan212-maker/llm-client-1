@@ -13,6 +13,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { applyAccentColor } from '@/components/accent-color-provider'
+import { updateAccentColorAction } from '@/app/actions/preferences-actions'
 
 interface SettingsModalProps {
   isOpen: boolean
@@ -23,31 +25,57 @@ type TabType = 'general' | 'personalization' | 'notifications' | 'apps' | 'sched
 
 export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const [activeTab, setActiveTab] = useState<TabType>('personalization')
-  const [accentColor, setAccentColor] = useState('green')
+  const [accentColor, setAccentColor] = useState('white')
   const [customInstructions, setCustomInstructions] = useState('')
   const [nickname, setNickname] = useState('')
   const [occupation, setOccupation] = useState('')
   const [moreAbout, setMoreAbout] = useState('')
+  const [isInitialized, setIsInitialized] = useState(false)
 
   useEffect(() => {
-    if (accentColor) {
-      const colorMap: Record<string, string> = {
-        green: '142 76% 36%',
-        blue: '217 91% 60%',
-        purple: '271 81% 56%',
-        pink: '330 81% 60%',
-        orange: '25 95% 53%',
-        red: '0 84% 60%',
+    // Accent color is now loaded from server via AccentColorProvider
+    // We just need to sync the local state when modal opens
+    if (isOpen) {
+      // Get current color from the DOM style element
+      const styleEl = document.getElementById('accent-color-override')
+      if (styleEl) {
+        // Parse the current color from the style content
+        // This is a simple way to sync state without prop drilling
+        const content = styleEl.textContent || ''
+        if (content.includes('oklch(0.985 0 0)')) setAccentColor('white')
+        else if (content.includes('oklch(0.65 0.18 145)')) setAccentColor('green')
+        else if (content.includes('oklch(0.70 0.22 240)')) setAccentColor('blue')
+        else if (content.includes('oklch(0.70 0.24 290)')) setAccentColor('purple')
+        else if (content.includes('oklch(0.75 0.26 330)')) setAccentColor('pink')
+        else if (content.includes('oklch(0.75 0.22 50)')) setAccentColor('orange')
+        else if (content.includes('oklch(0.70 0.26 25)')) setAccentColor('red')
       }
-      
-      const hslValue = colorMap[accentColor] || colorMap.green
-      
-      document.documentElement.style.setProperty('--primary', hslValue)
-      document.documentElement.style.setProperty('--sidebar-primary', hslValue)
-      
-      document.documentElement.offsetHeight
+      // Mark as initialized after syncing from DOM
+      setIsInitialized(true)
+    } else {
+      // Reset when modal closes
+      setIsInitialized(false)
     }
-  }, [accentColor])
+  }, [isOpen])
+
+  const handleAccentColorChange = (newColor: string) => {
+    // Only save when user explicitly changes the color
+    setAccentColor(newColor)
+    
+    // Apply the accent color immediately
+    applyAccentColor(newColor)
+    
+    // Dispatch custom event so AccentColorProvider can react
+    window.dispatchEvent(new CustomEvent('accentColorChange', { detail: newColor }))
+    
+    // Save to Supabase (async, non-blocking)
+    updateAccentColorAction(newColor)
+      .then((result) => {
+        if (!result.success) {
+          console.error('Failed to save accent color:', result.error)
+        }
+      })
+  }
 
   if (!isOpen) return null
 
@@ -65,6 +93,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   ]
 
   const accentColors = [
+    { value: 'white', label: 'White', class: 'bg-white border border-border' },
     { value: 'green', label: 'Green', class: 'bg-green-500' },
     { value: 'blue', label: 'Blue', class: 'bg-blue-500' },
     { value: 'purple', label: 'Purple', class: 'bg-purple-500' },
@@ -135,7 +164,7 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                     {accentColors.map((color) => (
                       <button
                         key={color.value}
-                        onClick={() => setAccentColor(color.value)}
+                        onClick={() => handleAccentColorChange(color.value)}
                         className={`h-6 w-6 rounded-full ${color.class} transition-all ${
                           accentColor === color.value
                             ? 'ring-2 ring-offset-1 ring-offset-background ring-primary'

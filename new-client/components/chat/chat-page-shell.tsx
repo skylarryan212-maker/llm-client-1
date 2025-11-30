@@ -86,6 +86,17 @@ function mergeThinkingTimingIntoMetadata(
   if (!timing) {
     return metadata;
   }
+  // CRITICAL: Only merge if metadata has absolutely NO timing information
+  // Once timing is set (either from client or server), it should NEVER be overwritten
+  const hasAnyTiming = metadata && 
+    (typeof metadata.thinkingDurationMs === 'number' || 
+     typeof metadata.thinkingDurationSeconds === 'number' ||
+     (typeof metadata.thoughtDurationLabel === 'string' && metadata.thoughtDurationLabel.includes('Thought for')));
+  
+  if (hasAnyTiming) {
+    return metadata;
+  }
+  
   const base = (metadata && typeof metadata === "object" ? metadata : {}) as AssistantMessageMetadata;
   const nextThinking: AssistantMessageMetadata["thinking"] = {
     ...(base.thinking || {}),
@@ -138,6 +149,8 @@ export default function ChatPageShell({
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
   const [thinkingStatus, setThinkingStatus] = useState<{ variant: "thinking" | "extended"; label: string } | null>(null);
+  // Force re-render while thinking so a live duration chip can update
+  const [thinkingTick, setThinkingTick] = useState(0);
   const [searchIndicator, setSearchIndicator] = useState<
     | {
         message: string;
@@ -245,6 +258,15 @@ export default function ChatPageShell({
     pendingThinkingInfoRef.current = null;
   }, [resetThinkingIndicator]);
 
+  // While thinking is active and before first token, tick to update live duration label
+  useEffect(() => {
+    const hasLiveStart = Boolean(responseTimingRef.current.start);
+    const shouldTick = !!thinkingStatus && hasLiveStart && !!activeIndicatorMessageId;
+    if (!shouldTick) return;
+    const id = setInterval(() => setThinkingTick((t) => t + 1), 250);
+    return () => clearInterval(id);
+  }, [thinkingStatus, activeIndicatorMessageId]);
+
   const recordFirstTokenTiming = useCallback(
     (
       chatId: string,
@@ -253,13 +275,24 @@ export default function ChatPageShell({
       reasoningEffort?: ReasoningEffort | null
     ) => {
       const timing = responseTimingRef.current;
+      // Only record timing once - if firstToken is already set or start is null, skip
       if (!timing.start || timing.firstToken !== null) {
         return metadata;
       }
+      
+      // Also check if metadata already has timing - never recalculate
+      const hasExistingTiming = metadata && 
+        (typeof metadata.thinkingDurationMs === 'number' ||
+         (typeof metadata.thoughtDurationLabel === 'string' && metadata.thoughtDurationLabel.includes('Thought for')));
+      
+      if (hasExistingTiming) {
+        return metadata;
+      }
+      
       const now = typeof performance !== "undefined" ? performance.now() : Date.now();
       const elapsedMs = Math.max(0, now - timing.start);
       timing.firstToken = now;
-      timing.start = null;
+      timing.start = null; // Clear start so we never calculate again
       hideThinkingIndicator();
       const seconds = elapsedMs / 1000;
       const label = formatThoughtDurationLabel(seconds);
@@ -269,11 +302,13 @@ export default function ChatPageShell({
         label,
         effort: reasoningEffort ?? null,
       };
+      // Store client timing for display immediately
       pendingThinkingInfoRef.current = thinkingInfo;
-      const nextMetadata = mergeThinkingTimingIntoMetadata(metadata, thinkingInfo);
-      if (nextMetadata) {
-        updateMessage(chatId, messageId, { metadata: nextMetadata });
-        return nextMetadata;
+      // Create metadata with client timing to show immediately
+      const displayMetadata = mergeThinkingTimingIntoMetadata(metadata, thinkingInfo);
+      if (displayMetadata) {
+        updateMessage(chatId, messageId, { metadata: displayMetadata });
+        return displayMetadata;
       }
       return metadata;
     },
@@ -428,7 +463,15 @@ export default function ChatPageShell({
 
   useEffect(() => {
     setSelectedChatId(activeConversationId ?? null);
-  }, [activeConversationId]);
+    // Reset timing refs when conversation changes to prevent stale data
+    responseTimingRef.current = {
+      start: null,
+      firstToken: null,
+      assistantMessageId: null,
+    };
+    pendingThinkingInfoRef.current = null;
+    resetThinkingIndicator();
+  }, [activeConversationId, resetThinkingIndicator]);
 
   useEffect(() => {
     if (!initialConversations.length) return;
@@ -768,12 +811,18 @@ export default function ChatPageShell({
                 const currentMessageId =
                   responseTimingRef.current.assistantMessageId ?? assistantMessageId;
                 if (messageMetadata) {
+                  // Preserve existing timing if it exists - only update model info
                   const updatedMetadata: AssistantMessageMetadata = {
                     ...messageMetadata,
                     modelUsed: parsed.model_info.model,
                     resolvedFamily: parsed.model_info.resolvedFamily,
                     speedModeUsed: parsed.model_info.speedModeUsed,
                     reasoningEffort: parsed.model_info.reasoningEffort,
+                    // Keep existing timing fields
+                    thinkingDurationMs: messageMetadata.thinkingDurationMs,
+                    thinkingDurationSeconds: messageMetadata.thinkingDurationSeconds,
+                    thoughtDurationLabel: messageMetadata.thoughtDurationLabel,
+                    thinking: messageMetadata.thinking,
                   };
                   messageMetadata = updatedMetadata;
                   updateMessage(chatId, currentMessageId, {
@@ -792,10 +841,32 @@ export default function ChatPageShell({
                 };
                 const resolvedMetadata: AssistantMessageMetadata =
                   (parsed.meta.metadata as AssistantMessageMetadata | null) ?? fallbackMeta;
-                const metadataWithTiming = mergeThinkingTimingIntoMetadata(
-                  resolvedMetadata,
-                  pendingThinkingInfoRef.current
-                );
+                
+                // CRITICAL: If we already have timing in the message (from client calculation on first token),
+                // preserve it and only update non-timing fields from server
+                const hasClientTiming = messageMetadata && 
+                  (typeof messageMetadata.thinkingDurationMs === 'number' ||
+                   (typeof messageMetadata.thoughtDurationLabel === 'string' && messageMetadata.thoughtDurationLabel.includes('Thought for')));
+                
+                let metadataWithTiming: AssistantMessageMetadata;
+                if (hasClientTiming) {
+                  // Client timing exists and is correct - keep it, only merge other server fields
+                  metadataWithTiming = {
+                    ...resolvedMetadata,
+                    // Override with client timing
+                    thinkingDurationMs: messageMetadata!.thinkingDurationMs,
+                    thinkingDurationSeconds: messageMetadata!.thinkingDurationSeconds,
+                    thoughtDurationLabel: messageMetadata!.thoughtDurationLabel,
+                    thinking: messageMetadata!.thinking || resolvedMetadata.thinking,
+                  };
+                } else {
+                  // No client timing yet, use server's or pending
+                  metadataWithTiming = mergeThinkingTimingIntoMetadata(
+                    resolvedMetadata,
+                    pendingThinkingInfoRef.current
+                  ) || resolvedMetadata;
+                }
+                
                 pendingThinkingInfoRef.current = null;
                 messageMetadata = metadataWithTiming;
                 const newId = parsed.meta.assistantMessageRowId;
@@ -808,6 +879,21 @@ export default function ChatPageShell({
                   metadata: metadataWithTiming,
                 });
                 responseTimingRef.current.assistantMessageId = newId;
+                
+                // CRITICAL: If we used client timing (which is more accurate due to network latency),
+                // save it back to the database to overwrite the server's timing
+                if (hasClientTiming && metadataWithTiming) {
+                  fetch("/api/messages/update-metadata", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                      messageId: newId,
+                      metadata: metadataWithTiming,
+                    }),
+                  }).catch((err) => {
+                    console.error("Failed to update message metadata with client timing:", err);
+                  });
+                }
                 // Do not persist file-reading indicator based on citations; it's ephemeral.
               } else if (parsed.done) {
                 // Streaming complete
@@ -909,19 +995,36 @@ export default function ChatPageShell({
        retrySpeedMode = "auto";
      }
 
-    // Delete the old assistant message from Supabase
-    try {
-      await fetch("/api/chat", {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messageId }),
-      });
-    } catch (error) {
-      console.error("Error deleting old assistant message:", error);
-    }
+    // Start timing and show thinking indicator BEFORE removing message
+    const retryPreviewConfig = getModelAndReasoningConfig(
+      retryModelFamily,
+      retrySpeedMode ?? "auto",
+      userMessage.content
+    );
+    const retryIndicatorEffort = retryPreviewConfig.reasoning?.effort ?? null;
+    startResponseTiming();
+    showThinkingIndicator(retryIndicatorEffort);
+    clearSearchIndicator();
+    clearFileReadingIndicator();
 
-    // Remove the assistant message from UI (local state)
+    // Generate the new assistant message ID immediately so the timer can attach
+    const assistantMessageId = `assistant-streaming-${Date.now()}`;
+    setActiveIndicatorMessageId(assistantMessageId);
+
+    // Remove the assistant message from UI immediately (no lag)
     removeMessage(selectedChatId, messageId);
+
+    // Delete the old assistant message from Supabase in the background
+    fetch("/api/chat", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ messageId }),
+    }).catch((error) => {
+      console.error("Error deleting old assistant message:", error);
+    });
+
+    // Wait for React to process the removal before adding new message
+    await new Promise(resolve => setTimeout(resolve, 0));
 
      // Re-stream with the specific retry model (not changing currentModel)
      try {
@@ -952,22 +1055,8 @@ export default function ChatPageShell({
 
        const decoder = new TextDecoder();
        let assistantContent = "";
-       const assistantMessageId = `assistant-streaming-${Date.now()}`;
+       // assistantMessageId already generated and set above
        let messageMetadata: AssistantMessageMetadata | null = {};
-
-      const retryPreviewConfig = getModelAndReasoningConfig(
-        retryModelFamily,
-        retrySpeedMode ?? "auto",
-        userMessage.content
-      );
-       const retryIndicatorEffort = retryPreviewConfig.reasoning?.effort ?? null;
-       startResponseTiming();
-       showThinkingIndicator(retryIndicatorEffort);
-       clearSearchIndicator();
-       clearFileReadingIndicator();
-
-       // Set active indicator BEFORE adding message so indicators show
-        setActiveIndicatorMessageId(assistantMessageId);
 
        // Add the initial empty assistant message
        appendMessages(selectedChatId, [
@@ -1474,11 +1563,57 @@ export default function ChatPageShell({
               <div className="w-full space-y-4">
                 {messages.map((message) => {
                   const metadata = message.metadata as AssistantMessageMetadata | null;
-                  // Show insight chips for thinking duration and web search domains as soon as metadata arrives (on first token)
-                  const metadataIndicators =
-                    Boolean(metadata?.thoughtDurationLabel) ||
-                    Boolean(metadata?.searchedDomains?.length);
                   const isStreamingMessage = message.id === activeIndicatorMessageId;
+
+                  // Build display metadata so we can show a live "Thought for xx" chip while waiting for first token
+                  let displayMetadata: AssistantMessageMetadata | null = metadata ? { ...metadata } : null;
+                  
+                  // If metadata already has thinking duration (from database), use it and skip live calculations
+                  const hasStoredThinkingDuration = metadata && 
+                    (typeof metadata.thinkingDurationMs === 'number' || typeof metadata.thinkingDurationSeconds === 'number');
+                  
+                  // Show timing: stored from DB, or pending from first token, or live while thinking
+                  const hasPendingTiming = Boolean(pendingThinkingInfoRef.current);
+                  const hasLiveStart = Boolean(responseTimingRef.current.start);
+                  
+                  if (!hasStoredThinkingDuration && isStreamingMessage && hasPendingTiming) {
+                    // Show pending timing from first token while waiting for server meta event
+                    const timing = pendingThinkingInfoRef.current!;
+                    displayMetadata = {
+                      ...(displayMetadata || ({} as AssistantMessageMetadata)),
+                      thoughtDurationLabel: timing.label,
+                      thinkingDurationMs: timing.durationMs,
+                      thinkingDurationSeconds: timing.durationSeconds,
+                      thinking: {
+                        ...(displayMetadata?.thinking || {}),
+                        effort: timing.effort,
+                        durationMs: timing.durationMs,
+                        durationSeconds: timing.durationSeconds,
+                      },
+                    } as AssistantMessageMetadata;
+                  } else if (!hasStoredThinkingDuration && isStreamingMessage && thinkingStatus && hasLiveStart) {
+                    // Compute live timing while waiting for first token
+                    const now = typeof performance !== "undefined" ? performance.now() : Date.now();
+                    const start = responseTimingRef.current.start as number;
+                    const seconds = Math.max(0, (now - start) / 1000);
+                    const label = formatThoughtDurationLabel(seconds);
+                    displayMetadata = {
+                      ...(displayMetadata || ({} as AssistantMessageMetadata)),
+                      thoughtDurationLabel: label,
+                      thinkingDurationMs: Math.max(0, now - start),
+                      thinkingDurationSeconds: seconds,
+                      thinking: {
+                        ...(displayMetadata?.thinking || {}),
+                        durationMs: Math.max(0, now - start),
+                        durationSeconds: seconds,
+                      },
+                    } as AssistantMessageMetadata;
+                  }
+
+                  // Show insight chips for thinking duration and web search domains as soon as metadata arrives (or live during thinking)
+                  const metadataIndicators =
+                    Boolean(displayMetadata?.thoughtDurationLabel) ||
+                    Boolean(displayMetadata?.searchedDomains?.length);
                   const showIndicatorBlock = message.role === "assistant" && metadataIndicators;
                   
                   return (
@@ -1487,7 +1622,7 @@ export default function ChatPageShell({
                         <div className="flex flex-col gap-2 pb-2 px-4 sm:px-6">
                           <div className="mx-auto w-full max-w-3xl">
                             <div className="flex flex-wrap items-center gap-1.5 pt-1">
-                              <MessageInsightChips metadata={metadata} />
+                              <MessageInsightChips metadata={displayMetadata || undefined} />
                             </div>
                           </div>
                         </div>

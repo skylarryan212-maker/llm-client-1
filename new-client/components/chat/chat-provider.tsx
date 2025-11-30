@@ -389,8 +389,20 @@ export function ChatProvider({ children, initialChats = [] }: ChatProviderProps)
       }
 
       const existing = prev[existingIndex];
-      const mergedMessages =
-        chat.messages.length >= existing.messages.length ? chat.messages : existing.messages;
+      
+      // When messages come from server (e.g., on page load), they have the authoritative metadata
+      // Only keep existing messages if they're not present in the incoming batch
+      let mergedMessages: StoredMessage[];
+      
+      if (chat.messages.length === 0) {
+        // If incoming has no messages, keep existing
+        mergedMessages = existing.messages;
+      } else {
+        // Incoming messages are authoritative - use them and only append any new messages from existing
+        const incomingIds = new Set(chat.messages.map(m => m.id));
+        const existingNew = existing.messages.filter(m => !incomingIds.has(m.id));
+        mergedMessages = [...chat.messages, ...existingNew];
+      }
 
       const updated: StoredChat = {
         ...existing,

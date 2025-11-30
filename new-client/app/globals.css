@@ -126,6 +126,27 @@
     @apply bg-background text-foreground;
   }
   
+  /* Global scrollbar styling to match sidebar ScrollArea */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-border) transparent;
+  }
+
+  *::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  *::-webkit-scrollbar-track {
+    background: transparent;
+    border-radius: 999px;
+  }
+
+  *::-webkit-scrollbar-thumb {
+    background-color: var(--color-border);
+    border-radius: 999px;
+  }
+  
   /* Better text selection contrast for all elements */
   ::selection {
     background-color: rgba(0, 0, 0, 0.15);
