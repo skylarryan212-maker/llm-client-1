@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase/server";
+import type { Json } from "@/lib/supabase/types";
 
 export async function POST(request: Request) {
   try {
-    const { messageId, metadata } = await request.json();
+    const { messageId, metadata } = await request.json() as { messageId: string; metadata: Json };
 
     if (!messageId || !metadata) {
       return NextResponse.json(
