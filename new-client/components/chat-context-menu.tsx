@@ -15,7 +15,7 @@ interface ChatContextMenuProps {
   removeLabel?: string
 }
 
-export function ChatContextMenu({ onRename, onMoveToProject, onRemoveFromProject, onDelete, removeLabel }: ChatContextMenuProps) {
+export function ChatContextMenu({ onShare, onRename, onMoveToProject, onRemoveFromProject, onDelete, onArchive, removeLabel }: ChatContextMenuProps) {
   const [isOpen, setIsOpen] = useState(false)
   const [menuCoords, setMenuCoords] = useState<{ left: number; top: number } | null>(null)
   const menuRef = useRef<HTMLDivElement>(null)
