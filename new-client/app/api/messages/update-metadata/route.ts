@@ -15,9 +15,10 @@ export async function POST(request: Request) {
 
     const supabase = await supabaseServer();
 
+    // @ts-expect-error - Supabase type inference issue with metadata updates
     const { error } = await supabase
       .from("messages")
-      .update({ metadata } as any)
+      .update({ metadata })
       .eq("id", messageId);
 
     if (error) {
