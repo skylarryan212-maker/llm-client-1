@@ -13,7 +13,7 @@ export async function supabaseServer() {
   try {
     const maybe = cookies();
     if (maybe && typeof (maybe as any).then === "function") {
-      cookieStore = await (maybe as Promise<ReturnType<typeof cookies>>);
+      cookieStore = await maybe;
     } else {
       cookieStore = maybe as Awaited<ReturnType<typeof cookies>>;
     }
