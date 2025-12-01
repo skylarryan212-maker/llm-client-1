@@ -9,13 +9,13 @@ export async function supabaseServer() {
   // Turbopack RSC / Next versions may make `cookies()` async. Call it and
   // await if it returns a Promise; otherwise use the value directly. If
   // cookies are unavailable, degrade to stateless behavior.
-  let cookieStore: ReturnType<typeof cookies> | null = null;
+  let cookieStore: Awaited<ReturnType<typeof cookies>> | null = null;
   try {
     const maybe = cookies();
     if (maybe && typeof (maybe as any).then === "function") {
       cookieStore = await (maybe as Promise<ReturnType<typeof cookies>>);
     } else {
-      cookieStore = maybe as ReturnType<typeof cookies>;
+      cookieStore = maybe as Awaited<ReturnType<typeof cookies>>;
     }
   } catch {
     cookieStore = null;
