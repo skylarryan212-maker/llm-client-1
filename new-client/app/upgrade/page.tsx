@@ -60,19 +60,12 @@ function UpgradePageContent() {
   const [errorMessage, setErrorMessage] = useState("");
   const [showAllPlans, setShowAllPlans] = useState(false);
   const [successDialog, setSuccessDialog] = useState<{ open: boolean; message: string; title: string }>({ open: false, message: "", title: "" });
-  const [confirmDialog, setConfirmDialog] = useState<{ open: boolean; planId: PlanType | null; planName: string; isDowngrade: boolean }>({ open: false, planId: null, planName: "", isDowngrade: false });
 
   useEffect(() => {
     // Check if we should show all plans from URL parameter
     const showAll = searchParams.get("showAll") === "true";
     setShowAllPlans(showAll);
   }, [searchParams]);
-
-  const handleUpgrade = async (_planId: PlanType) => {
-    // Temporarily disable direct upgrades; only unlock codes are allowed
-    setConfirmDialog({ open: false, planId: null, planName: "", isDowngrade: false });
-    return;
-  };
 
   const handleOpenUnlockDialog = (planId: Exclude<PlanType, "free">) => {
     setSelectedPlanForUnlock(planId);
@@ -208,17 +201,10 @@ function UpgradePageContent() {
                     ) : (
                       <>
                         <Button
-                          className="w-full bg-primary hover:bg-primary/90 text-primary-foreground"
-                          onClick={() => {
-                            const isDowngrade = isLowerTier(plan.id);
-                            setConfirmDialog({ 
-                              open: true, 
-                              planId: plan.id, 
-                              planName: plan.name,
-                              isDowngrade 
-                            });
-                          }}
-                          disabled={isProcessing || plan.id === "free"}
+                          className="w-full"
+                          variant="outline"
+                          disabled
+                          title="Direct upgrades are currently disabled. Please use unlock code."
                         >
                           {plan.id === "free" 
                             ? "Free Plan" 
@@ -255,42 +241,6 @@ function UpgradePageContent() {
           Click here
         </button>
       </div>
-
-      {/* Confirmation Dialog */}
-      {confirmDialog.open && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm px-4">
-          <div className="w-full max-w-md rounded-xl border border-border bg-card p-6 shadow-xl">
-            <div className="space-y-4">
-              <div>
-                <h3 className="text-lg font-semibold text-foreground">
-                  {confirmDialog.isDowngrade ? `Switch to ${confirmDialog.planName}?` : `Upgrade to ${confirmDialog.planName}?`}
-                </h3>
-                <p className="text-sm text-muted-foreground mt-2">
-                  {confirmDialog.isDowngrade 
-                    ? `You will switch from ${currentPlan.charAt(0).toUpperCase() + currentPlan.slice(1)} to ${confirmDialog.planName} plan. This change will take effect immediately.`
-                    : `You will be upgraded from ${currentPlan.charAt(0).toUpperCase() + currentPlan.slice(1)} to ${confirmDialog.planName} plan. This change will take effect immediately.`
-                  }
-                </p>
-              </div>
-              <div className="flex items-center justify-end gap-2">
-                <Button
-                  variant="ghost"
-                  onClick={() => setConfirmDialog({ open: false, planId: null, planName: "", isDowngrade: false })}
-                  disabled={isProcessing}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  onClick={() => confirmDialog.planId && handleUpgrade(confirmDialog.planId)}
-                  disabled={isProcessing}
-                >
-                  {isProcessing ? "Processing..." : "Confirm"}
-                </Button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Success Dialog */}
       {successDialog.open && (
