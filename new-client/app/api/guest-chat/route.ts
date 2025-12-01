@@ -2,7 +2,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
-import { supabaseServer } from "@/lib/supabase/server";
+import { supabaseServerAdmin } from "@/lib/supabase/server";
 import {
   ensureGuestSession,
   incrementGuestSessionRequest,
@@ -27,7 +27,7 @@ export async function POST(request: NextRequest) {
     }
 
     console.log("[guest-chat] Message:", message.substring(0, 50));
-    const supabase = await supabaseServer();
+    const supabase = await supabaseServerAdmin();
     const { session, cookieValue } = await ensureGuestSession(request, supabase);
     let requestCount = session.request_count ?? 0;
     if (shouldResetDailyCounter(session)) {
