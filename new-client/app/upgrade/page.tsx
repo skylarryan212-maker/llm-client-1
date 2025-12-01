@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense } from "react";
 import { ArrowLeft, Check, Lock, X } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -49,7 +49,7 @@ const plans = [
   },
 ];
 
-export default function UpgradePage() {
+function UpgradePageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { plan: currentPlan, refreshPlan } = useUserPlan();
@@ -387,5 +387,17 @@ export default function UpgradePage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function UpgradePage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-background text-foreground flex items-center justify-center">
+        <div className="text-center">Loading...</div>
+      </div>
+    }>
+      <UpgradePageContent />
+    </Suspense>
   );
 }
