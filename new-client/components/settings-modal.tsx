@@ -473,8 +473,8 @@ export function SettingsModal({ isOpen, onClose, initialTab = 'personalization' 
 
       {/* Cancel Confirmation Dialog */}
       {cancelConfirmOpen && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm px-4">
-          <div className="w-full max-w-md rounded-xl border border-border bg-card p-6 shadow-xl">
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm px-4 pointer-events-auto">
+          <div className="w-full max-w-md rounded-xl border border-border bg-card p-6 shadow-xl pointer-events-auto">
             <div className="space-y-4">
               <div>
                 <h3 className="text-lg font-semibold text-foreground">
@@ -507,8 +507,8 @@ export function SettingsModal({ isOpen, onClose, initialTab = 'personalization' 
 
       {/* Cancel Result Dialog */}
       {cancelResultDialog.open && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm px-4">
-          <div className="w-full max-w-md rounded-xl border border-border bg-card p-6 shadow-xl">
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm px-4 pointer-events-auto">
+          <div className="w-full max-w-md rounded-xl border border-border bg-card p-6 shadow-xl pointer-events-auto">
             <div className="space-y-4">
               <div>
                 <h3 className="text-lg font-semibold text-foreground">
