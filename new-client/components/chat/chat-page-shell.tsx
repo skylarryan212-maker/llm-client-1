@@ -672,25 +672,20 @@ export default function ChatPageShell({
       lastPinnedMessageIdRef.current = last.id;
       setIsAutoScroll(true);
       
-      // Find the user message element and scroll it to the top of the viewport
-      const viewport = scrollViewportRef.current;
-      const userMessageEl = messageRefs.current[last.id];
-      
-      if (viewport && userMessageEl) {
-        // Scroll so the user message is at the very top (with small padding)
-        const targetScrollTop = userMessageEl.offsetTop - 8;
-        viewport.scrollTo({ top: targetScrollTop, behavior: "auto" });
-        
-        // Double-check after layout
-        if (typeof requestAnimationFrame !== "undefined") {
+      // Wait for the DOM to be ready, then scroll the user message to the top
+      if (typeof requestAnimationFrame !== "undefined") {
+        requestAnimationFrame(() => {
           requestAnimationFrame(() => {
-            const recomputedTop = userMessageEl.offsetTop - 8;
-            viewport.scrollTo({ top: recomputedTop, behavior: "auto" });
+            const viewport = scrollViewportRef.current;
+            const userMessageEl = messageRefs.current[last.id];
+            
+            if (viewport && userMessageEl) {
+              // Scroll so the user message is at the very top (with small padding)
+              const targetScrollTop = userMessageEl.offsetTop - 8;
+              viewport.scrollTo({ top: targetScrollTop, behavior: "auto" });
+            }
           });
-        }
-      } else {
-        // Fallback to scrollToBottom if element not found
-        scrollToBottom("auto", { anchorLatest: true });
+        });
       }
     }
   }, [messages.length, scrollToBottom]);
