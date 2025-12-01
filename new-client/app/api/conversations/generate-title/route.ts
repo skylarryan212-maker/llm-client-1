@@ -2,11 +2,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
 import { supabaseServer } from "@/lib/supabase/server";
-import { getCurrentUserId } from "@/lib/supabase/user";
+import { getCurrentUserIdServer } from "@/lib/supabase/user";
 import {
   isPlaceholderTitle,
   normalizeGeneratedTitle,
 } from "@/lib/conversation-utils";
+import { calculateCost } from "@/lib/pricing";
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -32,7 +33,7 @@ export async function POST(req: NextRequest) {
 
     const supabase = await supabaseServer();
     const supabaseAny = supabase as any;
-    const userId = await getCurrentUserId();
+    const userId = await getCurrentUserIdServer();
     
     if (!userId) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -79,12 +80,14 @@ export async function POST(req: NextRequest) {
         },
       ],
       stream: true,
+      stream_options: { include_usage: true },
     });
 
     const encoder = new TextEncoder();
     const readable = new ReadableStream({
       async start(controller) {
         let fullTitle = "";
+        let usageData: any = null;
         
         try {
           for await (const chunk of stream) {
@@ -95,6 +98,11 @@ export async function POST(req: NextRequest) {
               controller.enqueue(
                 encoder.encode(JSON.stringify({ token, fullTitle }) + "\n")
               );
+            }
+            
+            // Capture usage data from final chunk
+            if (chunk.usage) {
+              usageData = chunk.usage;
             }
           }
 
@@ -109,6 +117,39 @@ export async function POST(req: NextRequest) {
             );
             controller.close();
             return;
+          }
+
+          // Log usage to database
+          if (usageData) {
+            try {
+              const { randomUUID } = require("crypto");
+              const inputTokens = usageData.prompt_tokens || 0;
+              const outputTokens = usageData.completion_tokens || 0;
+              const cachedTokens = usageData.prompt_tokens_details?.cached_tokens || 0;
+              
+              const cost = calculateCost(
+                "gpt-5-nano-2025-08-07",
+                inputTokens,
+                cachedTokens,
+                outputTokens
+              );
+              
+              await supabaseAny.from("user_api_usage").insert({
+                id: randomUUID(),
+                user_id: userId,
+                conversation_id: conversationId,
+                model: "gpt-5-nano-2025-08-07",
+                input_tokens: inputTokens,
+                cached_tokens: cachedTokens,
+                output_tokens: outputTokens,
+                estimated_cost: cost,
+                created_at: new Date().toISOString(),
+              });
+              
+              console.log(`[titleDebug] logged usage: $${cost.toFixed(6)}`);
+            } catch (usageErr) {
+              console.error("[titleDebug] failed to log usage:", usageErr);
+            }
           }
 
           // Update conversation title in database

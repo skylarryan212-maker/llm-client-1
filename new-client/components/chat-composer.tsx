@@ -395,8 +395,7 @@ export function ChatComposer({
       )}
       <div className="relative flex items-center gap-1.5 sm:gap-2 rounded-3xl border border-border bg-muted/30 px-2 sm:px-3 lg:px-4 py-2 sm:py-2.5 transition-all focus-within:border-ring focus-within:bg-background">
         {isRecording ? (
-          <>
-            {/* Cancel button */}
+          <div className="flex items-center gap-2">
             <button
               type="button"
               aria-label="Cancel voice recording"
@@ -415,7 +414,6 @@ export function ChatComposer({
                 <path d="M6 6l12 12M6 18 18 6" />
               </svg>
             </button>
-            {/* Waveform visualization */}
             <div className="flex flex-1 items-center justify-center" aria-live="polite">
               <svg viewBox="0 0 200 40" className="h-10 w-full" preserveAspectRatio="none" aria-hidden>
                 <path
@@ -428,7 +426,6 @@ export function ChatComposer({
                 />
               </svg>
             </div>
-            {/* Confirm recording button (checkmark) */}
             <button
               type="button"
               onClick={finishRecordingAndTranscribe}
@@ -448,7 +445,7 @@ export function ChatComposer({
                 <path d="M5 12l5 5L20 7" />
               </svg>
             </button>
-          </>
+          </div>
         ) : (
           <>
             {/* Left action button (plus) */}

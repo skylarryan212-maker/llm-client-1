@@ -2,8 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { createProjectAction } from "@/app/actions/project-actions";
-import supabaseClient from "@/lib/supabase/client";
-import { getCurrentUserId } from "@/lib/supabase/user";
+import supabaseClient from "@/lib/supabase/browser-client";
 
 export type ProjectSummary = {
   id: string;
@@ -27,12 +26,13 @@ const initialProjects: ProjectSummary[] = [];
 export function ProjectsProvider({
   children,
   initialProjects: initialProjectsProp = initialProjects,
+  userId,
 }: {
   children: React.ReactNode;
   initialProjects?: ProjectSummary[];
+  userId: string;
 }) {
   const [projects, setProjects] = useState<ProjectSummary[]>(initialProjectsProp);
-  const userId = getCurrentUserId();
 
   const refreshProjects = useCallback(async () => {
     try {

@@ -8,6 +8,12 @@ import { AccentColorProvider } from "@/components/accent-color-provider";
 import { getProjectsForUser } from "@/lib/data/projects";
 import { getConversationsForUser } from "@/lib/data/conversations";
 import { getUserPreferences } from "@/lib/data/user-preferences";
+import { getCurrentUserIdentity } from "@/lib/supabase/user";
+import { UserIdentityProvider } from "@/components/user-identity-provider";
+import { UsageSnapshotProvider } from "@/components/usage-snapshot-provider";
+import { getMonthlySpending } from "@/app/actions/usage-actions";
+import { getUserPlan } from "@/app/actions/plan-actions";
+import { getUsageStatus } from "@/lib/usage-limits";
 
 const geistSans = Geist({
   subsets: ["latin"],
@@ -29,9 +35,24 @@ export default async function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const projects = await getProjectsForUser();
-  const conversations = await getConversationsForUser();
-  const userPreferences = await getUserPreferences();
+  const identity = await getCurrentUserIdentity();
+
+  const isGuest = identity.isGuest;
+
+  const projects = isGuest ? [] : await getProjectsForUser();
+  const conversations = isGuest ? [] : await getConversationsForUser();
+  const userPreferences = isGuest ? null : await getUserPreferences();
+  let usageSnapshot = null;
+  if (!isGuest) {
+    const [monthlySpending, planType] = await Promise.all([
+      getMonthlySpending(),
+      getUserPlan(),
+    ]);
+    usageSnapshot = {
+      spending: monthlySpending,
+      status: getUsageStatus(monthlySpending, planType),
+    };
+  }
 
   const initialProjectSummaries = projects.map((project) => ({
     id: project.id,
@@ -55,11 +76,17 @@ export default async function RootLayout({
       className={`dark ${geistSans.variable} ${geistMono.variable}`}
     >
       <body className="font-sans antialiased bg-background text-foreground">
-        <AccentColorProvider initialAccentColor={initialAccentColor}>
-          <ProjectsProvider initialProjects={initialProjectSummaries}>
-            <ChatProvider initialChats={initialChats}>{children}</ChatProvider>
-          </ProjectsProvider>
-        </AccentColorProvider>
+        <UserIdentityProvider identity={identity}>
+          <UsageSnapshotProvider value={usageSnapshot}>
+            <AccentColorProvider initialAccentColor={initialAccentColor}>
+              <ProjectsProvider initialProjects={initialProjectSummaries} userId={identity.userId ?? ""}>
+                <ChatProvider initialChats={initialChats} userId={identity.userId ?? ""}>
+                  {children}
+                </ChatProvider>
+              </ProjectsProvider>
+            </AccentColorProvider>
+          </UsageSnapshotProvider>
+        </UserIdentityProvider>
       </body>
     </html>
   );

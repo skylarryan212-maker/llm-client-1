@@ -151,18 +151,20 @@ export function ChatContextMenu({ onShare, onRename, onMoveToProject, onRemoveFr
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
             </svg>
           </button>
-          <button
-            onClick={(e) => {
-              e.preventDefault()
-              e.stopPropagation()
-              onRemoveFromProject?.()
-              setIsOpen(false)
-            }}
-            className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-popover-foreground hover:bg-accent"
-          >
-            <FolderInput className="h-4 w-4" />
-            {typeof removeLabel === 'string' ? removeLabel : 'Remove from (project)'}
-          </button>
+          {onRemoveFromProject && (
+            <button
+              onClick={(e) => {
+                e.preventDefault()
+                e.stopPropagation()
+                onRemoveFromProject?.()
+                setIsOpen(false)
+              }}
+              className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-popover-foreground hover:bg-accent"
+            >
+              <FolderInput className="h-4 w-4" />
+              {typeof removeLabel === 'string' ? removeLabel : 'Remove from project'}
+            </button>
+          )}
           <div className="border-t border-border mt-1" />
           <button
             onClick={(e) => {

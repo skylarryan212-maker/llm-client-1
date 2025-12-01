@@ -89,6 +89,26 @@ export interface UserPreferencesUpdate {
   updated_at?: string;
 }
 
+export interface GuestSession {
+  id: string;
+  created_at: string | null;
+  last_seen: string | null;
+  request_count: number | null;
+  token_count: number | null;
+  estimated_cost: number | null;
+}
+
+export interface GuestSessionInsert {
+  id?: string;
+}
+
+export interface GuestSessionUpdate {
+  last_seen?: string | null;
+  request_count?: number | null;
+  token_count?: number | null;
+  estimated_cost?: number | null;
+}
+
 export interface Database {
   public: {
     Tables: {
@@ -111,6 +131,11 @@ export interface Database {
         Row: UserPreferences;
         Insert: UserPreferencesInsert;
         Update: UserPreferencesUpdate;
+      };
+      guest_sessions: {
+        Row: GuestSession;
+        Insert: GuestSessionInsert;
+        Update: GuestSessionUpdate;
       };
     };
   };

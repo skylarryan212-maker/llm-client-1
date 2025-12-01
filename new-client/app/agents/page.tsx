@@ -1,12 +1,13 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Code2, Database, Menu, TrendingUp, Workflow } from "lucide-react";
 
 import { AgentCard } from "@/components/agent-card";
 import { ChatSidebar } from "@/components/chat-sidebar";
 import { Button } from "@/components/ui/button";
+import { SettingsModal } from "@/components/settings-modal";
 import { useProjects } from "@/components/projects/projects-provider";
 import { useChatStore } from "@/components/chat/chat-provider";
 import { usePersistentSidebarOpen } from "@/lib/hooks/use-sidebar-open";
@@ -45,6 +46,8 @@ export default function AgentsPage() {
   const { projects, refreshProjects } = useProjects();
   const { chats, globalChats, refreshChats } = useChatStore();
   const [isSidebarOpen, setIsSidebarOpen] = usePersistentSidebarOpen(true);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [settingsTab, setSettingsTab] = useState<'general' | 'personalization'>('personalization');
 
   const sidebarConversations = useMemo(
     () =>
@@ -99,6 +102,14 @@ export default function AgentsPage() {
         onNewChat={() => router.push("/")}
         onNewProject={() => router.push("/projects")}
         onProjectSelect={(projectId) => router.push(`/projects/${projectId}`)}
+        onSettingsOpen={() => {
+          setSettingsTab('personalization')
+          setIsSettingsOpen(true)
+        }}
+        onGeneralSettingsOpen={() => {
+          setSettingsTab('general')
+          setIsSettingsOpen(true)
+        }}
         onRefreshChats={refreshChats}
         onRefreshProjects={refreshProjects}
       />
@@ -168,6 +179,15 @@ export default function AgentsPage() {
           </div>
         </div>
       </div>
+
+      <SettingsModal
+        isOpen={isSettingsOpen}
+        onClose={() => {
+          setIsSettingsOpen(false)
+          setSettingsTab('personalization')
+        }}
+        initialTab={settingsTab}
+      />
     </div>
   );
 }

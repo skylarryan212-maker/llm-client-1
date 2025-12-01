@@ -1,5 +1,5 @@
 import { supabaseServer } from "@/lib/supabase/server";
-import { getCurrentUserId } from "@/lib/supabase/user";
+import { requireUserIdServer } from "@/lib/supabase/user";
 import type { Database } from "@/lib/supabase/types";
 
 type ConversationRow = Database["public"]["Tables"]["conversations"]["Row"];
@@ -13,7 +13,7 @@ export async function createGlobalConversationWithFirstMessage(params: {
   message: MessageRow; // first user message
 }> {
   const supabase = await supabaseServer();
-  const userId = getCurrentUserId();
+  const userId = await requireUserIdServer();
   const supabaseAny = supabase as any;
 
   // 1) Create conversation
@@ -72,7 +72,7 @@ export async function createProjectConversationWithFirstMessage(params: {
   message: MessageRow; // first user message
 }> {
   const supabase = await supabaseServer();
-  const userId = getCurrentUserId();
+  const userId = await requireUserIdServer();
   const supabaseAny = supabase as any;
 
   // 1) Create project-scoped conversation
@@ -129,7 +129,7 @@ export async function appendMessageToConversation(params: {
   content: string;
 }): Promise<MessageRow> {
   const supabase = await supabaseServer();
-  const userId = getCurrentUserId();
+  const userId = await requireUserIdServer();
   const supabaseAny = supabase as any;
 
   // Insert the message (user or assistant)

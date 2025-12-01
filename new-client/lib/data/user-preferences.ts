@@ -1,5 +1,5 @@
 import { supabaseServer } from "@/lib/supabase/server";
-import { getCurrentUserId } from "@/lib/supabase/user";
+import { requireUserIdServer } from "@/lib/supabase/user";
 import type { Database } from "@/lib/supabase/types";
 
 type UserPreferencesRow = Database["public"]["Tables"]["user_preferences"]["Row"];
@@ -8,7 +8,7 @@ type UserPreferencesUpdate = Database["public"]["Tables"]["user_preferences"]["U
 
 export async function getUserPreferences() {
   const supabase = await supabaseServer();
-  const userId = getCurrentUserId();
+  const userId = await requireUserIdServer();
 
   const { data, error } = await supabase
     .from("user_preferences")
@@ -26,7 +26,7 @@ export async function getUserPreferences() {
 
 export async function updateAccentColor(accentColor: string) {
   const supabase = await supabaseServer();
-  const userId = getCurrentUserId();
+  const userId = await requireUserIdServer();
   const supabaseAny = supabase as any;
 
   // First, try to get existing preferences

@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createProject, deleteProject, renameProject } from "@/lib/data/projects";
 import { supabaseServer } from "@/lib/supabase/server";
-import { getCurrentUserId } from "@/lib/supabase/user";
+import { requireUserIdServer } from "@/lib/supabase/user";
 
 export async function createProjectAction(name: string, icon?: string, color?: string) {
   const project = await createProject({ name, icon, color });
@@ -12,7 +12,7 @@ export async function createProjectAction(name: string, icon?: string, color?: s
 
 export async function updateProjectIconAction(projectId: string, icon: string, color: string) {
   const supabase = await supabaseServer();
-  const userId = getCurrentUserId();
+  const userId = await requireUserIdServer();
 
   const { data, error } = await (supabase
     .from("projects") as any)

@@ -1,8 +1,7 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
-import supabaseClient from "@/lib/supabase/client";
-import { getCurrentUserId } from "@/lib/supabase/user";
+import supabaseClient from "@/lib/supabase/browser-client";
 import type { Database } from "@/lib/supabase/types";
 import type { AssistantMessageMetadata } from "@/lib/chatTypes";
 
@@ -51,13 +50,11 @@ const getTitleFromMessages = (messages: StoredMessage[], fallback = "New chat") 
 interface ChatProviderProps {
   children: React.ReactNode;
   initialChats?: StoredChat[];
+  userId: string;
 }
 
-export function ChatProvider({ children, initialChats = [] }: ChatProviderProps) {
+export function ChatProvider({ children, initialChats = [], userId }: ChatProviderProps) {
   const [chats, setChats] = useState<StoredChat[]>(initialChats);
-
-  // Keep a stable ref to user id used for client subscriptions/queries
-  const userId = getCurrentUserId();
 
   // Refresh chats from Supabase client-side (used for manual refresh or initial hydration fallback)
   const refreshChats = useCallback(async () => {

@@ -6,6 +6,7 @@ import { Menu, Plus } from "lucide-react";
 
 import { ChatSidebar } from "@/components/chat-sidebar";
 import { Button } from "@/components/ui/button";
+import { SettingsModal } from "@/components/settings-modal";
 import { useProjects } from "@/components/projects/projects-provider";
 import { ProjectCard } from "@/components/projects/project-card";
 import { NewProjectModal } from "@/components/projects/new-project-modal";
@@ -17,6 +18,8 @@ export default function ProjectsPage() {
   const [currentModel, setCurrentModel] = useState("GPT-5.1");
   const [selectedProjectId, setSelectedProjectId] = useState("");
   const [isNewProjectOpen, setIsNewProjectOpen] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [settingsTab, setSettingsTab] = useState<'general' | 'personalization'>('personalization');
   const { projects, addProject, refreshProjects } = useProjects();
   const { globalChats, chats, refreshChats } = useChatStore();
   const router = useRouter();
@@ -100,6 +103,14 @@ export default function ProjectsPage() {
         selectedProjectId={selectedProjectId}
         onRefreshChats={refreshChats}
         onRefreshProjects={refreshProjects}
+        onSettingsOpen={() => {
+          setSettingsTab('personalization')
+          setIsSettingsOpen(true)
+        }}
+        onGeneralSettingsOpen={() => {
+          setSettingsTab('general')
+          setIsSettingsOpen(true)
+        }}
       />
 
       <div className="flex-1 overflow-y-auto">
@@ -149,6 +160,15 @@ export default function ProjectsPage() {
         isOpen={isNewProjectOpen}
         onClose={() => setIsNewProjectOpen(false)}
         onCreate={handleProjectCreate}
+      />
+
+      <SettingsModal
+        isOpen={isSettingsOpen}
+        onClose={() => {
+          setIsSettingsOpen(false)
+          setSettingsTab('personalization')
+        }}
+        initialTab={settingsTab}
       />
     </div>
   );

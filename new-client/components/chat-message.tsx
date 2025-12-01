@@ -55,6 +55,7 @@ export function ChatMessage({
   const typedMetadata = metadataObj as AssistantMessageMetadata | null
 
   const modelUsed = typedMetadata?.modelUsed as string | undefined
+  const isGuest = Boolean((typedMetadata as any)?.isGuest)
   let resolvedFamily = typedMetadata?.resolvedFamily as string | undefined
   const reasoningEffort = typedMetadata?.reasoningEffort as string | undefined
   // Map resolved family to display name
@@ -76,7 +77,7 @@ export function ChatMessage({
     else if (lower.includes('pro')) resolvedFamily = 'gpt-5-pro-2025-10-06'
   }
 
-  const displayModelName = getDisplayModelName(resolvedFamily)
+  const displayModelName = isGuest ? null : getDisplayModelName(resolvedFamily)
 
   const handleCopy = async () => {
     await navigator.clipboard.writeText(content)
@@ -154,63 +155,67 @@ export function ChatMessage({
             </div>
           )}
 
-          {!isStreaming && (
-            <div className="flex items-center gap-1.5 sm:gap-2 pt-2 overflow-x-auto pb-1 -mx-1 px-1">
-              <Button 
-                variant="ghost" 
-                size="sm" 
-                className="h-8 gap-1.5 text-xs text-muted-foreground hover:text-foreground flex-shrink-0"
-                onClick={handleCopy}
-              >
-                {copied ? (
-                  <>
-                    <Check className="h-3.5 w-3.5" />
-                    <span className="hidden xs:inline">Copied</span>
-                  </>
-                ) : (
-                  <>
-                    <Copy className="h-3.5 w-3.5" />
-                    <span className="hidden xs:inline">Copy</span>
-                  </>
-                )}
-              </Button>
-              
-              {((hasSources ?? false) || (Array.isArray(typedMetadata?.citations) && typedMetadata.citations.length > 0)) && (
-                <Button variant="ghost" size="sm" className="h-8 gap-1.5 text-xs text-muted-foreground hover:text-foreground flex-shrink-0">
-                  <ExternalLink className="h-3.5 w-3.5" />
-                  <span className="hidden xs:inline">Sources</span>
+          <div className="flex items-center gap-1.5 sm:gap-2 pt-2 overflow-x-auto pb-1 -mx-1 px-1" style={{ minHeight: '32px' }}>
+            {!isStreaming && (
+              <>
+                <Button 
+                  variant="ghost" 
+                  size="sm" 
+                  className="h-8 gap-1.5 text-xs text-muted-foreground hover:text-foreground flex-shrink-0"
+                  onClick={handleCopy}
+                >
+                  {copied ? (
+                    <>
+                      <Check className="h-3.5 w-3.5" />
+                      <span className="hidden xs:inline">Copied</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="h-3.5 w-3.5" />
+                      <span className="hidden xs:inline">Copy</span>
+                    </>
+                  )}
                 </Button>
-              )}
-              
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="ghost" size="sm" className="h-8 text-xs text-muted-foreground hover:text-foreground flex-shrink-0">
-                    {displayModelName}
+                
+                {((hasSources ?? false) || (Array.isArray(typedMetadata?.citations) && typedMetadata.citations.length > 0)) && (
+                  <Button variant="ghost" size="sm" className="h-8 gap-1.5 text-xs text-muted-foreground hover:text-foreground flex-shrink-0">
+                    <ExternalLink className="h-3.5 w-3.5" />
+                    <span className="hidden xs:inline">Sources</span>
                   </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start" className="w-56">
-                  <DropdownMenuRadioGroup value={retryModel} onValueChange={handleRetryWithModel}>
-                    <DropdownMenuRadioItem value="GPT 5 Nano">
-                      <span className="flex-1">Retry with GPT 5 Nano</span>
-                      {displayModelName === 'GPT 5 Nano' && <span className="text-xs text-muted-foreground ml-2">(current)</span>}
-                    </DropdownMenuRadioItem>
-                    <DropdownMenuRadioItem value="GPT 5 Mini">
-                      <span className="flex-1">Retry with GPT 5 Mini</span>
-                      {displayModelName === 'GPT 5 Mini' && <span className="text-xs text-muted-foreground ml-2">(current)</span>}
-                    </DropdownMenuRadioItem>
-                    <DropdownMenuRadioItem value="GPT 5.1">
-                      <span className="flex-1">Retry with GPT 5.1</span>
-                      {displayModelName === 'GPT 5.1' && <span className="text-xs text-muted-foreground ml-2">(current)</span>}
-                    </DropdownMenuRadioItem>
-                    <DropdownMenuRadioItem value="GPT 5 Pro">
-                      <span className="flex-1">Retry with GPT 5 Pro</span>
-                      {displayModelName === 'GPT 5 Pro' && <span className="text-xs text-muted-foreground ml-2">(current)</span>}
-                    </DropdownMenuRadioItem>
-                  </DropdownMenuRadioGroup>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
-          )}
+                )}
+                
+                {!isGuest && displayModelName && (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="ghost" size="sm" className="h-8 text-xs text-muted-foreground hover:text-foreground flex-shrink-0">
+                        {displayModelName}
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="start" className="w-56">
+                      <DropdownMenuRadioGroup value={retryModel} onValueChange={handleRetryWithModel}>
+                        <DropdownMenuRadioItem value="GPT 5 Nano">
+                          <span className="flex-1">Retry with GPT 5 Nano</span>
+                          {displayModelName === 'GPT 5 Nano' && <span className="text-xs text-muted-foreground ml-2">(current)</span>}
+                        </DropdownMenuRadioItem>
+                        <DropdownMenuRadioItem value="GPT 5 Mini">
+                          <span className="flex-1">Retry with GPT 5 Mini</span>
+                          {displayModelName === 'GPT 5 Mini' && <span className="text-xs text-muted-foreground ml-2">(current)</span>}
+                        </DropdownMenuRadioItem>
+                        <DropdownMenuRadioItem value="GPT 5.1">
+                          <span className="flex-1">Retry with GPT 5.1</span>
+                          {displayModelName === 'GPT 5.1' && <span className="text-xs text-muted-foreground ml-2">(current)</span>}
+                        </DropdownMenuRadioItem>
+                        <DropdownMenuRadioItem value="GPT 5 Pro">
+                          <span className="flex-1">Retry with GPT 5 Pro</span>
+                          {displayModelName === 'GPT 5 Pro' && <span className="text-xs text-muted-foreground ml-2">(current)</span>}
+                        </DropdownMenuRadioItem>
+                      </DropdownMenuRadioGroup>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                )}
+              </>
+            )}
+          </div>
         </div>
       </div>
     </div>

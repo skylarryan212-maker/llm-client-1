@@ -1,5 +1,5 @@
 import { supabaseServer } from "@/lib/supabase/server";
-import { getCurrentUserId } from "@/lib/supabase/user";
+import { requireUserIdServer } from "@/lib/supabase/user";
 import type { Database } from "@/lib/supabase/types";
 
 type ConversationRow = Database["public"]["Tables"]["conversations"]["Row"];
@@ -13,7 +13,7 @@ function isValidUuid(value: string | null | undefined) {
 
 export async function getConversationsForUser(options?: { projectId?: string | null }) {
   const supabase = await supabaseServer();
-  const userId = getCurrentUserId();
+  const userId = await requireUserIdServer();
 
   const query = supabase
     .from("conversations")
@@ -47,7 +47,7 @@ export async function getConversationById(conversationId: string) {
   }
 
   const supabase = await supabaseServer();
-  const userId = getCurrentUserId();
+  const userId = await requireUserIdServer();
 
   const { data, error } = await supabase
     .from("conversations")
@@ -69,7 +69,7 @@ export async function renameConversation(params: { conversationId: string; title
   }
 
   const supabase = await supabaseServer();
-  const userId = getCurrentUserId();
+  const userId = await requireUserIdServer();
 
   const { data, error } = await (supabase
     .from("conversations") as any)
@@ -96,7 +96,7 @@ export async function moveConversationToProject(params: { conversationId: string
   }
 
   const supabase = await supabaseServer();
-  const userId = getCurrentUserId();
+  const userId = await requireUserIdServer();
 
   const { error } = await (supabase
     .from("conversations") as any)
@@ -115,7 +115,7 @@ export async function deleteConversation(conversationId: string) {
   }
 
   const supabase = await supabaseServer();
-  const userId = getCurrentUserId();
+  const userId = await requireUserIdServer();
 
   const { error } = await supabase
     .from("conversations")

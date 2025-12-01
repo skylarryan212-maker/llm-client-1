@@ -23,7 +23,9 @@ export function MessageInsightChips({ metadata }: MessageInsightChipsProps) {
   const chips: JSX.Element[] = [];
 
   const thoughtLabel = typeof typed.thoughtDurationLabel === "string" ? typed.thoughtDurationLabel : null;
-  if (thoughtLabel) {
+  const reasoningEffort = typed.reasoningEffort || typed.thinking?.effort;
+  // Only show thought label if reasoning effort is medium or high
+  if (thoughtLabel && (reasoningEffort === "medium" || reasoningEffort === "high")) {
     chips.push(<StatusBubble key="thought" label={thoughtLabel} />);
   }
 

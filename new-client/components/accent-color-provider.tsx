@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { supabaseBrowser } from '@/lib/supabase/browser'
-import { getCurrentUserId } from '@/lib/supabase/user'
+import { getCurrentUserIdClient } from '@/lib/supabase/user'
 
 const colorMap: Record<string, { base: string; hover: string }> = {
   white: {
@@ -90,44 +90,57 @@ export function AccentColorProvider({
   }, [initialAccentColor])
 
   useEffect(() => {
-    const userId = getCurrentUserId()
-    if (!userId) return
+    let isMounted = true
+    let cleanup: (() => void) | null = null
 
-    // Listen for custom event (when color changes in settings)
-    const handleAccentColorChange = (e: Event) => {
-      const customEvent = e as CustomEvent<string>
-      const newColor = customEvent.detail
-      applyAccentColor(newColor)
-      setCurrentColor(newColor)
+    async function setup() {
+      const userId = await getCurrentUserIdClient()
+      if (!isMounted || !userId) return
+
+      // Listen for custom event (when color changes in settings)
+      const handleAccentColorChange = (e: Event) => {
+        const customEvent = e as CustomEvent<string>
+        const newColor = customEvent.detail
+        applyAccentColor(newColor)
+        setCurrentColor(newColor)
+      }
+
+      const supabase = supabaseBrowser()
+      const channel = supabase
+        .channel('user_preferences_changes')
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'user_preferences',
+            filter: `user_id=eq.${userId}`,
+          },
+          (payload) => {
+            const newRow = payload.new as any
+            if (newRow?.accent_color && newRow.accent_color !== currentColor) {
+              applyAccentColor(newRow.accent_color)
+              setCurrentColor(newRow.accent_color)
+            }
+          }
+        )
+        .subscribe()
+
+      window.addEventListener('accentColorChange', handleAccentColorChange)
+
+      cleanup = () => {
+        window.removeEventListener('accentColorChange', handleAccentColorChange)
+        supabase.removeChannel(channel)
+      }
     }
 
-    // Subscribe to realtime changes from Supabase (syncs across tabs/devices)
-    const supabase = supabaseBrowser()
-    const channel = supabase
-      .channel('user_preferences_changes')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'user_preferences',
-          filter: `user_id=eq.${userId}`,
-        },
-        (payload) => {
-          const newRow = payload.new as any
-          if (newRow?.accent_color && newRow.accent_color !== currentColor) {
-            applyAccentColor(newRow.accent_color)
-            setCurrentColor(newRow.accent_color)
-          }
-        }
-      )
-      .subscribe()
-
-    window.addEventListener('accentColorChange', handleAccentColorChange)
+    setup()
 
     return () => {
-      window.removeEventListener('accentColorChange', handleAccentColorChange)
-      supabase.removeChannel(channel)
+      isMounted = false
+      if (cleanup) {
+        cleanup()
+      }
     }
   }, [currentColor])
 

@@ -51,6 +51,7 @@ interface ChatSidebarProps {
   onProjectSelect?: (id: string) => void
   selectedProjectId?: string
   onSettingsOpen?: () => void
+  onGeneralSettingsOpen?: () => void
   onRefreshChats?: () => void | Promise<void>
   onRefreshProjects?: () => void | Promise<void>
 }
@@ -71,6 +72,7 @@ export function ChatSidebar({
   onProjectSelect,
   selectedProjectId,
   onSettingsOpen,
+  onGeneralSettingsOpen,
   onRefreshChats,
   onRefreshProjects,
 }: ChatSidebarProps) {
@@ -388,9 +390,19 @@ export function ChatSidebar({
                                       </div>
                                       <div className="flex-shrink-0 ml-2">
                                         <ChatContextMenu
+                                          removeLabel={`Remove from ${project.name}`}
                                           onShare={() => console.log('Share', chat.id)}
                                           onRename={() => void queueRenameChat(chat.id, chat.title)}
                                           onMoveToProject={() => void queueMoveChat(chat.id, project.id)}
+                                          onRemoveFromProject={async () => {
+                                            try {
+                                              await moveConversationToProjectAction(chat.id, null)
+                                              await onRefreshChats?.()
+                                              await onRefreshProjects?.()
+                                            } catch (err) {
+                                              console.error('Remove from project failed', err)
+                                            }
+                                          }}
                                           onArchive={() => console.log('Archive', chat.id)}
                                           onDelete={() => void queueDeleteChat(chat.id, chat.title)}
                                         />
@@ -522,7 +534,7 @@ export function ChatSidebar({
         </div>
 
         <div className="absolute bottom-0 left-0 right-0 border-t border-sidebar-border bg-sidebar">
-          <UserProfileMenu isCompressed={!isOpen} onSettingsOpen={onSettingsOpen} />
+          <UserProfileMenu isCompressed={!isOpen} onSettingsOpen={onSettingsOpen} onGeneralSettingsOpen={onGeneralSettingsOpen} />
         </div>
       </div>
 

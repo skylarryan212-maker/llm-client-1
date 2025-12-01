@@ -1,5 +1,5 @@
 import { supabaseServer } from "@/lib/supabase/server";
-import { getCurrentUserId } from "@/lib/supabase/user";
+import { requireUserIdServer } from "@/lib/supabase/user";
 import type { Database } from "@/lib/supabase/types";
 
 type ProjectRow = Database["public"]["Tables"]["projects"]["Row"];
@@ -7,7 +7,7 @@ type ProjectInsert = Database["public"]["Tables"]["projects"]["Insert"];
 
 export async function getProjectsForUser() {
   const supabase = await supabaseServer();
-  const userId = getCurrentUserId();
+  const userId = await requireUserIdServer();
 
   const { data, error } = await supabase
     .from("projects")
@@ -25,7 +25,7 @@ export async function getProjectsForUser() {
 
 export async function createProject(params: { name: string; icon?: string; color?: string }) {
   const supabase = await supabaseServer();
-  const userId = getCurrentUserId();
+  const userId = await requireUserIdServer();
 
   const newProject: ProjectInsert = {
     user_id: userId,
@@ -62,7 +62,7 @@ export async function renameProject(params: { projectId: string; name: string })
   }
 
   const supabase = await supabaseServer();
-  const userId = getCurrentUserId();
+  const userId = await requireUserIdServer();
 
   const { data, error } = await (supabase
     .from("projects") as any)
@@ -85,7 +85,7 @@ export async function deleteProject(projectId: string) {
   }
 
   const supabase = await supabaseServer();
-  const userId = getCurrentUserId();
+  const userId = await requireUserIdServer();
 
   const { error } = await supabase
     .from("projects")
@@ -100,7 +100,7 @@ export async function deleteProject(projectId: string) {
 
 export async function getProjectById(projectId: string) {
   const supabase = await supabaseServer();
-  const userId = getCurrentUserId();
+  const userId = await requireUserIdServer();
 
   const { data, error } = await supabase
     .from("projects")

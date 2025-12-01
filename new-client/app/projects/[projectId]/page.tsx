@@ -11,6 +11,7 @@ import { X, FolderPlus } from 'lucide-react'
 
 import { ChatSidebar } from "@/components/chat-sidebar";
 import { Button } from "@/components/ui/button";
+import { SettingsModal } from "@/components/settings-modal";
 import { useProjects } from "@/components/projects/projects-provider";
 import { NewProjectModal } from "@/components/projects/new-project-modal";
 import { ProjectIconEditor } from "@/components/project-icon-editor";
@@ -20,6 +21,7 @@ import { ChatComposer } from "@/components/chat-composer";
 import { startProjectConversationAction } from "@/app/actions/chat-actions";
 import { updateProjectIconAction } from "@/app/actions/project-actions";
 import { requestAutoNaming } from "@/lib/autoNaming";
+import { useUserIdentity } from "@/components/user-identity-provider";
 
 import type { StoredChat, StoredMessage } from "@/components/chat/chat-provider";
 
@@ -52,12 +54,16 @@ export default function ProjectDetailPage() {
   const router = useRouter();
   const { projects, addProject, refreshProjects } = useProjects();
   const { globalChats, chats, createChat, refreshChats, ensureChat } = useChatStore();
+  const { isGuest } = useUserIdentity();
 
   const [isSidebarOpen, setIsSidebarOpen] = usePersistentSidebarOpen(true);
   const [currentModel, setCurrentModel] = useState("GPT-5.1");
   const [isNewProjectOpen, setIsNewProjectOpen] = useState(false);
   const [selectedChatId, setSelectedChatId] = useState("");
   const [selectedProjectId, setSelectedProjectId] = useState(params.projectId);
+  const [guestWarning, setGuestWarning] = useState<string | null>(null);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [settingsTab, setSettingsTab] = useState<'general' | 'personalization'>('personalization');
 
   const projectId = params.projectId;
 
@@ -72,23 +78,46 @@ export default function ProjectDetailPage() {
     return null;
   }
 
+  useEffect(() => {
+    if (isGuest) {
+      setGuestWarning("Guest mode: view only. Sign in to manage projects and chats.");
+    }
+  }, [isGuest]);
+
   const handleNewProject = () => {
+    if (isGuest) {
+      setGuestWarning("Sign in to create and save projects.");
+      return;
+    }
     setIsNewProjectOpen(true);
   };
 
   const handleProjectCreate = async (name: string) => {
+    if (isGuest) {
+      setGuestWarning("Sign in to create and save projects.");
+      setIsNewProjectOpen(false);
+      return;
+    }
     const newProject = await addProject(name);
     setIsNewProjectOpen(false);
     router.push(`/projects/${newProject.id}`);
   };
 
   const handleNewChat = () => {
+    if (isGuest) {
+      setGuestWarning("Guest mode: sign in to save chats.");
+      return;
+    }
     setSelectedChatId("");
     setSelectedProjectId("");
     router.push("/");
   };
 
   const handleChatSelect = (chatId: string) => {
+    if (isGuest) {
+      setGuestWarning("Guest mode: sign in to view chats.");
+      return;
+    }
     const chat = chats.find((item) => item.id === chatId);
     setSelectedChatId(chatId);
     if (chat?.projectId) {
@@ -101,6 +130,10 @@ export default function ProjectDetailPage() {
   };
 
   const handleProjectChatSelect = (projectIdValue: string, chatId: string) => {
+    if (isGuest) {
+      setGuestWarning("Guest mode: sign in to view chats.");
+      return;
+    }
     setSelectedChatId(chatId);
     setSelectedProjectId(projectIdValue);
     router.push(`/projects/${projectIdValue}/c/${chatId}`);
@@ -132,6 +165,10 @@ export default function ProjectDetailPage() {
   }, [projectConversations, projectId]);
 
   const handleProjectChatSubmit = async (message: string) => {
+    if (isGuest) {
+      setGuestWarning("Sign in to start and save chats.");
+      return;
+    }
     const now = new Date().toISOString();
     const { conversationId, message: createdMessage, conversation } =
       await startProjectConversationAction({
@@ -264,9 +301,23 @@ export default function ProjectDetailPage() {
         selectedProjectId={selectedProjectId}
         onRefreshChats={refreshChats}
         onRefreshProjects={refreshProjects}
+        onSettingsOpen={() => {
+          setSettingsTab('personalization')
+          setIsSettingsOpen(true)
+        }}
+        onGeneralSettingsOpen={() => {
+          setSettingsTab('general')
+          setIsSettingsOpen(true)
+        }}
       />
 
       <div className="flex-1 overflow-y-auto">
+        {isGuest && (
+          <div className="px-4 py-2 bg-amber-900/40 text-amber-100 text-sm flex items-center justify-between">
+            <span>Guest mode: chats and projects won&apos;t be saved. Sign in to keep your work.</span>
+            {guestWarning ? <span className="text-amber-200 text-xs">{guestWarning}</span> : null}
+          </div>
+        )}
         <div className="mx-auto max-w-5xl px-4 sm:px-6 py-8 sm:py-12 lg:py-16">
           <div className="mx-auto w-full max-w-3xl space-y-6">
             <div className="flex items-center justify-between gap-3">
@@ -505,6 +556,15 @@ export default function ProjectDetailPage() {
           </div>
         </div>
       </Dialog>
+
+      <SettingsModal
+        isOpen={isSettingsOpen}
+        onClose={() => {
+          setIsSettingsOpen(false)
+          setSettingsTab('personalization')
+        }}
+        initialTab={settingsTab}
+      />
     </div>
   );
 }

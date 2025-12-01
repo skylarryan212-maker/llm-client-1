@@ -1,17 +1,20 @@
 "use client";
 
 import React from "react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useLayoutEffect } from "react";
 import { useRouter } from "next/navigation";
+import { useUserIdentity } from "@/components/user-identity-provider";
 
 import { ChatSidebar } from "@/components/chat-sidebar";
 import { ChatMessage } from "@/components/chat-message";
 import { ChatComposer } from "@/components/chat-composer";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
-import { ArrowDown, Check, ChevronDown, Menu } from "lucide-react";
+import { ArrowDown, Check, ChevronDown, Menu, Plus } from "lucide-react";
 import { SettingsModal } from "@/components/settings-modal";
 import { StatusBubble } from "@/components/chat/status-bubble";
+import { ApiUsageBadge } from "@/components/api-usage-badge";
+import { UsageLimitModal } from "@/components/usage-limit-modal";
 import {
   appendUserMessageAction,
   startGlobalConversationAction,
@@ -86,6 +89,13 @@ function mergeThinkingTimingIntoMetadata(
   if (!timing) {
     return metadata;
   }
+  const skipEfforts = new Set<ReasoningEffort | "minimal">(["low", "none", "minimal"]);
+  if (metadata && skipEfforts.has(metadata.reasoningEffort as ReasoningEffort | "minimal")) {
+    return metadata;
+  }
+  if (timing.effort && skipEfforts.has(timing.effort as ReasoningEffort | "minimal")) {
+    return metadata;
+  }
   // CRITICAL: Only merge if metadata has absolutely NO timing information
   // Once timing is set (either from client or server), it should NEVER be overwritten
   const hasAnyTiming = metadata && 
@@ -135,6 +145,9 @@ export default function ChatPageShell({
     ensureChat,
     refreshChats,
   } = useChatStore();
+  const { isGuest } = useUserIdentity();
+  const [guestWarning, setGuestWarning] = useState<string | null>(null);
+  const [guestAssistantId, setGuestAssistantId] = useState<string | null>(null);
 
   const [isSidebarOpen, setIsSidebarOpen] = usePersistentSidebarOpen(true);
   const [currentModel, setCurrentModel] = useState("Auto");
@@ -145,8 +158,19 @@ export default function ChatPageShell({
   const [selectedProjectId, setSelectedProjectId] = useState(projectId ?? "");
   const [isNewProjectOpen, setIsNewProjectOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [settingsTab, setSettingsTab] = useState<'general' | 'personalization'>('personalization');
+  const [usageLimitModal, setUsageLimitModal] = useState<{
+    isOpen: boolean;
+    currentSpending: number;
+    limit: number;
+    planType: string;
+  }>({ isOpen: false, currentSpending: 0, limit: 0, planType: 'free' });
   const [isAutoScroll, setIsAutoScroll] = useState(true);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
+  const messageRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const [bottomSpacerPx, setBottomSpacerPx] = useState(220);
+  const [pinMessageId, setPinMessageId] = useState<string | null>(null);
+  const pinFrameRef = useRef<{ first?: number; second?: number }>({});
   const [isStreaming, setIsStreaming] = useState(false);
   const [thinkingStatus, setThinkingStatus] = useState<{ variant: "thinking" | "extended"; label: string } | null>(null);
   // Force re-render while thinking so a live duration chip can update
@@ -177,6 +201,7 @@ export default function ChatPageShell({
   const pendingThinkingInfoRef = useRef<ThinkingTimingInfo | null>(null);
   const searchIndicatorTimerRef = useRef<NodeJS.Timeout | null>(null);
   const fileIndicatorTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const prevMessageCountRef = useRef<number>(0);
   const AUTO_STREAM_KEY_PREFIX = "llm-client-auto-stream:";
 
   const getAutoStreamKey = (conversationId: string) =>
@@ -240,12 +265,7 @@ export default function ChatPageShell({
       return;
     }
     setThinkingStatus({ variant: "thinking", label: "Thinking" });
-    thinkingTimerRef.current = setTimeout(() => {
-      setThinkingStatus((prev) =>
-        prev ? { variant: "extended", label: "Thinking for longer…" } : prev
-      );
-      thinkingTimerRef.current = null;
-    }, 4000);
+    // No extended indicator for low/minimal/none efforts
   }, []);
 
   const startResponseTiming = useCallback(() => {
@@ -302,15 +322,11 @@ export default function ChatPageShell({
         label,
         effort: reasoningEffort ?? null,
       };
-      // Store client timing for display immediately
+      // Store client timing for display immediately (used for live chips on streaming messages)
       pendingThinkingInfoRef.current = thinkingInfo;
-      // Create metadata with client timing to show immediately
-      const displayMetadata = mergeThinkingTimingIntoMetadata(metadata, thinkingInfo);
-      if (displayMetadata) {
-        updateMessage(chatId, messageId, { metadata: displayMetadata });
-        return displayMetadata;
-      }
-      return metadata;
+      // Merge timing into metadata so downstream callers can persist/display immediately.
+      const merged = mergeThinkingTimingIntoMetadata(metadata, thinkingInfo);
+      return merged ?? metadata;
     },
     [hideThinkingIndicator, updateMessage]
   );
@@ -454,13 +470,6 @@ export default function ChatPageShell({
     }
   }, [activeIndicatorMessageId, searchIndicator, fileReadingIndicator, thinkingStatus]);
 
-  const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
-    const viewport = scrollViewportRef.current;
-    if (!viewport) return;
-
-    viewport.scrollTo({ top: viewport.scrollHeight, behavior });
-  }, []);
-
   useEffect(() => {
     setSelectedChatId(activeConversationId ?? null);
     // Reset timing refs when conversation changes to prevent stale data
@@ -507,11 +516,171 @@ export default function ChatPageShell({
   const currentChat = chats.find((c) => c.id === selectedChatId);
   const messages = currentChat?.messages || [];
 
+  const getLastExchangeAnchorId = useCallback(() => {
+    // Anchor on the most recent user message; if none, fall back to last message.
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role === "user") {
+        return messages[i].id;
+      }
+    }
+    return messages[messages.length - 1]?.id;
+  }, [messages]);
+
+  const scrollToBottom = useCallback(
+    (
+      behavior: ScrollBehavior = "smooth",
+      options?: { anchorLatest?: boolean; forceBottom?: boolean }
+    ) => {
+      const viewport = scrollViewportRef.current;
+      if (!viewport) return;
+
+      if (options?.forceBottom) {
+        viewport.scrollTo({ top: viewport.scrollHeight, behavior });
+        if (typeof requestAnimationFrame !== "undefined") {
+          requestAnimationFrame(() =>
+            viewport.scrollTo({ top: viewport.scrollHeight, behavior: "auto" })
+          );
+        }
+        return;
+      }
+
+      const anchorLatest = options?.anchorLatest !== false;
+      if (!anchorLatest) {
+        viewport.scrollTo({ top: viewport.scrollHeight, behavior });
+        if (typeof requestAnimationFrame !== "undefined") {
+          requestAnimationFrame(() =>
+            viewport.scrollTo({ top: viewport.scrollHeight, behavior: "auto" })
+          );
+        }
+        return;
+      }
+
+      const anchorId = getLastExchangeAnchorId();
+      const targetEl = anchorId ? messageRefs.current[anchorId] : null;
+      const fallbackScroll = () => viewport.scrollTo({ top: viewport.scrollHeight, behavior });
+
+      if (targetEl) {
+        const offset = Math.max(0, targetEl.offsetTop - 4);
+        viewport.scrollTo({ top: offset, behavior });
+        if (typeof requestAnimationFrame !== "undefined") {
+              requestAnimationFrame(() => {
+                const rerunOffset = Math.max(0, targetEl.offsetTop - 4);
+                viewport.scrollTo({ top: rerunOffset, behavior: "auto" });
+              });
+            }
+          } else {
+            fallbackScroll();
+            if (typeof requestAnimationFrame !== "undefined") {
+              requestAnimationFrame(() => viewport.scrollTo({ top: viewport.scrollHeight, behavior: "auto" }));
+        }
+      }
+    },
+    [messages, getLastExchangeAnchorId]
+  );
+
+  const recomputeScrollFlags = useCallback(() => {
+    const viewport = scrollViewportRef.current;
+    if (!viewport) return;
+    const { scrollTop, scrollHeight, clientHeight } = viewport;
+    const distanceFromBottom = scrollHeight - (scrollTop + clientHeight);
+    const tolerance = Math.max(12, bottomSpacerPx / 3);
+    const atBottom = distanceFromBottom <= tolerance;
+    setShowScrollToBottom(!atBottom);
+  }, [bottomSpacerPx]);
+
+  // Dynamically size the bottom spacer so the newest prompt can pin near the top without leaving a giant empty area.
+  useEffect(() => {
+    const viewport = scrollViewportRef.current;
+    const compute = () => {
+      if (!viewport) return;
+      // Give a modest buffer (35% of viewport), capped to keep a hard bottom.
+      const desired = Math.min(220, Math.max(100, Math.round(viewport.clientHeight * 0.28)));
+      setBottomSpacerPx((prev) => (prev === desired ? prev : desired));
+    };
+    compute();
+    if (typeof window !== "undefined") {
+      window.addEventListener("resize", compute);
+      return () => window.removeEventListener("resize", compute);
+    }
+  }, [messages.length]);
+
+  // Listen for usage limit exceeded events
+  useEffect(() => {
+    const handleUsageLimitExceeded = (event: Event) => {
+      const customEvent = event as CustomEvent;
+      const { currentSpending, limit, planType } = customEvent.detail || {};
+      if (typeof currentSpending !== "number" || typeof limit !== "number" || !planType) {
+        return;
+      }
+      // Persist the modal open state until the user closes it manually
+      setUsageLimitModal((prev) => ({
+        isOpen: true,
+        currentSpending,
+        limit,
+        planType
+      }));
+    };
+
+    window.addEventListener('usage-limit-exceeded', handleUsageLimitExceeded);
+    return () => {
+      window.removeEventListener('usage-limit-exceeded', handleUsageLimitExceeded);
+    };
+  }, []);
+
+  useLayoutEffect(() => {
+    if (!pinMessageId) return;
+    setIsAutoScroll(true);
+    if (typeof requestAnimationFrame === "undefined") {
+      scrollToBottom("auto");
+      setPinMessageId(null);
+      setShowScrollToBottom(false);
+      return;
+    }
+    const firstFrame = requestAnimationFrame(() => {
+            scrollToBottom("auto", { anchorLatest: true });
+            const secondFrame = requestAnimationFrame(() => {
+        scrollToBottom("auto", { anchorLatest: true });
+        setPinMessageId(null);
+        setShowScrollToBottom(false);
+      });
+      pinFrameRef.current.second = secondFrame;
+    });
+    pinFrameRef.current.first = firstFrame;
+    return () => {
+      if (pinFrameRef.current.first) {
+        cancelAnimationFrame(pinFrameRef.current.first);
+      }
+      if (pinFrameRef.current.second) {
+        cancelAnimationFrame(pinFrameRef.current.second);
+      }
+      pinFrameRef.current = {};
+    };
+  }, [pinMessageId, scrollToBottom]);
+
+  // Force-pin the latest user prompt to the top whenever a new user message is added.
+  useEffect(() => {
+    const last = messages[messages.length - 1];
+    const prevCount = prevMessageCountRef.current;
+    prevMessageCountRef.current = messages.length;
+
+    if (!last) return;
+    const isNewMessage = messages.length > prevCount;
+    if (isNewMessage && last.role === "user") {
+      setIsAutoScroll(true);
+      scrollToBottom("auto", { anchorLatest: true });
+      if (typeof requestAnimationFrame !== "undefined") {
+        requestAnimationFrame(() =>
+          scrollToBottom("auto", { anchorLatest: true })
+        );
+      }
+    }
+  }, [messages.length, scrollToBottom]);
+
   useEffect(() => {
     setIsAutoScroll(true);
     setShowScrollToBottom(false);
-    scrollToBottom("auto");
-  }, [selectedChatId]);
+    scrollToBottom("auto", { anchorLatest: true });
+  }, [selectedChatId, scrollToBottom]);
 
   useEffect(() => {
     if (currentChat?.projectId) {
@@ -522,6 +691,111 @@ export default function ChatPageShell({
   }, [currentChat, selectedChatId]);
 
   type UploadedFragment = { id: string; name: string; dataUrl: string; mime?: string };
+
+  const streamGuestResponse = async (
+    assistantId: string,
+    chatId: string,
+    userMessage: string
+  ) => {
+    setIsStreaming(true);
+    setActiveIndicatorMessageId(assistantId);
+    responseTimingRef.current.assistantMessageId = assistantId;
+    startResponseTiming();
+    showThinkingIndicator(null);
+    try {
+      const response = await fetch("/api/guest-chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: userMessage, model: currentModel }),
+      });
+      if (!response.ok || !response.body) {
+        let warning = "Guest mode: failed to reach model. Sign in for full access.";
+        try {
+          const data = await response.json();
+          if (data?.message) {
+            warning = data.message;
+          } else if (data?.error) {
+            warning = data.error;
+          }
+        } catch {
+          // ignore JSON parse errors
+        }
+        setGuestWarning(warning);
+        setIsStreaming(false);
+        setActiveIndicatorMessageId(null);
+        return;
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let assistantContent = "";
+      let messageMetadata: AssistantMessageMetadata | null = { isGuest: true } as AssistantMessageMetadata;
+      let firstTokenSeen = false;
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const textChunk = decoder.decode(value, { stream: true });
+        const lines = textChunk.split("\n").filter(Boolean);
+        for (const line of lines) {
+          try {
+            const parsed = JSON.parse(line);
+            if (parsed.token) {
+              assistantContent += parsed.token;
+              if (!firstTokenSeen) {
+                firstTokenSeen = true;
+                messageMetadata = recordFirstTokenTiming(
+                  chatId,
+                  assistantId,
+                  messageMetadata,
+                  null
+                );
+                // Preserve guest flag when timing was merged
+                if (messageMetadata && !(messageMetadata as any).isGuest) {
+                  messageMetadata = { ...messageMetadata, isGuest: true } as AssistantMessageMetadata;
+                }
+                // As soon as first token hits, drop transient indicators (thinking/search/file) without clearing timing.
+                hideThinkingIndicator();
+                clearSearchIndicator();
+                clearFileReadingIndicator();
+              }
+              const mergedMeta = mergeThinkingTimingIntoMetadata(messageMetadata, pendingThinkingInfoRef.current as ThinkingTimingInfo | null);
+              messageMetadata = mergedMeta ?? messageMetadata;
+              updateMessage(chatId, assistantId, {
+                content: assistantContent,
+                metadata: messageMetadata,
+              });
+            }
+            if (parsed.done) {
+              if (assistantContent.length > 0) {
+                const finalMeta = mergeThinkingTimingIntoMetadata(
+                  messageMetadata,
+                  pendingThinkingInfoRef.current as ThinkingTimingInfo | null
+                );
+                messageMetadata = finalMeta ?? messageMetadata;
+                updateMessage(chatId, assistantId, {
+                  content: assistantContent,
+                  metadata: messageMetadata,
+                });
+              }
+              setIsStreaming(false);
+              setActiveIndicatorMessageId(null);
+              return;
+            }
+          } catch (e) {
+            console.warn("guest-chat parse error", e);
+          }
+        }
+      }
+    } catch (e) {
+      console.error("guest chat error", e);
+      setGuestWarning("Guest mode: model call failed. Please sign in.");
+    } finally {
+      resetThinkingIndicator();
+      setIsStreaming(false);
+      setActiveIndicatorMessageId(null);
+    }
+  };
+
   const handleSubmit = async (message: string, attachments?: UploadedFragment[]) => {
     console.log("[chatDebug] handleSubmit called with message:", message.substring(0, 50));
     const now = new Date().toISOString();
@@ -532,6 +806,38 @@ export default function ChatPageShell({
       timestamp: now,
       metadata: attachments && attachments.length ? { files: attachments.map(a => ({ name: a.name, mimeType: a.mime, dataUrl: a.dataUrl })) } : undefined,
     };
+
+    if (isGuest) {
+      // Local-only guest chat; not persisted.
+      let chatId = selectedChatId;
+      if (!chatId) {
+        chatId = createChat({
+          id: `guest-${Date.now()}`,
+          initialMessages: [userMessage],
+          title: "Guest chat",
+        });
+        setSelectedChatId(chatId);
+        setSelectedProjectId("");
+      } else {
+        appendMessages(chatId, [userMessage]);
+      }
+      setPinMessageId(userMessage.id);
+
+      const assistantId = `assistant-${Date.now()}`;
+      const assistantMessage: StoredMessage = {
+        id: assistantId,
+        role: "assistant",
+        content: "",
+        timestamp: new Date().toISOString(),
+        metadata: {
+          isGuest: true,
+        } as any,
+      };
+      appendMessages(chatId, [assistantMessage]);
+      setGuestAssistantId(assistantId);
+      await streamGuestResponse(assistantId, chatId, message);
+      return;
+    }
 
     if (!selectedChatId) {
       console.log("[chatDebug] Creating new conversation");
@@ -568,6 +874,7 @@ export default function ChatPageShell({
         });
         setSelectedChatId(newChatId);
         setSelectedProjectId(targetProjectId);
+        setPinMessageId(mappedMessage.id);
         
         // Mark this conversation as already auto-streamed to prevent duplicate in useEffect
         console.log("[chatDebug] Marking conversation as auto-streamed:", conversationId);
@@ -609,6 +916,7 @@ export default function ChatPageShell({
         });
         setSelectedChatId(newChatId);
         setSelectedProjectId("");
+        setPinMessageId(mappedMessage.id);
         
         // Mark this conversation as already auto-streamed to prevent duplicate in useEffect
         console.log("[chatDebug] Marking conversation as auto-streamed:", conversationId);
@@ -628,6 +936,7 @@ export default function ChatPageShell({
       // For existing chats, just append the user message to UI
       // (The /api/chat endpoint will persist it to the database)
       appendMessages(selectedChatId, [userMessage]);
+      setPinMessageId(userMessage.id);
       
         // Stream the model response and insert the user message on server
         await streamModelResponse(selectedChatId, selectedProjectId || undefined, message, selectedChatId, false, attachments);
@@ -721,7 +1030,32 @@ export default function ChatPageShell({
       });
 
       if (!response.ok) {
-        console.error("Chat API error:", response.status, response.statusText);
+        // Stop streaming state and indicators on error
+        resetThinkingIndicator();
+        setIsStreaming(false);
+        setActiveIndicatorMessageId(null);
+
+        // Check if it's a usage limit error
+        if (response.status === 429) {
+          try {
+            const errorData = await response.json();
+            if (errorData.error === "Usage limit exceeded") {
+              window.dispatchEvent(new CustomEvent("usage-limit-exceeded", {
+                detail: {
+                  currentSpending: errorData.currentSpending,
+                  limit: errorData.limit,
+                  planType: errorData.planType,
+                  message: errorData.message
+                }
+              }));
+              return;
+            }
+          } catch (e) {
+            console.error("Failed to parse error response:", e);
+          }
+        }
+        // Non-429 or unparsed error: surface a warning instead of noisy error
+        console.warn("Chat API error:", response.status, response.statusText);
         return;
       }
 
@@ -772,8 +1106,12 @@ export default function ChatPageShell({
                   messageMetadata,
                   indicatorEffort
                 );
-                // Hide file-reading indicator on first token
-                clearFileReadingIndicator();
+                // On first token, clear transient indicators without wiping timing
+                if (responseTimingRef.current.firstToken !== null) {
+                  hideThinkingIndicator();
+                  clearSearchIndicator();
+                  clearFileReadingIndicator();
+                }
                 // Clear the search indicator bubble on first token so it doesn't persist
                 clearSearchIndicator();
                 // If we have accumulated search domains, push them into metadata immediately
@@ -879,6 +1217,11 @@ export default function ChatPageShell({
                   metadata: metadataWithTiming,
                 });
                 responseTimingRef.current.assistantMessageId = newId;
+                
+                // Emit usage update event for live counter
+                if (typeof window !== 'undefined') {
+                  window.dispatchEvent(new CustomEvent('api-usage-updated'));
+                }
                 
                 // CRITICAL: If we used client timing (which is more accurate due to network latency),
                 // save it back to the database to overwrite the server's timing
@@ -1197,6 +1540,10 @@ export default function ChatPageShell({
   };
 
   const handleNewChat = () => {
+    if (isGuest) {
+      setGuestWarning("Guest mode: sign in to save chats and projects.");
+      return;
+    }
     setSelectedChatId(null);
     setSelectedProjectId("");
     router.push("/");
@@ -1211,25 +1558,28 @@ export default function ChatPageShell({
     const target = event.currentTarget;
     const { scrollTop, scrollHeight, clientHeight } = target;
     const distanceFromBottom = scrollHeight - (scrollTop + clientHeight);
-    const atBottom = distanceFromBottom <= 24;
+    const tolerance = Math.max(12, bottomSpacerPx / 3);
+    const atBottom = distanceFromBottom <= tolerance;
 
     setShowScrollToBottom(!atBottom);
-
-    setIsAutoScroll((prev) => {
-      if (!prev && atBottom) return prev;
-      if (!atBottom) return false;
-      return prev;
-    });
+    // Only keep auto-scroll on if it was already enabled; manual scroll to bottom should not re-enable anchoring.
+    setIsAutoScroll((prev) => (prev ? atBottom : false));
   };
 
   useEffect(() => {
     if (isAutoScroll) {
-      scrollToBottom("auto");
+      scrollToBottom("auto", { anchorLatest: true });
+      if (typeof requestAnimationFrame !== "undefined") {
+        requestAnimationFrame(() =>
+          scrollToBottom("auto", { anchorLatest: true })
+        );
+      }
       setShowScrollToBottom(false);
     } else {
-      setShowScrollToBottom(true);
+      // Recompute based on actual scroll position so the button state is always correct.
+      recomputeScrollFlags();
     }
-  }, [messages.length, isAutoScroll, messages]);
+  }, [messages.length, isAutoScroll, messages, scrollToBottom, recomputeScrollFlags]);
 
   useEffect(() => {
     return () => {
@@ -1246,10 +1596,19 @@ export default function ChatPageShell({
   }, []);
 
   const handleNewProject = () => {
+    if (isGuest) {
+      setGuestWarning("Sign in to create and save projects.");
+      return;
+    }
     setIsNewProjectOpen(true);
   };
 
   const handleProjectCreate = async (name: string, icon?: string, color?: string) => {
+    if (isGuest) {
+      setGuestWarning("Sign in to create and save projects.");
+      setIsNewProjectOpen(false);
+      return;
+    }
     const newProject = await addProject(name, icon, color);
     setSelectedProjectId(newProject.id);
     setIsNewProjectOpen(false);
@@ -1286,40 +1645,72 @@ export default function ChatPageShell({
   return (
     <div className="flex h-screen overflow-hidden bg-background text-foreground dark">
       {/* Sidebar */}
-      <ChatSidebar
-        isOpen={isSidebarOpen}
-        onToggle={() => setIsSidebarOpen((open) => !open)}
-        currentModel={currentModel}
-        onModelSelect={setCurrentModel}
-        selectedChatId={selectedChatId ?? ""} // Sidebar API expects string
-        conversations={sidebarConversations}
-        projects={projects}
-        projectChats={projectConversations}
-        onChatSelect={handleChatSelect}
-        onProjectChatSelect={handleProjectChatSelect}
-        onNewChat={handleNewChat}
-        onNewProject={handleNewProject}
-        onProjectSelect={handleProjectSelect}
-        selectedProjectId={selectedProjectId}
-        onSettingsOpen={() => setIsSettingsOpen(true)}
-        onRefreshChats={refreshChats}
-        onRefreshProjects={refreshProjects}
-      />
+      {!isGuest && (
+        <ChatSidebar
+          isOpen={isSidebarOpen}
+          onToggle={() => setIsSidebarOpen((open) => !open)}
+          currentModel={currentModel}
+          onModelSelect={setCurrentModel}
+          selectedChatId={selectedChatId ?? ""} // Sidebar API expects string
+          conversations={sidebarConversations}
+          projects={projects}
+          projectChats={projectConversations}
+          onChatSelect={handleChatSelect}
+          onProjectChatSelect={handleProjectChatSelect}
+          onNewChat={handleNewChat}
+          onNewProject={handleNewProject}
+          onProjectSelect={handleProjectSelect}
+          selectedProjectId={selectedProjectId}
+          onSettingsOpen={() => setIsSettingsOpen(true)}
+          onGeneralSettingsOpen={() => {
+            setSettingsTab('general')
+            setIsSettingsOpen(true)
+          }}
+          onRefreshChats={refreshChats}
+          onRefreshProjects={refreshProjects}
+        />
+      )}
 
       {/* Right column: header + messages + composer */}
       <div className="flex flex-1 flex-col w-full min-w-0">
         {/* Header bar */}
         <div className="flex h-[53px] items-center justify-between border-b border-border px-3 lg:px-6">
           <div className="flex items-center gap-2 min-w-0">
-            {/* Mobile sidebar toggle */}
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-9 w-9 lg:hidden"
-              onClick={() => setIsSidebarOpen((open) => !open)}
-            >
-              <Menu className="h-4 w-4" />
-            </Button>
+            {!isGuest && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-9 w-9 lg:hidden"
+                onClick={() => setIsSidebarOpen((open) => !open)}
+              >
+                <Menu className="h-4 w-4" />
+              </Button>
+            )}
+
+            {isGuest && (
+              <Button
+                variant="outline"
+                size="icon"
+                className="h-9 w-9"
+                onClick={() => {
+                  setSelectedChatId(null);
+                  setSelectedProjectId("");
+                  ensureChat({
+                    id: `guest-${Date.now()}`,
+                    title: "New chat",
+                    timestamp: new Date().toISOString(),
+                    messages: [],
+                  });
+                  router.push("/");
+                }}
+              >
+                <Plus className="h-4 w-4" />
+              </Button>
+            )}
+
+            <div className="flex-1 flex items-center justify-center">
+              <ApiUsageBadge />
+            </div>
 
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -1338,208 +1729,262 @@ export default function ChatPageShell({
                   <ChevronDown className="h-4 w-4 text-muted-foreground" />
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" className="w-64 space-y-1 py-2">
-                <div className="px-3 pb-1 text-sm font-semibold text-muted-foreground">
-                  GPT 5.1
-                </div>
-                <DropdownMenuItem
-                  className="items-center gap-3 px-3 py-2"
-                  onSelect={() => setCurrentModel("Auto")}
-                >
-                  <div className="flex flex-1 flex-col">
-                    <span className="font-medium leading-none">Auto</span>
-                    <span className="text-xs text-muted-foreground">
-                      Auto routing
-                    </span>
+              {!isGuest ? (
+                <DropdownMenuContent align="start" className="w-64 space-y-1 py-2">
+                  <div className="px-3 pb-1 text-sm font-semibold text-muted-foreground">
+                    GPT 5.1
                   </div>
-                  <span className="flex w-4 justify-end">
-                    {currentModel === "Auto" && <Check className="h-4 w-4" />}
-                  </span>
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  className="items-center gap-3 px-3 py-2"
-                  onSelect={() => setCurrentModel("Instant")}
-                >
-                  <div className="flex flex-1 flex-col">
-                    <span className="font-medium leading-none">Instant</span>
-                    <span className="text-xs text-muted-foreground">
-                      Answers right away
-                    </span>
-                  </div>
-                  <span className="flex w-4 justify-end">
-                    {currentModel === "Instant" && <Check className="h-4 w-4" />}
-                  </span>
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  className="items-center gap-3 px-3 py-2"
-                  onSelect={() => setCurrentModel("Thinking")}
-                >
-                  <div className="flex flex-1 flex-col">
-                    <span className="font-medium leading-none">Thinking</span>
-                    <span className="text-xs text-muted-foreground">
-                      Thinks longer for better answers
-                    </span>
-                  </div>
-                  <span className="flex w-4 justify-end">
-                    {currentModel === "Thinking" && <Check className="h-4 w-4" />}
-                  </span>
-                </DropdownMenuItem>
-
-                <div className="px-2">
-                  <div className="h-px bg-border" />
-                </div>
-
-                <DropdownMenuSub>
-                  <DropdownMenuSubTrigger className="items-center gap-3 px-3 py-2">
-                    <div className="flex flex-col text-left">
-                      <span className="font-medium leading-none">
-                        Other models
+                  <DropdownMenuItem
+                    className="items-center gap-3 px-3 py-2"
+                    onSelect={() => setCurrentModel("Auto")}
+                  >
+                    <div className="flex flex-1 flex-col">
+                      <span className="font-medium leading-none">Auto</span>
+                      <span className="text-xs text-muted-foreground">
+                        Auto routing
                       </span>
                     </div>
-                  </DropdownMenuSubTrigger>
-                  <DropdownMenuPortal>
-                    <DropdownMenuSubContent className="w-56 p-2 space-y-1">
-                      <div className="px-3 pb-1 text-sm font-semibold text-muted-foreground">
-                        GPT 5 Nano
-                      </div>
-                      <DropdownMenuItem
-                        className="items-center gap-3 px-3 py-2"
-                        onSelect={() => setCurrentModel("GPT 5 Nano Auto")}
-                      >
-                        <div className="flex flex-1 flex-col">
-                          <span className="font-medium leading-none">Auto</span>
-                        </div>
-                        <span className="flex w-4 justify-end">
-                          {currentModel === "GPT 5 Nano Auto" && <Check className="h-4 w-4" />}
-                        </span>
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        className="items-center gap-3 px-3 py-2"
-                        onSelect={() => setCurrentModel("GPT 5 Nano Instant")}
-                      >
-                        <div className="flex flex-1 flex-col">
-                          <span className="font-medium leading-none">Instant</span>
-                        </div>
-                        <span className="flex w-4 justify-end">
-                          {currentModel === "GPT 5 Nano Instant" && <Check className="h-4 w-4" />}
-                        </span>
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        className="items-center gap-3 px-3 py-2"
-                        onSelect={() => setCurrentModel("GPT 5 Nano Thinking")}
-                      >
-                        <div className="flex flex-1 flex-col">
-                          <span className="font-medium leading-none">Thinking</span>
-                        </div>
-                        <span className="flex w-4 justify-end">
-                          {currentModel === "GPT 5 Nano Thinking" && <Check className="h-4 w-4" />}
-                        </span>
-                      </DropdownMenuItem>
+                    <span className="flex w-4 justify-end">
+                      {currentModel === "Auto" && <Check className="h-4 w-4" />}
+                    </span>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    className="items-center gap-3 px-3 py-2"
+                    onSelect={() => setCurrentModel("Instant")}
+                  >
+                    <div className="flex flex-1 flex-col">
+                      <span className="font-medium leading-none">Instant</span>
+                      <span className="text-xs text-muted-foreground">
+                        Answers right away
+                      </span>
+                    </div>
+                    <span className="flex w-4 justify-end">
+                      {currentModel === "Instant" && <Check className="h-4 w-4" />}
+                    </span>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    className="items-center gap-3 px-3 py-2"
+                    onSelect={() => setCurrentModel("Thinking")}
+                  >
+                    <div className="flex flex-1 flex-col">
+                      <span className="font-medium leading-none">Thinking</span>
+                      <span className="text-xs text-muted-foreground">
+                        Thinks longer for better answers
+                      </span>
+                    </div>
+                    <span className="flex w-4 justify-end">
+                      {currentModel === "Thinking" && <Check className="h-4 w-4" />}
+                    </span>
+                  </DropdownMenuItem>
 
-                      <div className="px-2">
-                        <div className="h-px bg-border" />
-                      </div>
+                  <div className="px-2">
+                    <div className="h-px bg-border" />
+                  </div>
 
-                      <div className="px-3 pb-1 text-sm font-semibold text-muted-foreground">
-                        GPT 5 Mini
+                  <DropdownMenuSub>
+                    <DropdownMenuSubTrigger className="items-center gap-3 px-3 py-2">
+                      <div className="flex flex-col text-left">
+                        <span className="font-medium leading-none">
+                          Other models
+                        </span>
                       </div>
-                      <DropdownMenuItem
-                        className="items-center gap-3 px-3 py-2"
-                        onSelect={() => setCurrentModel("GPT 5 Mini Auto")}
-                      >
-                        <div className="flex flex-1 flex-col">
-                          <span className="font-medium leading-none">Auto</span>
+                    </DropdownMenuSubTrigger>
+                    <DropdownMenuPortal>
+                      <DropdownMenuSubContent className="w-56 p-2 space-y-1">
+                        <div className="px-3 pb-1 text-sm font-semibold text-muted-foreground">
+                          GPT 5 Nano
                         </div>
-                        <span className="flex w-4 justify-end">
-                          {currentModel === "GPT 5 Mini Auto" && <Check className="h-4 w-4" />}
-                        </span>
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        className="items-center gap-3 px-3 py-2"
-                        onSelect={() => setCurrentModel("GPT 5 Mini Instant")}
-                      >
-                        <div className="flex flex-1 flex-col">
-                          <span className="font-medium leading-none">Instant</span>
-                        </div>
-                        <span className="flex w-4 justify-end">
-                          {currentModel === "GPT 5 Mini Instant" && <Check className="h-4 w-4" />}
-                        </span>
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        className="items-center gap-3 px-3 py-2"
-                        onSelect={() => setCurrentModel("GPT 5 Mini Thinking")}
-                      >
-                        <div className="flex flex-1 flex-col">
-                          <span className="font-medium leading-none">Thinking</span>
-                        </div>
-                        <span className="flex w-4 justify-end">
-                          {currentModel === "GPT 5 Mini Thinking" && <Check className="h-4 w-4" />}
-                        </span>
-                      </DropdownMenuItem>
+                        <DropdownMenuItem
+                          className="items-center gap-3 px-3 py-2"
+                          onSelect={() => setCurrentModel("GPT 5 Nano Auto")}
+                        >
+                          <div className="flex flex-1 flex-col">
+                            <span className="font-medium leading-none">Auto</span>
+                          </div>
+                          <span className="flex w-4 justify-end">
+                            {currentModel === "GPT 5 Nano Auto" && <Check className="h-4 w-4" />}
+                          </span>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          className="items-center gap-3 px-3 py-2"
+                          onSelect={() => setCurrentModel("GPT 5 Nano Instant")}
+                        >
+                          <div className="flex flex-1 flex-col">
+                            <span className="font-medium leading-none">Instant</span>
+                          </div>
+                          <span className="flex w-4 justify-end">
+                            {currentModel === "GPT 5 Nano Instant" && <Check className="h-4 w-4" />}
+                          </span>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          className="items-center gap-3 px-3 py-2"
+                          onSelect={() => setCurrentModel("GPT 5 Nano Thinking")}
+                        >
+                          <div className="flex flex-1 flex-col">
+                            <span className="font-medium leading-none">Thinking</span>
+                          </div>
+                          <span className="flex w-4 justify-end">
+                            {currentModel === "GPT 5 Nano Thinking" && <Check className="h-4 w-4" />}
+                          </span>
+                        </DropdownMenuItem>
 
-                      <div className="px-2">
-                        <div className="h-px bg-border" />
+                        <div className="px-2">
+                          <div className="h-px bg-border" />
+                        </div>
+
+                        <div className="px-3 pb-1 text-sm font-semibold text-muted-foreground">
+                          GPT 5 Mini
+                        </div>
+                        <DropdownMenuItem
+                          className="items-center gap-3 px-3 py-2"
+                          onSelect={() => setCurrentModel("GPT 5 Mini Auto")}
+                        >
+                          <div className="flex flex-1 flex-col">
+                            <span className="font-medium leading-none">Auto</span>
+                          </div>
+                          <span className="flex w-4 justify-end">
+                            {currentModel === "GPT 5 Mini Auto" && <Check className="h-4 w-4" />}
+                          </span>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          className="items-center gap-3 px-3 py-2"
+                          onSelect={() => setCurrentModel("GPT 5 Mini Instant")}
+                        >
+                          <div className="flex flex-1 flex-col">
+                            <span className="font-medium leading-none">Instant</span>
+                          </div>
+                          <span className="flex w-4 justify-end">
+                            {currentModel === "GPT 5 Mini Instant" && <Check className="h-4 w-4" />}
+                          </span>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          className="items-center gap-3 px-3 py-2"
+                          onSelect={() => setCurrentModel("GPT 5 Mini Thinking")}
+                        >
+                          <div className="flex flex-1 flex-col">
+                            <span className="font-medium leading-none">Thinking</span>
+                          </div>
+                          <span className="flex w-4 justify-end">
+                            {currentModel === "GPT 5 Mini Thinking" && <Check className="h-4 w-4" />}
+                          </span>
+                        </DropdownMenuItem>
+
+                        <div className="px-2">
+                          <div className="h-px bg-border" />
+                        </div>
+
+                        <DropdownMenuItem
+                          className="items-center gap-3 px-3 py-2"
+                          onSelect={() => setCurrentModel("GPT 5 Pro")}
+                        >
+                          <span className="flex-1">GPT 5 Pro</span>
+                          <span className="flex w-4 justify-end">
+                            {currentModel === "GPT 5 Pro" && (
+                              <Check className="h-4 w-4" />
+                            )}
+                          </span>
+                        </DropdownMenuItem>
+                      </DropdownMenuSubContent>
+                    </DropdownMenuPortal>
+                  </DropdownMenuSub>
+                </DropdownMenuContent>
+              ) : (
+                <DropdownMenuContent align="start" className="w-72 p-0 overflow-hidden border border-border/60">
+                  <div className="bg-card">
+                    <div className="h-24 bg-gradient-to-br from-purple-500 via-indigo-500 to-blue-500" />
+                    <div className="p-4 space-y-2">
+                      <div className="text-sm font-semibold text-foreground">Try advanced features for free</div>
+                      <p className="text-xs text-muted-foreground">
+                        Get smarter responses, upload files, create images, and more by logging in.
+                      </p>
+                      <div className="flex gap-2 pt-2">
+                        <Button
+                          size="sm"
+                          className="h-9 rounded-full px-3 text-sm font-semibold"
+                          onClick={() => router.push("/login")}
+                        >
+                          Log in
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-9 rounded-full px-3 text-sm font-semibold border border-border"
+                          onClick={() => router.push("/login")}
+                        >
+                          Sign up for free
+                        </Button>
                       </div>
-
-                      <DropdownMenuItem
-                        className="items-center gap-3 px-3 py-2"
-                        onSelect={() => setCurrentModel("GPT 5 Pro")}
-                      >
-                        <span className="flex-1">GPT 5 Pro</span>
-                        <span className="flex w-4 justify-end">
-                          {currentModel === "GPT 5 Pro" && (
-                            <Check className="h-4 w-4" />
-                          )}
-                        </span>
-                      </DropdownMenuItem>
-                    </DropdownMenuSubContent>
-                  </DropdownMenuPortal>
-                </DropdownMenuSub>
-              </DropdownMenuContent>
+                    </div>
+                  </div>
+                </DropdownMenuContent>
+              )}
             </DropdownMenu>
           </div>
 
-          <div className="hidden sm:flex items-center gap-2">
-            <Button
-              variant="ghost"
-              size="sm"
-              className="gap-2 text-muted-foreground"
-            >
-              <svg
-                className="h-4 w-4"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth="2"
-                  d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z"
-                />
-              </svg>
-              <span className="hidden md:inline">Share</span>
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="gap-2 text-muted-foreground"
-            >
-              <svg
-                className="h-4 w-4"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth="2"
-                  d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"
-                />
-              </svg>
-              <span className="hidden md:inline">Archive</span>
-            </Button>
+          <div className="flex items-center gap-2">
+            {isGuest ? (
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-9 px-3 text-sm font-semibold rounded-full"
+                  onClick={() => router.push("/login")}
+                >
+                  Log in
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-9 px-3 text-sm font-semibold rounded-full border border-border"
+                  onClick={() => router.push("/login")}
+                >
+                  Sign up for free
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="gap-2 text-muted-foreground"
+                >
+                  <svg
+                    className="h-4 w-4"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth="2"
+                      d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z"
+                    />
+                  </svg>
+                  <span className="hidden md:inline">Share</span>
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="gap-2 text-muted-foreground"
+                >
+                  <svg
+                    className="h-4 w-4"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth="2"
+                      d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"
+                    />
+                  </svg>
+                  <span className="hidden md:inline">Archive</span>
+                </Button>
+              </>
+            )}
           </div>
         </div>
 
@@ -1558,7 +2003,7 @@ export default function ChatPageShell({
             viewportRef={scrollViewportRef}
             onViewportScroll={handleScroll}
           >
-            <div className="py-4 pb-4">
+            <div className="py-4 pb-20">
               {/* Wide desktop layout with padded container */}
               <div className="w-full space-y-4">
                 {messages.map((message) => {
@@ -1574,10 +2019,9 @@ export default function ChatPageShell({
                   
                   // Show timing: stored from DB, or pending from first token, or live while thinking
                   const hasPendingTiming = Boolean(pendingThinkingInfoRef.current);
-                  const hasLiveStart = Boolean(responseTimingRef.current.start);
                   
                   if (!hasStoredThinkingDuration && isStreamingMessage && hasPendingTiming) {
-                    // Show pending timing from first token while waiting for server meta event
+                    // Show pending timing from first token (triggered immediately when first token arrives)
                     const timing = pendingThinkingInfoRef.current!;
                     displayMetadata = {
                       ...(displayMetadata || ({} as AssistantMessageMetadata)),
@@ -1591,38 +2035,27 @@ export default function ChatPageShell({
                         durationSeconds: timing.durationSeconds,
                       },
                     } as AssistantMessageMetadata;
-                  } else if (!hasStoredThinkingDuration && isStreamingMessage && thinkingStatus && hasLiveStart) {
-                    // Compute live timing while waiting for first token
-                    const now = typeof performance !== "undefined" ? performance.now() : Date.now();
-                    const start = responseTimingRef.current.start as number;
-                    const seconds = Math.max(0, (now - start) / 1000);
-                    const label = formatThoughtDurationLabel(seconds);
-                    displayMetadata = {
-                      ...(displayMetadata || ({} as AssistantMessageMetadata)),
-                      thoughtDurationLabel: label,
-                      thinkingDurationMs: Math.max(0, now - start),
-                      thinkingDurationSeconds: seconds,
-                      thinking: {
-                        ...(displayMetadata?.thinking || {}),
-                        durationMs: Math.max(0, now - start),
-                        durationSeconds: seconds,
-                      },
-                    } as AssistantMessageMetadata;
                   }
 
                   // Show insight chips for thinking duration and web search domains as soon as metadata arrives (or live during thinking)
                   const metadataIndicators =
                     Boolean(displayMetadata?.thoughtDurationLabel) ||
                     Boolean(displayMetadata?.searchedDomains?.length);
-                  const showIndicatorBlock = message.role === "assistant" && metadataIndicators;
                   
                   return (
-                    <div key={message.id}>
-                      {showIndicatorBlock && (
-                        <div className="flex flex-col gap-2 pb-2 px-4 sm:px-6">
+                    <div
+                      key={message.id}
+                      ref={(el) => {
+                        if (el) {
+                          messageRefs.current[message.id] = el;
+                        }
+                      }}
+                    >
+                      {message.role === "assistant" && (
+                        <div className="flex flex-col gap-2 pb-2 px-4 sm:px-6" style={{ minHeight: metadataIndicators ? 'auto' : '0px' }}>
                           <div className="mx-auto w-full max-w-3xl">
                             <div className="flex flex-wrap items-center gap-1.5 pt-1">
-                              <MessageInsightChips metadata={displayMetadata || undefined} />
+                              {metadataIndicators && <MessageInsightChips metadata={displayMetadata || undefined} />}
                             </div>
                           </div>
                         </div>
@@ -1643,7 +2076,7 @@ export default function ChatPageShell({
                   );
                 })}
                 {(thinkingStatus || searchIndicator || fileReadingIndicator) && (
-                  <div className="flex flex-col gap-2 pb-2 px-4 sm:px-6">
+                  <div className="flex flex-col gap-2 pb-8 px-4 sm:px-6">
                     <div className="mx-auto w-full max-w-3xl">
                       <div className="flex flex-wrap gap-2">
                         {fileReadingIndicator && (
@@ -1669,6 +2102,8 @@ export default function ChatPageShell({
                     </div>
                   </div>
                 )}
+                {/* Spacer to allow anchoring the newest message near the top with dynamic room below */}
+                <div aria-hidden="true" style={{ height: `${bottomSpacerPx}px` }} />
               </div>
             </div>
           </ScrollArea>
@@ -1677,21 +2112,22 @@ export default function ChatPageShell({
         {/* Composer: full-width bar, centered pill like ChatGPT */}
         <div className="bg-background px-4 sm:px-6 lg:px-12 py-3 sm:py-4 relative">
           <div
-            className={`pointer-events-none absolute left-1/2 -translate-x-1/2 -top-7 transition-opacity duration-200 ${
+            className={`pointer-events-none absolute left-1/2 -translate-x-1/2 -top-9 transition-opacity duration-200 ${
               showScrollToBottom ? "opacity-100" : "opacity-0"
             }`}
           >
             <Button
               type="button"
               size="icon"
-              className="pointer-events-auto h-10 w-10 rounded-full border border-border bg-background/80 shadow-md backdrop-blur hover:bg-background"
+              className="pointer-events-auto h-10 w-10 rounded-full border border-border bg-card/90 text-foreground shadow-md backdrop-blur hover:bg-background"
               onClick={() => {
-                setIsAutoScroll(true);
+                // Jump to absolute bottom to clear any overscroll confusion.
+                setIsAutoScroll(false);
                 setShowScrollToBottom(false);
-                scrollToBottom();
+                scrollToBottom("smooth", { anchorLatest: false, forceBottom: true });
               }}
             >
-              <ArrowDown className="h-4 w-4" />
+              <ArrowDown className="h-4 w-4 text-foreground" />
             </Button>
           </div>
           <div className="mx-auto w-full max-w-3xl">
@@ -1705,12 +2141,23 @@ export default function ChatPageShell({
       </div>
       <SettingsModal
         isOpen={isSettingsOpen}
-        onClose={() => setIsSettingsOpen(false)}
+        onClose={() => {
+          setIsSettingsOpen(false)
+          setSettingsTab('personalization')
+        }}
+        initialTab={settingsTab}
       />
       <NewProjectModal
         isOpen={isNewProjectOpen}
         onClose={() => setIsNewProjectOpen(false)}
         onCreate={handleProjectCreate}
+      />
+      <UsageLimitModal
+        isOpen={usageLimitModal.isOpen}
+        onClose={() => setUsageLimitModal({ ...usageLimitModal, isOpen: false })}
+        currentSpending={usageLimitModal.currentSpending}
+        limit={usageLimitModal.limit}
+        planType={usageLimitModal.planType}
       />
     </div>
   );

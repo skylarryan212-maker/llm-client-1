@@ -3,6 +3,7 @@
 import { Button } from '@/components/ui/button'
 import { Archive, Menu, Share2 } from 'lucide-react'
 import { ModelSelector } from '@/components/model-selector'
+import { ApiUsageBadge } from '@/components/api-usage-badge'
 import type { ModelFamily, SpeedMode } from '@/lib/modelConfig'
 
 interface ChatHeaderProps {
@@ -33,7 +34,11 @@ export function ChatHeader({
           </Button>
         )}
         
-        <h1 className="flex-1 text-sm font-semibold text-foreground">{title}</h1>
+        <h1 className="text-sm font-semibold text-foreground">{title}</h1>
+        
+        <div className="flex-1 flex items-center justify-center">
+          <ApiUsageBadge />
+        </div>
         
         {onModelFamilyChange && onSpeedModeChange && (
           <ModelSelector

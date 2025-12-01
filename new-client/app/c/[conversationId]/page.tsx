@@ -4,6 +4,7 @@ import ChatPageShell from "@/components/chat/chat-page-shell";
 import { getConversationById } from "@/lib/data/conversations";
 import { getMessagesForConversation } from "@/lib/data/messages";
 import type { Database } from "@/lib/supabase/types";
+import { getCurrentUserIdentity } from "@/lib/supabase/user";
 
 type MessageRow = Database["public"]["Tables"]["messages"]["Row"];
 
@@ -19,6 +20,11 @@ export default async function ConversationPage({
   params,
   searchParams,
 }: ConversationPageProps) {
+  const identity = await getCurrentUserIdentity();
+  if (identity.isGuest) {
+    redirect("/");
+  }
+
   const { conversationId } = await params;
   const resolvedSearchParams = await searchParams;
 
