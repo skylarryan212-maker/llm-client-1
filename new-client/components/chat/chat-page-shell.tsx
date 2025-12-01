@@ -667,12 +667,26 @@ export default function ChatPageShell({
     const isNewMessage = messages.length > prevCount;
     if (isNewMessage && last.role === "user") {
       setIsAutoScroll(true);
-      // Pin the user prompt at top when first sent
-      scrollToBottom("auto", { anchorLatest: true });
-      if (typeof requestAnimationFrame !== "undefined") {
-        requestAnimationFrame(() =>
-          scrollToBottom("auto", { anchorLatest: true })
-        );
+      
+      // Find the user message element and scroll it to the top of the viewport
+      const viewport = scrollViewportRef.current;
+      const userMessageEl = messageRefs.current[last.id];
+      
+      if (viewport && userMessageEl) {
+        // Scroll so the user message is at the very top (with small padding)
+        const targetScrollTop = userMessageEl.offsetTop - 8;
+        viewport.scrollTo({ top: targetScrollTop, behavior: "auto" });
+        
+        // Double-check after layout
+        if (typeof requestAnimationFrame !== "undefined") {
+          requestAnimationFrame(() => {
+            const recomputedTop = userMessageEl.offsetTop - 8;
+            viewport.scrollTo({ top: recomputedTop, behavior: "auto" });
+          });
+        }
+      } else {
+        // Fallback to scrollToBottom if element not found
+        scrollToBottom("auto", { anchorLatest: true });
       }
     }
   }, [messages.length, scrollToBottom]);
@@ -681,16 +695,31 @@ export default function ChatPageShell({
   useEffect(() => {
     if (!isStreaming || !isAutoScroll) return;
     
-    // Use a throttle mechanism to avoid excessive scrolling
-    const timeoutId = setTimeout(() => {
+    // Use requestAnimationFrame for smoother scrolling
+    let rafId: number;
+    const doScroll = () => {
       const viewport = scrollViewportRef.current;
       if (!viewport) return;
       
-      // Scroll to absolute bottom during streaming
-      viewport.scrollTo({ top: viewport.scrollHeight, behavior: "auto" });
-    }, 50);
+      // Check if we're already at the bottom
+      const { scrollTop, scrollHeight, clientHeight } = viewport;
+      const distanceFromBottom = scrollHeight - (scrollTop + clientHeight);
+      
+      // Only scroll if there's new content (not at bottom)
+      if (distanceFromBottom > 5) {
+        viewport.scrollTo({ top: scrollHeight, behavior: "auto" });
+      }
+    };
     
-    return () => clearTimeout(timeoutId);
+    if (typeof requestAnimationFrame !== "undefined") {
+      rafId = requestAnimationFrame(doScroll);
+    } else {
+      doScroll();
+    }
+    
+    return () => {
+      if (rafId) cancelAnimationFrame(rafId);
+    };
   }, [messages, isAutoScroll, isStreaming]);
 
   useEffect(() => {
