@@ -676,6 +676,13 @@ export default function ChatPageShell({
     }
   }, [messages.length, scrollToBottom]);
 
+  // Auto-scroll during streaming when message content changes
+  useEffect(() => {
+    if (isAutoScroll && isStreaming) {
+      scrollToBottom("auto", { anchorLatest: true });
+    }
+  }, [messages, isAutoScroll, isStreaming, scrollToBottom]);
+
   useEffect(() => {
     setIsAutoScroll(true);
     setShowScrollToBottom(false);
