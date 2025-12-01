@@ -667,6 +667,7 @@ export default function ChatPageShell({
     const isNewMessage = messages.length > prevCount;
     if (isNewMessage && last.role === "user") {
       setIsAutoScroll(true);
+      // Pin the user prompt at top when first sent
       scrollToBottom("auto", { anchorLatest: true });
       if (typeof requestAnimationFrame !== "undefined") {
         requestAnimationFrame(() =>
@@ -678,11 +679,19 @@ export default function ChatPageShell({
 
   // Auto-scroll during streaming when message content changes
   useEffect(() => {
-    if (isAutoScroll && isStreaming) {
-      // During streaming, force scroll to bottom to follow the response
-      scrollToBottom("auto", { forceBottom: true });
-    }
-  }, [messages, isAutoScroll, isStreaming, scrollToBottom]);
+    if (!isStreaming || !isAutoScroll) return;
+    
+    // Use a throttle mechanism to avoid excessive scrolling
+    const timeoutId = setTimeout(() => {
+      const viewport = scrollViewportRef.current;
+      if (!viewport) return;
+      
+      // Scroll to absolute bottom during streaming
+      viewport.scrollTo({ top: viewport.scrollHeight, behavior: "auto" });
+    }, 50);
+    
+    return () => clearTimeout(timeoutId);
+  }, [messages, isAutoScroll, isStreaming]);
 
   useEffect(() => {
     setIsAutoScroll(true);
@@ -1575,6 +1584,9 @@ export default function ChatPageShell({
   };
 
   useEffect(() => {
+    // Don't run this effect during streaming - let the streaming autoscroll handle it
+    if (isStreaming) return;
+    
     if (isAutoScroll) {
       scrollToBottom("auto", { anchorLatest: true });
       if (typeof requestAnimationFrame !== "undefined") {
@@ -1587,7 +1599,7 @@ export default function ChatPageShell({
       // Recompute based on actual scroll position so the button state is always correct.
       recomputeScrollFlags();
     }
-  }, [messages.length, isAutoScroll, messages, scrollToBottom, recomputeScrollFlags]);
+  }, [messages.length, isAutoScroll, isStreaming, scrollToBottom, recomputeScrollFlags]);
 
   useEffect(() => {
     return () => {
