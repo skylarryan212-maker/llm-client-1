@@ -202,6 +202,7 @@ export default function ChatPageShell({
   const searchIndicatorTimerRef = useRef<NodeJS.Timeout | null>(null);
   const fileIndicatorTimerRef = useRef<NodeJS.Timeout | null>(null);
   const prevMessageCountRef = useRef<number>(0);
+  const lastPinnedMessageIdRef = useRef<string | null>(null);
   const AUTO_STREAM_KEY_PREFIX = "llm-client-auto-stream:";
 
   const getAutoStreamKey = (conversationId: string) =>
@@ -665,7 +666,10 @@ export default function ChatPageShell({
 
     if (!last) return;
     const isNewMessage = messages.length > prevCount;
-    if (isNewMessage && last.role === "user") {
+    
+    // Only pin if it's a new user message AND we haven't pinned this message yet
+    if (isNewMessage && last.role === "user" && lastPinnedMessageIdRef.current !== last.id) {
+      lastPinnedMessageIdRef.current = last.id;
       setIsAutoScroll(true);
       
       // Find the user message element and scroll it to the top of the viewport
@@ -1616,19 +1620,16 @@ export default function ChatPageShell({
     // Don't run this effect during streaming - let the streaming autoscroll handle it
     if (isStreaming) return;
     
+    // Don't run if messages just changed length - the pin effect handles new user messages
+    // This effect is only for non-streaming scroll corrections
     if (isAutoScroll) {
-      scrollToBottom("auto", { anchorLatest: true });
-      if (typeof requestAnimationFrame !== "undefined") {
-        requestAnimationFrame(() =>
-          scrollToBottom("auto", { anchorLatest: true })
-        );
-      }
+      // Only recompute flags, don't force scroll
       setShowScrollToBottom(false);
     } else {
       // Recompute based on actual scroll position so the button state is always correct.
       recomputeScrollFlags();
     }
-  }, [messages.length, isAutoScroll, isStreaming, scrollToBottom, recomputeScrollFlags]);
+  }, [isAutoScroll, isStreaming, recomputeScrollFlags]);
 
   useEffect(() => {
     return () => {
