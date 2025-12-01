@@ -679,7 +679,8 @@ export default function ChatPageShell({
   // Auto-scroll during streaming when message content changes
   useEffect(() => {
     if (isAutoScroll && isStreaming) {
-      scrollToBottom("auto", { anchorLatest: true });
+      // During streaming, force scroll to bottom to follow the response
+      scrollToBottom("auto", { forceBottom: true });
     }
   }, [messages, isAutoScroll, isStreaming, scrollToBottom]);
 
