@@ -18,12 +18,15 @@ export async function POST(request: NextRequest) {
   };
 
   try {
+    console.log("[guest-chat] Received request");
     const body = (await request.json()) as GuestChatRequest;
     const message = body.message?.trim();
     if (!message) {
+      console.log("[guest-chat] No message provided");
       return NextResponse.json({ error: "Message is required" }, { status: 400 });
     }
 
+    console.log("[guest-chat] Message:", message.substring(0, 50));
     const supabase = await supabaseServer();
     const { session, cookieValue } = await ensureGuestSession(request, supabase);
     let requestCount = session.request_count ?? 0;
@@ -47,11 +50,14 @@ export async function POST(request: NextRequest) {
     const model =
       !body.model || body.model.toLowerCase() === "auto" ? "gpt-4o-mini" : body.model;
 
+    console.log("[guest-chat] Using model:", model);
     const apiKey = process.env.OPENAI_API_KEY;
     if (!apiKey) {
+      console.error("[guest-chat] Missing OPENAI_API_KEY");
       return NextResponse.json({ error: "Missing OPENAI_API_KEY" }, { status: 500 });
     }
 
+    console.log("[guest-chat] Creating OpenAI stream");
     const client = new OpenAI({ apiKey });
     const stream = await client.chat.completions.create({
       model,
@@ -72,12 +78,15 @@ export async function POST(request: NextRequest) {
         const enqueue = (obj: Record<string, unknown>) =>
           controller.enqueue(encoder.encode(JSON.stringify(obj) + "\n"));
         try {
+          console.log("[guest-chat] Starting to stream chunks");
           for await (const chunk of stream) {
             const delta = chunk.choices?.[0]?.delta?.content;
             if (delta) enqueue({ token: delta });
           }
           enqueue({ done: true });
+          console.log("[guest-chat] Stream completed successfully");
         } catch (err: any) {
+          console.error("[guest-chat] Stream error:", err);
           enqueue({ error: err?.message || "guest_chat_error" });
         } finally {
           controller.close();
