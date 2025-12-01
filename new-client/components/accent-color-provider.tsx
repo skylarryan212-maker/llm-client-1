@@ -116,7 +116,7 @@ export function AccentColorProvider({
             table: 'user_preferences',
             filter: `user_id=eq.${userId}`,
           },
-          (payload) => {
+          (payload: any) => {
             const newRow = payload.new as any
             if (newRow?.accent_color && newRow.accent_color !== currentColor) {
               applyAccentColor(newRow.accent_color)

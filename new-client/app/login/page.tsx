@@ -25,7 +25,6 @@ export default function LoginPage() {
       provider: "google",
       options: {
         redirectTo,
-        flowType: "pkce",
         skipBrowserRedirect: true,
       },
     });
