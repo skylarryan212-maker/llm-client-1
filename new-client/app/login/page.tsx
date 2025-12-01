@@ -1,12 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, Suspense } from "react";
 import { Button } from "@/components/ui/button";
 import supabaseClient from "@/lib/supabase/browser-client";
 import { useSearchParams } from "next/navigation";
 import { SUPABASE_PKCE_VERIFIER_KEY } from "@/lib/supabase/constants";
 
-export default function LoginPage() {
+function LoginPageContent() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const searchParams = useSearchParams();
@@ -95,5 +95,19 @@ export default function LoginPage() {
         ) : null}
       </div>
     </div>
+  );
+}
+
+export default function LoginPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-background text-foreground flex items-center justify-center p-6">
+        <div className="w-full max-w-md space-y-6 border border-border rounded-xl p-8 shadow-sm bg-card">
+          <div className="text-center">Loading...</div>
+        </div>
+      </div>
+    }>
+      <LoginPageContent />
+    </Suspense>
   );
 }
