@@ -15,10 +15,13 @@ function LoginPageContent() {
     setLoading(true);
     setError(null);
 
-    const redirectTo =
-      typeof window !== "undefined"
-        ? `${window.location.origin}/auth/callback`
-        : undefined;
+    // Build the redirect URL using current origin
+    // NOTE: Make sure your production domain is added to Supabase Auth > URL Configuration
+    // as an allowed redirect URL (e.g., https://your-app.vercel.app/auth/callback)
+    let redirectTo: string | undefined;
+    if (typeof window !== "undefined") {
+      redirectTo = `${window.location.origin}/auth/callback`;
+    }
 
     // Request provider URL without auto-redirect so we can capture PKCE verifier.
     const { data, error: authError } = await supabaseClient.auth.signInWithOAuth({
