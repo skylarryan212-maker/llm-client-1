@@ -668,26 +668,22 @@ export async function POST(request: NextRequest) {
       contextMessagesToLoad = [];
       console.log(`[context-strategy] Using minimal - cache only (0 messages loaded)`);
     } else if (contextStrategy === "recent") {
-      // If OpenAI chain exists, skip loading (OpenAI has the context)
-      // Otherwise load last 15 messages for normal conversation
-      if (previousResponseId) {
-        contextMessagesToLoad = [];
-        console.log(`[context-strategy] Using recent - OpenAI chain exists, skipping database load (relying on cache)`);
+      // Always load last 5 messages as safety net (even with chain)
+      // Chain provides semantic context, but explicit messages prevent degradation
+      const limit = previousResponseId ? 5 : 15; // Fewer with chain, more without
+      const { data: recentHistory, error: recentError } = await supabaseAny
+        .from("messages")
+        .select("*")
+        .eq("conversation_id", conversationId)
+        .order("created_at", { ascending: true })
+        .limit(limit);
+      
+      if (recentError) {
+        console.error("Failed to load recent history:", recentError);
       } else {
-        const { data: recentHistory, error: recentError } = await supabaseAny
-          .from("messages")
-          .select("*")
-          .eq("conversation_id", conversationId)
-          .order("created_at", { ascending: true })
-          .limit(15);
-        
-        if (recentError) {
-          console.error("Failed to load recent history:", recentError);
-        } else {
-          contextMessagesToLoad = recentHistory || [];
-        }
-        console.log(`[context-strategy] Using recent - no chain, loaded ${contextMessagesToLoad.length} messages from DB`);
+        contextMessagesToLoad = recentHistory || [];
       }
+      console.log(`[context-strategy] Using recent - loaded ${contextMessagesToLoad.length} messages (chain: ${!!previousResponseId})`);
     } else if (contextStrategy === "full") {
       // Load all messages for enumeration/recall (even if chain exists)
       // The model needs explicit message list to count/enumerate
