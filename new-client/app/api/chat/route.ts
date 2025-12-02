@@ -861,23 +861,7 @@ export async function POST(request: NextRequest) {
     ? body.attachments
         .map((a) => (a?.dataUrl ? `Attachment: ${a.name ?? 'file'} (${a.mime || 'unknown type'})` : ""))
         .filter((line) => line.length > 0)
-        {
-          type: "function",
-          name: "delete_memory",
-          description: "Delete a specific memory by ID.",
-          parameters: {
-            type: "object",
-            additionalProperties: false,
-            properties: {
-              id: {
-                description: "The memory UUID to delete.",
-                type: "string",
-              },
-            },
-            required: ["id"],
-          },
-          strict: true,
-        },
+        
   const openaiFileIds: string[] = [];
   let totalFileUploadSize = 0;
   // Try to reuse an existing vector store from recent messages
