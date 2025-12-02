@@ -2006,7 +2006,9 @@ export default function ChatPageShell({
                     </div>
                   );
                 })}
-                {(thinkingStatus || searchIndicator || fileReadingIndicator) && (
+                {/* Show indicators only if there are no messages OR if the last message has content (not empty placeholder) */}
+                {(thinkingStatus || searchIndicator || fileReadingIndicator) && 
+                 (messages.length === 0 || messages[messages.length - 1]?.content) && (
                   <div className="flex flex-col gap-2 pb-8 px-4 sm:px-6">
                     <div className="mx-auto w-full max-w-3xl">
                       <div className="flex flex-wrap gap-2">
