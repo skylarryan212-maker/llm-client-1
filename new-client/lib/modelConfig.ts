@@ -306,7 +306,7 @@ export async function getModelAndReasoningConfigWithLLM(
       });
 
       if (decision) {
-        console.log(`[modelConfig] LLM router decided: ${decision.model} with ${decision.effort} effort, context: ${decision.contextStrategy}`);
+        console.log(`[modelConfig] LLM router decided: ${decision.model} with ${decision.effort} effort, context: ${decision.contextStrategy}, webSearch: ${decision.webSearchStrategy}`);
         
         const MODEL_ID_MAP_LOCAL: Record<Exclude<ModelFamily, "auto">, string> = {
           "gpt-5.1": "gpt-5.1-2025-11-13",
@@ -341,8 +341,9 @@ export async function getModelAndReasoningConfigWithLLM(
           resolvedFamily: decision.model,
           reasoning: finalEffort ? { effort: finalEffort } : undefined,
           routedBy: "llm",
-          contextStrategy: decision.contextStrategy,  // Pass through for chat route
-        } as ModelConfig & { contextStrategy?: string };
+          contextStrategy: decision.contextStrategy,      // Pass through for chat route
+          webSearchStrategy: decision.webSearchStrategy,  // Pass through for chat route
+        } as ModelConfig & { contextStrategy?: string; webSearchStrategy?: string };
       }
 
       console.warn("[modelConfig] LLM routing failed, falling back to code-based logic");

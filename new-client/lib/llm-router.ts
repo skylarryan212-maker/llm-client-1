@@ -13,10 +13,16 @@ export type ContextStrategy =
   | "recent"       // Load last 15 messages (normal conversation)
   | "full";        // Load all messages (enumeration/recall)
 
+export type WebSearchStrategy =
+  | "never"        // No search needed (greetings, meta questions, offline tasks)
+  | "optional"     // Model can choose (might need fresh data)
+  | "required";    // Must search (explicit requests, current events, prices)
+
 export interface RouterDecision {
   model: Exclude<ModelFamily, "auto">;
   effort: ReasoningEffort;
   contextStrategy: ContextStrategy;
+  webSearchStrategy: WebSearchStrategy;
   routedBy: "llm";
 }
 
@@ -26,7 +32,7 @@ export interface RouterContext {
   usagePercentage?: number;
 }
 
-const ROUTER_SYSTEM_PROMPT = `You are a routing assistant that analyzes user prompts and recommends the optimal AI model, reasoning effort, and context strategy.
+const ROUTER_SYSTEM_PROMPT = `You are a routing assistant that analyzes user prompts and recommends the optimal AI model, reasoning effort, context strategy, and web search strategy.
 
 **Available Models:**
 1. **gpt-5-nano** - Fastest, cheapest. For simple queries, greetings, basic Q&A.
@@ -43,7 +49,7 @@ const ROUTER_SYSTEM_PROMPT = `You are a routing assistant that analyzes user pro
 
 Note: gpt-5-mini and gpt-5-nano MUST use "low", "medium", or "high" (never "none").
 
-**Context Strategy (NEW - IMPORTANT):**
+**Context Strategy:**
 - **minimal**: Use cached context only, don't load message history (for NEW factual questions that don't reference chat history)
 - **recent**: Load last 15 messages (for normal conversation flow, follow-ups, references to recent context)
 - **full**: Load ALL messages from database (for enumeration, listing, recalling old messages)
@@ -58,16 +64,38 @@ Note: gpt-5-mini and gpt-5-nano MUST use "low", "medium", or "high" (never "none
 - "What was my first question?" → full (needs oldest message)
 - "Summarize our conversation" → full (needs all messages)
 
+**Web Search Strategy (NEW - IMPORTANT):**
+- **never**: No search needed (greetings, offline math/logic, meta questions about AI, explanations of known concepts)
+- **optional**: Model can decide to search (questions that might need fresh data, ambiguous cases)
+- **required**: Must use web search (explicit search requests, current events, live data, prices, weather, recent news)
+
+**Web Search Examples:**
+- "Hi" / "Hello" → never (greeting)
+- "What's 2+2?" → never (math, no search needed)
+- "Explain quantum mechanics" → never (timeless concept)
+- "Can you search the web?" → never (meta question about capabilities)
+- "Who won the game last night?" → required (recent event)
+- "What's the weather today?" → required (live data)
+- "Current price of Bitcoin" → required (real-time data)
+- "Search the web for..." → required (explicit request)
+- "Latest news about AI" → required (current events)
+- "When does the sun set?" → optional (could calculate or search for exact time)
+- "Best restaurants in NYC" → optional (could use knowledge or search for current)
+- "What happened in 2024?" → optional (recent past, search might help)
+
 **Routing Guidelines:**
-- Short greetings ("hi", "hello") → nano + low + minimal
-- Simple factual questions → nano or mini + low + minimal
-- Explanations, summaries, analysis → mini + low or medium + minimal
-- Follow-up questions ("explain that", "tell me more") → mini + low + recent
-- Long prompts (600+ words) → mini or 5.1 + medium + recent
-- Complex technical, coding, research → 5.1 + medium or high + recent
-- Enumeration/recall requests → mini or 5.1 + low + full
-- Very long prompts (1000+ words) → 5.1 + high + recent
-- Creative writing, deep analysis → 5.1 + medium or high + recent
+- Short greetings ("hi", "hello") → nano + low + minimal + never
+- Simple factual questions → nano or mini + low + minimal + never
+- Explanations, summaries, analysis → mini + low or medium + minimal + never
+- Follow-up questions ("explain that", "tell me more") → mini + low + recent + never
+- Current events, news, prices → mini + low + minimal + required
+- Weather, live data → nano or mini + low + minimal + required
+- Explicit search requests → mini + low + minimal + required
+- Long prompts (600+ words) → mini or 5.1 + medium + recent + never/optional
+- Complex technical, coding, research → 5.1 + medium or high + recent + optional
+- Enumeration/recall requests → mini or 5.1 + low + full + never
+- Very long prompts (1000+ words) → 5.1 + high + recent + never/optional
+- Creative writing, deep analysis → 5.1 + medium or high + recent + never
 
 **Response Format:**
 Respond with ONLY a valid JSON object (no markdown, no explanation, no additional text):
@@ -75,6 +103,7 @@ Respond with ONLY a valid JSON object (no markdown, no explanation, no additiona
   "model": "gpt-5-nano" | "gpt-5-mini" | "gpt-5.1",
   "effort": "none" | "low" | "medium" | "high",
   "contextStrategy": "minimal" | "recent" | "full",
+  "webSearchStrategy": "never" | "optional" | "required",
   "reasoning": "brief one-line explanation"
 }
 
@@ -153,6 +182,7 @@ export async function routeWithLLM(
     ];
     const validEfforts: ReasoningEffort[] = ["none", "low", "medium", "high"];
     const validStrategies: ContextStrategy[] = ["minimal", "recent", "full"];
+    const validWebSearch: WebSearchStrategy[] = ["never", "optional", "required"];
 
     if (!validModels.includes(parsed.model)) {
       console.error(`[llm-router] Invalid model: ${parsed.model}`);
@@ -168,6 +198,12 @@ export async function routeWithLLM(
     if (!parsed.contextStrategy || !validStrategies.includes(parsed.contextStrategy)) {
       console.warn(`[llm-router] Invalid or missing contextStrategy: ${parsed.contextStrategy}, defaulting to "recent"`);
       parsed.contextStrategy = "recent";
+    }
+
+    // Default to "optional" if webSearchStrategy is missing or invalid
+    if (!parsed.webSearchStrategy || !validWebSearch.includes(parsed.webSearchStrategy)) {
+      console.warn(`[llm-router] Invalid or missing webSearchStrategy: ${parsed.webSearchStrategy}, defaulting to "optional"`);
+      parsed.webSearchStrategy = "optional";
     }
 
     // Block GPT 5 Pro
@@ -186,6 +222,7 @@ export async function routeWithLLM(
       model: parsed.model as Exclude<ModelFamily, "auto">,
       effort: parsed.effort as ReasoningEffort,
       contextStrategy: parsed.contextStrategy as ContextStrategy,
+      webSearchStrategy: parsed.webSearchStrategy as WebSearchStrategy,
       routedBy: "llm",
     };
   } catch (error) {

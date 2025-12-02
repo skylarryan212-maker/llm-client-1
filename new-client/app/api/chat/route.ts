@@ -75,6 +75,15 @@ const FORCE_WEB_SEARCH_PROMPT =
 const EXPLICIT_WEB_SEARCH_PROMPT =
   "The user asked for live sources or links. You must call the `web_search` tool, base your answer on those results, and cite them directly.";
 
+// ============================================================================
+// OLD WEB SEARCH HEURISTICS (DEPRECATED - NOW USING LLM ROUTER)
+// ============================================================================
+// The following patterns and functions were replaced by the LLM router's
+// webSearchStrategy decision. Keeping them commented for reference but they
+// are no longer actively used in the routing logic.
+// ============================================================================
+
+/*
 const LIVE_DATA_HINTS = [
   "current",
   "today",
@@ -197,6 +206,112 @@ const META_QUESTION_PATTERNS = [
   /\bwhat model are you/i,
   /\bhow do your tools work/i,
 ];
+
+function resolveWebSearchPreference({
+  userText,
+  forceWebSearch,
+}: {
+  userText: string;
+  forceWebSearch: boolean;
+}) {
+  if (forceWebSearch) {
+    return { allow: true, require: true };
+  }
+  const trimmed = userText.trim();
+  if (!trimmed) {
+    return { allow: false, require: false };
+  }
+
+  // Very short greetings or obvious offline tasks shouldn't trigger search
+  if (/^(hi|hello|hey|thanks|thank you|ok|sure)[!. ]*$/i.test(trimmed)) {
+    return { allow: false, require: false };
+  }
+
+  const lower = trimmed.toLowerCase();
+
+  // If the user is explicitly asking meta questions ("who are you?"), skip search
+  if (META_QUESTION_PATTERNS.some((pattern) => pattern.test(trimmed))) {
+    return { allow: false, require: false };
+  }
+
+  // Strong signals that we must search
+  if (MUST_WEB_SEARCH_PATTERNS.some((pattern) => pattern.test(trimmed))) {
+    return { allow: true, require: true };
+  }
+  if (SOURCE_REQUEST_PATTERNS.some((pattern) => pattern.test(trimmed))) {
+    return { allow: true, require: true };
+  }
+  if (referencesEmergingEntity(trimmed)) {
+    return { allow: true, require: true };
+  }
+
+  // Weather-specific: if user mentions weather/forecast/temperature, require live search
+  // Especially for time-anchored asks like today/tonight/tomorrow/this week
+  const isWeatherQuery = /\b(weather|temperature|forecast)\b/i.test(trimmed);
+  const hasTimeAnchor = /\b(today|tonight|tomorrow|this (?:week|weekend|month|year))\b/i.test(trimmed);
+  if (isWeatherQuery && (hasTimeAnchor || true)) {
+    return { allow: true, require: true };
+  }
+
+  // Heuristics for "should probably search"
+  let allow = false;
+
+  const FRESH_HINTS = [
+    "today",
+    "yesterday",
+    "tomorrow",
+    "current",
+    "latest",
+    "recent",
+    "breaking",
+    "upcoming",
+    "update",
+    "news",
+    "newest",
+    "release",
+    "launch",
+    "schedule",
+  ];
+  if (FRESH_HINTS.some((hint) => lower.includes(hint))) {
+    allow = true;
+  }
+
+  if (/\b20(2[0-9]|3[0-9])\b/.test(lower)) {
+    allow = true;
+  }
+
+  if (/\b(?:price|pricing|cost|buy|sell|stock|earnings|forecast|availability|ticket|ranking|score|game|match)\b/i.test(trimmed)) {
+    allow = true;
+  }
+
+  if (/\b(?:what|who|when|where|which|compare|vs\.?)\b/i.test(trimmed) && trimmed.length > 40) {
+    allow = true;
+  }
+
+  if (/https?:\/\//i.test(trimmed) || /\bwww\./i.test(trimmed)) {
+    allow = true;
+  }
+
+  return { allow, require: false };
+}
+
+function referencesEmergingEntity(text: string) {
+  if (!text.trim()) {
+    return false;
+  }
+  if (KNOWN_ENTITY_PATTERNS.some((pattern) => pattern.test(text))) {
+    return true;
+  }
+  const lower = text.toLowerCase();
+  const hasKeyword = EMERGING_ENTITY_KEYWORDS.some((keyword) =>
+    lower.includes(keyword)
+  );
+  if (!hasKeyword) {
+    return false;
+  }
+  return PRODUCT_STYLE_PATTERN.test(text);
+}
+*/
 
 type WebSearchAction = {
   type?: string;
@@ -684,10 +799,13 @@ export async function POST(request: NextRequest) {
       console.log(`[context-strategy] Using full - loaded ${contextMessagesToLoad.length} messages`);
     }
 
-    const { allow: allowWebSearch, require: requireWebSearch } = resolveWebSearchPreference({
-      userText: message,
-      forceWebSearch,
-    });
+    // Smart web search decision based on router (replaces hardcoded heuristics)
+    const webSearchStrategy = (modelConfig as any).webSearchStrategy || "optional";
+    const allowWebSearch = forceWebSearch || webSearchStrategy !== "never";
+    const requireWebSearch = forceWebSearch || webSearchStrategy === "required";
+    
+    console.log(`[web-search-strategy] Router decision: ${webSearchStrategy} (allow: ${allowWebSearch}, require: ${requireWebSearch})`);
+
 
     // Inline file include: allow users to embed <<file:relative/path>> tokens which will be replaced by file content.
     async function expandInlineFileTokens(input: string) {
