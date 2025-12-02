@@ -100,7 +100,6 @@ export async function routeWithLLM(
         { role: "user", content: routerPrompt, type: "message" },
       ],
       reasoning: { effort: "low" },
-      temperature: 0.3, // Lower temperature for more consistent routing
     });
 
     const elapsed = Date.now() - startTime;
