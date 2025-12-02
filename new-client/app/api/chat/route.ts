@@ -668,25 +668,30 @@ export async function POST(request: NextRequest) {
       contextMessagesToLoad = [];
       console.log(`[context-strategy] Using minimal - cache only (0 messages loaded)`);
     } else if (contextStrategy === "recent") {
-      // Always load last 5 messages as safety net (even with chain)
-      // Chain provides semantic context, but explicit messages prevent degradation
-      const limit = previousResponseId ? 5 : 15; // Fewer with chain, more without
-      const { data: recentHistory, error: recentError } = await supabaseAny
-        .from("messages")
-        .select("*")
-        .eq("conversation_id", conversationId)
-        .order("created_at", { ascending: true })
-        .limit(limit);
-      
-      if (recentError) {
-        console.error("Failed to load recent history:", recentError);
+      // If chain exists, trust it completely (don't send explicit messages)
+      // Only load from DB when starting fresh (no chain)
+      if (previousResponseId) {
+        contextMessagesToLoad = [];
+        console.log(`[context-strategy] Using recent with chain - relying on OpenAI cache (0 explicit messages)`);
       } else {
-        contextMessagesToLoad = recentHistory || [];
+        const { data: recentHistory, error: recentError } = await supabaseAny
+          .from("messages")
+          .select("*")
+          .eq("conversation_id", conversationId)
+          .order("created_at", { ascending: true })
+          .limit(15);
+        
+        if (recentError) {
+          console.error("Failed to load recent history:", recentError);
+        } else {
+          contextMessagesToLoad = recentHistory || [];
+        }
+        console.log(`[context-strategy] Using recent without chain - loaded ${contextMessagesToLoad.length} messages from DB`);
       }
-      console.log(`[context-strategy] Using recent - loaded ${contextMessagesToLoad.length} messages (chain: ${!!previousResponseId})`);
     } else if (contextStrategy === "full") {
-      // Load all messages for enumeration/recall (even if chain exists)
-      // The model needs explicit message list to count/enumerate
+      // Load all messages for enumeration/recall
+      // User explicitly wants to list/count messages, so we need explicit data
+      // Send explicit messages WITHOUT previous_response_id to avoid duplication
       const { data: fullHistory, error: fullError } = await supabaseAny
         .from("messages")
         .select("*")
@@ -1063,7 +1068,8 @@ export async function POST(request: NextRequest) {
         input: messagesForAPI,
         stream: true,
         store: true,
-        ...(previousResponseId ? { previous_response_id: previousResponseId } : {}),
+        // Only use chain when NOT doing enumeration (full strategy needs explicit messages)
+        ...(previousResponseId && contextStrategy !== "full" ? { previous_response_id: previousResponseId } : {}),
         metadata: {
           user_id: userId,
           conversation_id: conversationId,
@@ -1076,7 +1082,7 @@ export async function POST(request: NextRequest) {
         ...(modelConfig.reasoning && { reasoning: modelConfig.reasoning }),
         ...(useFlex ? { service_tier: "flex" } : {}),
       });
-      console.log("OpenAI stream started for model:", modelConfig.model, useFlex ? "(flex)" : "(standard)");
+      console.log("OpenAI stream started for model:", modelConfig.model, useFlex ? "(flex)" : "(standard)", contextStrategy === "full" ? "(no chain - explicit enumeration)" : "");
     } catch (streamErr) {
       console.error("Failed to start OpenAI stream:", streamErr);
       // ...existing code...
