@@ -2048,7 +2048,7 @@ export default function ChatPageShell({
         {/* Composer: full-width bar, centered pill like ChatGPT */}
         <div className="bg-background px-4 sm:px-6 lg:px-12 py-3 sm:py-4 relative">
           <div
-            className={`pointer-events-none absolute left-1/2 -translate-x-1/2 -top-9 transition-opacity duration-200 ${
+            className={`pointer-events-none absolute left-1/2 -translate-x-1/2 -top-9 z-20 transition-opacity duration-200 ${
               showScrollToBottom ? "opacity-100" : "opacity-0"
             }`}
           >
