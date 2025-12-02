@@ -128,11 +128,8 @@ function UpgradePageContent() {
             </div>
           </div>
 
-          <div className="max-w-6xl mx-auto">
-            <div className={`grid grid-cols-1 md:grid-cols-2 gap-6 ${
-              shouldShowAllPlans ? "lg:grid-cols-4" : 
-              currentPlan === "free" ? "lg:grid-cols-4" : currentPlan === "dev" ? "lg:grid-cols-1 max-w-md mx-auto" : "lg:grid-cols-3"
-            }`}>
+          <div className="max-w-7xl mx-auto">
+            <div className="flex flex-row items-stretch justify-center gap-6 flex-nowrap">
           {plans
             .filter((plan) => {
               // If showing all plans (from settings), show all
@@ -161,7 +158,7 @@ function UpgradePageContent() {
             return (
               <div
                 key={plan.id}
-                className="group relative h-full overflow-hidden rounded-xl border border-border bg-card transition-all hover:border-primary/50 hover:shadow-lg hover:shadow-primary/10"
+                className="group relative flex-1 min-w-[280px] max-w-[320px] overflow-hidden rounded-xl border border-border bg-card transition-all hover:border-primary/50 hover:shadow-lg hover:shadow-primary/10"
               >
                 {plan.recommended && (
                   <div className="absolute top-4 right-4 rounded-full bg-primary/20 px-3 py-1 text-xs font-semibold text-primary">
