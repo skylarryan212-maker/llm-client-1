@@ -28,8 +28,10 @@ import { calculateCost, calculateVectorStorageCost } from "@/lib/pricing";
 import { getUserPlan } from "@/app/actions/plan-actions";
 import { getMonthlySpending } from "@/app/actions/usage-actions";
 import { hasExceededLimit, getPlanLimit } from "@/lib/usage-limits";
-import { getRelevantMemories, maybeWriteMemory, type PersonalizationMemorySettings } from "@/lib/memory-router";
+import { getRelevantMemories, type PersonalizationMemorySettings } from "@/lib/memory-router";
 import type { MemoryItem } from "@/lib/memory";
+import { writeMemory, fetchMemories, deleteMemory, updateMemoryEnabled } from "@/lib/memory";
+import { analyzeForMemory, getMemoryAnalysisUsageEstimate } from "@/lib/llm-router";
 
 type MessageRow = Database["public"]["Tables"]["messages"]["Row"];
 type ConversationRow = Database["public"]["Tables"]["conversations"]["Row"];
@@ -59,8 +61,14 @@ type SearchStatusEvent =
   | { type: "file-reading-error"; message?: string };
 
 const BASE_SYSTEM_PROMPT =
-  "You are a web-connected assistant with access to the `web_search` tool for live information and the `file_search` tool for semantic document search.\\n" +
-  "Follow these rules:\\n" +
+  "You are a web-connected assistant with access to multiple tools for enhanced capabilities:\\n" +
+  "- `web_search`: Live internet search for current events, weather, news, prices, etc.\\n" +
+  "- `file_search`: Semantic search through uploaded documents\\n" +
+  "- `save_memory`: Save important information about the user for future conversations\\n" +
+  "- `search_memories`: Search through saved user memories\\n" +
+  "- `list_memories`: List all saved memories\\n" +
+  "- `delete_memory`: Delete a specific memory by ID\\n\\n" +
+  "**Web Search Rules:**\\n" +
   "- Use internal knowledge for timeless concepts, math, or historical context.\\n" +
   "- For questions about current events, market conditions, weather, schedules, releases, or other fast-changing facts, prefer calling `web_search` to gather fresh data.\\n" +
   "- CRITICAL CITATION RULES: When `web_search` returns results, you MUST cite sources properly:\\n" +
@@ -72,7 +80,14 @@ const BASE_SYSTEM_PROMPT =
   "  * At the end of your response, include a 'Sources:' section with numbered list of all cited links\\n" +
   "- Never claim you lack internet access or that your knowledge is outdated in a turn where tool outputs were provided.\\n" +
   "- If the tool returns little or no information, acknowledge that gap before relying on older knowledge.\\n" +
-  "- Do not send capability or identity questions to `web_search`; answer those directly.\\n" +
+  "- Do not send capability or identity questions to `web_search`; answer those directly.\\n\\n" +
+  "**Memory Management Rules:**\\n" +
+  "- When a user explicitly says 'remember this', 'save as memory', or shares personal information, use `save_memory` to store it\\n" +
+  "- When a user asks 'what do you remember', 'what do you know about me', use `list_memories` or `search_memories`\\n" +
+  "- When a user says 'forget X' or 'delete that memory', use `search_memories` to find it, then `delete_memory` with the ID\\n" +
+  "- Memory types: identity (name, personal info), preference (likes/dislikes), constraint (rules/never statements), workflow (process preferences), project (project context), instruction (specific directives), other\\n" +
+  "- Always confirm after saving or deleting memories\\n\\n" +
+  "**General Rules:**\\n" +
   "- Keep answers clear and grounded, blending background context with any live data you retrieved.\\n" +
   "- When the user provides attachment URLs (marked as 'Attachment: name -> url'), fetch and read those documents directly from the URL without asking the user to re-upload. Use their contents in your reasoning and summarize as requested.\\n" +
   "- If an attachment preview is marked as '[Preview truncated; full content searchable via file_search tool]', you can use the `file_search` tool to query specific information from the full document (e.g., 'find pricing section', 'extract all dates', 'summarize chapter 3').\\n" +
@@ -1141,7 +1156,98 @@ export async function POST(request: NextRequest) {
     // Use generic Tool to avoid strict preview-only type union on WebSearchTool in SDK types
     const webSearchTool: Tool = { type: "web_search" as any };
     const fileSearchTool = { type: "file_search" as const, ...(vectorStoreId ? { vector_store_ids: [vectorStoreId] } : {}) };
+    
+    // Memory management tools (function calling)
+    const memoryTools: Tool[] = personalizationSettings.allowSavingMemory || personalizationSettings.referenceSavedMemories ? [
+      {
+        type: "function",
+        function: {
+          name: "save_memory",
+          description: "Save a new memory about the user for future conversations. Use when user explicitly says 'remember this' or shares important personal information.",
+          parameters: {
+            type: "object",
+            properties: {
+              type: {
+                type: "string",
+                enum: ["identity", "preference", "constraint", "workflow", "project", "instruction", "other"],
+                description: "Category of memory: identity (name, personal info), preference (likes/dislikes), constraint (rules), workflow (process), project (context), instruction (directives), other"
+              },
+              title: {
+                type: "string",
+                description: "Brief title for the memory (max 60 chars)"
+              },
+              content: {
+                type: "string",
+                description: "The actual memory content, clear and actionable"
+              }
+            },
+            required: ["type", "title", "content"]
+          }
+        }
+      } as Tool,
+      {
+        type: "function",
+        function: {
+          name: "search_memories",
+          description: "Search through user's saved memories using semantic search. Use when user asks about specific memories or you need to check if information already exists.",
+          parameters: {
+            type: "object",
+            properties: {
+              query: {
+                type: "string",
+                description: "Search query (semantic search will find related memories)"
+              },
+              type: {
+                type: "string",
+                enum: ["all", "identity", "preference", "constraint", "workflow", "project", "instruction", "other"],
+                description: "Filter by memory type, or 'all' for no filter"
+              }
+            },
+            required: ["query"]
+          }
+        }
+      } as Tool,
+      {
+        type: "function",
+        function: {
+          name: "list_memories",
+          description: "List all saved memories. Use when user asks 'what do you remember about me' or wants to see all memories.",
+          parameters: {
+            type: "object",
+            properties: {
+              type: {
+                type: "string",
+                enum: ["all", "identity", "preference", "constraint", "workflow", "project", "instruction", "other"],
+                description: "Filter by memory type, or 'all' to list everything"
+              }
+            }
+          }
+        }
+      } as Tool,
+      {
+        type: "function",
+        function: {
+          name: "delete_memory",
+          description: "Delete a specific memory by ID. First search for the memory to get its ID, then delete it. Always confirm with user what will be deleted.",
+          parameters: {
+            type: "object",
+            properties: {
+              memory_id: {
+                type: "string",
+                description: "The ID of the memory to delete"
+              }
+            },
+            required: ["memory_id"]
+          }
+        }
+      } as Tool
+    ] : [];
+    
     const toolsForRequest: Tool[] = [];
+    
+    // Add memory tools if enabled
+    toolsForRequest.push(...memoryTools);
+    
     if (allowWebSearch) {
       toolsForRequest.push(webSearchTool);
     }
@@ -1297,6 +1403,103 @@ export async function POST(request: NextRequest) {
                 type: "file-search-complete",
                 query: (event as { query?: string }).query ?? "file search",
               });
+            } else if (event.type === "response.function_call.in_progress") {
+              // Memory tool called
+              const functionName = (event as any).function?.name;
+              if (functionName) {
+                sendStatusUpdate({
+                  type: "search-start",
+                  query: `${functionName}...`,
+                });
+              }
+            } else if (event.type === "response.function_call.completed") {
+              // Memory tool completed - handle the function call
+              const call = event as any;
+              const functionName = call.function?.name;
+              const args = call.function?.arguments ? JSON.parse(call.function.arguments) : {};
+              
+              try {
+                let result: any = null;
+                
+                switch (functionName) {
+                  case "save_memory":
+                    await writeMemory({
+                      type: args.type,
+                      title: args.title,
+                      content: args.content,
+                      enabled: true,
+                    });
+                    result = { success: true, message: `Saved memory: ${args.title}` };
+                    console.log(`[memory-tool] Saved: ${args.title}`);
+                    break;
+                    
+                  case "search_memories":
+                    const searchResults = await fetchMemories({
+                      query: args.query,
+                      type: args.type || "all",
+                      limit: 10,
+                      useSemanticSearch: true,
+                    });
+                    result = {
+                      success: true,
+                      count: searchResults.length,
+                      memories: searchResults.map(m => ({
+                        id: m.id,
+                        type: m.type,
+                        title: m.title,
+                        content: m.content,
+                        created_at: m.created_at,
+                      })),
+                    };
+                    console.log(`[memory-tool] Search found ${searchResults.length} results`);
+                    break;
+                    
+                  case "list_memories":
+                    const allMemories = await fetchMemories({
+                      query: "",
+                      type: args.type || "all",
+                      limit: 50,
+                      useSemanticSearch: false,
+                    });
+                    result = {
+                      success: true,
+                      count: allMemories.length,
+                      memories: allMemories.map(m => ({
+                        id: m.id,
+                        type: m.type,
+                        title: m.title,
+                        content: m.content,
+                        created_at: m.created_at,
+                      })),
+                    };
+                    console.log(`[memory-tool] Listed ${allMemories.length} memories`);
+                    break;
+                    
+                  case "delete_memory":
+                    await deleteMemory(args.memory_id);
+                    result = { success: true, message: `Deleted memory: ${args.memory_id}` };
+                    console.log(`[memory-tool] Deleted: ${args.memory_id}`);
+                    break;
+                    
+                  default:
+                    result = { success: false, error: `Unknown function: ${functionName}` };
+                }
+                
+                sendStatusUpdate({
+                  type: "search-complete",
+                  query: functionName || "memory operation",
+                });
+                
+                // Note: With Responses API, we might not need to manually inject results
+                // The API handles this automatically
+                
+              } catch (error: any) {
+                console.error(`[memory-tool] Error in ${functionName}:`, error);
+                sendStatusUpdate({
+                  type: "search-complete",
+                  query: `${functionName} (error)`,
+                });
+              }
             } else if (
               event.type === "response.output_item.added" ||
               event.type === "response.output_item.done"
@@ -1441,44 +1644,57 @@ export async function POST(request: NextRequest) {
               },
             });
           } else {
-            // Memory write logic: check if we should create a new memory based on conversation
+            // FALLBACK: Automatic memory analysis
+            // The LLM can now use memory tools directly (save_memory, search_memories, etc.)
+            // This fallback catches cases where the LLM didn't use tools but should have saved something
             try {
               if (personalizationSettings.allowSavingMemory) {
-                // Simple heuristic: if user mentions preferences, identity, or constraints
-                const memoryTriggers = [
-                  /my name is|call me|i'm|i am/i,
-                  /i prefer|i like|i don't like|i hate/i,
-                  /always|never|from now on|remember/i,
-                  /keep in mind|note that|please remember/i,
-                ];
-                const shouldWriteMemory = memoryTriggers.some(regex => regex.test(message));
+                const memoryAnalysis = await analyzeForMemory(
+                  message,
+                  assistantContent,
+                  relevantMemories
+                );
                 
-                if (shouldWriteMemory) {
-                  // Extract a simple memory from the user message
-                  // In production, use an LLM to intelligently extract and categorize
-                  const memoryTitle = message.substring(0, 60).trim() + (message.length > 60 ? "..." : "");
-                  const memoryType: MemoryItem["type"] = 
-                    /my name is|call me/i.test(message) ? "identity" :
-                    /prefer|like/i.test(message) ? "preference" :
-                    /always|never/i.test(message) ? "constraint" :
-                    "other";
+                if (memoryAnalysis?.shouldWrite) {
+                  await writeMemory({
+                    type: memoryAnalysis.type,
+                    title: memoryAnalysis.title,
+                    content: memoryAnalysis.content,
+                    enabled: true,
+                  });
+                  console.log(`[memory-fallback] Wrote new memory: ${memoryAnalysis.title} (${memoryAnalysis.reasoning})`);
                   
-                  await maybeWriteMemory(
-                    personalizationSettings,
-                    {
-                      type: memoryType,
-                      title: memoryTitle,
-                      content: message,
-                      enabled: true,
+                  // Track memory analysis cost
+                  try {
+                    const memoryUsage = getMemoryAnalysisUsageEstimate();
+                    const memoryCost = calculateCost(
+                      memoryUsage.model,
+                      memoryUsage.inputTokens,
+                      0,
+                      memoryUsage.outputTokens
+                    );
+                    
+                    const { randomUUID } = require("crypto");
+                    await supabaseAny.from("user_api_usage").insert({
+                      id: randomUUID(),
+                      user_id: userId,
+                      conversation_id: conversationId,
+                      model: memoryUsage.model,
+                      input_tokens: memoryUsage.inputTokens,
+                      cached_tokens: 0,
+                      output_tokens: memoryUsage.outputTokens,
+                      estimated_cost: memoryCost,
                       created_at: new Date().toISOString(),
-                    },
-                    true // shouldWrite flag
-                  );
-                  console.log(`[memory] Wrote new memory: ${memoryTitle}`);
+                    });
+                    
+                    console.log(`[memory-fallback] Logged memory analysis cost: $${memoryCost.toFixed(6)}`);
+                  } catch (costErr) {
+                    console.error("[memory-fallback] Failed to log memory analysis cost:", costErr);
+                  }
                 }
               }
             } catch (memError) {
-              console.error("[memory] Failed to write memory:", memError);
+              console.error("[memory-fallback] Failed to analyze/write memory:", memError);
               // Don't fail the request if memory write fails
             }
 

@@ -1,5 +1,4 @@
 import { fetchMemories, MemoryItem, MemoryType } from "./memory";
-import { supabase } from "./supabaseClient";
 
 export interface PersonalizationMemorySettings {
   referenceSavedMemories: boolean;
@@ -8,6 +7,8 @@ export interface PersonalizationMemorySettings {
 
 /**
  * Fetches relevant memories for the current user if enabled.
+ * Uses semantic vector search to find contextually relevant memories.
+ * 
  * @param settings Personalization memory settings
  * @param query Optional semantic/text query for filtering
  * @param type Optional type filter
@@ -20,42 +21,12 @@ export async function getRelevantMemories(
   limit: number = 8
 ): Promise<MemoryItem[]> {
   if (!settings.referenceSavedMemories) return [];
-  // In a real system, you might use semantic search here
-  return fetchMemories({ query, type, limit });
-}
-
-/**
- * Decides whether to write a new memory based on settings and router logic.
- * @param settings Personalization memory settings
- * @param memory MemoryItem to write
- * @param shouldWrite Heuristic or LLM-based decision (true = write, false = skip)
- */
-export async function maybeWriteMemory(
-  settings: PersonalizationMemorySettings,
-  memory: Omit<MemoryItem, "id">,
-  shouldWrite: boolean
-): Promise<boolean> {
-  if (!settings.allowSavingMemory || !shouldWrite) return false;
   
-  try {
-    // Write to Supabase memories table
-    const { error } = await supabase.from("memories").insert([{
-      type: memory.type,
-      title: memory.title,
-      content: memory.content,
-      enabled: memory.enabled,
-      importance: 50, // default importance
-      created_at: memory.created_at || new Date().toISOString(),
-    }]);
-    
-    if (error) {
-      console.error("[memory-router] Failed to write memory:", error);
-      return false;
-    }
-    
-    return true;
-  } catch (error) {
-    console.error("[memory-router] Exception writing memory:", error);
-    return false;
-  }
+  // Use semantic search with the user's query
+  return fetchMemories({ 
+    query, 
+    type, 
+    limit,
+    useSemanticSearch: true 
+  });
 }

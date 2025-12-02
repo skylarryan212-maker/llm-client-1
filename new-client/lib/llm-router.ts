@@ -7,6 +7,7 @@
  */
 
 import type { ModelFamily, ReasoningEffort } from "./modelConfig";
+import type { MemoryType } from "./memory";
 
 export type ContextStrategy = 
   | "minimal"      // Use cache only (new factual questions)
@@ -249,5 +250,213 @@ export function getRouterUsageEstimate() {
     model: "gpt-5-nano-2025-08-07",
     inputTokens: 100,
     outputTokens: 20,
+  };
+}
+
+/**
+ * Memory Analysis Result
+ */
+export interface MemoryAnalysis {
+  shouldWrite: boolean;
+  type: MemoryType;
+  title: string;
+  content: string;
+  reasoning?: string;
+}
+
+const MEMORY_ANALYSIS_PROMPT = `You are a memory extraction assistant. Analyze conversations to determine if the user shared information worth remembering long-term.
+
+**Memory Types:**
+- **identity**: Name, personal details, background ("My name is Alex", "I'm a software engineer")
+- **preference**: Likes, dislikes, preferred styles ("I prefer dark mode", "I like concise responses")
+- **constraint**: Rules, always/never statements ("Always use TypeScript", "Never use semicolons")
+- **workflow**: Process preferences, habits ("I work best in the morning", "I prefer TDD")
+- **project**: Project-specific context ("Working on React app", "Building an API")
+- **instruction**: Specific directives ("Format dates as MM/DD/YYYY", "Use British spelling")
+- **other**: General facts that don't fit above
+
+**Guidelines:**
+- Only extract information that's **persistent** and **actionable** for future conversations
+- Ignore: greetings, questions, temporary requests, one-time tasks
+- Look for statements about the user's identity, preferences, or constraints
+- Reformulate messy statements into clear, concise memories
+- Check if similar information already exists (don't duplicate)
+
+**Examples:**
+
+User: "My name is Alex and I prefer dark mode"
+Assistant: "Got it, Alex! I'll remember your preference for dark mode."
+→ WRITE:
+{
+  "shouldWrite": true,
+  "type": "identity",
+  "title": "User's name is Alex",
+  "content": "User's name is Alex",
+  "reasoning": "User shared their name"
+}
+
+User: "I'm not a fan of verbose explanations, keep it brief"
+Assistant: "Understood, I'll keep responses concise."
+→ WRITE:
+{
+  "shouldWrite": true,
+  "type": "preference",
+  "title": "Prefers brief responses",
+  "content": "User prefers concise, brief explanations without verbosity",
+  "reasoning": "User expressed preference for communication style"
+}
+
+User: "Never use var in JavaScript, always use const or let"
+Assistant: "Absolutely, const and let are best practices."
+→ WRITE:
+{
+  "shouldWrite": true,
+  "type": "constraint",
+  "title": "Never use var in JavaScript",
+  "content": "Always use const or let instead of var in JavaScript code",
+  "reasoning": "User set a hard constraint for code generation"
+}
+
+User: "What's the weather today?"
+Assistant: "I don't have access to weather data."
+→ DON'T WRITE:
+{
+  "shouldWrite": false,
+  "reasoning": "Just a question, no information about user to remember"
+}
+
+User: "Thanks!"
+Assistant: "You're welcome!"
+→ DON'T WRITE:
+{
+  "shouldWrite": false,
+  "reasoning": "Just pleasantries, nothing to remember"
+}
+
+User: "Can you write a Python script for me?"
+Assistant: "Sure! Here's a script..."
+→ DON'T WRITE:
+{
+  "shouldWrite": false,
+  "reasoning": "One-time task request, not persistent information"
+}
+
+**Response Format:**
+Respond with ONLY a valid JSON object (no markdown, no explanation):
+{
+  "shouldWrite": true | false,
+  "type": "identity" | "preference" | "constraint" | "workflow" | "project" | "instruction" | "other",
+  "title": "brief title (max 60 chars)",
+  "content": "clear, actionable description",
+  "reasoning": "one-line explanation"
+}
+
+If shouldWrite is false, type/title/content can be omitted.`;
+
+/**
+ * Analyzes a conversation to determine if a memory should be saved
+ */
+export async function analyzeForMemory(
+  userMessage: string,
+  assistantResponse: string,
+  existingMemories?: Array<{ title: string; content: string }>
+): Promise<MemoryAnalysis | null> {
+  try {
+    const OpenAI = (await import("openai")).default;
+    
+    if (!process.env.OPENAI_API_KEY) {
+      console.error("[memory-analysis] OPENAI_API_KEY not set");
+      return null;
+    }
+
+    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+
+    // Build context about existing memories to avoid duplicates
+    let existingContext = "";
+    if (existingMemories && existingMemories.length > 0) {
+      existingContext = "\n\n**Existing memories (avoid duplicating these):**\n" +
+        existingMemories.map(m => `- ${m.title}: ${m.content}`).join("\n");
+    }
+
+    const analysisPrompt = `Analyze this conversation and determine if a memory should be saved:
+
+**User:** ${userMessage}
+**Assistant:** ${assistantResponse}${existingContext}
+
+Should a memory be saved? If yes, extract and structure it.`;
+
+    console.log("[memory-analysis] Starting memory analysis");
+    const startTime = Date.now();
+
+    const response = await openai.responses.create({
+      model: "gpt-5-nano-2025-08-07",
+      input: [
+        { role: "system", content: MEMORY_ANALYSIS_PROMPT, type: "message" },
+        { role: "user", content: analysisPrompt, type: "message" },
+      ],
+      reasoning: { effort: "low" },
+    });
+
+    const elapsed = Date.now() - startTime;
+    console.log(`[memory-analysis] Completed in ${elapsed}ms`);
+
+    const content = response.output_text;
+    if (!content) {
+      console.error("[memory-analysis] No content in response");
+      return null;
+    }
+
+    // Extract JSON from response
+    let jsonText = content.trim();
+    const jsonMatch = jsonText.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      jsonText = jsonMatch[0];
+    }
+
+    const parsed = JSON.parse(jsonText);
+    console.log("[memory-analysis] Parsed result:", parsed);
+
+    if (!parsed.shouldWrite) {
+      return null;
+    }
+
+    // Validate response
+    const validTypes: MemoryType[] = [
+      "preference", "identity", "constraint", "workflow", 
+      "project", "instruction", "other"
+    ];
+
+    if (!validTypes.includes(parsed.type)) {
+      console.error(`[memory-analysis] Invalid type: ${parsed.type}`);
+      return null;
+    }
+
+    if (!parsed.title || !parsed.content) {
+      console.error("[memory-analysis] Missing title or content");
+      return null;
+    }
+
+    return {
+      shouldWrite: true,
+      type: parsed.type as MemoryType,
+      title: parsed.title.substring(0, 60), // Truncate to 60 chars
+      content: parsed.content,
+      reasoning: parsed.reasoning,
+    };
+  } catch (error) {
+    console.error("[memory-analysis] Error during analysis:", error);
+    return null;
+  }
+}
+
+/**
+ * Returns usage data for memory analysis (for cost tracking)
+ */
+export function getMemoryAnalysisUsageEstimate() {
+  // Rough estimate: ~200 input tokens, ~50 output tokens for Nano
+  return {
+    model: "gpt-5-nano-2025-08-07",
+    inputTokens: 200,
+    outputTokens: 50,
   };
 }
