@@ -168,6 +168,11 @@ export function SettingsModal({ isOpen, onClose, initialTab = 'personalization' 
     
     const result = await cancelSubscription()
     if (result.success) {
+      // Clear plan cache to force immediate update everywhere
+      try {
+        window.localStorage.removeItem('user_plan_cache')
+      } catch {}
+      
       // Refresh plan status everywhere
       await refreshPlan()
       
@@ -517,7 +522,7 @@ export function SettingsModal({ isOpen, onClose, initialTab = 'personalization' 
                 </Button>
                 <Button
                   variant="destructive"
-                  className="hover:bg-destructive/90 transition-colors"
+                  className="hover:bg-red-700 dark:hover:bg-red-600 transition-colors"
                   onClick={handleCancelSubscription}
                   disabled={cancelProcessing}
                 >
