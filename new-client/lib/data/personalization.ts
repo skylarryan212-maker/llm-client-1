@@ -1,5 +1,5 @@
 import { supabaseServer } from "@/lib/supabase/server";
-import { getCurrentUserIdServer } from "@/lib/supabase/user";
+import { getCurrentUserIdServer, requireUserIdServer } from "@/lib/supabase/user";
 import type { UserPersonalization, UserPreferencesRow, dbRowToPersonalization } from "@/types/preferences";
 import { dbRowToPersonalization as convertRow } from "@/types/preferences";
 
