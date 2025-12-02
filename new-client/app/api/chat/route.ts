@@ -550,25 +550,6 @@ export async function POST(request: NextRequest) {
     // Check if we have an OpenAI response chain we can continue
     const lastAssistantMessage = recentMessages?.findLast((m: MessageRow) => m.role === "assistant");
     const previousResponseId = lastAssistantMessage?.openai_response_id || null;
-    
-    // Only load full history if we don't have a valid chain
-    let fullHistoryMessages: MessageRow[] = [];
-    if (!previousResponseId) {
-      const { data: fullHistory, error: fullHistoryError } = await supabaseAny
-        .from("messages")
-        .select("*")
-        .eq("conversation_id", conversationId)
-        .order("created_at", { ascending: true })
-        .limit(50);
-      
-      if (fullHistoryError) {
-        console.error("Failed to load full history:", fullHistoryError);
-      } else {
-        fullHistoryMessages = fullHistory || [];
-      }
-    }
-    
-    console.log(`[context-chain] Using ${previousResponseId ? 'OpenAI chain (previousResponseId: ' + previousResponseId + ')' : 'DB history (' + fullHistoryMessages.length + ' messages)'}`);
 
     // Optionally insert the user message unless the client indicates it's already persisted (e.g., first send via server action, or retry)
     let userMessageRow: MessageRow | null = null;
@@ -661,6 +642,46 @@ export async function POST(request: NextRequest) {
       } catch (routerUsageErr) {
         console.error("[router-usage] Failed to log router usage:", routerUsageErr);
       }
+    }
+
+    // Smart context loading based on router decision
+    let contextMessagesToLoad: MessageRow[] = [];
+    const contextStrategy = (modelConfig as any).contextStrategy || "recent"; // Default to recent if not present
+    
+    if (contextStrategy === "minimal") {
+      // Use cache only, don't load history
+      contextMessagesToLoad = [];
+      console.log(`[context-strategy] Using minimal - cache only (0 messages loaded)`);
+    } else if (contextStrategy === "recent") {
+      // Load last 15 messages for normal conversation
+      const { data: recentHistory, error: recentError } = await supabaseAny
+        .from("messages")
+        .select("*")
+        .eq("conversation_id", conversationId)
+        .order("created_at", { ascending: true })
+        .limit(15);
+      
+      if (recentError) {
+        console.error("Failed to load recent history:", recentError);
+      } else {
+        contextMessagesToLoad = recentHistory || [];
+      }
+      console.log(`[context-strategy] Using recent - loaded ${contextMessagesToLoad.length} messages`);
+    } else if (contextStrategy === "full") {
+      // Load all messages for enumeration/recall
+      const { data: fullHistory, error: fullError } = await supabaseAny
+        .from("messages")
+        .select("*")
+        .eq("conversation_id", conversationId)
+        .order("created_at", { ascending: true })
+        .limit(100);  // Cap at 100 for safety
+      
+      if (fullError) {
+        console.error("Failed to load full history:", fullError);
+      } else {
+        contextMessagesToLoad = fullHistory || [];
+      }
+      console.log(`[context-strategy] Using full - loaded ${contextMessagesToLoad.length} messages`);
     }
 
     const { allow: allowWebSearch, require: requireWebSearch } = resolveWebSearchPreference({
@@ -889,14 +910,12 @@ export async function POST(request: NextRequest) {
       ...(allowWebSearch && requireWebSearch && !forceWebSearch ? [EXPLICIT_WEB_SEARCH_PROMPT] : []),
     ].join("\n\n");
 
-    // Build history messages only if we're not using OpenAI's context chain
-    const historyMessages = previousResponseId
-      ? [] // Skip history when using context chain
-      : (fullHistoryMessages || []).map((msg: MessageRow) => ({
-          role: msg.role as "user" | "assistant",
-          content: msg.content ?? "",
-          type: "message",
-        }));
+    // Build history messages based on context strategy
+    const historyMessages = contextMessagesToLoad.map((msg: MessageRow) => ({
+      role: msg.role as "user" | "assistant",
+      content: msg.content ?? "",
+      type: "message",
+    }));
 
     // Build user content with native image inputs when available to leverage model vision
     const userContentParts: any[] = [

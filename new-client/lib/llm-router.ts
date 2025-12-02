@@ -8,9 +8,15 @@
 
 import type { ModelFamily, ReasoningEffort } from "./modelConfig";
 
+export type ContextStrategy = 
+  | "minimal"      // Use cache only (new factual questions)
+  | "recent"       // Load last 15 messages (normal conversation)
+  | "full";        // Load all messages (enumeration/recall)
+
 export interface RouterDecision {
   model: Exclude<ModelFamily, "auto">;
   effort: ReasoningEffort;
+  contextStrategy: ContextStrategy;
   routedBy: "llm";
 }
 
@@ -20,7 +26,7 @@ export interface RouterContext {
   usagePercentage?: number;
 }
 
-const ROUTER_SYSTEM_PROMPT = `You are a routing assistant that analyzes user prompts and recommends the optimal AI model and reasoning effort.
+const ROUTER_SYSTEM_PROMPT = `You are a routing assistant that analyzes user prompts and recommends the optimal AI model, reasoning effort, and context strategy.
 
 **Available Models:**
 1. **gpt-5-nano** - Fastest, cheapest. For simple queries, greetings, basic Q&A.
@@ -37,20 +43,38 @@ const ROUTER_SYSTEM_PROMPT = `You are a routing assistant that analyzes user pro
 
 Note: gpt-5-mini and gpt-5-nano MUST use "low", "medium", or "high" (never "none").
 
+**Context Strategy (NEW - IMPORTANT):**
+- **minimal**: Use cached context only, don't load message history (for NEW factual questions that don't reference chat history)
+- **recent**: Load last 15 messages (for normal conversation flow, follow-ups, references to recent context)
+- **full**: Load ALL messages from database (for enumeration, listing, recalling old messages)
+
+**Context Strategy Examples:**
+- "What's the weather in Paris?" → minimal (new question, no history needed)
+- "Explain quantum mechanics" → minimal (factual, doesn't need chat history)
+- "Can you explain that better?" → recent (refers to recent context)
+- "Continue from where we left off" → recent (conversation flow)
+- "What were all my prompts?" → full (needs to enumerate messages)
+- "List everything we discussed" → full (needs full history)
+- "What was my first question?" → full (needs oldest message)
+- "Summarize our conversation" → full (needs all messages)
+
 **Routing Guidelines:**
-- Short greetings ("hi", "hello") → nano + low
-- Simple factual questions → nano or mini + low
-- Explanations, summaries, analysis → mini + low or medium
-- Long prompts (600+ words) → mini or 5.1 + medium
-- Complex technical, coding, research → 5.1 + medium or high
-- Very long prompts (1000+ words) → 5.1 + high
-- Creative writing, deep analysis → 5.1 + medium or high
+- Short greetings ("hi", "hello") → nano + low + minimal
+- Simple factual questions → nano or mini + low + minimal
+- Explanations, summaries, analysis → mini + low or medium + minimal
+- Follow-up questions ("explain that", "tell me more") → mini + low + recent
+- Long prompts (600+ words) → mini or 5.1 + medium + recent
+- Complex technical, coding, research → 5.1 + medium or high + recent
+- Enumeration/recall requests → mini or 5.1 + low + full
+- Very long prompts (1000+ words) → 5.1 + high + recent
+- Creative writing, deep analysis → 5.1 + medium or high + recent
 
 **Response Format:**
 Respond with ONLY a valid JSON object (no markdown, no explanation, no additional text):
 {
   "model": "gpt-5-nano" | "gpt-5-mini" | "gpt-5.1",
   "effort": "none" | "low" | "medium" | "high",
+  "contextStrategy": "minimal" | "recent" | "full",
   "reasoning": "brief one-line explanation"
 }
 
@@ -128,6 +152,7 @@ export async function routeWithLLM(
       "gpt-5.1",
     ];
     const validEfforts: ReasoningEffort[] = ["none", "low", "medium", "high"];
+    const validStrategies: ContextStrategy[] = ["minimal", "recent", "full"];
 
     if (!validModels.includes(parsed.model)) {
       console.error(`[llm-router] Invalid model: ${parsed.model}`);
@@ -137,6 +162,12 @@ export async function routeWithLLM(
     if (!validEfforts.includes(parsed.effort)) {
       console.error(`[llm-router] Invalid effort: ${parsed.effort}`);
       return null;
+    }
+
+    // Default to "recent" if contextStrategy is missing or invalid
+    if (!parsed.contextStrategy || !validStrategies.includes(parsed.contextStrategy)) {
+      console.warn(`[llm-router] Invalid or missing contextStrategy: ${parsed.contextStrategy}, defaulting to "recent"`);
+      parsed.contextStrategy = "recent";
     }
 
     // Block GPT 5 Pro
@@ -154,6 +185,7 @@ export async function routeWithLLM(
     return {
       model: parsed.model as Exclude<ModelFamily, "auto">,
       effort: parsed.effort as ReasoningEffort,
+      contextStrategy: parsed.contextStrategy as ContextStrategy,
       routedBy: "llm",
     };
   } catch (error) {
