@@ -1213,8 +1213,20 @@ export async function POST(request: NextRequest) {
           // Extract usage information for cost tracking
           console.log("[usage] Final response object:", JSON.stringify(finalResponse, null, 2));
           const usage = finalResponse.usage || {};
+          
+          // Log the full usage object structure to debug cache tokens
+          console.log("[usage] Full usage object:", JSON.stringify(usage, null, 2));
+          
           const inputTokens = usage.input_tokens || 0;
-          const cachedTokens = usage.input_tokens_details?.cached_tokens || 0;
+          
+          // Try multiple possible field names for cached tokens
+          const cachedTokens = 
+            usage.input_tokens_details?.cached_tokens || 
+            usage.input_tokens_details?.cache_read_input_tokens ||
+            usage.cached_input_tokens ||
+            usage.cache_read_tokens ||
+            0;
+          
           const outputTokens = usage.output_tokens || 0;
 
           console.log("[usage] Extracted tokens:", {
@@ -1222,6 +1234,8 @@ export async function POST(request: NextRequest) {
             cachedTokens,
             outputTokens,
             model: modelConfig.model,
+            usingChain: !!previousResponseId && contextStrategy !== "full",
+            rawUsageKeys: Object.keys(usage),
           });
 
           // Calculate cost
