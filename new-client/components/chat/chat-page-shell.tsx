@@ -583,8 +583,14 @@ export default function ChatPageShell({
     const viewport = scrollViewportRef.current;
     if (!viewport) return;
     
-    // Scroll to bottom smoothly during streaming
-    viewport.scrollTo({ top: viewport.scrollHeight, behavior: "auto" });
+    // Use requestAnimationFrame to ensure DOM is fully rendered before scrolling
+    const scrollToEnd = () => {
+      if (viewport) {
+        viewport.scrollTo({ top: viewport.scrollHeight, behavior: "auto" });
+      }
+    };
+    
+    requestAnimationFrame(scrollToEnd);
   }, [messages, isAutoScroll, isStreaming]);
 
   useEffect(() => {
@@ -795,8 +801,11 @@ export default function ChatPageShell({
         // Stream the model response fully BEFORE navigation to preserve streaming state
         await streamModelResponse(conversationId, targetProjectId, message, newChatId, true, attachments);
         
-        // Navigate after streaming completes
-        router.push(`/projects/${targetProjectId}/c/${newChatId}?autoStreamHandled=true`);
+        // Navigate after streaming completes (only if not already there)
+        const targetUrl = `/projects/${targetProjectId}/c/${newChatId}`;
+        if (typeof window !== "undefined" && !window.location.pathname.includes(`/c/${newChatId}`)) {
+          router.push(`${targetUrl}?autoStreamHandled=true`);
+        }
       } else {
         const { conversationId, message: createdMessage, conversation } =
           await startGlobalConversationAction(message);
@@ -836,8 +845,10 @@ export default function ChatPageShell({
         // Stream the model response fully BEFORE navigation to preserve streaming state
         await streamModelResponse(conversationId, undefined, message, newChatId, true, attachments);
         
-        // Navigate after streaming completes
-        router.push(`/c/${newChatId}?autoStreamHandled=true`);
+        // Navigate after streaming completes (only if not already there)
+        if (typeof window !== "undefined" && !window.location.pathname.includes(`/c/${newChatId}`)) {
+          router.push(`/c/${newChatId}?autoStreamHandled=true`);
+        }
       }
     } else {
       console.log("[chatDebug] Adding message to existing chat:", selectedChatId);
