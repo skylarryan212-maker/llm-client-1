@@ -262,6 +262,14 @@ function resolveWebSearchPreference({
     return { allow: true, require: true };
   }
 
+  // Weather-specific: if user mentions weather/forecast/temperature, require live search
+  // Especially for time-anchored asks like today/tonight/tomorrow/this week
+  const isWeatherQuery = /\b(weather|temperature|forecast)\b/i.test(trimmed);
+  const hasTimeAnchor = /\b(today|tonight|tomorrow|this (?:week|weekend|month|year))\b/i.test(trimmed);
+  if (isWeatherQuery && (hasTimeAnchor || true)) {
+    return { allow: true, require: true };
+  }
+
   // Heuristics for "should probably search"
   let allow = false;
 

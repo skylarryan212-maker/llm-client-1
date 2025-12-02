@@ -422,7 +422,7 @@ export default function ChatPageShell({
       switch (status.type) {
         case "search-start":
           setSearchIndicator({
-            message: status.query ? `Searching the Web: ${status.query}` : "Searching the Web",
+            message: "Searching the web...",
             variant: "running",
             domains: [],
           });
