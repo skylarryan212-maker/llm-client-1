@@ -702,9 +702,13 @@ export async function POST(request: NextRequest) {
       if (fullError) {
         console.error("Failed to load full history:", fullError);
       } else {
-        contextMessagesToLoad = fullHistory || [];
+        // Exclude the current user message (just inserted) to avoid duplication
+        // It will be added separately in messagesForAPI
+        contextMessagesToLoad = (fullHistory || []).filter(
+          (msg: MessageRow) => msg.id !== userMessageRow?.id
+        );
       }
-      console.log(`[context-strategy] Using full - loaded ${contextMessagesToLoad.length} messages for enumeration`);
+      console.log(`[context-strategy] Using full - loaded ${contextMessagesToLoad.length} messages for enumeration (excluding current)`);
     }
 
     // Smart web search decision based on router (replaces hardcoded heuristics)
