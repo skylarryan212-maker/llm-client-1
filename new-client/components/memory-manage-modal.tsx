@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { z } from "zod";
 
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Select, SelectTrigger, SelectContent, SelectItem, SelectValue } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
@@ -51,11 +51,11 @@ export default function ManageMemoriesModal({ open, onOpenChange }: { open: bool
   }, [items, type, query]);
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-2xl">
-        <DialogHeader>
-          <DialogTitle>Saved memories</DialogTitle>
-        </DialogHeader>
+    <Dialog open={open} onClose={() => onOpenChange(false)}>
+      <div className="sm:max-w-2xl">
+        <div className="mb-3">
+          <h2 className="text-lg font-semibold">Saved memories</h2>
+        </div>
         <div className="space-y-4">
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
             <div className="sm:col-span-2">
@@ -104,7 +104,7 @@ export default function ManageMemoriesModal({ open, onOpenChange }: { open: bool
             )}
           </div>
         </div>
-      </DialogContent>
+      </div>
     </Dialog>
   );
 }
