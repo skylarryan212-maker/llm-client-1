@@ -1,4 +1,4 @@
-import { fetchMemories, MemoryItem } from "./memory";
+import { fetchMemories, MemoryItem, MemoryType } from "./memory";
 import { supabase } from "./supabaseClient";
 
 export interface PersonalizationMemorySettings {
@@ -16,7 +16,7 @@ export interface PersonalizationMemorySettings {
 export async function getRelevantMemories(
   settings: PersonalizationMemorySettings,
   query: string = "",
-  type: string = "all",
+  type: MemoryType | "all" = "all",
   limit: number = 8
 ): Promise<MemoryItem[]> {
   if (!settings.referenceSavedMemories) return [];
