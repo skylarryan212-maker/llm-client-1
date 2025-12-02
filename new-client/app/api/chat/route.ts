@@ -173,41 +173,42 @@ const LIVE_DATA_HINTS = [
   "tonight",
   "latest",
   "recent",
-  "breaking",
-  "news",
-  "update",
-  "updated",
-  "now",
-  "right now",
-  "this week",
-  "this month",
-  "this year",
-  "price",
-  "prices",
-  "market",
-  "stock",
-  "stocks",
-  "quote",
-  "report",
-  "earnings",
-  "forecast",
-  "weather",
-  "temperature",
-  "release",
-  "launch",
-  "trend",
-];
-
-const EMERGING_ENTITY_KEYWORDS = [
-  "buy",
-  "purchase",
-  "preorder",
-  "pre-order",
-  "release",
-  "released",
-  "launch",
-  "launched",
-  "announce",
+        {
+          type: "function",
+          name: "save_memory",
+          description:
+            "Save important information about the user for future conversations.",
+          parameters: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              content: {
+                description:
+                  "The content to remember. Keep it concise and factual.",
+                type: "string",
+              },
+              type: {
+                description:
+                  "The memory category. Choose the most specific applicable type.",
+                type: "string",
+                enum: [
+                  "preference",
+                  "profile",
+                  "project",
+                  "context",
+                  "other",
+                ],
+              },
+              enabled: {
+                description:
+                  "Whether this memory should be active by default.",
+                type: "boolean",
+              },
+            },
+            required: ["content", "type"],
+          },
+          strict: true,
+        },
   "announced",
   "available",
   "availability",
@@ -217,36 +218,37 @@ const EMERGING_ENTITY_KEYWORDS = [
   "prices",
   "cost",
   "ticket",
-  "tickets",
-  "order",
-  "exists",
-  "exist",
-  "new",
-  "latest",
-  "upcoming",
-];
-
-const KNOWN_ENTITY_PATTERNS = [
-  /rtx\s?\d{3,4}/i,
-  /geforce/i,
-  /radeon/i,
-  /iphone/i,
-  /galaxy/i,
-  /pixel/i,
-  /tesla/i,
-  /model\s?[sx3y]/i,
-  /macbook/i,
-  /ipad/i,
-  /playstation/i,
-  /xbox/i,
-  /gpu/i,
-  /cpu/i,
-  /summit/i,
-  /conference/i,
-  /expo/i,
-  /festival/i,
-  /tournament/i,
-  /world cup/i,
+        {
+          type: "function",
+          name: "search_memories",
+          description:
+            "Search through saved user memories using semantic vector search.",
+          parameters: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              query: {
+                description:
+                  "The search query (what you are looking for).",
+                type: "string",
+              },
+              type: {
+                description:
+                  "Filter by memory type; use 'all' to search everything.",
+                type: "string",
+                enum: ["preference", "profile", "project", "context", "other", "all"],
+              },
+              limit: {
+                description: "Maximum number of results to return (default 5).",
+                type: "integer",
+                minimum: 1,
+                maximum: 50,
+              },
+            },
+            required: ["query"],
+          },
+          strict: true,
+        },
   /olympics/i,
 ];
 
@@ -349,29 +351,30 @@ function resolveWebSearchPreference({
     "breaking",
     "upcoming",
     "update",
-    "news",
-    "newest",
-    "release",
-    "launch",
-    "schedule",
-  ];
-  if (FRESH_HINTS.some((hint) => lower.includes(hint))) {
-    allow = true;
-  }
-
-  if (/\b20(2[0-9]|3[0-9])\b/.test(lower)) {
-    allow = true;
-  }
-
-  if (/\b(?:price|pricing|cost|buy|sell|stock|earnings|forecast|availability|ticket|ranking|score|game|match)\b/i.test(trimmed)) {
-    allow = true;
-  }
-
-  if (/\b(?:what|who|when|where|which|compare|vs\.?)\b/i.test(trimmed) && trimmed.length > 40) {
-    allow = true;
-  }
-
-  if (/https?:\/\//i.test(trimmed) || /\bwww\./i.test(trimmed)) {
+        {
+          type: "function",
+          name: "list_memories",
+          description: "List saved memories, optionally filtered by type.",
+          parameters: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              type: {
+                description:
+                  "Filter by memory type; use 'all' to list everything.",
+                type: "string",
+                enum: ["preference", "profile", "project", "context", "other", "all"],
+              },
+              limit: {
+                description: "Maximum number of results to return (default 10).",
+                type: "integer",
+                minimum: 1,
+                maximum: 100,
+              },
+            },
+          },
+          strict: true,
+        },
     allow = true;
   }
 
@@ -858,22 +861,23 @@ export async function POST(request: NextRequest) {
     ? body.attachments
         .map((a) => (a?.dataUrl ? `Attachment: ${a.name ?? 'file'} (${a.mime || 'unknown type'})` : ""))
         .filter((line) => line.length > 0)
-    : [];
-
-  // Helper to convert dataUrl to buffer
-  function dataUrlToBuffer(dataUrl: string): Buffer {
-    const base64Data = dataUrl.split(",")[1] || dataUrl;
-    return Buffer.from(base64Data, "base64");
-  }
-
-  let expandedMessageWithAttachments = expandedMessage;
-    if (attachmentLines.length) {
-      expandedMessageWithAttachments += `\n\n${attachmentLines.join("\n")}`;
-      // Emit a file-reading-start status for client UI
-      // Note: actual streaming statuses are sent later, but we will include previews inline here.
-    }
-
-  // Upload files to OpenAI vector store for persistent file_search across turns
+        {
+          type: "function",
+          name: "delete_memory",
+          description: "Delete a specific memory by ID.",
+          parameters: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              id: {
+                description: "The memory UUID to delete.",
+                type: "string",
+              },
+            },
+            required: ["id"],
+          },
+          strict: true,
+        },
   const openaiFileIds: string[] = [];
   let totalFileUploadSize = 0;
   // Try to reuse an existing vector store from recent messages
@@ -1165,6 +1169,7 @@ export async function POST(request: NextRequest) {
         description: "Save a new memory about the user for future conversations. Use when user explicitly says 'remember this' or shares important personal information.",
         parameters: {
           type: "object",
+          additionalProperties: false,
           properties: {
             type: {
               type: "string",
@@ -1190,6 +1195,7 @@ export async function POST(request: NextRequest) {
         description: "Search through user's saved memories using semantic search. Use when user asks about specific memories or you need to check if information already exists.",
         parameters: {
           type: "object",
+          additionalProperties: false,
           properties: {
             query: {
               type: "string",
@@ -1211,6 +1217,7 @@ export async function POST(request: NextRequest) {
         description: "List all saved memories. Use when user asks 'what do you remember about me' or wants to see all memories.",
         parameters: {
           type: "object",
+          additionalProperties: false,
           properties: {
             type: {
               type: "string",
@@ -1227,6 +1234,7 @@ export async function POST(request: NextRequest) {
         description: "Delete a specific memory by ID. First search for the memory to get its ID, then delete it. Always confirm with user what will be deleted.",
         parameters: {
           type: "object",
+          additionalProperties: false,
           properties: {
             memory_id: {
               type: "string",
