@@ -531,13 +531,13 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Load recent messages for context (up to 50)
+    // Load last few messages to check for OpenAI response ID (for context chaining)
     const { data: recentMessages, error: messagesError } = await supabaseAny
       .from("messages")
       .select("*")
       .eq("conversation_id", conversationId)
       .order("created_at", { ascending: true })
-      .limit(50);
+      .limit(10);
 
     if (messagesError) {
       console.error("Failed to load messages:", messagesError);
@@ -546,6 +546,29 @@ export async function POST(request: NextRequest) {
         { status: 500 }
       );
     }
+
+    // Check if we have an OpenAI response chain we can continue
+    const lastAssistantMessage = recentMessages?.findLast((m: MessageRow) => m.role === "assistant");
+    const previousResponseId = lastAssistantMessage?.openai_response_id || null;
+    
+    // Only load full history if we don't have a valid chain
+    let fullHistoryMessages: MessageRow[] = [];
+    if (!previousResponseId) {
+      const { data: fullHistory, error: fullHistoryError } = await supabaseAny
+        .from("messages")
+        .select("*")
+        .eq("conversation_id", conversationId)
+        .order("created_at", { ascending: true })
+        .limit(50);
+      
+      if (fullHistoryError) {
+        console.error("Failed to load full history:", fullHistoryError);
+      } else {
+        fullHistoryMessages = fullHistory || [];
+      }
+    }
+    
+    console.log(`[context-chain] Using ${previousResponseId ? 'OpenAI chain (previousResponseId: ' + previousResponseId + ')' : 'DB history (' + fullHistoryMessages.length + ' messages)'}`);
 
     // Optionally insert the user message unless the client indicates it's already persisted (e.g., first send via server action, or retry)
     let userMessageRow: MessageRow | null = null;
@@ -858,39 +881,22 @@ export async function POST(request: NextRequest) {
   console.log(`[chatApi] Final message length: ${expandedMessageWithAttachments.length} chars`);
   console.log(`[chatApi] Vector store ID: ${vectorStoreId || 'none'}`);
 
-  const systemMessages = [
-      {
-        role: "system",
-        content:
-          BASE_SYSTEM_PROMPT +
-          "\nYou can inline-read files when the user includes tokens like <<file:relative/path/to/file>> in their prompt. Replace those tokens with the file content and use it in your reasoning.",
-        type: "message",
-      },
-      ...(forceWebSearch
-        ? [
-            {
-              role: "system",
-              content: FORCE_WEB_SEARCH_PROMPT,
-              type: "message",
-            },
-          ]
-        : []),
-      ...(allowWebSearch && requireWebSearch && !forceWebSearch
-        ? [
-            {
-              role: "system",
-              content: EXPLICIT_WEB_SEARCH_PROMPT,
-              type: "message",
-            },
-          ]
-        : []),
-    ];
+  // Build instructions from system prompts (cleaner than bundling in input)
+    const systemInstructions = [
+      BASE_SYSTEM_PROMPT,
+      "You can inline-read files when the user includes tokens like <<file:relative/path/to/file>> in their prompt. Replace those tokens with the file content and use it in your reasoning.",
+      ...(forceWebSearch ? [FORCE_WEB_SEARCH_PROMPT] : []),
+      ...(allowWebSearch && requireWebSearch && !forceWebSearch ? [EXPLICIT_WEB_SEARCH_PROMPT] : []),
+    ].join("\n\n");
 
-    const historyMessages = (recentMessages || []).map((msg: any) => ({
-      role: msg.role as "user" | "assistant",
-      content: msg.content ?? "",
-      type: "message",
-    }));
+    // Build history messages only if we're not using OpenAI's context chain
+    const historyMessages = previousResponseId
+      ? [] // Skip history when using context chain
+      : (fullHistoryMessages || []).map((msg: MessageRow) => ({
+          role: msg.role as "user" | "assistant",
+          content: msg.content ?? "",
+          type: "message",
+        }));
 
     // Build user content with native image inputs when available to leverage model vision
     const userContentParts: any[] = [
@@ -926,7 +932,6 @@ export async function POST(request: NextRequest) {
     }
 
     const messagesForAPI = [
-      ...systemMessages,
       ...historyMessages,
       {
         role: "user" as const,
@@ -1014,8 +1019,17 @@ export async function POST(request: NextRequest) {
       
       responseStream = await openai.responses.stream({
         model: modelConfig.model,
+        instructions: systemInstructions,
         input: messagesForAPI,
         stream: true,
+        store: true,
+        ...(previousResponseId ? { previous_response_id: previousResponseId } : {}),
+        metadata: {
+          user_id: userId,
+          conversation_id: conversationId,
+          ...(userMessageRow?.id ? { message_id: userMessageRow.id } : {}),
+          ...(projectId ? { project_id: projectId } : {}),
+        },
         ...(toolsForRequest.length ? { tools: toolsForRequest } : {}),
         ...(toolChoice ? { tool_choice: toolChoice } : {}),
         ...(finalIncludeFields ? { include: finalIncludeFields } : {}),
@@ -1238,6 +1252,7 @@ export async function POST(request: NextRequest) {
                 conversation_id: conversationId,
                 role: "assistant",
                 content: assistantContent,
+                openai_response_id: finalResponse.id || null,
                 metadata: metadataPayload,
               })
               .select()

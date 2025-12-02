@@ -33,6 +33,7 @@ export interface Message {
   conversation_id: string;
   role: string;
   content: string;
+  openai_response_id: string | null;
   created_at: string | null;
   metadata: Json | null;
 }
@@ -42,6 +43,7 @@ export interface MessageInsert {
   conversation_id: string;
   role: string;
   content: string;
+  openai_response_id?: string | null;
   metadata?: Json | null;
 }
 
