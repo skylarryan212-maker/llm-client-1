@@ -1157,89 +1157,85 @@ export async function POST(request: NextRequest) {
     const webSearchTool: Tool = { type: "web_search" as any };
     const fileSearchTool = { type: "file_search" as const, ...(vectorStoreId ? { vector_store_ids: [vectorStoreId] } : {}) };
     
-    // Memory management tools (function calling) - use 'as any' to bypass strict typing
+    // Memory management tools (function calling) - Responses API expects name at top-level
     const memoryTools: any[] = personalizationSettings.allowSavingMemory || personalizationSettings.referenceSavedMemories ? [
       {
         type: "function",
-        function: {
-          name: "save_memory",
-          description: "Save a new memory about the user for future conversations. Use when user explicitly says 'remember this' or shares important personal information.",
-          parameters: {
-            type: "object",
-            properties: {
-              type: {
-                type: "string",
-                enum: ["identity", "preference", "constraint", "workflow", "project", "instruction", "other"],
-                description: "Category of memory: identity (name, personal info), preference (likes/dislikes), constraint (rules), workflow (process), project (context), instruction (directives), other"
-              },
-              title: {
-                type: "string",
-                description: "Brief title for the memory (max 60 chars)"
-              },
-              content: {
-                type: "string",
-                description: "The actual memory content, clear and actionable"
-              }
+        name: "save_memory",
+        description: "Save a new memory about the user for future conversations. Use when user explicitly says 'remember this' or shares important personal information.",
+        parameters: {
+          type: "object",
+          properties: {
+            type: {
+              type: "string",
+              enum: ["identity", "preference", "constraint", "workflow", "project", "instruction", "other"],
+              description: "Category of memory: identity (name, personal info), preference (likes/dislikes), constraint (rules), workflow (process), project (context), instruction (directives), other"
             },
-            required: ["type", "title", "content"]
-          }
-        }
+            title: {
+              type: "string",
+              description: "Brief title for the memory (max 60 chars)"
+            },
+            content: {
+              type: "string",
+              description: "The actual memory content, clear and actionable"
+            }
+          },
+          required: ["type", "title", "content"]
+        },
+        strict: true,
       },
       {
         type: "function",
-        function: {
-          name: "search_memories",
-          description: "Search through user's saved memories using semantic search. Use when user asks about specific memories or you need to check if information already exists.",
-          parameters: {
-            type: "object",
-            properties: {
-              query: {
-                type: "string",
-                description: "Search query (semantic search will find related memories)"
-              },
-              type: {
-                type: "string",
-                enum: ["all", "identity", "preference", "constraint", "workflow", "project", "instruction", "other"],
-                description: "Filter by memory type, or 'all' for no filter"
-              }
+        name: "search_memories",
+        description: "Search through user's saved memories using semantic search. Use when user asks about specific memories or you need to check if information already exists.",
+        parameters: {
+          type: "object",
+          properties: {
+            query: {
+              type: "string",
+              description: "Search query (semantic search will find related memories)"
             },
-            required: ["query"]
-          }
-        }
+            type: {
+              type: "string",
+              enum: ["all", "identity", "preference", "constraint", "workflow", "project", "instruction", "other"],
+              description: "Filter by memory type, or 'all' for no filter"
+            }
+          },
+          required: ["query"]
+        },
+        strict: true,
       },
       {
         type: "function",
-        function: {
-          name: "list_memories",
-          description: "List all saved memories. Use when user asks 'what do you remember about me' or wants to see all memories.",
-          parameters: {
-            type: "object",
-            properties: {
-              type: {
-                type: "string",
-                enum: ["all", "identity", "preference", "constraint", "workflow", "project", "instruction", "other"],
-                description: "Filter by memory type, or 'all' to list everything"
-              }
+        name: "list_memories",
+        description: "List all saved memories. Use when user asks 'what do you remember about me' or wants to see all memories.",
+        parameters: {
+          type: "object",
+          properties: {
+            type: {
+              type: "string",
+              enum: ["all", "identity", "preference", "constraint", "workflow", "project", "instruction", "other"],
+              description: "Filter by memory type, or 'all' to list everything"
             }
           }
-        }
+        },
+        strict: true,
       },
       {
         type: "function",
-        function: {
-          name: "delete_memory",
-          description: "Delete a specific memory by ID. First search for the memory to get its ID, then delete it. Always confirm with user what will be deleted.",
-          parameters: {
-            type: "object",
-            properties: {
-              memory_id: {
-                type: "string",
-                description: "The ID of the memory to delete"
-              }
-            },
-            required: ["memory_id"]
-          }
-        }
+        name: "delete_memory",
+        description: "Delete a specific memory by ID. First search for the memory to get its ID, then delete it. Always confirm with user what will be deleted.",
+        parameters: {
+          type: "object",
+          properties: {
+            memory_id: {
+              type: "string",
+              description: "The ID of the memory to delete"
+            }
+          },
+          required: ["memory_id"]
+        },
+        strict: true,
       }
     ] : [];
     
