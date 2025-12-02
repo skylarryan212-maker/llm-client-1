@@ -26,6 +26,7 @@ import { useUserIdentity } from '@/components/user-identity-provider'
 import { getUserPlanDetails, cancelSubscription } from '@/app/actions/plan-actions'
 import { getUserTotalSpending, getMonthlySpending } from '@/app/actions/usage-actions'
 import { getUsageStatus } from '@/lib/usage-limits'
+import { PersonalizationPanel } from '@/components/personalization-panel'
 
 interface SettingsModalProps {
   isOpen: boolean
@@ -321,8 +322,12 @@ export function SettingsModal({ isOpen, onClose, initialTab = 'personalization' 
           )}
 
           {activeTab === 'personalization' && (
-            <div className="flex h-full items-center justify-center">
-              <p className="text-muted-foreground">This section is coming soon...</p>
+            <div className="space-y-6">
+              <div>
+                <h2 className="text-2xl font-semibold text-foreground">Personalization</h2>
+                <div className="mt-1 h-px bg-border" />
+              </div>
+              <PersonalizationPanel />
             </div>
           )}
 
