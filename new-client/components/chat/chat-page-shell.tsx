@@ -202,7 +202,6 @@ export default function ChatPageShell({
   const pendingThinkingInfoRef = useRef<ThinkingTimingInfo | null>(null);
   const searchIndicatorTimerRef = useRef<NodeJS.Timeout | null>(null);
   const fileIndicatorTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const prevMessageCountRef = useRef<number>(0);
   const lastPinnedMessageIdRef = useRef<string | null>(null);
   const AUTO_STREAM_KEY_PREFIX = "llm-client-auto-stream:";
 
@@ -662,44 +661,43 @@ export default function ChatPageShell({
   // Force-pin the latest user prompt to the top whenever a new user message is added.
   useEffect(() => {
     const last = messages[messages.length - 1];
-    const prevCount = prevMessageCountRef.current;
-    prevMessageCountRef.current = messages.length;
-
-    if (!last) return;
-    const isNewMessage = messages.length > prevCount;
     
-    // Only pin if it's a new user message AND we haven't pinned this message yet
-    if (isNewMessage && last.role === "user" && lastPinnedMessageIdRef.current !== last.id) {
-      lastPinnedMessageIdRef.current = last.id;
-      setIsAutoScroll(false); // Disable autoscroll during pinning
-      pinningInProgressRef.current = true;
-      
-      // Wait for the DOM to be ready, then scroll the user message to the top
-      if (typeof requestAnimationFrame !== "undefined") {
+    // Only proceed if last message exists and is a user message
+    if (!last || last.role !== "user") return;
+    
+    // Check if we've already pinned this specific message
+    if (lastPinnedMessageIdRef.current === last.id) return;
+    
+    // This is a new user message that hasn't been pinned yet
+    lastPinnedMessageIdRef.current = last.id;
+    setIsAutoScroll(false); // Disable autoscroll during pinning
+    pinningInProgressRef.current = true;
+    
+    // Wait for the DOM to be ready, then scroll the user message to the top
+    if (typeof requestAnimationFrame !== "undefined") {
+      requestAnimationFrame(() => {
         requestAnimationFrame(() => {
-          requestAnimationFrame(() => {
-            const viewport = scrollViewportRef.current;
-            const userMessageEl = messageRefs.current[last.id];
+          const viewport = scrollViewportRef.current;
+          const userMessageEl = messageRefs.current[last.id];
+          
+          if (viewport && userMessageEl) {
+            // Scroll so the user message is at the very top (with small padding)
+            const targetScrollTop = userMessageEl.offsetTop - 8;
+            viewport.scrollTo({ top: targetScrollTop, behavior: "auto" });
             
-            if (viewport && userMessageEl) {
-              // Scroll so the user message is at the very top (with small padding)
-              const targetScrollTop = userMessageEl.offsetTop - 8;
-              viewport.scrollTo({ top: targetScrollTop, behavior: "auto" });
-              
-              // Re-enable autoscroll after a short delay to allow streaming to take over
-              setTimeout(() => {
-                pinningInProgressRef.current = false;
-                setIsAutoScroll(true);
-              }, 100);
-            } else {
+            // Re-enable autoscroll after a short delay to allow streaming to take over
+            setTimeout(() => {
               pinningInProgressRef.current = false;
               setIsAutoScroll(true);
-            }
-          });
+            }, 100);
+          } else {
+            pinningInProgressRef.current = false;
+            setIsAutoScroll(true);
+          }
         });
-      }
+      });
     }
-  }, [messages.length, scrollToBottom]);
+  }, [messages]);
 
   // Auto-scroll during streaming when message content changes
   useEffect(() => {
