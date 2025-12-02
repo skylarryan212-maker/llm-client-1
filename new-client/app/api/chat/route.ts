@@ -1206,7 +1206,7 @@ export async function POST(request: NextRequest) {
               description: "Filter by memory type, or 'all' for no filter"
             }
           },
-          required: ["query"]
+          required: ["query", "type"]
         },
         strict: true,
       },
@@ -1224,6 +1224,8 @@ export async function POST(request: NextRequest) {
               description: "Filter by memory type, or 'all' to list everything"
             }
           }
+          ,
+          required: ["type"]
         },
         strict: true,
       },
