@@ -507,22 +507,22 @@ export async function POST(request: NextRequest) {
     }
 
     // Validate and normalize model settings with progressive restrictions based on usage
-    // Apply user's default model preference if no override is provided
-    let modelFamily = normalizeModelFamily(
-      modelFamilyOverride ?? (userPrefs.defaultModel as ModelFamily)
-    );
-    const speedMode = normalizeSpeedMode(speedModeOverride ?? "auto");
-    const reasoningEffortHint = reasoningEffortOverride;
-    
-    // Progressive model restrictions based on usage percentage
-    if (usagePercentage >= 95) {
-    // Validate and normalize model settings with progressive restrictions based on usage
     let modelFamily = normalizeModelFamily(modelFamilyOverride ?? "auto");
     const speedMode = normalizeSpeedMode(speedModeOverride ?? "auto");
     const reasoningEffortHint = reasoningEffortOverride;
     
     // Progressive model restrictions based on usage percentage
-    if (usagePercentage >= 95) {i";
+    if (usagePercentage >= 95) {
+      // At 95%+: Only allow Nano
+      if (modelFamily !== "gpt-5-nano") {
+        console.log(`[usageLimit] User at ${usagePercentage.toFixed(1)}% usage - forcing Nano model`);
+        modelFamily = "gpt-5-nano";
+      }
+    } else if (usagePercentage >= 90) {
+      // At 90-95%: Disable GPT 5.1, allow Mini and Nano
+      if (modelFamily === "gpt-5.1") {
+        console.log(`[usageLimit] User at ${usagePercentage.toFixed(1)}% usage - downgrading from 5.1 to Mini`);
+        modelFamily = "gpt-5-mini";
       }
     }
     // Note: Flex processing will be enabled at 80%+ (handled later in the code)
