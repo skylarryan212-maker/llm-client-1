@@ -168,10 +168,33 @@ export function SettingsModal({ isOpen, onClose, initialTab = 'personalization' 
     
     const result = await cancelSubscription()
     if (result.success) {
+      // Refresh plan status everywhere
       await refreshPlan()
-      // Refresh plan details
-      const details = await getUserPlanDetails()
+      
+      // Refresh all plan-related data in the settings modal
+      const [details, total, monthly] = await Promise.all([
+        getUserPlanDetails(),
+        getUserTotalSpending(),
+        getMonthlySpending()
+      ])
       setPlanDetails(details)
+      setTotalSpending(total)
+      setMonthlySpending(monthly)
+      
+      if (details) {
+        const status = getUsageStatus(monthly, details.planType)
+        setUsageStatus(status)
+        try {
+          window.localStorage.setItem('settingsUsageCache', JSON.stringify({
+            planDetails: details,
+            totalSpending: total,
+            monthlySpending: monthly,
+            usageStatus: status
+          }))
+        } catch {
+          // ignore storage failures
+        }
+      }
     }
     
     setCancelResultDialog({ 
@@ -494,6 +517,7 @@ export function SettingsModal({ isOpen, onClose, initialTab = 'personalization' 
                 </Button>
                 <Button
                   variant="destructive"
+                  className="hover:bg-destructive/90 transition-colors"
                   onClick={handleCancelSubscription}
                   disabled={cancelProcessing}
                 >
