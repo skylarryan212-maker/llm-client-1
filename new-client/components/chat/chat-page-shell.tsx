@@ -920,6 +920,22 @@ export default function ChatPageShell({
 
       // Do not show a file-reading indicator unless prompted by server status events
 
+      // Get location data if available
+      let locationData = null;
+      try {
+        const locationStr = localStorage.getItem("location_data");
+        if (locationStr) {
+          const parsed = JSON.parse(locationStr);
+          locationData = {
+            lat: parsed.lat,
+            lng: parsed.lng,
+            city: parsed.city,
+          };
+        }
+      } catch (e) {
+        console.error("[Location] Failed to parse location data:", e);
+      }
+
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -932,6 +948,7 @@ export default function ChatPageShell({
           reasoningEffortOverride: reasoningEffortOverride,
           skipUserInsert,
           attachments,
+          location: locationData,
         }),
         signal: controller.signal,
       });
@@ -1278,6 +1295,22 @@ export default function ChatPageShell({
 
      // Re-stream with the specific retry model (not changing currentModel)
      try {
+       // Get location data if available
+       let locationData = null;
+       try {
+         const locationStr = localStorage.getItem("location_data");
+         if (locationStr) {
+           const parsed = JSON.parse(locationStr);
+           locationData = {
+             lat: parsed.lat,
+             lng: parsed.lng,
+             city: parsed.city,
+           };
+         }
+       } catch (e) {
+         console.error("[Location] Failed to parse location data:", e);
+       }
+
        const response = await fetch("/api/chat", {
          method: "POST",
          headers: { "Content-Type": "application/json" },
@@ -1289,6 +1322,7 @@ export default function ChatPageShell({
            speedModeOverride: retrySpeedMode,
             reasoningEffortOverride: undefined, // Let API auto-calculate
             skipUserInsert: true,
+            location: locationData,
          }),
        });
 

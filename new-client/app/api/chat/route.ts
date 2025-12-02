@@ -43,6 +43,7 @@ interface ChatRequestBody {
   forceWebSearch?: boolean;
   skipUserInsert?: boolean;
   attachments?: Array<{ name?: string; mime?: string; dataUrl: string }>;
+  location?: { lat: number; lng: number; city: string };
 }
 
 type SearchStatusEvent =
@@ -460,7 +461,7 @@ export async function POST(request: NextRequest) {
       skipUserInsert: body.skipUserInsert,
       timestamp: Date.now(),
     });
-    const { conversationId, projectId, message, modelFamilyOverride, speedModeOverride, reasoningEffortOverride, skipUserInsert, forceWebSearch = false, attachments } = body;
+    const { conversationId, projectId, message, modelFamilyOverride, speedModeOverride, reasoningEffortOverride, skipUserInsert, forceWebSearch = false, attachments, location } = body;
 
     if (!conversationId || !message?.trim()) {
       return NextResponse.json(
@@ -936,6 +937,7 @@ export async function POST(request: NextRequest) {
     const systemInstructions = [
       BASE_SYSTEM_PROMPT,
       "You can inline-read files when the user includes tokens like <<file:relative/path/to/file>> in their prompt. Replace those tokens with the file content and use it in your reasoning.",
+      ...(location ? [`User's location: ${location.city} (${location.lat.toFixed(4)}, ${location.lng.toFixed(4)}). Use this for location-specific queries like weather, local events, or "near me" searches.`] : []),
       ...(forceWebSearch ? [FORCE_WEB_SEARCH_PROMPT] : []),
       ...(allowWebSearch && requireWebSearch && !forceWebSearch ? [EXPLICIT_WEB_SEARCH_PROMPT] : []),
     ].join("\n\n");
