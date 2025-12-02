@@ -1102,7 +1102,6 @@ export async function POST(request: NextRequest) {
         },
         ...(toolsForRequest.length ? { tools: toolsForRequest } : {}),
         ...(toolChoice ? { tool_choice: toolChoice } : {}),
-        ...(finalIncludeFields ? { include: finalIncludeFields } : {}),
         ...(modelConfig.reasoning && { reasoning: modelConfig.reasoning }),
         ...(useFlex ? { service_tier: "flex" } : {}),
       });
