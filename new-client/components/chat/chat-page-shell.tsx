@@ -543,8 +543,8 @@ export default function ChatPageShell({
     const viewport = scrollViewportRef.current;
     const compute = () => {
       if (!viewport) return;
-      // Give a modest buffer (35% of viewport), capped to keep a hard bottom.
-      const desired = Math.min(220, Math.max(100, Math.round(viewport.clientHeight * 0.28)));
+      // Small buffer below messages
+      const desired = 32;
       setBottomSpacerPx((prev) => (prev === desired ? prev : desired));
     };
     compute();
