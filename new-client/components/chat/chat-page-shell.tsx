@@ -581,25 +581,11 @@ export default function ChatPageShell({
   useEffect(() => {
     if (!isStreaming || !isAutoScroll) return;
     
-    // Use requestAnimationFrame for smoother scrolling
-    let rafId: number;
-    const doScroll = () => {
-      const viewport = scrollViewportRef.current;
-      if (!viewport) return;
-      
-      // Scroll to bottom during streaming
-      viewport.scrollTo({ top: viewport.scrollHeight, behavior: "auto" });
-    };
+    const viewport = scrollViewportRef.current;
+    if (!viewport) return;
     
-    if (typeof requestAnimationFrame !== "undefined") {
-      rafId = requestAnimationFrame(doScroll);
-    } else {
-      doScroll();
-    }
-    
-    return () => {
-      if (rafId) cancelAnimationFrame(rafId);
-    };
+    // Scroll to bottom smoothly during streaming
+    viewport.scrollTo({ top: viewport.scrollHeight, behavior: "auto" });
   }, [messages, isAutoScroll, isStreaming]);
 
   useEffect(() => {
