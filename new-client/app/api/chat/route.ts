@@ -861,7 +861,11 @@ export async function POST(request: NextRequest) {
     ? body.attachments
         .map((a) => (a?.dataUrl ? `Attachment: ${a.name ?? 'file'} (${a.mime || 'unknown type'})` : ""))
         .filter((line) => line.length > 0)
-        
+    : [] as string[];
+  let expandedMessageWithAttachments = expandedMessage;
+  if (attachmentLines.length) {
+    expandedMessageWithAttachments += "\n\n" + attachmentLines.join("\n");
+  }
   const openaiFileIds: string[] = [];
   let totalFileUploadSize = 0;
   // Try to reuse an existing vector store from recent messages
