@@ -422,7 +422,7 @@ export default function ChatPageShell({
       switch (status.type) {
         case "search-start":
           setSearchIndicator({
-            message: "Searching the Web",
+            message: status.query ? `Searching the Web: ${status.query}` : "Searching the Web",
             variant: "running",
             domains: [],
           });
@@ -2006,9 +2006,13 @@ export default function ChatPageShell({
                     </div>
                   );
                 })}
-                {/* Show indicators only if there are no messages OR if the last message has content (not empty placeholder) */}
-                {(thinkingStatus || searchIndicator || fileReadingIndicator) && 
-                 (messages.length === 0 || messages[messages.length - 1]?.content) && (
+                {/* Show indicators with priority. Allow web/file indicators even when last assistant message is empty. */}
+                {(() => {
+                  const hasIndicator = Boolean(thinkingStatus || searchIndicator || fileReadingIndicator);
+                  const lastHasContent = messages.length === 0 || Boolean(messages[messages.length - 1]?.content);
+                  const allowRegardless = Boolean(searchIndicator || fileReadingIndicator);
+                  return hasIndicator && (lastHasContent || allowRegardless);
+                })() && (
                   <div className="flex flex-col gap-2 pb-8 px-4 sm:px-6">
                     <div className="mx-auto w-full max-w-3xl">
                       <div className="flex flex-wrap gap-2">
