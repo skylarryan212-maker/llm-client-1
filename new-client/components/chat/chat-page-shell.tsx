@@ -584,13 +584,18 @@ export default function ChatPageShell({
     if (!viewport) return;
     
     // Use requestAnimationFrame to ensure DOM is fully rendered before scrolling
+    // Double-RAF for better reliability with dynamic content
     const scrollToEnd = () => {
-      if (viewport) {
-        viewport.scrollTo({ top: viewport.scrollHeight, behavior: "auto" });
-      }
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          if (viewport) {
+            viewport.scrollTo({ top: viewport.scrollHeight, behavior: "auto" });
+          }
+        });
+      });
     };
     
-    requestAnimationFrame(scrollToEnd);
+    scrollToEnd();
   }, [messages, isAutoScroll, isStreaming]);
 
   useEffect(() => {
@@ -1510,12 +1515,12 @@ export default function ChatPageShell({
     const target = event.currentTarget;
     const { scrollTop, scrollHeight, clientHeight } = target;
     const distanceFromBottom = scrollHeight - (scrollTop + clientHeight);
-    const tolerance = Math.max(12, bottomSpacerPx / 3);
+    const tolerance = Math.max(16, bottomSpacerPx / 3);
     const atBottom = distanceFromBottom <= tolerance;
 
     setShowScrollToBottom(!atBottom);
-    // Keep auto-scroll on if it was already enabled; manual scroll to bottom should not re-enable it.
-    setIsAutoScroll((prev) => (prev ? atBottom : false));
+    // Re-enable autoscroll when user scrolls back to bottom, disable when scrolling up
+    setIsAutoScroll(atBottom);
   };
 
   useEffect(() => {
@@ -2058,9 +2063,9 @@ export default function ChatPageShell({
                   const allowRegardless = Boolean(searchIndicator || fileReadingIndicator);
                   return hasIndicator && (lastHasContent || allowRegardless);
                 })() && (
-                  <div className="flex flex-col gap-2 pb-8 px-4 sm:px-6">
+                  <div className="px-4 sm:px-6 pb-8">
                     <div className="mx-auto w-full max-w-3xl">
-                      <div className="flex flex-wrap gap-2">
+                      <div className="flex items-center min-h-[28px]">
                         {/* Priority order: file reading > search > thinking (only show one at a time) */}
                         {fileReadingIndicator ? (
                           <StatusBubble
@@ -2102,9 +2107,12 @@ export default function ChatPageShell({
               size="icon"
               className="pointer-events-auto h-10 w-10 rounded-full border border-border bg-card/90 text-foreground shadow-md backdrop-blur hover:bg-background"
               onClick={() => {
-                setIsAutoScroll(false);
-                setShowScrollToBottom(false);
                 scrollToBottom("smooth");
+                // Re-enable autoscroll after scrolling to bottom
+                setTimeout(() => {
+                  setIsAutoScroll(true);
+                  setShowScrollToBottom(false);
+                }, 100);
               }}
             >
               <ArrowDown className="h-4 w-4 text-foreground" />

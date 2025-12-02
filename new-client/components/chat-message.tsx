@@ -41,6 +41,7 @@ export function ChatMessage({
 }: ChatMessageProps) {
   const [copied, setCopied] = useState(false)
   const [retryModel, setRetryModel] = useState('')
+  const [showSources, setShowSources] = useState(false)
 
   // Extract metadata safely
   let metadataObj: AssistantMessageMetadata | Record<string, unknown> | null = null
@@ -178,9 +179,14 @@ export function ChatMessage({
                 </Button>
                 
                 {((hasSources ?? false) || (Array.isArray(typedMetadata?.citations) && typedMetadata.citations.length > 0)) && (
-                  <Button variant="ghost" size="sm" className="h-8 gap-1.5 text-xs text-muted-foreground hover:text-foreground flex-shrink-0">
+                  <Button 
+                    variant="ghost" 
+                    size="sm" 
+                    className="h-8 gap-1.5 text-xs text-muted-foreground hover:text-foreground flex-shrink-0"
+                    onClick={() => setShowSources(!showSources)}
+                  >
                     <ExternalLink className="h-3.5 w-3.5" />
-                    <span className="hidden xs:inline">Sources</span>
+                    <span className="hidden xs:inline">{showSources ? 'Hide sources' : 'Sources'}</span>
                   </Button>
                 )}
                 
@@ -216,6 +222,36 @@ export function ChatMessage({
               </>
             )}
           </div>
+
+          {/* Expandable Sources Panel */}
+          {showSources && Array.isArray(typedMetadata?.citations) && typedMetadata.citations.length > 0 && (
+            <div className="mt-4 rounded-xl border border-border bg-muted/30 p-4">
+              <h4 className="text-sm font-semibold mb-3 text-foreground">Sources</h4>
+              <div className="space-y-3">
+                {typedMetadata.citations.map((citation, idx) => (
+                  <a
+                    key={`citation-${idx}-${citation.url}`}
+                    href={citation.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-start gap-3 p-3 rounded-lg border border-border bg-background hover:bg-muted/50 transition-colors group"
+                  >
+                    <div className="flex-shrink-0 mt-0.5">
+                      <ExternalLink className="h-4 w-4 text-muted-foreground group-hover:text-foreground transition-colors" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm font-medium text-foreground group-hover:underline truncate">
+                        {citation.title || citation.domain}
+                      </div>
+                      <div className="text-xs text-muted-foreground mt-0.5 truncate">
+                        {citation.domain}
+                      </div>
+                    </div>
+                  </a>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
