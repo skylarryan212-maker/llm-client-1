@@ -28,6 +28,7 @@ import { calculateCost, calculateVectorStorageCost } from "@/lib/pricing";
 import { getUserPlan } from "@/app/actions/plan-actions";
 import { getMonthlySpending } from "@/app/actions/usage-actions";
 import { hasExceededLimit, getPlanLimit } from "@/lib/usage-limits";
+import { loadAndApplyPreferences } from "@/lib/preferences-integration";
 
 type MessageRow = Database["public"]["Tables"]["messages"]["Row"];
 type ConversationRow = Database["public"]["Tables"]["conversations"]["Row"];
@@ -491,6 +492,16 @@ export async function POST(request: NextRequest) {
     const planLimit = getPlanLimit(userPlan);
     const usagePercentage = (monthlySpending / planLimit) * 100;
     
+    // Load user personalization preferences
+    const userPrefs = await loadAndApplyPreferences();
+    console.log("[preferences] Loaded user preferences:", {
+      defaultModel: userPrefs.defaultModel,
+      serviceTier: userPrefs.serviceTier,
+      webSearchDefault: userPrefs.webSearchDefault,
+      contextDefault: userPrefs.contextDefault,
+      allowTools: userPrefs.allowTools,
+    });
+    
     if (hasExceededLimit(monthlySpending, userPlan)) {
       console.log(`[usageLimit] User ${userId} exceeded limit: $${monthlySpending.toFixed(4)} / $${planLimit}`);
       return NextResponse.json(
@@ -507,7 +518,10 @@ export async function POST(request: NextRequest) {
     }
 
     // Validate and normalize model settings with progressive restrictions based on usage
-    let modelFamily = normalizeModelFamily(modelFamilyOverride ?? "auto");
+    // Apply user's default model preference if no override is provided
+    let modelFamily = normalizeModelFamily(
+      modelFamilyOverride ?? (userPrefs.defaultModel as ModelFamily)
+    );
     const speedMode = normalizeSpeedMode(speedModeOverride ?? "auto");
     const reasoningEffortHint = reasoningEffortOverride;
     
@@ -635,6 +649,10 @@ export async function POST(request: NextRequest) {
       usagePercentage
     );
     const reasoningEffort = modelConfig.reasoning?.effort ?? "none";
+    
+    // Extract router decisions with user preference defaults
+    const routerContextStrategy = (modelConfig as any).contextStrategy || userPrefs.contextDefault;
+    const routerWebSearchStrategy = (modelConfig as any).webSearchStrategy || userPrefs.webSearchDefault;
 
     // Log router usage if LLM routing was used
     if (modelConfig.routedBy === "llm") {
@@ -941,13 +959,19 @@ export async function POST(request: NextRequest) {
   console.log(`[chatApi] Vector store ID: ${vectorStoreId || 'none'}`);
 
   // Build instructions from system prompts (cleaner than bundling in input)
-    const systemInstructions = [
+    let systemInstructions = [
       BASE_SYSTEM_PROMPT,
       "You can inline-read files when the user includes tokens like <<file:relative/path/to/file>> in their prompt. Replace those tokens with the file content and use it in your reasoning.",
       ...(location ? [`User's location: ${location.city} (${location.lat.toFixed(4)}, ${location.lng.toFixed(4)}). Use this for location-specific queries like weather, local events, or "near me" searches.`] : []),
       ...(forceWebSearch ? [FORCE_WEB_SEARCH_PROMPT] : []),
       ...(allowWebSearch && requireWebSearch && !forceWebSearch ? [EXPLICIT_WEB_SEARCH_PROMPT] : []),
     ].join("\n\n");
+    
+    // Inject user personalization preferences into system prompt
+    if (userPrefs.systemPromptAddendum) {
+      systemInstructions += "\n\n**User Personalization:**\n" + userPrefs.systemPromptAddendum;
+      console.log("[preferences] Injected personalized system prompt addendum");
+    }
 
     // Helper to clean message content by removing file attachment metadata
     // This prevents the model from confusing attachments with actual user prompts
@@ -1061,13 +1085,20 @@ export async function POST(request: NextRequest) {
     const webSearchTool: Tool = { type: "web_search" as any };
     const fileSearchTool = { type: "file_search" as const, ...(vectorStoreId ? { vector_store_ids: [vectorStoreId] } : {}) };
     const toolsForRequest: Tool[] = [];
-    if (allowWebSearch) {
-      toolsForRequest.push(webSearchTool);
+    
+    // Only add tools if safe mode is not enabled
+    if (userPrefs.allowTools) {
+      if (allowWebSearch) {
+        toolsForRequest.push(webSearchTool);
+      }
+      if (vectorStoreId) {
+        toolsForRequest.push(fileSearchTool as Tool);
+      }
+    } else {
+      console.log("[preferences] Safe mode enabled - tools disabled");
     }
-    if (vectorStoreId) {
-      toolsForRequest.push(fileSearchTool as Tool);
-    }
-    const toolChoice: ToolChoiceOptions | undefined = allowWebSearch
+    
+    const toolChoice: ToolChoiceOptions | undefined = (userPrefs.allowTools && allowWebSearch)
       ? requireWebSearch
         ? "required"
         : "auto"

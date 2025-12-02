@@ -30,6 +30,10 @@ export interface RouterContext {
   userModelPreference?: ModelFamily;
   speedMode?: "auto" | "instant" | "thinking";
   usagePercentage?: number;
+  // User preferences for routing hints
+  preferredServiceTier?: 'auto' | 'standard' | 'flex';
+  webSearchDefault?: 'never' | 'optional' | 'required';
+  contextDefault?: 'minimal' | 'recent' | 'full';
 }
 
 const ROUTER_SYSTEM_PROMPT = `You are a routing assistant that analyzes user prompts and recommends the optimal AI model, reasoning effort, context strategy, and web search strategy.
@@ -148,6 +152,25 @@ export async function routeWithLLM(
     }
     if (context?.usagePercentage && context.usagePercentage >= 80) {
       contextNote += `\nUser is at ${context.usagePercentage.toFixed(0)}% usage - prefer smaller models (nano/mini) to save costs.`;
+    }
+    
+    // Apply user preference hints (soft suggestions, not hard requirements)
+    if (context?.preferredServiceTier === 'flex') {
+      contextNote += `\nUser prefers cost-optimized responses (flex tier) - consider smaller models when appropriate.`;
+    } else if (context?.preferredServiceTier === 'standard') {
+      contextNote += `\nUser prefers faster responses (standard tier) - prioritize speed when quality trade-off is acceptable.`;
+    }
+    
+    if (context?.webSearchDefault === 'never') {
+      contextNote += `\nUser default: avoid web search unless explicitly needed. Prefer internal knowledge.`;
+    } else if (context?.webSearchDefault === 'required') {
+      contextNote += `\nUser default: prefer web search for current information. Lean toward 'optional' or 'required'.`;
+    }
+    
+    if (context?.contextDefault === 'minimal') {
+      contextNote += `\nUser prefers minimal context loading. Use 'minimal' unless conversation clearly needs history.`;
+    } else if (context?.contextDefault === 'full') {
+      contextNote += `\nUser prefers comprehensive context. Use 'full' for queries that benefit from complete history.`;
     }
 
     const routerPrompt = `${contextNote ? contextNote + "\n\n" : ""}Analyze this prompt and recommend model + effort:\n\n${promptText}`;
