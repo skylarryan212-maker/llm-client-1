@@ -2010,25 +2010,24 @@ export default function ChatPageShell({
                   <div className="flex flex-col gap-2 pb-8 px-4 sm:px-6">
                     <div className="mx-auto w-full max-w-3xl">
                       <div className="flex flex-wrap gap-2">
-                        {fileReadingIndicator && (
+                        {/* Priority order: file reading > search > thinking (only show one at a time) */}
+                        {fileReadingIndicator ? (
                           <StatusBubble
                             label="Reading documents"
                             variant={fileReadingIndicator === "error" ? "error" : "reading"}
                           />
-                        )}
-                        {searchIndicator && (
+                        ) : searchIndicator ? (
                           <StatusBubble
                             label={searchIndicator.message}
                             variant={searchIndicator.variant === "error" ? "error" : "search"}
                             subtext={searchIndicator.subtext}
                           />
-                        )}
-                        {thinkingStatus && (
+                        ) : thinkingStatus ? (
                           <StatusBubble
                             label={thinkingStatus.label}
                             variant={thinkingStatus.variant === "extended" ? "extended" : "default"}
                           />
-                        )}
+                        ) : null}
                       </div>
                     </div>
                   </div>
