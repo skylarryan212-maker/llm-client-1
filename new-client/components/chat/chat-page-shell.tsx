@@ -543,8 +543,7 @@ export default function ChatPageShell({
     const viewport = scrollViewportRef.current;
     const compute = () => {
       if (!viewport) return;
-      // 1.5 inches at standard 96 DPI = 144px
-      const desired = 144;
+      const desired = 28;
       setBottomSpacerPx((prev) => (prev === desired ? prev : desired));
     };
     compute();
