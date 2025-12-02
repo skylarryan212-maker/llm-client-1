@@ -251,8 +251,9 @@ export function getModelAndReasoningConfig(
     }
   }
 
-  // Only auto-route across families when the user selected overall Auto
-  if (modelFamily === "auto" && speedMode === "auto") {
+  // Auto-route across families when the user selected Auto model family
+  // This applies to all speed modes (auto, instant, thinking)
+  if (modelFamily === "auto") {
     resolvedFamily = selectGpt51AutoFamily(trimmedPrompt, chosenEffort);
   }
 
