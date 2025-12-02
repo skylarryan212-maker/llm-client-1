@@ -50,19 +50,25 @@ const ROUTER_SYSTEM_PROMPT = `You are a routing assistant that analyzes user pro
 Note: gpt-5-mini and gpt-5-nano MUST use "low", "medium", or "high" (never "none").
 
 **Context Strategy:**
-- **minimal**: Use cached context only, don't load message history (for NEW factual questions that don't reference chat history)
-- **recent**: Load last 15 messages (for normal conversation flow, follow-ups, references to recent context)
+- **minimal**: Use cached context only, don't load message history (ONLY for completely standalone questions with no conversational signals)
+- **recent**: Load last 15 messages (for ANY conversational continuations, clarifications, corrections, follow-ups, or references)
 - **full**: Load ALL messages from database (for enumeration, listing, recalling old messages)
 
 **Context Strategy Examples:**
-- "What's the weather in Paris?" → minimal (new question, no history needed)
-- "Explain quantum mechanics" → minimal (factual, doesn't need chat history)
+- "What's the weather in Paris?" → minimal (ONLY if first message or topic change)
+- "Explain quantum mechanics" → minimal (ONLY if standalone, not part of conversation)
+- "no", "yes", "ok", "no thats ok" → recent (conversational responses)
+- "its X specifically", "I meant Y" → recent (clarifications/corrections)
+- "im talking about X", "I have X, so..." → recent (references previous context)
 - "Can you explain that better?" → recent (refers to recent context)
+- "tell me more", "what about..." → recent (follow-ups)
 - "Continue from where we left off" → recent (conversation flow)
 - "What were all my prompts?" → full (needs to enumerate messages)
 - "List everything we discussed" → full (needs full history)
 - "What was my first question?" → full (needs oldest message)
 - "Summarize our conversation" → full (needs all messages)
+
+⚠️ **CRITICAL**: If message is short (<20 words) and continues/responds to previous context, ALWAYS use "recent". Better to load extra context than hallucinate.
 
 **Web Search Strategy (NEW - IMPORTANT):**
 - **never**: No search needed (greetings, offline math/logic, meta questions about AI, explanations of known concepts)
@@ -84,13 +90,16 @@ Note: gpt-5-mini and gpt-5-nano MUST use "low", "medium", or "high" (never "none
 - "What happened in 2024?" → optional (recent past, search might help)
 
 **Routing Guidelines:**
-- Short greetings ("hi", "hello") → nano + low + minimal + never
-- Simple factual questions → nano or mini + low + minimal + never
-- Explanations, summaries, analysis → mini + low or medium + minimal + never
-- Follow-up questions ("explain that", "tell me more") → mini + low + recent + never
-- Current events, news, prices → mini + low + minimal + required
-- Weather, live data → nano or mini + low + minimal + required
-- Explicit search requests → mini + low + minimal + required
+- Short greetings ("hi", "hello") → nano + low + minimal + never (ONLY if first message)
+- Simple factual questions → nano or mini + low + minimal + never (ONLY if standalone, no context needed)
+- Short conversational responses ("no", "yes", "ok") → nano + low + recent + never
+- Clarifications/corrections ("its X specifically", "I meant Y") → mini + low + recent + never
+- References to prior context ("I have X, so...", "im talking about X") → mini + low + recent + never
+- Follow-up questions ("explain that", "tell me more", "what about...") → mini + low + recent + never
+- Explanations, summaries, analysis → mini + low or medium + recent + never
+- Current events, news, prices → mini + low + minimal + required (if standalone) OR recent + required (if follow-up)
+- Weather, live data → nano or mini + low + minimal + required (if standalone) OR recent + required (if follow-up)
+- Explicit search requests → mini + low + recent + required (usually references prior context)
 - Long prompts (600+ words) → mini or 5.1 + medium + recent + never/optional
 - Complex technical, coding, research → 5.1 + medium or high + recent + optional
 - Enumeration/recall requests → mini or 5.1 + low + full + never
