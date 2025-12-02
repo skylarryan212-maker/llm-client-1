@@ -629,15 +629,15 @@ export async function POST(request: NextRequest) {
     // Get model config using LLM-based routing (with code-based fallback)
     const modelConfig = await getModelAndReasoningConfigWithLLM(
       modelFamily, 
-    // Get model config using LLM-based routing (with code-based fallback)
-    const modelConfig = await getModelAndReasoningConfigWithLLM(
-      modelFamily, 
       speedMode, 
       message, 
       reasoningEffortHint,
       usagePercentage
     );
     const reasoningEffort = modelConfig.reasoning?.effort ?? "none";
+
+    // Log router usage if LLM routing was used
+    if (modelConfig.routedBy === "llm") {
       try {
         const { getRouterUsageEstimate } = await import("@/lib/llm-router");
         const routerUsage = getRouterUsageEstimate();
