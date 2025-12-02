@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { z } from "zod";
 import ManageMemoriesModal from "@/components/memory-manage-modal";
+// import { supabase } from "@/lib/supabaseClient"; // Uncomment if you want to sync settings to Supabase
 
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -17,10 +18,16 @@ const SettingsSchema = z.object({
 });
 
 type Settings = z.infer<typeof SettingsSchema>;
+
 const STORAGE_KEY = "personalization.memory.v1";
 
-function load(): Settings {
+
+// Optionally, sync settings to Supabase for cross-device persistence
+async function load(): Promise<Settings> {
   try {
+    // Uncomment and implement if you want to load from Supabase
+    // const { data, error } = await supabase.from('personalization_settings').select('*').single();
+    // if (data) return SettingsSchema.parse(data);
     const raw = typeof window !== "undefined" ? window.localStorage.getItem(STORAGE_KEY) : null;
     if (!raw) return SettingsSchema.parse({});
     const parsed = JSON.parse(raw);
@@ -30,29 +37,41 @@ function load(): Settings {
   }
 }
 
-function save(s: Settings) {
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(s)); } catch {}
+async function save(s: Settings) {
+  try {
+    // Uncomment and implement if you want to save to Supabase
+    // await supabase.from('personalization_settings').upsert([s]);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(s));
+  } catch {}
 }
 
 export function PersonalizationPanel() {
-  const [settings, setSettings] = useState<Settings>(() => load());
+  const [settings, setSettings] = useState<Settings>();
   const [openManage, setOpenManage] = useState(false);
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<number | null>(null);
 
+  useEffect(() => {
+    load().then(setSettings);
+  }, []);
+
   const update = <K extends keyof Settings>(key: K, value: Settings[K]) => {
+    if (!settings) return;
     const next = { ...settings, [key]: value };
     const parsed = SettingsSchema.safeParse(next);
     if (parsed.success) setSettings(parsed.data);
   };
 
   const onSave = async () => {
+    if (!settings) return;
     setSaving(true);
     try {
-      save(settings);
+      await save(settings);
       setSavedAt(Date.now());
     } finally { setSaving(false); }
   };
+
+  if (!settings) return <div>Loading…</div>;
 
   return (
     <div className="space-y-6">

@@ -28,6 +28,8 @@ import { calculateCost, calculateVectorStorageCost } from "@/lib/pricing";
 import { getUserPlan } from "@/app/actions/plan-actions";
 import { getMonthlySpending } from "@/app/actions/usage-actions";
 import { hasExceededLimit, getPlanLimit } from "@/lib/usage-limits";
+import { getRelevantMemories, maybeWriteMemory, type PersonalizationMemorySettings } from "@/lib/memory-router";
+import type { MemoryItem } from "@/lib/memory";
 
 type MessageRow = Database["public"]["Tables"]["messages"]["Row"];
 type ConversationRow = Database["public"]["Tables"]["conversations"]["Row"];
@@ -77,11 +79,120 @@ const BASE_SYSTEM_PROMPT =
   "- If an attachment is an image, extract any visible text (OCR) and use it in your reasoning along with a description if helpful.\\n" +
   "- IMPORTANT: When a user asks to 'list my prompts' or 'show my messages', only list the TEXT they typed. Do NOT list file contents, document excerpts, or attachment names as if they were prompts. The marker '[Files attached]' indicates files were included but is not part of the prompt.";
 
+function loadPersonalizationSettings(): PersonalizationMemorySettings & { customInstructions?: string; baseStyle?: string } {
+  try {
+    if (typeof window === "undefined") {
+      // Server-side: no localStorage access, return defaults
+      return { referenceSavedMemories: true, allowSavingMemory: true };
+    }
+    const raw = window.localStorage.getItem("personalization.memory.v1");
+    if (!raw) return { referenceSavedMemories: true, allowSavingMemory: true };
+    const parsed = JSON.parse(raw);
+    return {
+      referenceSavedMemories: parsed.referenceSavedMemories ?? true,
+      allowSavingMemory: parsed.allowSavingMemory ?? true,
+      customInstructions: parsed.customInstructions || "",
+      baseStyle: parsed.baseStyle || "Professional",
+    };
+  } catch {
+    return { referenceSavedMemories: true, allowSavingMemory: true };
+  }
+}
+
+function buildSystemPromptWithPersonalization(
+  basePrompt: string,
+  settings: { customInstructions?: string; baseStyle?: string },
+  memories: MemoryItem[]
+): string {
+  let prompt = basePrompt;
+
+  // Add base style instruction
+  if (settings.baseStyle) {
+    const styleMap: Record<string, string> = {
+      Professional: "Maintain a professional, formal tone in your responses.",
+      Friendly: "Be warm, conversational, and friendly in your responses.",
+      Concise: "Keep your responses brief and to the point, avoiding unnecessary elaboration.",
+      Creative: "Be imaginative, expressive, and engaging in your responses.",
+    };
+    const styleInstruction = styleMap[settings.baseStyle];
+    if (styleInstruction) {
+      prompt += "\\n\\n" + styleInstruction;
+    }
+  }
+
+  // Add custom instructions
+  if (settings.customInstructions && settings.customInstructions.trim()) {
+    prompt += "\\n\\n**Custom Instructions:**\\n" + settings.customInstructions.trim();
+  }
+
+  // Add memories
+  if (memories.length > 0) {
+    prompt += "\\n\\n**Saved Memories (User Context):**";
+    for (const mem of memories) {
+      prompt += `\\n- [${mem.type}] ${mem.title}: ${mem.content}`;
+    }
+    prompt += "\\n\\nUse these memories to personalize your responses and maintain context about the user's preferences and information.";
+  }
+
+  return prompt;
+}
+
 const FORCE_WEB_SEARCH_PROMPT =
   "The user explicitly requested live web search. Ensure you call the `web_search` tool for this turn unless it would clearly be redundant.";
 
 const EXPLICIT_WEB_SEARCH_PROMPT =
   "The user asked for live sources or links. You must call the `web_search` tool, base your answer on those results, and cite them using markdown links [text](url). Do not fabricate sources.";
+
+// Helper to load personalization settings from localStorage (client-side fallback)
+function loadPersonalizationSettings(): PersonalizationMemorySettings & { customInstructions?: string; baseStyle?: string } {
+  try {
+    // On server-side, we can't access localStorage directly
+    // In a real implementation, this would fetch from Supabase user preferences
+    // For now, return defaults (you can extend this to read from req headers or session)
+    return { referenceSavedMemories: true, allowSavingMemory: true };
+  } catch {
+    return { referenceSavedMemories: true, allowSavingMemory: true };
+  }
+}
+
+// Build system prompt with personalization and memories
+function buildSystemPromptWithPersonalization(
+  basePrompt: string,
+  settings: { customInstructions?: string; baseStyle?: string },
+  memories: MemoryItem[]
+): string {
+  let prompt = basePrompt;
+
+  // Add base style instruction
+  if (settings.baseStyle) {
+    const styleMap: Record<string, string> = {
+      Professional: "Maintain a professional, formal tone in your responses.",
+      Friendly: "Be warm, conversational, and friendly in your responses.",
+      Concise: "Keep your responses brief and to the point, avoiding unnecessary elaboration.",
+      Creative: "Be imaginative, expressive, and engaging in your responses.",
+    };
+    const styleInstruction = styleMap[settings.baseStyle];
+    if (styleInstruction) {
+      prompt += "\\n\\n" + styleInstruction;
+    }
+  }
+
+  // Add custom instructions
+  if (settings.customInstructions && settings.customInstructions.trim()) {
+    prompt += "\\n\\n**Custom Instructions:**\\n" + settings.customInstructions.trim();
+  }
+
+  // Add memories
+  if (memories.length > 0) {
+    prompt += "\\n\\n**Saved Memories (User Context):**";
+    for (const mem of memories) {
+      prompt += `\\n- [${mem.type}] ${mem.title}: ${mem.content}`;
+    }
+    prompt += "\\n\\nUse these memories to personalize your responses and maintain context about the user's preferences and information.";
+  }
+
+  return prompt;
+}
 
 // ============================================================================
 // OLD WEB SEARCH HEURISTICS (DEPRECATED - NOW USING LLM ROUTER)
@@ -726,6 +837,23 @@ export async function POST(request: NextRequest) {
     
     console.log(`[web-search-strategy] Router decision: ${webSearchStrategy} (allow: ${allowWebSearch}, require: ${requireWebSearch})`);
 
+    // Load personalization settings and relevant memories
+    const personalizationSettings = loadPersonalizationSettings();
+    let relevantMemories: MemoryItem[] = [];
+    try {
+      if (personalizationSettings.referenceSavedMemories) {
+        relevantMemories = await getRelevantMemories(
+          { referenceSavedMemories: true, allowSavingMemory: personalizationSettings.allowSavingMemory },
+          message,
+          "all",
+          8
+        );
+        console.log(`[memory] Loaded ${relevantMemories.length} relevant memories`);
+      }
+    } catch (error) {
+      console.error("[memory] Failed to load memories:", error);
+    }
+
 
     // Inline file include: allow users to embed <<file:relative/path>> tokens which will be replaced by file content.
     async function expandInlineFileTokens(input: string) {
@@ -940,14 +1068,20 @@ export async function POST(request: NextRequest) {
   console.log(`[chatApi] Final message length: ${expandedMessageWithAttachments.length} chars`);
   console.log(`[chatApi] Vector store ID: ${vectorStoreId || 'none'}`);
 
-  // Build instructions from system prompts (cleaner than bundling in input)
-    const systemInstructions = [
+  // Build instructions from system prompts with personalization and memories
+    const baseSystemInstructions = [
       BASE_SYSTEM_PROMPT,
       "You can inline-read files when the user includes tokens like <<file:relative/path/to/file>> in their prompt. Replace those tokens with the file content and use it in your reasoning.",
       ...(location ? [`User's location: ${location.city} (${location.lat.toFixed(4)}, ${location.lng.toFixed(4)}). Use this for location-specific queries like weather, local events, or "near me" searches.`] : []),
       ...(forceWebSearch ? [FORCE_WEB_SEARCH_PROMPT] : []),
       ...(allowWebSearch && requireWebSearch && !forceWebSearch ? [EXPLICIT_WEB_SEARCH_PROMPT] : []),
     ].join("\n\n");
+
+    const systemInstructions = buildSystemPromptWithPersonalization(
+      baseSystemInstructions,
+      personalizationSettings,
+      relevantMemories
+    );
 
     const cleanMessageContent = (msg: MessageRow): string => {
       let content = msg.content ?? "";
@@ -1358,6 +1492,47 @@ export async function POST(request: NextRequest) {
               },
             });
           } else {
+            // Memory write logic: check if we should create a new memory based on conversation
+            try {
+              if (personalizationSettings.allowSavingMemory) {
+                // Simple heuristic: if user mentions preferences, identity, or constraints
+                const memoryTriggers = [
+                  /my name is|call me|i'm|i am/i,
+                  /i prefer|i like|i don't like|i hate/i,
+                  /always|never|from now on|remember/i,
+                  /keep in mind|note that|please remember/i,
+                ];
+                const shouldWriteMemory = memoryTriggers.some(regex => regex.test(message));
+                
+                if (shouldWriteMemory) {
+                  // Extract a simple memory from the user message
+                  // In production, use an LLM to intelligently extract and categorize
+                  const memoryTitle = message.substring(0, 60).trim() + (message.length > 60 ? "..." : "");
+                  const memoryType: MemoryItem["type"] = 
+                    /my name is|call me/i.test(message) ? "identity" :
+                    /prefer|like/i.test(message) ? "preference" :
+                    /always|never/i.test(message) ? "constraint" :
+                    "other";
+                  
+                  await maybeWriteMemory(
+                    personalizationSettings,
+                    {
+                      type: memoryType,
+                      title: memoryTitle,
+                      content: message,
+                      enabled: true,
+                      created_at: new Date().toISOString(),
+                    },
+                    true // shouldWrite flag
+                  );
+                  console.log(`[memory] Wrote new memory: ${memoryTitle}`);
+                }
+              }
+            } catch (memError) {
+              console.error("[memory] Failed to write memory:", memError);
+              // Don't fail the request if memory write fails
+            }
+
             enqueueJson({
               meta: {
                 assistantMessageRowId: assistantMessageRow.id,
