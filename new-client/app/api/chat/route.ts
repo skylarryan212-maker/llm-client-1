@@ -33,6 +33,17 @@ import type { MemoryItem } from "@/lib/memory";
 import { writeMemory, fetchMemories, deleteMemory, updateMemoryEnabled } from "@/lib/memory";
 import { analyzeForMemory, getMemoryAnalysisUsageEstimate } from "@/lib/llm-router";
 
+// Utility: convert a data URL (base64) to a Buffer
+function dataUrlToBuffer(dataUrl: string): Buffer {
+  // Expected format: data:<mime>;base64,<data>
+  const commaIndex = dataUrl.indexOf(",");
+  if (commaIndex === -1) {
+    throw new Error("Invalid data URL: no comma separator");
+  }
+  const base64 = dataUrl.slice(commaIndex + 1);
+  return Buffer.from(base64, "base64");
+}
+
 type MessageRow = Database["public"]["Tables"]["messages"]["Row"];
 type ConversationRow = Database["public"]["Tables"]["conversations"]["Row"];
 type OpenAIClient = any;
