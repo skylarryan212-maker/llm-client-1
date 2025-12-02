@@ -143,57 +143,6 @@ const FORCE_WEB_SEARCH_PROMPT =
 const EXPLICIT_WEB_SEARCH_PROMPT =
   "The user asked for live sources or links. You must call the `web_search` tool, base your answer on those results, and cite them using markdown links [text](url). Do not fabricate sources.";
 
-// Helper to load personalization settings from localStorage (client-side fallback)
-function loadPersonalizationSettings(): PersonalizationMemorySettings & { customInstructions?: string; baseStyle?: string } {
-  try {
-    // On server-side, we can't access localStorage directly
-    // In a real implementation, this would fetch from Supabase user preferences
-    // For now, return defaults (you can extend this to read from req headers or session)
-    return { referenceSavedMemories: true, allowSavingMemory: true };
-  } catch {
-    return { referenceSavedMemories: true, allowSavingMemory: true };
-  }
-}
-
-// Build system prompt with personalization and memories
-function buildSystemPromptWithPersonalization(
-  basePrompt: string,
-  settings: { customInstructions?: string; baseStyle?: string },
-  memories: MemoryItem[]
-): string {
-  let prompt = basePrompt;
-
-  // Add base style instruction
-  if (settings.baseStyle) {
-    const styleMap: Record<string, string> = {
-      Professional: "Maintain a professional, formal tone in your responses.",
-      Friendly: "Be warm, conversational, and friendly in your responses.",
-      Concise: "Keep your responses brief and to the point, avoiding unnecessary elaboration.",
-      Creative: "Be imaginative, expressive, and engaging in your responses.",
-    };
-    const styleInstruction = styleMap[settings.baseStyle];
-    if (styleInstruction) {
-      prompt += "\\n\\n" + styleInstruction;
-    }
-  }
-
-  // Add custom instructions
-  if (settings.customInstructions && settings.customInstructions.trim()) {
-    prompt += "\\n\\n**Custom Instructions:**\\n" + settings.customInstructions.trim();
-  }
-
-  // Add memories
-  if (memories.length > 0) {
-    prompt += "\\n\\n**Saved Memories (User Context):**";
-    for (const mem of memories) {
-      prompt += `\\n- [${mem.type}] ${mem.title}: ${mem.content}`;
-    }
-    prompt += "\\n\\nUse these memories to personalize your responses and maintain context about the user's preferences and information.";
-  }
-
-  return prompt;
-}
-
 // ============================================================================
 // OLD WEB SEARCH HEURISTICS (DEPRECATED - NOW USING LLM ROUTER)
 // ============================================================================
