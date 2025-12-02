@@ -668,22 +668,29 @@ export async function POST(request: NextRequest) {
       contextMessagesToLoad = [];
       console.log(`[context-strategy] Using minimal - cache only (0 messages loaded)`);
     } else if (contextStrategy === "recent") {
-      // Load last 15 messages for normal conversation
-      const { data: recentHistory, error: recentError } = await supabaseAny
-        .from("messages")
-        .select("*")
-        .eq("conversation_id", conversationId)
-        .order("created_at", { ascending: true })
-        .limit(15);
-      
-      if (recentError) {
-        console.error("Failed to load recent history:", recentError);
+      // If OpenAI chain exists, skip loading (OpenAI has the context)
+      // Otherwise load last 15 messages for normal conversation
+      if (previousResponseId) {
+        contextMessagesToLoad = [];
+        console.log(`[context-strategy] Using recent - OpenAI chain exists, skipping database load (relying on cache)`);
       } else {
-        contextMessagesToLoad = recentHistory || [];
+        const { data: recentHistory, error: recentError } = await supabaseAny
+          .from("messages")
+          .select("*")
+          .eq("conversation_id", conversationId)
+          .order("created_at", { ascending: true })
+          .limit(15);
+        
+        if (recentError) {
+          console.error("Failed to load recent history:", recentError);
+        } else {
+          contextMessagesToLoad = recentHistory || [];
+        }
+        console.log(`[context-strategy] Using recent - no chain, loaded ${contextMessagesToLoad.length} messages from DB`);
       }
-      console.log(`[context-strategy] Using recent - loaded ${contextMessagesToLoad.length} messages`);
     } else if (contextStrategy === "full") {
-      // Load all messages for enumeration/recall
+      // Load all messages for enumeration/recall (even if chain exists)
+      // The model needs explicit message list to count/enumerate
       const { data: fullHistory, error: fullError } = await supabaseAny
         .from("messages")
         .select("*")
@@ -696,7 +703,7 @@ export async function POST(request: NextRequest) {
       } else {
         contextMessagesToLoad = fullHistory || [];
       }
-      console.log(`[context-strategy] Using full - loaded ${contextMessagesToLoad.length} messages`);
+      console.log(`[context-strategy] Using full - loaded ${contextMessagesToLoad.length} messages for enumeration`);
     }
 
     // Smart web search decision based on router (replaces hardcoded heuristics)
