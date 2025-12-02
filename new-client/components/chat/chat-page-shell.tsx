@@ -513,66 +513,19 @@ export default function ChatPageShell({
   const currentChat = chats.find((c) => c.id === selectedChatId);
   const messages = currentChat?.messages || [];
 
-  const getLastExchangeAnchorId = useCallback(() => {
-    // Anchor on the most recent user message; if none, fall back to last message.
-    for (let i = messages.length - 1; i >= 0; i--) {
-      if (messages[i].role === "user") {
-        return messages[i].id;
-      }
-    }
-    return messages[messages.length - 1]?.id;
-  }, [messages]);
-
   const scrollToBottom = useCallback(
-    (
-      behavior: ScrollBehavior = "smooth",
-      options?: { anchorLatest?: boolean; forceBottom?: boolean }
-    ) => {
+    (behavior: ScrollBehavior = "smooth") => {
       const viewport = scrollViewportRef.current;
       if (!viewport) return;
 
-      if (options?.forceBottom) {
-        viewport.scrollTo({ top: viewport.scrollHeight, behavior });
-        if (typeof requestAnimationFrame !== "undefined") {
-          requestAnimationFrame(() =>
-            viewport.scrollTo({ top: viewport.scrollHeight, behavior: "auto" })
-          );
-        }
-        return;
-      }
-
-      const anchorLatest = options?.anchorLatest !== false;
-      if (!anchorLatest) {
-        viewport.scrollTo({ top: viewport.scrollHeight, behavior });
-        if (typeof requestAnimationFrame !== "undefined") {
-          requestAnimationFrame(() =>
-            viewport.scrollTo({ top: viewport.scrollHeight, behavior: "auto" })
-          );
-        }
-        return;
-      }
-
-      const anchorId = getLastExchangeAnchorId();
-      const targetEl = anchorId ? messageRefs.current[anchorId] : null;
-      const fallbackScroll = () => viewport.scrollTo({ top: viewport.scrollHeight, behavior });
-
-      if (targetEl) {
-        const offset = Math.max(0, targetEl.offsetTop - 4);
-        viewport.scrollTo({ top: offset, behavior });
-        if (typeof requestAnimationFrame !== "undefined") {
-              requestAnimationFrame(() => {
-                const rerunOffset = Math.max(0, targetEl.offsetTop - 4);
-                viewport.scrollTo({ top: rerunOffset, behavior: "auto" });
-              });
-            }
-          } else {
-            fallbackScroll();
-            if (typeof requestAnimationFrame !== "undefined") {
-              requestAnimationFrame(() => viewport.scrollTo({ top: viewport.scrollHeight, behavior: "auto" }));
-        }
+      viewport.scrollTo({ top: viewport.scrollHeight, behavior });
+      if (typeof requestAnimationFrame !== "undefined") {
+        requestAnimationFrame(() =>
+          viewport.scrollTo({ top: viewport.scrollHeight, behavior: "auto" })
+        );
       }
     },
-    [messages, getLastExchangeAnchorId]
+    []
   );
 
   const recomputeScrollFlags = useCallback(() => {
@@ -585,7 +538,7 @@ export default function ChatPageShell({
     setShowScrollToBottom(!atBottom);
   }, [bottomSpacerPx]);
 
-  // Dynamically size the bottom spacer so the newest prompt can pin near the top without leaving a giant empty area.
+  // Dynamically size the bottom spacer to provide room below messages
   useEffect(() => {
     const viewport = scrollViewportRef.current;
     const compute = () => {
@@ -652,7 +605,7 @@ export default function ChatPageShell({
   useEffect(() => {
     setIsAutoScroll(true);
     setShowScrollToBottom(false);
-    scrollToBottom("auto", { anchorLatest: true });
+    scrollToBottom("auto");
   }, [selectedChatId, scrollToBottom]);
 
   useEffect(() => {
@@ -1531,7 +1484,7 @@ export default function ChatPageShell({
     const atBottom = distanceFromBottom <= tolerance;
 
     setShowScrollToBottom(!atBottom);
-    // Only keep auto-scroll on if it was already enabled; manual scroll to bottom should not re-enable anchoring.
+    // Keep auto-scroll on if it was already enabled; manual scroll to bottom should not re-enable it.
     setIsAutoScroll((prev) => (prev ? atBottom : false));
   };
 
@@ -1539,8 +1492,6 @@ export default function ChatPageShell({
     // Don't run this effect during streaming - let the streaming autoscroll handle it
     if (isStreaming) return;
     
-    // Don't run if messages just changed length - the pin effect handles new user messages
-    // This effect is only for non-streaming scroll corrections
     if (isAutoScroll) {
       // Only recompute flags, don't force scroll
       setShowScrollToBottom(false);
@@ -2097,7 +2048,7 @@ export default function ChatPageShell({
                     </div>
                   </div>
                 )}
-                {/* Spacer to allow anchoring the newest message near the top with dynamic room below */}
+                {/* Bottom spacer for proper scrolling */}
                 <div aria-hidden="true" style={{ height: `${bottomSpacerPx}px` }} />
               </div>
             </div>
@@ -2116,10 +2067,9 @@ export default function ChatPageShell({
               size="icon"
               className="pointer-events-auto h-10 w-10 rounded-full border border-border bg-card/90 text-foreground shadow-md backdrop-blur hover:bg-background"
               onClick={() => {
-                // Jump to absolute bottom to clear any overscroll confusion.
                 setIsAutoScroll(false);
                 setShowScrollToBottom(false);
-                scrollToBottom("smooth", { anchorLatest: false, forceBottom: true });
+                scrollToBottom("smooth");
               }}
             >
               <ArrowDown className="h-4 w-4 text-foreground" />
