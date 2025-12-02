@@ -1662,11 +1662,13 @@ export default function ChatPageShell({
 
   const sidebarConversations = useMemo(
     () =>
-      globalChats.map((chat) => ({
-        id: chat.id,
-        title: chat.title,
-        timestamp: chat.timestamp,
-      })),
+      globalChats
+        .map((chat) => ({
+          id: chat.id,
+          title: chat.title,
+          timestamp: chat.timestamp,
+        }))
+        .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()),
     [globalChats]
   );
 
@@ -1684,8 +1686,32 @@ export default function ChatPageShell({
       });
     });
 
+    // Sort each project's chats by most recent
+    Object.keys(map).forEach((projectId) => {
+      map[projectId].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+    });
+
     return map;
   }, [chats]);
+
+  // Sort projects by most recent activity (most recent chat timestamp in each project)
+  const sortedProjects = useMemo(() => {
+    return [...projects].sort((a, b) => {
+      const aChats = projectConversations[a.id] || [];
+      const bChats = projectConversations[b.id] || [];
+      
+      // Get the most recent chat timestamp for each project
+      const aLatest = aChats.length > 0 
+        ? Math.max(...aChats.map(chat => new Date(chat.timestamp).getTime()))
+        : new Date(a.createdAt || 0).getTime();
+      
+      const bLatest = bChats.length > 0
+        ? Math.max(...bChats.map(chat => new Date(chat.timestamp).getTime()))
+        : new Date(b.createdAt || 0).getTime();
+      
+      return bLatest - aLatest;
+    });
+  }, [projects, projectConversations]);
 
   return (
     <div className="flex h-screen overflow-hidden bg-background text-foreground dark">
@@ -1698,7 +1724,7 @@ export default function ChatPageShell({
           onModelSelect={setCurrentModel}
           selectedChatId={selectedChatId ?? ""} // Sidebar API expects string
           conversations={sidebarConversations}
-          projects={projects}
+          projects={sortedProjects}
           projectChats={projectConversations}
           onChatSelect={handleChatSelect}
           onProjectChatSelect={handleProjectChatSelect}
