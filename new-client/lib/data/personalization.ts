@@ -1,11 +1,16 @@
 import { supabaseServer } from "@/lib/supabase/server";
-import { requireUserIdServer } from "@/lib/supabase/user";
+import { getCurrentUserIdServer } from "@/lib/supabase/user";
 import type { UserPersonalization, UserPreferencesRow, dbRowToPersonalization } from "@/types/preferences";
 import { dbRowToPersonalization as convertRow } from "@/types/preferences";
 
 export async function getFullUserPersonalization(): Promise<UserPersonalization | null> {
   const supabase = await supabaseServer();
-  const userId = await requireUserIdServer();
+  const userId = await getCurrentUserIdServer();
+
+  // If unauthenticated (e.g., during static build or anonymous session), return defaults
+  if (!userId) {
+    return getDefaultPersonalization();
+  }
 
   const { data, error } = await supabase
     .from("user_preferences")
