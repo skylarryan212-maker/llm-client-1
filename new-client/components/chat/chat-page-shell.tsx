@@ -172,6 +172,7 @@ export default function ChatPageShell({
   const [pinMessageId, setPinMessageId] = useState<string | null>(null);
   const pinFrameRef = useRef<{ first?: number; second?: number }>({});
   const [isStreaming, setIsStreaming] = useState(false);
+  const pinningInProgressRef = useRef(false);
   const [thinkingStatus, setThinkingStatus] = useState<{ variant: "thinking" | "extended"; label: string } | null>(null);
   // Force re-render while thinking so a live duration chip can update
   const [thinkingTick, setThinkingTick] = useState(0);
@@ -670,7 +671,8 @@ export default function ChatPageShell({
     // Only pin if it's a new user message AND we haven't pinned this message yet
     if (isNewMessage && last.role === "user" && lastPinnedMessageIdRef.current !== last.id) {
       lastPinnedMessageIdRef.current = last.id;
-      setIsAutoScroll(true);
+      setIsAutoScroll(false); // Disable autoscroll during pinning
+      pinningInProgressRef.current = true;
       
       // Wait for the DOM to be ready, then scroll the user message to the top
       if (typeof requestAnimationFrame !== "undefined") {
@@ -683,6 +685,15 @@ export default function ChatPageShell({
               // Scroll so the user message is at the very top (with small padding)
               const targetScrollTop = userMessageEl.offsetTop - 8;
               viewport.scrollTo({ top: targetScrollTop, behavior: "auto" });
+              
+              // Re-enable autoscroll after a short delay to allow streaming to take over
+              setTimeout(() => {
+                pinningInProgressRef.current = false;
+                setIsAutoScroll(true);
+              }, 100);
+            } else {
+              pinningInProgressRef.current = false;
+              setIsAutoScroll(true);
             }
           });
         });
@@ -692,7 +703,8 @@ export default function ChatPageShell({
 
   // Auto-scroll during streaming when message content changes
   useEffect(() => {
-    if (!isStreaming || !isAutoScroll) return;
+    // Don't autoscroll if pinning is in progress or if autoscroll is disabled
+    if (!isStreaming || !isAutoScroll || pinningInProgressRef.current) return;
     
     // Use requestAnimationFrame for smoother scrolling
     let rafId: number;
@@ -700,14 +712,8 @@ export default function ChatPageShell({
       const viewport = scrollViewportRef.current;
       if (!viewport) return;
       
-      // Check if we're already at the bottom
-      const { scrollTop, scrollHeight, clientHeight } = viewport;
-      const distanceFromBottom = scrollHeight - (scrollTop + clientHeight);
-      
-      // Only scroll if there's new content (not at bottom)
-      if (distanceFromBottom > 5) {
-        viewport.scrollTo({ top: scrollHeight, behavior: "auto" });
-      }
+      // Scroll to bottom during streaming
+      viewport.scrollTo({ top: viewport.scrollHeight, behavior: "auto" });
     };
     
     if (typeof requestAnimationFrame !== "undefined") {
