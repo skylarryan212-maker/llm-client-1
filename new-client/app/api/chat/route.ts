@@ -941,17 +941,15 @@ export async function POST(request: NextRequest) {
   console.log(`[chatApi] Vector store ID: ${vectorStoreId || 'none'}`);
 
   // Build instructions from system prompts (cleaner than bundling in input)
-    let systemInstructions = [
-      BASE_SYSTEM_PROMPT,
-      "You can inline-read files when the user includes tokens like <<file:relative/path/to/file>> in their prompt. Replace those tokens with the file content and use it in your reasoning.",
-  // Build instructions from system prompts (cleaner than bundling in input)
     const systemInstructions = [
       BASE_SYSTEM_PROMPT,
       "You can inline-read files when the user includes tokens like <<file:relative/path/to/file>> in their prompt. Replace those tokens with the file content and use it in your reasoning.",
       ...(location ? [`User's location: ${location.city} (${location.lat.toFixed(4)}, ${location.lng.toFixed(4)}). Use this for location-specific queries like weather, local events, or "near me" searches.`] : []),
       ...(forceWebSearch ? [FORCE_WEB_SEARCH_PROMPT] : []),
       ...(allowWebSearch && requireWebSearch && !forceWebSearch ? [EXPLICIT_WEB_SEARCH_PROMPT] : []),
-    ].join("\n\n");onst cleanMessageContent = (msg: MessageRow): string => {
+    ].join("\n\n");
+
+    const cleanMessageContent = (msg: MessageRow): string => {
       let content = msg.content ?? "";
       
       // Only clean user messages with file metadata
@@ -1057,16 +1055,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Use generic Tool to avoid strict preview-only type union on WebSearchTool in SDK types
-    const webSearchTool: Tool = { type: "web_search" as any };
-    const fileSearchTool = { type: "file_search" as const, ...(vectorStoreId ? { vector_store_ids: [vectorStoreId] } : {}) };
-    const toolsForRequest: Tool[] = [];
-    
-    // Only add tools if safe mode is not enabled
-    if (userPrefs.allowTools) {
-      if (allowWebSearch) {
-        toolsForRequest.push(webSearchTool);
-      }
     // Use generic Tool to avoid strict preview-only type union on WebSearchTool in SDK types
     const webSearchTool: Tool = { type: "web_search" as any };
     const fileSearchTool = { type: "file_search" as const, ...(vectorStoreId ? { vector_store_ids: [vectorStoreId] } : {}) };
