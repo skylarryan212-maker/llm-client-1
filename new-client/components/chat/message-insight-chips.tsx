@@ -22,6 +22,18 @@ export function MessageInsightChips({ metadata }: MessageInsightChipsProps) {
 
   const chips: JSX.Element[] = [];
 
+  // Show warning if router fell back to code-based logic
+  if (typed.routedBy === "code-fallback") {
+    chips.push(
+      <StatusBubble
+        key="router-fallback"
+        label="Smart router unavailable"
+        subtext="Using fallback model selection"
+        variant="warning"
+      />
+    );
+  }
+
   const thoughtLabel = typeof typed.thoughtDurationLabel === "string" ? typed.thoughtDurationLabel : null;
   const reasoningEffort = typed.reasoningEffort || typed.thinking?.effort;
   // Only show thought label if reasoning effort is medium or high

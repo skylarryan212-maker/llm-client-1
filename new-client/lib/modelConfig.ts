@@ -13,6 +13,7 @@ export interface ModelConfig {
   reasoning?: {
     effort: ReasoningEffort;
   };
+  routedBy?: "llm" | "code" | "code-fallback";
 }
 
 const MODEL_ID_MAP: Record<Exclude<ModelFamily, "auto">, string> = {
@@ -277,6 +278,88 @@ export function getModelAndReasoningConfig(
     );
   }
 
+  return config;
+}
+
+/**
+ * Enhanced version that uses LLM-based routing with code-based fallback
+ */
+export async function getModelAndReasoningConfigWithLLM(
+  modelFamily: ModelFamily,
+  speedMode: SpeedMode,
+  promptText: string,
+  reasoningEffortHint?: ReasoningEffort,
+  usagePercentage?: number
+): Promise<ModelConfig> {
+  // Don't use LLM router if user explicitly selected a specific model (not "auto")
+  const shouldUseLLMRouter = modelFamily === "auto";
+
+  if (shouldUseLLMRouter) {
+    try {
+      const { routeWithLLM } = await import("./llm-router");
+      
+      console.log("[modelConfig] Attempting LLM-based routing");
+      const decision = await routeWithLLM(promptText, {
+        userModelPreference: modelFamily,
+        speedMode,
+        usagePercentage,
+      });
+
+      if (decision) {
+        console.log(`[modelConfig] LLM router decided: ${decision.model} with ${decision.effort} effort`);
+        
+        const MODEL_ID_MAP_LOCAL: Record<Exclude<ModelFamily, "auto">, string> = {
+          "gpt-5.1": "gpt-5.1-2025-11-13",
+          "gpt-5-mini": "gpt-5-mini-2025-08-07",
+          "gpt-5-nano": "gpt-5-nano-2025-08-07",
+          "gpt-5-pro-2025-10-06": "gpt-5-pro-2025-10-06",
+        };
+
+        let finalEffort = decision.effort;
+        
+        // Apply speed mode overrides if needed
+        if (speedMode === "instant") {
+          const isFullModel = decision.model === "gpt-5.1" || decision.model === "gpt-5-pro-2025-10-06";
+          finalEffort = isFullModel ? "none" : "low";
+          console.log(`[modelConfig] Speed mode override: instant → ${finalEffort}`);
+        } else if (speedMode === "thinking") {
+          // For thinking mode, ensure at least medium effort
+          if (finalEffort === "none" || finalEffort === "low") {
+            finalEffort = pickMediumOrHigh(promptText);
+            console.log(`[modelConfig] Speed mode override: thinking → ${finalEffort}`);
+          }
+        }
+
+        // Ensure Mini/Nano always have reasoning effort
+        if ((decision.model === "gpt-5-mini" || decision.model === "gpt-5-nano") && finalEffort === "none") {
+          finalEffort = "low";
+          console.log(`[modelConfig] Enforcing minimum effort for ${decision.model}: low`);
+        }
+
+        return {
+          model: MODEL_ID_MAP_LOCAL[decision.model],
+          resolvedFamily: decision.model,
+          reasoning: finalEffort ? { effort: finalEffort } : undefined,
+          routedBy: "llm",
+        };
+      }
+
+      console.warn("[modelConfig] LLM routing failed, falling back to code-based logic");
+    } catch (error) {
+      console.error("[modelConfig] Error during LLM routing:", error);
+    }
+  }
+
+  // Fallback to original code-based logic
+  const config = getModelAndReasoningConfig(modelFamily, speedMode, promptText, reasoningEffortHint);
+  
+  // Mark as fallback if we tried LLM routing
+  if (shouldUseLLMRouter) {
+    config.routedBy = "code-fallback";
+  } else {
+    config.routedBy = "code";
+  }
+  
   return config;
 }
 

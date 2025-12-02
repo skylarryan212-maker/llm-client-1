@@ -2,7 +2,7 @@
 
 import { cn } from "@/lib/utils";
 
-type StatusVariant = "default" | "extended" | "search" | "reading" | "error";
+type StatusVariant = "default" | "extended" | "search" | "reading" | "error" | "warning";
 
 interface StatusBubbleProps {
   label: string;
@@ -16,6 +16,7 @@ const baseClassMap: Record<StatusVariant, string> = {
   search: "border-[#4b64ff]/30 bg-[#152033]/80 text-[#9bb8ff]",
   reading: "border-[#2f9e89]/40 bg-[#0f1f1a]/85 text-[#b8ffe8]",
   error: "border-red-500/40 bg-[#30161a]/85 text-red-200",
+  warning: "border-yellow-500/40 bg-[#2a2416]/85 text-yellow-200",
 };
 
 const dotClassMap: Record<StatusVariant, string> = {
@@ -24,6 +25,7 @@ const dotClassMap: Record<StatusVariant, string> = {
   search: "bg-[#8ab4ff]",
   reading: "bg-[#53f2c7]",
   error: "bg-red-400",
+  warning: "bg-yellow-400",
 };
 
 export function StatusBubble({ label, variant = "default", subtext }: StatusBubbleProps) {

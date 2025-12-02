@@ -4,7 +4,7 @@ export const maxDuration = 60; // Allow up to 60 seconds for file processing
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase/server";
 import { getCurrentUserIdServer } from "@/lib/supabase/user";
-import { getModelAndReasoningConfig } from "@/lib/modelConfig";
+import { getModelAndReasoningConfig, getModelAndReasoningConfigWithLLM } from "@/lib/modelConfig";
 import type {
   ModelFamily,
   ReasoningEffort,
@@ -599,9 +599,46 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Get model config with optional reasoning effort override
-    const modelConfig = getModelAndReasoningConfig(modelFamily, speedMode, message, reasoningEffortHint);
+    // Get model config using LLM-based routing (with code-based fallback)
+    const modelConfig = await getModelAndReasoningConfigWithLLM(
+      modelFamily, 
+      speedMode, 
+      message, 
+      reasoningEffortHint,
+      usagePercentage
+    );
     const reasoningEffort = modelConfig.reasoning?.effort ?? "none";
+
+    // Log router usage if LLM routing was used
+    if (modelConfig.routedBy === "llm") {
+      try {
+        const { getRouterUsageEstimate } = await import("@/lib/llm-router");
+        const routerUsage = getRouterUsageEstimate();
+        const routerCost = calculateCost(
+          routerUsage.model,
+          routerUsage.inputTokens,
+          0, // no cached tokens for router
+          routerUsage.outputTokens
+        );
+
+        const { randomUUID } = require("crypto");
+        await supabaseAny.from("user_api_usage").insert({
+          id: randomUUID(),
+          user_id: userId,
+          conversation_id: conversationId,
+          model: routerUsage.model,
+          input_tokens: routerUsage.inputTokens,
+          cached_tokens: 0,
+          output_tokens: routerUsage.outputTokens,
+          estimated_cost: routerCost,
+          created_at: new Date().toISOString(),
+        });
+
+        console.log(`[router-usage] Logged LLM router cost: $${routerCost.toFixed(6)}`);
+      } catch (routerUsageErr) {
+        console.error("[router-usage] Failed to log router usage:", routerUsageErr);
+      }
+    }
 
     const { allow: allowWebSearch, require: requireWebSearch } = resolveWebSearchPreference({
       userText: message,
@@ -1177,6 +1214,7 @@ export async function POST(request: NextRequest) {
               userRequestedFamily: modelFamily,
               userRequestedSpeedMode: speedMode,
               userRequestedReasoningEffort: reasoningEffortHint,
+              routedBy: modelConfig.routedBy, // Track routing method
             },
             content: assistantContent,
             thinkingDurationMs,
