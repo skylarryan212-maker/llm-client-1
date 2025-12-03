@@ -131,21 +131,18 @@ export async function writeMemory(memory: {
     // Use admin client to bypass RLS safely for server-side insert, while scoping to the user
     const admin = await supabaseServerAdmin();
 
-    type MemoryInsert = Database["public"]["Tables"]["memories"]["Insert"];
-    const payload: MemoryInsert = {
-      user_id: userId,
-      type: memory.type,
-      title: memory.title,
-      content: memory.content,
-      embedding: JSON.stringify(embedding),
-      enabled: memory.enabled ?? true,
-      importance: memory.importance ?? 50,
-      created_at: new Date().toISOString(),
-    };
-
     const { data, error } = await admin
       .from('memories')
-      .insert([payload])
+      .insert({
+        user_id: userId,
+        type: memory.type,
+        title: memory.title,
+        content: memory.content,
+        embedding: JSON.stringify(embedding),
+        enabled: memory.enabled ?? true,
+        importance: memory.importance ?? 50,
+        created_at: new Date().toISOString(),
+      })
       .select()
       .single();
 
