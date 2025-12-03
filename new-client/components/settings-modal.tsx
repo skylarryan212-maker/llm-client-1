@@ -81,6 +81,8 @@ export function SettingsModal({ isOpen, onClose, initialTab = 'personalization' 
   const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false)
   const [cancelProcessing, setCancelProcessing] = useState(false)
   const [cancelResultDialog, setCancelResultDialog] = useState<{ open: boolean; message: string; success: boolean }>({ open: false, message: "", success: false })
+  const [deleteAllChatsConfirmOpen, setDeleteAllChatsConfirmOpen] = useState(false)
+  const [deleteAllChatsProcessing, setDeleteAllChatsProcessing] = useState(false)
 
   useEffect(() => {
     // Load plan details when account tab is active
@@ -211,6 +213,26 @@ export function SettingsModal({ isOpen, onClose, initialTab = 'personalization' 
     setCancelProcessing(false)
   }
 
+  const handleDeleteAllChats = async () => {
+    setDeleteAllChatsConfirmOpen(false)
+    setDeleteAllChatsProcessing(true)
+    
+    try {
+      const { deleteAllConversationsAction } = await import('@/app/actions/chat-actions')
+      await deleteAllConversationsAction()
+      
+      // Close modal and redirect to home
+      onClose()
+      router.push('/')
+      router.refresh()
+    } catch (error) {
+      console.error('Failed to delete all chats:', error)
+      alert('Failed to delete all chats. Please try again.')
+    } finally {
+      setDeleteAllChatsProcessing(false)
+    }
+  }
+
   if (!isOpen) return null
 
   const tabs = [
@@ -328,6 +350,36 @@ export function SettingsModal({ isOpen, onClose, initialTab = 'personalization' 
                 <div className="mt-1 h-px bg-border" />
               </div>
               <PersonalizationPanel />
+            </div>
+          )}
+
+          {activeTab === 'data' && (
+            <div className="space-y-6">
+              <div>
+                <h2 className="text-2xl font-semibold text-foreground">Data controls</h2>
+                <div className="mt-1 h-px bg-border" />
+              </div>
+
+              <div className="space-y-6">
+                <div className="rounded-lg border border-border bg-muted/30 p-6">
+                  <div className="space-y-4">
+                    <div>
+                      <h3 className="text-lg font-semibold text-foreground">Delete all chats</h3>
+                      <p className="text-sm text-muted-foreground mt-1">
+                        Permanently delete all your chat conversations. This action cannot be undone.
+                      </p>
+                    </div>
+                    <Button
+                      variant="destructive"
+                      onClick={() => setDeleteAllChatsConfirmOpen(true)}
+                      disabled={deleteAllChatsProcessing}
+                      className="w-full sm:w-auto"
+                    >
+                      {deleteAllChatsProcessing ? 'Deleting...' : 'Delete all'}
+                    </Button>
+                  </div>
+                </div>
+              </div>
             </div>
           )}
 
@@ -496,7 +548,7 @@ export function SettingsModal({ isOpen, onClose, initialTab = 'personalization' 
             </div>
           )}
 
-          {activeTab !== 'general' && activeTab !== 'personalization' && activeTab !== 'account' && (
+          {activeTab !== 'general' && activeTab !== 'personalization' && activeTab !== 'data' && activeTab !== 'account' && (
             <div className="flex h-full items-center justify-center">
               <p className="text-muted-foreground">This section is coming soon...</p>
             </div>
@@ -557,6 +609,41 @@ export function SettingsModal({ isOpen, onClose, initialTab = 'personalization' 
                   onClick={() => setCancelResultDialog({ open: false, message: "", success: false })}
                 >
                   OK
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete All Chats Confirmation Dialog */}
+      {deleteAllChatsConfirmOpen && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm px-4 pointer-events-auto">
+          <div className="w-full max-w-md rounded-xl border border-border bg-card p-6 shadow-xl pointer-events-auto">
+            <div className="space-y-4">
+              <div>
+                <h3 className="text-lg font-semibold text-foreground">
+                  Delete all chats?
+                </h3>
+                <p className="text-sm text-muted-foreground mt-2">
+                  Are you sure you want to delete all your chat conversations? This action cannot be undone.
+                </p>
+              </div>
+              <div className="flex items-center justify-end gap-2">
+                <Button
+                  variant="ghost"
+                  onClick={() => setDeleteAllChatsConfirmOpen(false)}
+                  disabled={deleteAllChatsProcessing}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  variant="destructive"
+                  className="hover:bg-red-700 dark:hover:bg-red-600 transition-colors"
+                  onClick={handleDeleteAllChats}
+                  disabled={deleteAllChatsProcessing}
+                >
+                  {deleteAllChatsProcessing ? "Deleting..." : "Delete all"}
                 </Button>
               </div>
             </div>

@@ -150,7 +150,7 @@ function buildSystemPromptWithPersonalization(
   if (memories.length > 0) {
     prompt += "\\n\\n**Saved Memories (User Context):**";
     for (const mem of memories) {
-      prompt += `\\n- [${mem.type}] ${mem.title}: ${mem.content}`;
+      prompt += `\\n- [${mem.type}] ${mem.title}: ${mem.content} (id: ${mem.id})`;
     }
     prompt += "\\n\\nUse these memories to personalize your responses and maintain context about the user's preferences and information.";
   }
@@ -1499,9 +1499,24 @@ export async function POST(request: NextRequest) {
                   console.log(`[router-memory] Wrote memory: ${memory.title} (type: ${memory.type})`);
                 }
               }
+
+              // Router-based memory deletion
+              const memoriesToDelete = (modelConfig as any).memoriesToDelete || [];
+              if (memoriesToDelete.length > 0) {
+                console.log(`[router-memory] Deleting ${memoriesToDelete.length} memories from router decision`);
+                
+                for (const memDel of memoriesToDelete) {
+                  try {
+                    await deleteMemory(memDel.id, userId);
+                    console.log(`[router-memory] Deleted memory: ${memDel.id} (reason: ${memDel.reason})`);
+                  } catch (delErr) {
+                    console.error(`[router-memory] Failed to delete memory ${memDel.id}:`, delErr);
+                  }
+                }
+              }
             } catch (memError) {
-              console.error("[router-memory] Failed to write memories from router:", memError);
-              // Don't fail the request if memory write fails
+              console.error("[router-memory] Failed to write/delete memories from router:", memError);
+              // Don't fail the request if memory operations fail
             }
 
             enqueueJson({

@@ -33,6 +33,11 @@ export interface MemoryToWrite {
   content: string;   // Memory content
 }
 
+export interface MemoryToDelete {
+  id: string;        // Memory ID to delete
+  reason: string;    // Why it should be deleted
+}
+
 export interface RouterDecision {
   model: Exclude<ModelFamily, "auto">;
   effort: ReasoningEffort;
@@ -40,6 +45,7 @@ export interface RouterDecision {
   webSearchStrategy: WebSearchStrategy;
   memoryStrategy: MemoryStrategy;
   memoriesToWrite: MemoryToWrite[];  // Memories to save based on user's prompt
+  memoriesToDelete: MemoryToDelete[];  // Memories to delete based on user's request
   routedBy: "llm";
 }
 
@@ -166,6 +172,19 @@ Decide if the user's prompt contains information that should be saved:
 - "explain quantum mechanics" → [] (no personal info)
 - "yes" or "ok" → [] (short response, no new info)
 
+**Memory Deletion Rules:**
+If the user explicitly asks to delete, forget, or remove a memory, identify which loaded memory matches their request and include it in memoriesToDelete.
+
+**Memory Deletion Examples:**
+- "forget that I like steak" + loaded memory: {id: "abc-123", title: "Likes steak", content: "User enjoys eating steak"} 
+  → memoriesToDelete: [{"id": "abc-123", "reason": "User requested to forget food preference"}]
+- "delete my workplace info" + loaded memory: {id: "xyz-789", title: "Works at ice rink", content: "User works at an ice skating rink"}
+  → memoriesToDelete: [{"id": "xyz-789", "reason": "User requested to delete workplace information"}]
+- "remove the memory about Aya" + loaded memory: {id: "def-456", title: "Crush on Aya", content: "User has a crush on Aya"}
+  → memoriesToDelete: [{"id": "def-456", "reason": "User requested to remove romantic interest memory"}]
+
+IMPORTANT: Only include memory IDs that are present in the loaded memories provided in the instructions. You cannot delete memories that weren't loaded.
+
 **Dynamic Memory Types:**
 Create ANY descriptive category name that makes sense! Examples: romantic_interests, fitness_goals, food_preferences, work_projects, travel_plans, hobbies, family_info, coding_style, meeting_schedule, health_conditions, etc.
 
@@ -185,6 +204,9 @@ Respond with ONLY a valid JSON object (no markdown, no explanation, no additiona
   "memoriesToWrite": [
     {"type": "category_name", "title": "brief title", "content": "memory content"}
   ],  // empty array if nothing to save
+  "memoriesToDelete": [
+    {"id": "memory-id", "reason": "why deleting"}
+  ],  // empty array if nothing to delete
   "reasoning": "brief one-line explanation"
 }
 
@@ -325,6 +347,16 @@ export async function routeWithLLM(
       );
     }
 
+    // Validate and default memoriesToDelete
+    if (!parsed.memoriesToDelete || !Array.isArray(parsed.memoriesToDelete)) {
+      parsed.memoriesToDelete = [];
+    } else {
+      // Validate each deletion has required fields
+      parsed.memoriesToDelete = parsed.memoriesToDelete.filter((mem: any) => 
+        mem && typeof mem === 'object' && mem.id && mem.reason
+      );
+    }
+
     // Block GPT 5 Pro
     if (parsed.model === "gpt-5-pro-2025-10-06") {
       console.warn("[llm-router] Router tried to select GPT 5 Pro, defaulting to 5.1");
@@ -344,6 +376,7 @@ export async function routeWithLLM(
       webSearchStrategy: parsed.webSearchStrategy as WebSearchStrategy,
       memoryStrategy: parsed.memoryStrategy as MemoryStrategy,
       memoriesToWrite: parsed.memoriesToWrite as MemoryToWrite[],
+      memoriesToDelete: parsed.memoriesToDelete as MemoryToDelete[],
       routedBy: "llm",
     };
   } catch (error) {

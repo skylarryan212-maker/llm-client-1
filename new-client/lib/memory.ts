@@ -196,12 +196,28 @@ export async function updateMemoryEnabled(id: string, enabled: boolean) {
   if (error) throw error;
 }
 
-export async function deleteMemory(id: string) {
-  const { default: browserClient } = await import("@/lib/supabase/browser-client");
-  const { error } = await browserClient
+export async function deleteMemory(id: string, userId?: string) {
+  // Use server admin client when userId is provided (server-side call)
+  // Otherwise use browser client (client-side call with auth)
+  let client;
+  if (userId) {
+    const admin = await supabaseServerAdmin();
+    client = admin as any;
+  } else {
+    const { default: browserClient } = await import("@/lib/supabase/browser-client");
+    client = browserClient as any;
+  }
+  
+  let query = client
     .from('memories')
     .delete()
     .eq('id', id);
+  
+  if (userId) {
+    query = query.eq('user_id', userId);
+  }
+  
+  const { error } = await query;
   if (error) throw error;
 }
 

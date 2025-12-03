@@ -127,3 +127,17 @@ export async function deleteConversation(conversationId: string) {
     throw new Error(`Failed to delete conversation: ${error.message}`);
   }
 }
+
+export async function deleteAllConversations() {
+  const supabase = await supabaseServer();
+  const userId = await requireUserIdServer();
+
+  const { error } = await supabase
+    .from("conversations")
+    .delete()
+    .eq("user_id", userId);
+
+  if (error) {
+    throw new Error(`Failed to delete all conversations: ${error.message}`);
+  }
+}

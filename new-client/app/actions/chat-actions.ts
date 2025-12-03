@@ -8,6 +8,7 @@ import {
 } from "@/lib/data/conversation-writes";
 import {
   deleteConversation,
+  deleteAllConversations,
   moveConversationToProject,
   renameConversation,
 } from "@/lib/data/conversations";
@@ -87,6 +88,13 @@ export async function moveConversationToProjectAction(
 
 export async function deleteConversationAction(conversationId: string) {
   await deleteConversation(conversationId);
+  revalidatePath("/");
+  revalidatePath("/c/[conversationId]", "page");
+  revalidatePath("/projects/[projectId]", "page");
+}
+
+export async function deleteAllConversationsAction() {
+  await deleteAllConversations();
   revalidatePath("/");
   revalidatePath("/c/[conversationId]", "page");
   revalidatePath("/projects/[projectId]", "page");

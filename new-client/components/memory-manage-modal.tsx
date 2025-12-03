@@ -72,7 +72,7 @@ export default function ManageMemoriesModal({ open, onOpenChange }: { open: bool
                 <SelectTrigger>
                   <SelectValue placeholder="Type" />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent className="z-[1100]">
                   <SelectItem value="all">All types</SelectItem>
                   <SelectItem value="preference">Preference</SelectItem>
                   <SelectItem value="identity">Identity</SelectItem>
