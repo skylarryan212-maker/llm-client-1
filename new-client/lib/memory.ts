@@ -72,10 +72,12 @@ export async function fetchMemories({
         client = browserClient as any;
       }
       
+      console.log(`[memory] Calling match_memories with embedding length: ${queryEmbedding.length}, threshold: 0.5, userId: ${userId || 'client-auth'}`);
+      
       const { data, error } = await client.rpc('match_memories', {
-        // pgvector will be fed from embedding_raw via trigger; here we just send numeric array
-        query_embedding: queryEmbedding as any,
-        match_threshold: 0.7,
+        // Supabase JS automatically converts number[] to vector when function expects vector type
+        query_embedding: queryEmbedding,
+        match_threshold: 0.5, // Lower threshold for better recall
         match_count: limit,
         filter_type: type,
         p_user_id: userId, // Pass user_id explicitly for server calls
@@ -86,7 +88,7 @@ export async function fetchMemories({
         throw error;
       }
       
-      console.log(`[memory] Vector search found ${data?.length || 0} matches`);
+      console.log(`[memory] Vector search found ${data?.length || 0} matches, first result:`, data?.[0]?.title);
       return data as MemoryItem[];
     } catch (error) {
       console.error("[memory] Vector search failed, falling back to keyword search:", error);
@@ -156,22 +158,23 @@ export async function writeMemory(memory: {
   try {
     // Generate embedding for the content
     const embedding = await generateEmbedding(memory.content);
+    console.log(`[memory] Generated embedding with ${embedding.length} dimensions for: "${memory.title}"`);
     
     // Resolve current user id for ownership
     const userId = await getCurrentUserIdServer();
     if (!userId) {
       throw new Error("Not authenticated: cannot write memory");
     }
-    
     // Check for similar existing memories to avoid duplicates
     const admin = await supabaseServerAdmin();
     const { data: similarMemories, error: searchError } = await (admin as any).rpc('match_memories', {
-      // pass raw numeric array; DB trigger keeps pgvector column in sync
-      query_embedding: embedding as any,
+      // Supabase JS automatically converts number[] to vector when function expects vector type
+      query_embedding: embedding,
       match_threshold: 0.85, // High threshold for detecting duplicates
       match_count: 3,
       filter_type: memory.type,
       p_user_id: userId,
+    });_user_id: userId,
     });
     
     if (!searchError && similarMemories && similarMemories.length > 0) {
@@ -192,7 +195,7 @@ export async function writeMemory(memory: {
           .update({
             content: memory.content,
             title: memory.title,
-            embedding_raw: embedding as any,
+            embedding_raw: embedding, // Supabase will handle float8[] type
             updated_at: new Date().toISOString(),
           } as any)
           .eq('id', topMatch.id)
@@ -200,7 +203,7 @@ export async function writeMemory(memory: {
           .single();
         
         if (!updateError && updated) {
-          console.log(`[memory] Updated memory: ${memory.title}`);
+          console.log(`[memory] Updated existing memory: "${memory.title}"`);
           return updated as MemoryItem;
         }
       }
@@ -214,7 +217,7 @@ export async function writeMemory(memory: {
         type: memory.type,
         title: memory.title,
         content: memory.content,
-        embedding_raw: embedding as any,
+        embedding_raw: embedding, // Supabase will handle float8[] type
         enabled: memory.enabled ?? true,
         importance: memory.importance ?? 50,
         created_at: new Date().toISOString(),
@@ -222,9 +225,12 @@ export async function writeMemory(memory: {
       .select()
       .single();
 
-    if (error) throw error;
+    if (error) {
+      console.error(`[memory] Insert error:`, error);
+      throw error;
+    }
     
-    console.log(`[memory] Wrote memory with embedding: ${memory.title}`);
+    console.log(`[memory] Successfully wrote memory: "${memory.title}" (${embedding.length} dims)`);
     return data as MemoryItem;
   } catch (error) {
     console.error("[memory] Failed to write memory:", error);
