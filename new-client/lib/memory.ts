@@ -20,7 +20,7 @@ export async function getMemoryTypes(userId: string): Promise<string[]> {
     return [];
   }
   
-  const types: string[] = [...new Set(data?.map((m: any) => m.type) || [])].sort();
+  const types: string[] = [...new Set((data?.map((m: any) => m.type) || []) as string[])].sort();
   console.log(`[memory] Found ${types.length} memory types:`, types);
   return types;
 }
