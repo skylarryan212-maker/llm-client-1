@@ -822,7 +822,8 @@ export async function POST(request: NextRequest) {
         relevantMemories = await getRelevantMemories(
           { referenceSavedMemories: true, allowSavingMemory: personalizationSettings.allowSavingMemory },
           memoryStrategy,
-          userId // Pass userId for server-side memory fetch
+          userId, // Pass userId for server-side memory fetch
+          conversationId
         );
         console.log(`[memory] Loaded ${relevantMemories.length} relevant memories`);
       }
@@ -1012,6 +1013,7 @@ export async function POST(request: NextRequest) {
         buffer,
         att.name ?? "attachment",
         att.mime ?? null,
+        { userId, conversationId },
       );
       const { preview, meta } = extraction;
       console.log(
@@ -1495,6 +1497,7 @@ export async function POST(request: NextRequest) {
                     title: memory.title,
                     content: memory.content,
                     enabled: true,
+                    conversationId,
                   });
                   console.log(`[router-memory] Wrote memory: ${memory.title} (type: ${memory.type})`);
                 }

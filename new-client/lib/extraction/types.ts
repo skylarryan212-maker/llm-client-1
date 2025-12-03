@@ -11,9 +11,15 @@ export interface ExtractionResult {
   meta: ExtractionMeta;
 }
 
+export interface ExtractorContext {
+  size: number;
+  userId?: string;
+  conversationId?: string;
+}
+
 export type Extractor = (
   buffer: Buffer,
   name: string,
   mime: string | null,
-  ctx: { size: number },
+  ctx: ExtractorContext,
 ) => Promise<ExtractionResult>;

@@ -1,5 +1,10 @@
 // OpenAI pricing per 1M tokens as of December 2025
 export const MODEL_PRICING = {
+  "text-embedding-3-small": {
+    input: 0.02,
+    cached: 0,
+    output: 0,
+  },
   "gpt-5.1-2025-11-13": {
     input: 1.25,
     cached: 0.125,
@@ -19,6 +24,11 @@ export const MODEL_PRICING = {
     input: 2.5,
     cached: 0.25,
     output: 20.0,
+  },
+  "gpt-4o-mini": {
+    input: 0.6,
+    cached: 0.06,
+    output: 2.4,
   },
 } as const;
 

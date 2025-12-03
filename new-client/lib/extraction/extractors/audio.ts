@@ -1,6 +1,7 @@
 import { ENABLE_TRANSCRIPTION } from "../config";
 import type { Extractor } from "../types";
 import { truncateUtf8 } from "../utils/text";
+import { logWhisperUsageFromBytes } from "@/lib/usage";
 
 async function transcribe(buffer: Buffer, name: string, mime: string | null) {
   const { OpenAI } = await import("openai");
@@ -33,6 +34,13 @@ export const audioExtractor: Extractor = async (buffer, name, mime, ctx) => {
 
   try {
     const { text, language } = await transcribe(buffer, name, mime);
+    if (ctx.userId) {
+      await logWhisperUsageFromBytes({
+        userId: ctx.userId,
+        conversationId: ctx.conversationId,
+        fileSizeBytes: ctx.size,
+      });
+    }
     const preview = truncateUtf8(
       `Audio transcription${language ? ` (${language})` : ""}:\n${text}`,
     );

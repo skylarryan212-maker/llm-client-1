@@ -1,6 +1,7 @@
 import { ENABLE_TRANSCRIPTION, LARGE_FILE_THRESHOLD } from "../config";
 import type { Extractor } from "../types";
 import { truncateUtf8 } from "../utils/text";
+import { logWhisperUsageFromBytes } from "@/lib/usage";
 
 async function transcribeVideo(
   buffer: Buffer,
@@ -40,6 +41,13 @@ export const videoExtractor: Extractor = async (buffer, name, mime, ctx) => {
 
   try {
     const { text } = await transcribeVideo(buffer, name, mime);
+    if (ctx.userId) {
+      await logWhisperUsageFromBytes({
+        userId: ctx.userId,
+        conversationId: ctx.conversationId,
+        fileSizeBytes: ctx.size,
+      });
+    }
     const preview = truncateUtf8(
       `Video transcription:\n${text}\nResolution/Duration: not probed`,
     );

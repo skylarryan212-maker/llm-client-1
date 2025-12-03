@@ -22,7 +22,8 @@ export interface MemoryStrategy {
 export async function getRelevantMemories(
   settings: PersonalizationMemorySettings,
   strategy: MemoryStrategy,
-  userId?: string
+  userId?: string,
+  conversationId?: string,
 ): Promise<MemoryItem[]> {
   if (!settings.referenceSavedMemories) return [];
   
@@ -34,7 +35,8 @@ export async function getRelevantMemories(
     types,
     limit,
     useSemanticSearch,
-    userId
+    userId,
+    conversationId,
   });
   
   console.log(`[memory-router] Loaded ${memories.length} memories using strategy:`, JSON.stringify(strategy));

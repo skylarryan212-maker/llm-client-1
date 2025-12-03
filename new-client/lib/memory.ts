@@ -1,5 +1,6 @@
 import { supabaseServerAdmin } from "@/lib/supabase/server";
 import { getCurrentUserIdServer } from "@/lib/supabase/user";
+import { logUsageRecord } from "@/lib/usage";
 
 // Dynamic type system - can be any category name
 export type MemoryType = string;
@@ -35,10 +36,18 @@ export interface MemoryItem {
   embedding?: number[];
 }
 
+interface EmbeddingContext {
+  userId?: string;
+  conversationId?: string;
+}
+
 /**
  * Generate embedding vector for text using OpenAI
  */
-async function generateEmbedding(text: string): Promise<number[]> {
+async function generateEmbedding(
+  text: string,
+  ctx: EmbeddingContext = {},
+): Promise<number[]> {
   try {
     const OpenAI = (await import("openai")).default;
     
@@ -52,7 +61,21 @@ async function generateEmbedding(text: string): Promise<number[]> {
       model: "text-embedding-3-small",
       input: text,
     });
-
+    const promptTokens =
+      (response as { usage?: { prompt_tokens?: number; total_tokens?: number } })
+        .usage?.prompt_tokens ??
+      (response as { usage?: { total_tokens?: number } }).usage?.total_tokens ??
+      0;
+    if (ctx.userId && promptTokens > 0) {
+      await logUsageRecord({
+        userId: ctx.userId,
+        conversationId: ctx.conversationId ?? null,
+        model: "text-embedding-3-small",
+        inputTokens: promptTokens,
+        cachedTokens: 0,
+        outputTokens: 0,
+      });
+    }
     return response.data[0].embedding;
   } catch (error) {
     console.error("[memory] Failed to generate embedding:", error);
@@ -71,12 +94,14 @@ export async function fetchMemories({
   limit = 50,
   useSemanticSearch = true,
   userId,
+  conversationId,
 }: { 
   query?: string; 
   types?: MemoryType | MemoryType[] | 'all'; 
   limit?: number;
   useSemanticSearch?: boolean;
   userId?: string;
+  conversationId?: string;
 }) {
   // Normalize types to array for consistent handling
   const typeArray = types === 'all' ? null : (Array.isArray(types) ? types : [types]);
@@ -84,7 +109,10 @@ export async function fetchMemories({
   // If we have a query and semantic search is enabled, use vector search
   if (query && useSemanticSearch) {
     try {
-      const queryEmbedding = await generateEmbedding(query);
+      const queryEmbedding = await generateEmbedding(query, {
+        userId,
+        conversationId,
+      });
       
       // Use server admin client when userId is provided (server-side call)
       // Otherwise use browser client (client-side call with auth)
@@ -231,6 +259,7 @@ export async function writeMemory(memory: {
   content: string;
   enabled?: boolean;
   importance?: number;
+  conversationId?: string;
 }) {
   try {
     // Normalize type to avoid empty values or pure whitespace
@@ -239,7 +268,10 @@ export async function writeMemory(memory: {
     const safeType = normalizedType.length > 0 ? normalizedType : "other";
 
     // Generate embedding for the content
-    const embedding = await generateEmbedding(memory.content);
+    const embedding = await generateEmbedding(memory.content, {
+      userId,
+      conversationId: memory.conversationId,
+    });
     console.log(`[memory] Generated embedding with ${embedding.length} dimensions for: "${memory.title}"`);
     
     // Resolve current user id for ownership

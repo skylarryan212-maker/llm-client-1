@@ -273,6 +273,15 @@ export async function routeWithLLM(
     const elapsed = Date.now() - startTime;
     console.log(`[llm-router] LLM routing completed in ${elapsed}ms`);
 
+    const usageInfo = (response as { usage?: { input_tokens?: number; output_tokens?: number } }).usage;
+    if (usageInfo) {
+      lastRouterUsage = {
+        model: "gpt-5-nano-2025-08-07",
+        inputTokens: usageInfo.input_tokens ?? lastRouterUsage.inputTokens,
+        outputTokens: usageInfo.output_tokens ?? lastRouterUsage.outputTokens,
+      };
+    }
+
     const content = response.output_text;
     if (!content) {
       console.error("[llm-router] No content in response");
@@ -388,13 +397,14 @@ export async function routeWithLLM(
 /**
  * Returns usage data for the router call (for cost tracking)
  */
+let lastRouterUsage = {
+  model: "gpt-5-nano-2025-08-07",
+  inputTokens: 100,
+  outputTokens: 20,
+};
+
 export function getRouterUsageEstimate() {
-  // Rough estimate: ~100 input tokens, ~20 output tokens for Nano
-  return {
-    model: "gpt-5-nano-2025-08-07",
-    inputTokens: 100,
-    outputTokens: 20,
-  };
+  return lastRouterUsage;
 }
 
 /**

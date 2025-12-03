@@ -95,6 +95,7 @@ export async function dispatchExtract(
   buffer: Buffer,
   name: string,
   mime: string | null,
+  ctx?: { userId?: string; conversationId?: string },
 ): Promise<ExtractionResult> {
   const size = buffer.length;
   if (!size) {
@@ -125,7 +126,11 @@ export async function dispatchExtract(
   }
 
   try {
-    const result = await extractor(buffer, name, mime, { size });
+    const result = await extractor(buffer, name, mime, {
+      size,
+      userId: ctx?.userId,
+      conversationId: ctx?.conversationId,
+    });
     const meta = {
       ...result.meta,
       kind: detectedKind,
