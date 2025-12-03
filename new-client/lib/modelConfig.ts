@@ -290,14 +290,16 @@ export async function getModelAndReasoningConfigWithLLM(
   promptText: string,
   reasoningEffortHint?: ReasoningEffort,
   usagePercentage?: number,
-  userId?: string
+  userId?: string,
+  conversationId?: string,
+  supabase?: any
 ): Promise<ModelConfig> {
   // Don't use LLM router if user explicitly selected a specific model (not "auto")
   const shouldUseLLMRouter = modelFamily === "auto";
 
   if (shouldUseLLMRouter) {
     try {
-      const { routeWithLLM } = await import("./llm-router");
+      const { routeWithLLM, getConversationContextForRouter } = await import("./llm-router");
       const { getMemoryTypes } = await import("./memory");
       
       console.log("[modelConfig] Attempting LLM-based routing");
@@ -312,7 +314,17 @@ export async function getModelAndReasoningConfigWithLLM(
         }
       }
       
-      const decision = await routeWithLLM(promptText, {
+      // Load conversation context for router
+      let conversationHistory = "";
+      if (conversationId && supabase) {
+        try {
+          conversationHistory = await getConversationContextForRouter(conversationId, supabase);
+        } catch (err) {
+          console.error("[modelConfig] Failed to load conversation context:", err);
+        }
+      }
+      
+      const decision = await routeWithLLM(promptText, conversationHistory, {
         userModelPreference: modelFamily,
         speedMode,
         usagePercentage,
@@ -320,7 +332,7 @@ export async function getModelAndReasoningConfigWithLLM(
       });
 
       if (decision) {
-        console.log(`[modelConfig] LLM router decided: ${decision.model} with ${decision.effort} effort, context: ${decision.contextStrategy}, webSearch: ${decision.webSearchStrategy}, memoryStrategy:`, JSON.stringify(decision.memoryStrategy));
+        console.log(`[modelConfig] LLM router decided: ${decision.model} with ${decision.effort} effort, context: ${decision.contextStrategy}, webSearch: ${decision.webSearchStrategy}, memoryStrategy:`, JSON.stringify(decision.memoryStrategy), `memoriesToWrite: ${decision.memoriesToWrite.length} memories`);
         
         const MODEL_ID_MAP_LOCAL: Record<Exclude<ModelFamily, "auto">, string> = {
           "gpt-5.1": "gpt-5.1-2025-11-13",
@@ -355,10 +367,11 @@ export async function getModelAndReasoningConfigWithLLM(
           resolvedFamily: decision.model,
           reasoning: finalEffort ? { effort: finalEffort } : undefined,
           routedBy: "llm",
-          contextStrategy: decision.contextStrategy,      // Pass through for chat route
-          webSearchStrategy: decision.webSearchStrategy,  // Pass through for chat route
-          memoryStrategy: decision.memoryStrategy,        // Pass through for chat route
-        } as ModelConfig & { contextStrategy?: string; webSearchStrategy?: string; memoryStrategy?: any };
+          contextStrategy: decision.contextStrategy,        // Pass through for chat route
+          webSearchStrategy: decision.webSearchStrategy,    // Pass through for chat route
+          memoryStrategy: decision.memoryStrategy,          // Pass through for chat route
+          memoriesToWrite: decision.memoriesToWrite,        // Pass through for chat route
+        } as ModelConfig & { contextStrategy?: string; webSearchStrategy?: string; memoryStrategy?: any; memoriesToWrite?: any[] };
       }
 
       console.warn("[modelConfig] LLM routing failed, falling back to code-based logic");

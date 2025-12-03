@@ -8,6 +8,7 @@
 
 import type { ModelFamily, ReasoningEffort } from "./modelConfig";
 import type { MemoryType } from "./memory";
+import type { SupabaseClient } from "@supabase/supabase-js";
 
 export type ContextStrategy = 
   | "minimal"      // Use cache only (new factual questions)
@@ -26,12 +27,19 @@ export interface MemoryStrategy {
   limit: number;                // Max memories to load
 }
 
+export interface MemoryToWrite {
+  type: string;      // Dynamic category name
+  title: string;     // Brief title
+  content: string;   // Memory content
+}
+
 export interface RouterDecision {
   model: Exclude<ModelFamily, "auto">;
   effort: ReasoningEffort;
   contextStrategy: ContextStrategy;
   webSearchStrategy: WebSearchStrategy;
   memoryStrategy: MemoryStrategy;
+  memoriesToWrite: MemoryToWrite[];  // Memories to save based on user's prompt
   routedBy: "llm";
 }
 
@@ -139,6 +147,28 @@ You will be provided with a list of available memory types (categories the user 
 - "Hello" with types: ["identity", "preferences"]
   → types: ["identity"], useSemanticSearch: false, limit: 5 (just basic identity)
 
+**Memory Writing Rules:**
+CRITICAL: Analyze ONLY the user's current prompt for memory-worthy information. NEVER create memories based on assistant responses or conversation history shown below.
+
+Decide if the user's prompt contains information that should be saved:
+- Explicit requests: "remember that...", "save this...", "don't forget..."
+- Personal information: name, location, preferences, constraints, goals
+- Important context: work details, project info, relationships, habits
+
+**Memory Writing Examples:**
+- "remember that I like steak" → [{"type": "food_preferences", "title": "Likes steak", "content": "User enjoys eating steak"}]
+- "I prefer TypeScript over JavaScript" → [{"type": "programming_preferences", "title": "Prefers TypeScript", "content": "User prefers TypeScript over JavaScript"}]
+- "my name is John" → [{"type": "identity", "title": "Name is John", "content": "User's name is John"}]
+- "never use emojis when talking to me" → [{"type": "constraint", "title": "No emojis", "content": "User doesn't want emojis in responses"}]
+- "I'm working on a chatbot project" → [{"type": "work_context", "title": "Chatbot project", "content": "User is working on a chatbot project"}]
+- "I have a crush on a girl named Aya" → [{"type": "romantic_interests", "title": "Crush on Aya", "content": "User has a crush on a girl named Aya"}]
+- "What's the weather?" → [] (no memory needed)
+- "explain quantum mechanics" → [] (no personal info)
+- "yes" or "ok" → [] (short response, no new info)
+
+**Dynamic Memory Types:**
+Create ANY descriptive category name that makes sense! Examples: romantic_interests, fitness_goals, food_preferences, work_projects, travel_plans, hobbies, family_info, coding_style, meeting_schedule, health_conditions, etc.
+
 **Response Format:**
 Respond with ONLY a valid JSON object (no markdown, no explanation, no additional text):
 {
@@ -152,6 +182,9 @@ Respond with ONLY a valid JSON object (no markdown, no explanation, no additiona
     "query": "optional search query",  // omit this field if not using semantic search
     "limit": number
   },
+  "memoriesToWrite": [
+    {"type": "category_name", "title": "brief title", "content": "memory content"}
+  ],  // empty array if nothing to save
   "reasoning": "brief one-line explanation"
 }
 
@@ -162,6 +195,7 @@ CRITICAL: Your entire response must be ONLY the JSON object. No other text befor
  */
 export async function routeWithLLM(
   promptText: string,
+  conversationHistory: string,
   context?: RouterContext
 ): Promise<RouterDecision | null> {
   try {
@@ -194,7 +228,13 @@ export async function routeWithLLM(
       contextNote += `\n\nNo memory types available yet (user hasn't saved any memories).`;
     }
 
-    const routerPrompt = `${contextNote ? contextNote + "\n\n" : ""}Analyze this prompt and recommend model + effort + memory strategy:\n\n${promptText}`;
+    // Add conversation history if available
+    let historySection = "";
+    if (conversationHistory) {
+      historySection = `\n\n**Recent Conversation History:**\n${conversationHistory}\n\n**Current User Prompt (analyze THIS for memories):**\n`;
+    }
+
+    const routerPrompt = `${contextNote ? contextNote + "\n" : ""}${historySection}${historySection ? '' : 'Analyze this prompt and recommend model + effort + memory strategy:\n\n'}${promptText}`;
 
     console.log("[llm-router] Starting LLM routing call");
     const startTime = Date.now();
@@ -275,6 +315,16 @@ export async function routeWithLLM(
       }
     }
 
+    // Validate and default memoriesToWrite
+    if (!parsed.memoriesToWrite || !Array.isArray(parsed.memoriesToWrite)) {
+      parsed.memoriesToWrite = [];
+    } else {
+      // Validate each memory has required fields
+      parsed.memoriesToWrite = parsed.memoriesToWrite.filter((mem: any) => 
+        mem && typeof mem === 'object' && mem.type && mem.title && mem.content
+      );
+    }
+
     // Block GPT 5 Pro
     if (parsed.model === "gpt-5-pro-2025-10-06") {
       console.warn("[llm-router] Router tried to select GPT 5 Pro, defaulting to 5.1");
@@ -293,6 +343,7 @@ export async function routeWithLLM(
       contextStrategy: parsed.contextStrategy as ContextStrategy,
       webSearchStrategy: parsed.webSearchStrategy as WebSearchStrategy,
       memoryStrategy: parsed.memoryStrategy as MemoryStrategy,
+      memoriesToWrite: parsed.memoriesToWrite as MemoryToWrite[],
       routedBy: "llm",
     };
   } catch (error) {
@@ -311,6 +362,86 @@ export function getRouterUsageEstimate() {
     inputTokens: 100,
     outputTokens: 20,
   };
+}
+
+/**
+ * Truncate a message intelligently for router context
+ */
+function truncateMessageForRouter(role: string, content: string): string {
+  // Remove attachment content, just show marker
+  const cleanContent = content.replace(/\[Attachment:.*?\]/g, '[File]');
+  
+  if (role === 'user') {
+    // User: first 200 + last 100 chars
+    if (cleanContent.length <= 300) return cleanContent;
+    return cleanContent.slice(0, 200) + '...' + cleanContent.slice(-100);
+  } else {
+    // Assistant: first 150 chars
+    if (cleanContent.length <= 150) return cleanContent;
+    return cleanContent.slice(0, 150) + '...';
+  }
+}
+
+/**
+ * Rough token counter (4 chars ≈ 1 token)
+ */
+function estimateTokens(text: string): number {
+  return Math.ceil(text.length / 4);
+}
+
+/**
+ * Load conversation context for router with smart truncation
+ * 
+ * FUTURE: Replace this function body with summary lookup from database
+ * when you implement the active chat summarization feature.
+ * The interface stays the same - just return a string of context.
+ */
+export async function getConversationContextForRouter(
+  conversationId: string,
+  supabase: SupabaseClient
+): Promise<string> {
+  // FUTURE IMPLEMENTATION (not today):
+  // const { data: summary } = await supabase
+  //   .from('conversation_summaries')
+  //   .select('summary_text')
+  //   .eq('conversation_id', conversationId)
+  //   .single();
+  // if (summary) return summary.summary_text;
+  
+  // CURRENT: Load last 10 messages with truncation
+  const { data: messages, error } = await supabase
+    .from('messages')
+    .select('role, content, created_at')
+    .eq('conversation_id', conversationId)
+    .order('created_at', { ascending: false })
+    .limit(10);
+  
+  if (error || !messages || messages.length === 0) {
+    return ''; // No context available
+  }
+  
+  // Reverse to chronological order
+  messages.reverse();
+  
+  // Build truncated context with token cap
+  let contextLines: string[] = [];
+  let totalTokens = 0;
+  const TOKEN_CAP = 2000;
+  
+  for (const msg of messages) {
+    const truncated = truncateMessageForRouter(msg.role, msg.content);
+    const line = `${msg.role}: ${truncated}`;
+    const tokens = estimateTokens(line);
+    
+    if (totalTokens + tokens > TOKEN_CAP) {
+      break; // Stop if we'd exceed cap
+    }
+    
+    contextLines.push(line);
+    totalTokens += tokens;
+  }
+  
+  return contextLines.join('\n');
 }
 
 /**

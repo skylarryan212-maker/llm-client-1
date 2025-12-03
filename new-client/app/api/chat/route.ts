@@ -74,13 +74,12 @@ const BASE_SYSTEM_PROMPT =
   "**CRITICAL RESPONSE RULE: You MUST ALWAYS provide a text response to the user. NEVER end a turn with only tool calls. Even if you call a function, you must follow it with explanatory text.**\\n\\n" +
   "You are a web-connected assistant with access to multiple tools for enhanced capabilities:\\n" +
   "- `web_search`: Live internet search for current events, weather, news, prices, etc.\\n" +
-  "- `file_search`: Semantic search through uploaded documents\\n" +
-  "- `save_memory`: Save important information about the user for future conversations (available in specific contexts)\\n\\n" +
+  "- `file_search`: Semantic search through uploaded documents\\n\\n" +
   "**Memory Behavior:**\\n" +
   "- User memories are preloaded in the 'Saved Memories' section below\\n" +
   "- When asked 'what do you know about me', respond based on the memories listed in your instructions\\n" +
   "- Do NOT say you need to search or list memories - just use what's already provided\\n" +
-  "- After saving a memory with `save_memory`, confirm what was saved in your response\\n\\n" +
+  "- Memories are automatically saved based on what users tell you - no manual saving needed\\n\\n" +
   "**Web Search Rules:**\\n" +
   "- Use internal knowledge for timeless concepts, math, or historical context.\\n" +
   "- For questions about current events, market conditions, weather, schedules, releases, or other fast-changing facts, prefer calling `web_search` to gather fresh data.\\n" +
@@ -94,13 +93,6 @@ const BASE_SYSTEM_PROMPT =
   "- Never claim you lack internet access or that your knowledge is outdated in a turn where tool outputs were provided.\\n" +
   "- If the tool returns little or no information, acknowledge that gap before relying on older knowledge.\\n" +
   "- Do not send capability or identity questions to `web_search`; answer those directly.\\n\\n" +
-  "**Memory Management Rules:**\\n" +
-  "- When a user explicitly says 'remember this', 'save as memory', or shares personal information, use `save_memory` to store it\\n" +
-  "- When a user asks 'what do you remember', 'what do you know about me', use `list_memories` or `search_memories`\\n" +
-  "- When a user says 'forget X' or 'delete that memory', use `search_memories` to find it, then `delete_memory` with the ID\\n" +
-  "- Memory types: You can create ANY category name that makes sense (e.g., 'romantic_interests', 'fitness_goals', 'work_projects', 'food_preferences'). Common examples: identity, preference, constraint, workflow, project, instruction. Be creative and descriptive!\\n" +
-  "- **CRITICAL**: After calling `save_memory`, you MUST ALWAYS provide a text response confirming what was saved (e.g., 'Got it, I\\'ve saved that you have a crush on Aya!'). NEVER end your turn without responding to the user.\\n" +
-  "- Always confirm after deleting memories too\\n\\n" +
   "**General Rules:**\\n" +
   "- Keep answers clear and grounded, blending background context with any live data you retrieved.\\n" +
   "- When the user provides attachment URLs (marked as 'Attachment: name -> url'), fetch and read those documents directly from the URL without asking the user to re-upload. Use their contents in your reasoning and summarize as requested.\\n" +
@@ -718,7 +710,9 @@ export async function POST(request: NextRequest) {
       message, 
       reasoningEffortHint,
       usagePercentage,
-      userId  // Pass userId to get memory types for router
+      userId,          // Pass userId to get memory types for router
+      conversationId,  // Pass conversationId for context loading
+      supabaseAny      // Pass supabase client for context loading
     );
     const reasoningEffort = modelConfig.reasoning?.effort ?? "none";
 
@@ -1163,39 +1157,10 @@ export async function POST(request: NextRequest) {
     const webSearchTool: Tool = { type: "web_search" as any };
     const fileSearchTool = { type: "file_search" as const, ...(vectorStoreId ? { vector_store_ids: [vectorStoreId] } : {}) };
     
-    // Memory management tools (function calling) - Responses API expects name at top-level
-    const memoryTools: any[] = personalizationSettings.allowSavingMemory || personalizationSettings.referenceSavedMemories ? [
-      {
-        type: "function",
-        name: "save_memory",
-        description: "Save a new memory about the user for future conversations. Use when user explicitly says 'remember this' or shares important personal information. IMPORTANT: Always provide a text response after calling this function to confirm what was saved.",
-        parameters: {
-          type: "object",
-          additionalProperties: false,
-          properties: {
-            type: {
-              type: "string",
-              description: "Category name for this memory - you can create ANY descriptive category name that makes sense! Examples: 'romantic_interests', 'fitness_goals', 'food_preferences', 'work_projects', 'travel_plans', 'hobbies', 'family_info', etc. Be creative and specific!"
-            },
-            title: {
-              type: "string",
-              description: "Brief title for the memory (max 60 chars)"
-            },
-            content: {
-              type: "string",
-              description: "The actual memory content, clear and actionable"
-            }
-          },
-          required: ["type", "title", "content"]
-        },
-        strict: true,
-      }
-    ] : [];
+    // Memory management is now handled by the router model
+    // No need for save_memory tool - router decides what to save based on user prompts
     
     const toolsForRequest: any[] = [];
-    
-    // Add memory tools if enabled
-    toolsForRequest.push(...memoryTools);
     
     if (allowWebSearch) {
       toolsForRequest.push(webSearchTool);
@@ -1362,32 +1327,17 @@ export async function POST(request: NextRequest) {
                 });
               }
             } else if (event.type === "response.function_call.completed") {
-              // Handle save_memory function (write operation)
-              // Read operations (list/search/delete) removed - memories are preloaded in system prompt
+              // Function calls are processed by streaming
+              // Memory writing is now handled by router before the response starts
               const call = event as any;
               const functionName = call.function?.name;
-              const args = call.function?.arguments ? JSON.parse(call.function.arguments) : {};
-              
-              if (functionName === "save_memory") {
-                try {
-                  await writeMemory({
-                    type: args.type,
-                    title: args.title,
-                    content: args.content,
-                    enabled: true,
-                  });
-                  console.log(`[memory-tool] Saved: ${args.title}`);
-                } catch (error: any) {
-                  console.error(`[memory-tool] Error saving memory:`, error);
-                }
-              }
               
               sendStatusUpdate({
                 type: "search-complete",
-                query: functionName || "memory operation",
+                query: functionName || "function call",
               });
               
-              console.log(`[memory-tool] Function call completed: ${functionName}`);
+              console.log(`[function-tool] Function call completed: ${functionName}`);
             } else if (
               event.type === "response.output_item.added" ||
               event.type === "response.output_item.done"
@@ -1532,57 +1482,25 @@ export async function POST(request: NextRequest) {
               },
             });
           } else {
-            // FALLBACK: Automatic memory analysis
-            // The LLM can now use memory tools directly (save_memory, search_memories, etc.)
-            // This fallback catches cases where the LLM didn't use tools but should have saved something
+            // Router-based memory writing
+            // The router has already analyzed the user's prompt and decided what to save
             try {
-              if (personalizationSettings.allowSavingMemory) {
-                const memoryAnalysis = await analyzeForMemory(
-                  message,
-                  assistantContent,
-                  relevantMemories
-                );
+              const memoriesToWrite = (modelConfig as any).memoriesToWrite || [];
+              if (personalizationSettings.allowSavingMemory && memoriesToWrite.length > 0) {
+                console.log(`[router-memory] Writing ${memoriesToWrite.length} memories from router decision`);
                 
-                if (memoryAnalysis?.shouldWrite) {
+                for (const memory of memoriesToWrite) {
                   await writeMemory({
-                    type: memoryAnalysis.type,
-                    title: memoryAnalysis.title,
-                    content: memoryAnalysis.content,
+                    type: memory.type,
+                    title: memory.title,
+                    content: memory.content,
                     enabled: true,
                   });
-                  console.log(`[memory-fallback] Wrote new memory: ${memoryAnalysis.title} (${memoryAnalysis.reasoning})`);
-                  
-                  // Track memory analysis cost
-                  try {
-                    const memoryUsage = getMemoryAnalysisUsageEstimate();
-                    const memoryCost = calculateCost(
-                      memoryUsage.model,
-                      memoryUsage.inputTokens,
-                      0,
-                      memoryUsage.outputTokens
-                    );
-                    
-                    const { randomUUID } = require("crypto");
-                    await supabaseAny.from("user_api_usage").insert({
-                      id: randomUUID(),
-                      user_id: userId,
-                      conversation_id: conversationId,
-                      model: memoryUsage.model,
-                      input_tokens: memoryUsage.inputTokens,
-                      cached_tokens: 0,
-                      output_tokens: memoryUsage.outputTokens,
-                      estimated_cost: memoryCost,
-                      created_at: new Date().toISOString(),
-                    });
-                    
-                    console.log(`[memory-fallback] Logged memory analysis cost: $${memoryCost.toFixed(6)}`);
-                  } catch (costErr) {
-                    console.error("[memory-fallback] Failed to log memory analysis cost:", costErr);
-                  }
+                  console.log(`[router-memory] Wrote memory: ${memory.title} (type: ${memory.type})`);
                 }
               }
             } catch (memError) {
-              console.error("[memory-fallback] Failed to analyze/write memory:", memError);
+              console.error("[router-memory] Failed to write memories from router:", memError);
               // Don't fail the request if memory write fails
             }
 
