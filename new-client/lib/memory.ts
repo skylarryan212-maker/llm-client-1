@@ -141,7 +141,7 @@ export async function writeMemory(memory: {
         enabled: memory.enabled ?? true,
         importance: memory.importance ?? 50,
         created_at: new Date().toISOString(),
-      })
+      } as any)
       .select()
       .single();
 
