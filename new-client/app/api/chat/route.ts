@@ -31,6 +31,11 @@ import { getRelevantMemories, type PersonalizationMemorySettings, type MemoryStr
 import type { MemoryItem } from "@/lib/memory";
 import { writeMemory, deleteMemory } from "@/lib/memory";
 import {
+  applyPermanentInstructionMutations,
+  loadPermanentInstructions,
+  type PermanentInstructionCacheItem,
+} from "@/lib/permanentInstructions";
+import {
   appendRouterContextLine,
   renderRouterContextText,
   ensureRouterContextLines,
@@ -194,10 +199,30 @@ function loadPersonalizationSettings(): PersonalizationMemorySettings & { custom
   }
 }
 
+function buildPermanentInstructionSummaryForRouter(
+  instructions: PermanentInstructionCacheItem[],
+  limit = 10
+): string {
+  if (!instructions.length) {
+    return "No permanent instructions are saved for this user yet.";
+  }
+  const lines = instructions.slice(0, limit).map((inst) => {
+    const summaryContent = inst.content.replace(/\s+/g, " ").trim();
+    const titleText = inst.title ? inst.title.replace(/\s+/g, " ").trim() : null;
+    const label = titleText ? `${titleText} – ${summaryContent}` : summaryContent;
+    const scopeLabel = inst.scope === "conversation" ? "conversation" : "user";
+    return `- [${inst.id} | ${scopeLabel}] ${label}`;
+  });
+  const extraCount = Math.max(instructions.length - limit, 0);
+  const suffix = extraCount > 0 ? `\n- ...and ${extraCount} more.` : "";
+  return `Current permanent instructions (use IDs if you need to delete one):\n${lines.join("\n")}${suffix}`;
+}
+
 function buildSystemPromptWithPersonalization(
   basePrompt: string,
   settings: { customInstructions?: string; baseStyle?: string },
-  memories: MemoryItem[]
+  memories: MemoryItem[],
+  permanentInstructions: PermanentInstructionCacheItem[] = []
 ): string {
   let prompt = basePrompt;
 
@@ -218,6 +243,15 @@ function buildSystemPromptWithPersonalization(
   // Add custom instructions
   if (settings.customInstructions && settings.customInstructions.trim()) {
     prompt += "\\n\\n**Custom Instructions:**\\n" + settings.customInstructions.trim();
+  }
+
+  if (permanentInstructions.length > 0) {
+    prompt += "\\n\\n**Permanent Instructions (ALWAYS follow these):**";
+    for (const inst of permanentInstructions) {
+      const scopeLabel = inst.scope === "conversation" ? " (this conversation)" : "";
+      const lineTitle = inst.title ? `${inst.title}: ` : "";
+      prompt += `\\n- ${lineTitle}${inst.content}${scopeLabel}`;
+    }
   }
 
   // Add memories
@@ -730,6 +764,8 @@ export async function POST(request: NextRequest) {
     // Optionally insert the user message unless the client indicates it's already persisted (e.g., first send via server action, or retry)
     let userMessageRow: MessageRow | null = null;
     let routerContextLines: RouterContextLine[] = [];
+    let permanentInstructionState: { instructions: PermanentInstructionCacheItem[]; metadata: Conversation["metadata"] } | null = null;
+    let permanentInstructionSummaryForRouter = "No permanent instructions are saved for this user yet.";
     if (!skipUserInsert) {
       const insertResult = await supabaseAny
         .from("messages")
@@ -806,6 +842,21 @@ export async function POST(request: NextRequest) {
       `[context-cache] ${routerContextSource === "cache" ? "Reused" : "Refreshed"} router context with ${routerContextLines.length} entries`
     );
 
+    try {
+      permanentInstructionState = await loadPermanentInstructions({
+        supabase: supabaseAny,
+        userId,
+        conversationId,
+        conversation,
+        forceRefresh: false,
+      });
+      permanentInstructionSummaryForRouter = buildPermanentInstructionSummaryForRouter(
+        permanentInstructionState.instructions
+      );
+    } catch (permInitErr) {
+      console.error("[permanent-instructions] Failed to preload instructions:", permInitErr);
+    }
+
     // Get model config using LLM-based routing (with code-based fallback)
     const modelConfig = await getModelAndReasoningConfigWithLLM(
       modelFamily, 
@@ -816,7 +867,10 @@ export async function POST(request: NextRequest) {
       userId,          // Pass userId to get memory types for router
       conversationId,  // Pass conversationId for context loading
       supabaseAny,     // Pass supabase client for context loading
-      { conversationHistory: routerConversationHistory }
+      { 
+        conversationHistory: routerConversationHistory,
+        permanentInstructionSummary: permanentInstructionSummaryForRouter,
+      }
     );
     const reasoningEffort = modelConfig.reasoning?.effort ?? "none";
 
@@ -912,6 +966,40 @@ export async function POST(request: NextRequest) {
 
     // Load personalization settings and relevant memories using router's memory strategy
     const personalizationSettings = loadPersonalizationSettings();
+    const permanentInstructionWrites = (modelConfig as any).permanentInstructionsToWrite || [];
+    const permanentInstructionDeletes = (modelConfig as any).permanentInstructionsToDelete || [];
+    let permanentInstructionsChanged = false;
+    if (permanentInstructionWrites.length || permanentInstructionDeletes.length) {
+      try {
+        permanentInstructionsChanged = await applyPermanentInstructionMutations({
+          supabase: supabaseAny,
+          userId,
+          conversationId,
+          writes: permanentInstructionWrites,
+          deletes: permanentInstructionDeletes,
+        });
+      } catch (permErr) {
+        console.error("[permanent-instructions] Failed to apply router instructions:", permErr);
+      }
+    }
+
+    if (permanentInstructionsChanged || !permanentInstructionState) {
+      try {
+        const loadResult = await loadPermanentInstructions({
+          supabase: supabaseAny,
+          userId,
+          conversationId,
+          conversation,
+          forceRefresh: true,
+        });
+        permanentInstructionState = loadResult;
+      } catch (permReloadErr) {
+        console.error("[permanent-instructions] Failed to refresh instructions:", permReloadErr);
+      }
+    }
+
+    const permanentInstructions: PermanentInstructionCacheItem[] =
+      permanentInstructionState?.instructions ?? [];
     const availableMemoryTypes = (modelConfig as any).availableMemoryTypes as string[] | undefined;
     let relevantMemories: MemoryItem[] = [];
     try {
@@ -1176,7 +1264,8 @@ export async function POST(request: NextRequest) {
     const systemInstructions = buildSystemPromptWithPersonalization(
       baseSystemInstructions,
       personalizationSettings,
-      relevantMemories
+      relevantMemories,
+      permanentInstructions
     );
 
     const cleanMessageContent = (msg: MessageRow): string => {

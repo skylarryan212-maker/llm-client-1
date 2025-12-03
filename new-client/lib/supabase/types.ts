@@ -152,6 +152,47 @@ export interface MemoryUpdate {
   embedding?: string;
 }
 
+export interface PermanentInstruction {
+  id: string;
+  user_id: string;
+  conversation_id: string | null;
+  scope: "user" | "conversation";
+  title: string | null;
+  content: string;
+  enabled: boolean;
+  priority: number;
+  metadata: Json | null;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface PermanentInstructionInsert {
+  user_id: string;
+  conversation_id?: string | null;
+  scope?: "user" | "conversation";
+  title?: string | null;
+  content: string;
+  enabled?: boolean;
+  priority?: number;
+  metadata?: Json | null;
+}
+
+export interface PermanentInstructionUpdate {
+  conversation_id?: string | null;
+  scope?: "user" | "conversation";
+  title?: string | null;
+  content?: string;
+  enabled?: boolean;
+  priority?: number;
+  metadata?: Json | null;
+}
+
+export interface PermanentInstructionVersion {
+  user_id: string;
+  version: string | null;
+  updated_at: string | null;
+}
+
 export interface Database {
   public: {
     Tables: {
@@ -184,6 +225,16 @@ export interface Database {
         Row: Memory;
         Insert: MemoryInsert;
         Update: MemoryUpdate;
+      };
+      permanent_instructions: {
+        Row: PermanentInstruction;
+        Insert: PermanentInstructionInsert;
+        Update: PermanentInstructionUpdate;
+      };
+      permanent_instruction_versions: {
+        Row: PermanentInstructionVersion;
+        Insert: PermanentInstructionVersion;
+        Update: PermanentInstructionVersion;
       };
     };
   };

@@ -40,6 +40,17 @@ export interface MemoryToDelete {
   reason: string;    // Why it should be deleted
 }
 
+export interface PermanentInstructionToWrite {
+  scope?: "user" | "conversation";
+  title?: string;
+  content: string;
+}
+
+export interface PermanentInstructionToDelete {
+  id: string;
+  reason?: string;
+}
+
 export interface RouterContextLine {
   role: string;
   content: string;
@@ -56,6 +67,8 @@ export interface RouterDecision {
   memoryStrategy: MemoryStrategy;
   memoriesToWrite: MemoryToWrite[];  // Memories to save based on user's prompt
   memoriesToDelete: MemoryToDelete[];  // Memories to delete based on user's request
+  permanentInstructionsToWrite: PermanentInstructionToWrite[];
+  permanentInstructionsToDelete: PermanentInstructionToDelete[];
   nextTurnPrediction?: NextTurnPrediction;
   routedBy: "llm";
 }
@@ -110,6 +123,7 @@ export interface RouterContext {
   speedMode?: "auto" | "instant" | "thinking";
   usagePercentage?: number;
   availableMemoryTypes?: string[];  // Dynamic memory categories user has created
+  permanentInstructionSummary?: string;
 }
 
 const ROUTER_SYSTEM_PROMPT = `You are a routing assistant that analyzes user prompts and recommends the optimal AI model, reasoning effort, context strategy, and web search strategy.
@@ -250,6 +264,17 @@ If the user explicitly asks to delete, forget, or remove a memory, identify whic
 
 IMPORTANT: Only include memory IDs that are present in the loaded memories provided in the instructions. You cannot delete memories that weren't loaded.
 
+**Permanent Instruction Rules (ALWAYS-ON behaviors):**
+- Create a permanent instruction ONLY when the user explicitly states the assistant should always or never do something (e.g., "Always call me Alex", "Never use emojis", "Always answer in Spanish").
+- Instructions become part of the system prompt every turn. Keep them short, factual, and action-oriented so they are easy to follow.
+- Use `"scope": "conversation"` if the directive applies only to this conversation thread; otherwise prefer `"scope": "user"` so it persists globally.
+- Examples:
+  - "Always call me Captain" ƒ+' permanentInstructionsToWrite: [{"scope": "user", "title": "Address user as Captain", "content": "Always address the user as Captain."}]
+  - "For this chat only, reply in haiku form" ƒ+' [{"scope": "conversation", "title": "Haiku responses", "content": "Respond using haiku format for this conversation."}]
+  - "Stop calling me Captain" ƒ+' permanentInstructionsToDelete: [{"id": "<instruction-id>", "reason": "User revoked nickname"}]
+- Do NOT create instructions for one-off requests ("write this email", "summarize this article") or vague hints ("remember this later" without specifics).
+- Before deleting, make sure the referenced instruction is currently loaded and matches what the user wants removed.
+
 **Next-turn prediction**
 After you decide on the current response, predict whether the user will likely send another complex follow-up that needs fresh routing. Output:
 - "likely" when wording implies more parts are coming, the user promises additional info, or the task clearly continues (e.g., "first draft", "I'll send more data", "keep going with several ideas").
@@ -277,6 +302,12 @@ Respond with ONLY a valid JSON object (no markdown, no explanation, no additiona
   ],  // empty array if nothing to save
   "memoriesToDelete": [
     {"id": "memory-id", "reason": "why deleting"}
+  ],  // empty array if nothing to delete
+  "permanentInstructionsToWrite": [
+    {"scope": "user" | "conversation", "title": "optional title", "content": "instruction text"}
+  ],  // empty array if nothing to save
+  "permanentInstructionsToDelete": [
+    {"id": "instruction-id", "reason": "optional explanation"}
   ],  // empty array if nothing to delete
   "nextTurnPrediction": "likely" | "unlikely" | "unknown",
   "reasoning": "brief one-line explanation"
@@ -320,6 +351,9 @@ export async function routeWithLLM(
       contextNote += `\n\nAvailable memory types for this user: ${context.availableMemoryTypes.join(", ")}. Reuse whichever one best matches any new fact you want to store; only invent a new type name when none of these categories fit, and avoid creating near-duplicate names. If the user shares information that does not match the existing categories (e.g., only "romantic_interests" exists but they talk about their job), you MUST create a new descriptive type instead of forcing it into the existing one.`;
     } else {
       contextNote += `\n\nNo memory types available yet (user hasn't saved any memories).`;
+    }
+    if (context?.permanentInstructionSummary) {
+      contextNote += `\n\n${context.permanentInstructionSummary}`;
     }
 
     // Add conversation history if available
@@ -439,6 +473,26 @@ export async function routeWithLLM(
       );
     }
 
+    if (!parsed.permanentInstructionsToWrite || !Array.isArray(parsed.permanentInstructionsToWrite)) {
+      parsed.permanentInstructionsToWrite = [];
+    } else {
+      parsed.permanentInstructionsToWrite = parsed.permanentInstructionsToWrite.filter(
+        (inst: any) =>
+          inst &&
+          typeof inst === "object" &&
+          typeof inst.content === "string" &&
+          inst.content.trim().length > 0
+      );
+    }
+
+    if (!parsed.permanentInstructionsToDelete || !Array.isArray(parsed.permanentInstructionsToDelete)) {
+      parsed.permanentInstructionsToDelete = [];
+    } else {
+      parsed.permanentInstructionsToDelete = parsed.permanentInstructionsToDelete.filter(
+        (inst: any) => inst && typeof inst === "object" && typeof inst.id === "string" && inst.id.trim().length > 0
+      );
+    }
+
     if (!parsed.nextTurnPrediction || !validPredictions.includes(parsed.nextTurnPrediction)) {
       parsed.nextTurnPrediction = "unknown";
     }
@@ -463,6 +517,8 @@ export async function routeWithLLM(
       memoryStrategy: parsed.memoryStrategy as MemoryStrategy,
       memoriesToWrite: parsed.memoriesToWrite as MemoryToWrite[],
       memoriesToDelete: parsed.memoriesToDelete as MemoryToDelete[],
+      permanentInstructionsToWrite: parsed.permanentInstructionsToWrite as PermanentInstructionToWrite[],
+      permanentInstructionsToDelete: parsed.permanentInstructionsToDelete as PermanentInstructionToDelete[],
       nextTurnPrediction: parsed.nextTurnPrediction as NextTurnPrediction,
       routedBy: "llm",
     };

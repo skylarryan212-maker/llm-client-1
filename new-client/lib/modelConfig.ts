@@ -3,6 +3,8 @@ import type {
   MemoryStrategy,
   MemoryToDelete,
   MemoryToWrite,
+  PermanentInstructionToDelete,
+  PermanentInstructionToWrite,
   RouterDecision,
   WebSearchStrategy,
 } from "./llm-router";
@@ -29,6 +31,8 @@ export interface ModelConfig {
   memoriesToWrite?: MemoryToWrite[];
   memoriesToDelete?: MemoryToDelete[];
   availableMemoryTypes?: string[];
+  permanentInstructionsToWrite?: PermanentInstructionToWrite[];
+  permanentInstructionsToDelete?: PermanentInstructionToDelete[];
 }
 
 const MODEL_ID_MAP: Record<Exclude<ModelFamily, "auto">, string> = {
@@ -119,6 +123,7 @@ const ACKNOWLEDGEMENT_PATTERNS = [
 
 interface RouterRequestOptions {
   conversationHistory?: string;
+  permanentInstructionSummary?: string;
 }
 
 export function shouldUseLightReasoning(promptText: string) {
@@ -309,6 +314,7 @@ function buildConfigFromRouterDecision(
   options?: {
     routedBy?: ModelConfig["routedBy"];
     reuseMemoryInstructions?: boolean;
+    reusePermanentInstructions?: boolean;
   }
 ): ModelConfig & {
   contextStrategy: ContextStrategy;
@@ -316,6 +322,8 @@ function buildConfigFromRouterDecision(
   memoryStrategy: MemoryStrategy;
   memoriesToWrite: MemoryToWrite[];
   memoriesToDelete: MemoryToDelete[];
+  permanentInstructionsToWrite: PermanentInstructionToWrite[];
+  permanentInstructionsToDelete: PermanentInstructionToDelete[];
 } {
   const MODEL_ID_MAP_LOCAL: Record<Exclude<ModelFamily, "auto">, string> = {
     "gpt-5.1": "gpt-5.1-2025-11-13",
@@ -339,8 +347,11 @@ function buildConfigFromRouterDecision(
   }
 
   const reuseMemory = options?.reuseMemoryInstructions ?? true;
+  const reusePermanent = options?.reusePermanentInstructions ?? true;
   const memoriesToWrite = reuseMemory ? decision.memoriesToWrite : [];
   const memoriesToDelete = reuseMemory ? decision.memoriesToDelete : [];
+  const permanentInstructionsToWrite = reusePermanent ? decision.permanentInstructionsToWrite : [];
+  const permanentInstructionsToDelete = reusePermanent ? decision.permanentInstructionsToDelete : [];
 
   return {
     model: MODEL_ID_MAP_LOCAL[decision.model],
@@ -352,6 +363,8 @@ function buildConfigFromRouterDecision(
     memoryStrategy: decision.memoryStrategy,
     memoriesToWrite,
     memoriesToDelete,
+    permanentInstructionsToWrite,
+    permanentInstructionsToDelete,
   };
 }
 
@@ -452,16 +465,16 @@ export async function getModelAndReasoningConfigWithLLM(
         ? classifyLowRiskPrompt(promptText)
         : null;
 
-    if (cachedEntry && heuristicBucket) {
-      console.log(
-        `[modelConfig] Reusing cached router decision (${heuristicBucket}) for conversation ${conversationId ?? "unknown"}`
-      );
-      const cachedConfig = buildConfigFromRouterDecision(
-        cachedEntry.decision,
-        speedMode,
-        promptText,
-        { routedBy: "cache", reuseMemoryInstructions: false }
-      );
+      if (cachedEntry && heuristicBucket) {
+        console.log(
+          `[modelConfig] Reusing cached router decision (${heuristicBucket}) for conversation ${conversationId ?? "unknown"}`
+        );
+        const cachedConfig = buildConfigFromRouterDecision(
+          cachedEntry.decision,
+          speedMode,
+          promptText,
+          { routedBy: "cache", reuseMemoryInstructions: false, reusePermanentInstructions: false }
+        );
       cachedConfig.contextStrategy =
         heuristicBucket === "followup" ? "recent" : "minimal";
       cachedConfig.availableMemoryTypes = availableMemoryTypes;
@@ -492,6 +505,7 @@ export async function getModelAndReasoningConfigWithLLM(
         speedMode,
         usagePercentage,
         availableMemoryTypes,
+        permanentInstructionSummary: routerOptions?.permanentInstructionSummary,
       });
 
       if (decision) {
@@ -514,6 +528,8 @@ export async function getModelAndReasoningConfigWithLLM(
   config.availableMemoryTypes = availableMemoryTypes;
   config.memoriesToWrite = [];
   config.memoriesToDelete = [];
+  config.permanentInstructionsToWrite = [];
+  config.permanentInstructionsToDelete = [];
 
   if (shouldUseLLMRouter) {
     config.routedBy = "code-fallback";
