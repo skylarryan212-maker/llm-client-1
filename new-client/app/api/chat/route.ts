@@ -71,6 +71,7 @@ type SearchStatusEvent =
   | { type: "file-reading-error"; message?: string };
 
 const BASE_SYSTEM_PROMPT =
+  "**CRITICAL RESPONSE RULE: You MUST ALWAYS provide a text response to the user. NEVER end a turn with only tool calls. Even if you call a function, you must follow it with explanatory text.**\\n\\n" +
   "You are a web-connected assistant with access to multiple tools for enhanced capabilities:\\n" +
   "- `web_search`: Live internet search for current events, weather, news, prices, etc.\\n" +
   "- `file_search`: Semantic search through uploaded documents\\n" +
@@ -97,8 +98,8 @@ const BASE_SYSTEM_PROMPT =
   "- When a user explicitly says 'remember this', 'save as memory', or shares personal information, use `save_memory` to store it\\n" +
   "- When a user asks 'what do you remember', 'what do you know about me', use `list_memories` or `search_memories`\\n" +
   "- When a user says 'forget X' or 'delete that memory', use `search_memories` to find it, then `delete_memory` with the ID\\n" +
-  "- Memory types: identity (name, personal info), preference (likes/dislikes), constraint (rules/never statements), workflow (process preferences), project (project context), instruction (specific directives), other\\n" +
-  "- **CRITICAL**: After calling `save_memory`, you MUST provide a text response confirming what was saved (e.g., 'Got it, I\\'ve saved that you like steak!'). Never save a memory without responding.\\n" +
+  "- Memory types: You can create ANY category name that makes sense (e.g., 'romantic_interests', 'fitness_goals', 'work_projects', 'food_preferences'). Common examples: identity, preference, constraint, workflow, project, instruction. Be creative and descriptive!\\n" +
+  "- **CRITICAL**: After calling `save_memory`, you MUST ALWAYS provide a text response confirming what was saved (e.g., 'Got it, I\\'ve saved that you have a crush on Aya!'). NEVER end your turn without responding to the user.\\n" +
   "- Always confirm after deleting memories too\\n\\n" +
   "**General Rules:**\\n" +
   "- Keep answers clear and grounded, blending background context with any live data you retrieved.\\n" +
@@ -1167,14 +1168,14 @@ export async function POST(request: NextRequest) {
       {
         type: "function",
         name: "save_memory",
-        description: "Save a new memory about the user for future conversations. Use when user explicitly says 'remember this' or shares important personal information.",
+        description: "Save a new memory about the user for future conversations. Use when user explicitly says 'remember this' or shares important personal information. IMPORTANT: Always provide a text response after calling this function to confirm what was saved.",
         parameters: {
           type: "object",
           additionalProperties: false,
           properties: {
             type: {
               type: "string",
-              description: "Category name for this memory. Use clear, descriptive names like 'food_preferences', 'work_context', 'fitness_routine', etc. Common types: identity (personal info), preference (likes/dislikes), constraint (rules), workflow (processes), project (project context)"
+              description: "Category name for this memory - you can create ANY descriptive category name that makes sense! Examples: 'romantic_interests', 'fitness_goals', 'food_preferences', 'work_projects', 'travel_plans', 'hobbies', 'family_info', etc. Be creative and specific!"
             },
             title: {
               type: "string",
