@@ -149,13 +149,13 @@ Respond with ONLY a valid JSON object (no markdown, no explanation, no additiona
   "memoryStrategy": {
     "types": ["type1", "type2"] | "all",
     "useSemanticSearch": boolean,
-    "query": "optional search query" | undefined,
+    "query": "optional search query",  // omit this field if not using semantic search
     "limit": number
   },
   "reasoning": "brief one-line explanation"
 }
 
-CRITICAL: Your entire response must be ONLY the JSON object. No other text before or after.`;
+CRITICAL: Your entire response must be ONLY the JSON object. No other text before or after. For optional fields, omit them entirely rather than using null or undefined.`;
 
 /**
  * Calls GPT 5 Nano to decide model and reasoning effort
