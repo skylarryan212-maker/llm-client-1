@@ -1,4 +1,3 @@
-import { supabase } from './supabaseClient';
 import { supabaseServerAdmin } from "@/lib/supabase/server";
 import { getCurrentUserIdServer } from "@/lib/supabase/user";
 
@@ -63,10 +62,14 @@ export async function fetchMemories({
       const queryEmbedding = await generateEmbedding(query);
       
       // Use server admin client when userId is provided (server-side call)
-      let client = supabase;
+      // Otherwise use browser client (client-side call with auth)
+      let client;
       if (userId) {
         const admin = await supabaseServerAdmin();
         client = admin as any;
+      } else {
+        const { default: browserClient } = await import("@/lib/supabase/browser-client");
+        client = browserClient as any;
       }
       
       const { data, error } = await client.rpc('match_memories', {
@@ -93,10 +96,14 @@ export async function fetchMemories({
 
   // Fallback: keyword search or no query
   // For server-side calls with userId, use admin client
-  let client = supabase;
+  // Otherwise use browser client (client-side call with auth)
+  let client;
   if (userId) {
     const admin = await supabaseServerAdmin();
     client = admin as any;
+  } else {
+    const { default: browserClient } = await import("@/lib/supabase/browser-client");
+    client = browserClient as any;
   }
   
   let q = client
@@ -118,7 +125,8 @@ export async function fetchMemories({
 }
 
 export async function updateMemoryEnabled(id: string, enabled: boolean) {
-  const { error } = await supabase
+  const { default: browserClient } = await import("@/lib/supabase/browser-client");
+  const { error } = await browserClient
     .from('memories')
     .update({ enabled })
     .eq('id', id);
@@ -126,7 +134,8 @@ export async function updateMemoryEnabled(id: string, enabled: boolean) {
 }
 
 export async function deleteMemory(id: string) {
-  const { error } = await supabase
+  const { default: browserClient } = await import("@/lib/supabase/browser-client");
+  const { error } = await browserClient
     .from('memories')
     .delete()
     .eq('id', id);
