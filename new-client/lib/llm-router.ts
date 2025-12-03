@@ -193,12 +193,14 @@ Note: gpt-5-mini and gpt-5-nano MUST use "low", "medium", or "high" (never "none
 You will be provided with a list of available memory types (categories the user has created). Decide which to load based on the prompt:
 
 **Memory Loading Rules:**
+- Always scan the entire list of available memory types. If a category name (or any reasonable synonym) might relate to the prompt, include it with a limit (≥5). It is better to load a category and decide it's irrelevant than to skip it and miss important context.
 - If the available memory types already include a category whose name or obvious synonym appears in the user's prompt, you MUST include that type in the list and load at least a small limit (>=5) so you can review it before answering.
 - "What do you know about me?" → types: ["all"], useSemanticSearch: false, limit: 50 (load everything)
 - "Tell me everything" → types: ["all"], useSemanticSearch: false, limit: 50
 - Specific topic questions → types: [relevant categories], useSemanticSearch: true, query: "optimized search terms", limit: 15
 - Questions referencing multiple topics → types: [relevant categories], useSemanticSearch: true, limit: 20
 - "What is my name?", "who am I?", "what's my identity?" → types: ["identity"], useSemanticSearch: false, limit: 15 (load identity memories so you can answer)
+- "Check your memory", "what memories do you have?", "what do you remember about ___?" → types: ["all"], useSemanticSearch: false, limit: 30 (load as much as possible so you can confirm or summarize)
 - Greetings, unrelated questions → types: [], useSemanticSearch: false, limit: 0 (no memories needed)
 
 **Examples:**

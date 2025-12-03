@@ -50,6 +50,73 @@ function dataUrlToBuffer(dataUrl: string): Buffer {
   return Buffer.from(base64, "base64");
 }
 
+const MEMORY_TYPE_KEYWORDS: Record<string, string[]> = {
+  identity: ["my name", "who am", "call me", "what's my identity"],
+  food_preferences: ["favorite food", "meal", "diet", "cuisine", "restaurant"],
+  romantic_interests: ["crush", "girlfriend", "boyfriend", "romantic", "date"],
+  work_context: ["work", "job", "project", "company", "boss", "coworker", "client"],
+  hobbies: ["hobby", "hobbies", "free time", "weekend", "collecting"],
+};
+
+function normalizeTypeName(type: string) {
+  return type.replace(/[_-]/g, " ").toLowerCase();
+}
+
+function detectRelevantMemoryTypes(prompt: string, availableTypes: string[]): string[] {
+  const normalizedPrompt = prompt.toLowerCase();
+  const matches = new Set<string>();
+
+  for (const type of availableTypes) {
+    const normalizedType = normalizeTypeName(type);
+    if (normalizedType && normalizedPrompt.includes(normalizedType)) {
+      matches.add(type);
+      continue;
+    }
+    const canonical = type.toLowerCase();
+    const synonyms = MEMORY_TYPE_KEYWORDS[canonical];
+    if (
+      synonyms &&
+      synonyms.some((phrase) => phrase && normalizedPrompt.includes(phrase.toLowerCase()))
+    ) {
+      matches.add(type);
+    }
+  }
+  return Array.from(matches);
+}
+
+function augmentMemoryStrategyWithHeuristics(
+  strategy: MemoryStrategy,
+  prompt: string,
+  availableTypes: string[]
+): { strategy: MemoryStrategy; addedTypes: string[] } {
+  if (!availableTypes.length) {
+    return { strategy, addedTypes: [] };
+  }
+  if (strategy.types === "all") {
+    return { strategy, addedTypes: [] };
+  }
+
+  const currentTypes = Array.isArray(strategy.types) ? [...strategy.types] : strategy.types ? [strategy.types] : [];
+  const matchedTypes = detectRelevantMemoryTypes(prompt, availableTypes);
+  const additionalTypes = matchedTypes.filter((t) => !currentTypes.includes(t));
+
+  if (additionalTypes.length === 0) {
+    return { strategy, addedTypes: [] };
+  }
+
+  const updatedTypes = currentTypes.concat(additionalTypes);
+  const updatedLimit = Math.max(strategy.limit || 0, Math.min(50, updatedTypes.length * 5));
+
+  return {
+    strategy: {
+      ...strategy,
+      types: updatedTypes,
+      limit: updatedLimit,
+    },
+    addedTypes: additionalTypes,
+  };
+}
+
 type MessageRow = Database["public"]["Tables"]["messages"]["Row"];
 type ConversationRow = Database["public"]["Tables"]["conversations"]["Row"];
 type OpenAIClient = any;
@@ -850,12 +917,23 @@ export async function POST(request: NextRequest) {
     try {
       if (personalizationSettings.referenceSavedMemories) {
         // Get memory strategy from router (default to loading identity if not provided)
-        const memoryStrategy: MemoryStrategy = (modelConfig as any).memoryStrategy || {
+        let memoryStrategy: MemoryStrategy = (modelConfig as any).memoryStrategy || {
           types: ["identity"],
           useSemanticSearch: false,
           limit: 10
         };
-        
+
+        const { strategy: augmentedStrategy, addedTypes } =
+          augmentMemoryStrategyWithHeuristics(
+            memoryStrategy,
+            message,
+            availableMemoryTypes || []
+          );
+        memoryStrategy = augmentedStrategy;
+        if (addedTypes.length) {
+          console.log(`[memory] Heuristic-added memory types: ${addedTypes.join(", ")}`);
+        }
+
         console.log(`[memory] Using strategy:`, JSON.stringify(memoryStrategy));
         relevantMemories = await getRelevantMemories(
           { referenceSavedMemories: true, allowSavingMemory: personalizationSettings.allowSavingMemory },
