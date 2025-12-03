@@ -1433,6 +1433,7 @@ export async function POST(request: NextRequest) {
                       type: args.type || "all",
                       limit: 10,
                       useSemanticSearch: true,
+                      userId, // Pass userId for server-side fetch
                     });
                     console.log(`[memory-tool] Search found ${searchResults.length} results`);
                     break;
@@ -1443,6 +1444,7 @@ export async function POST(request: NextRequest) {
                       type: args.type || "all",
                       limit: 50,
                       useSemanticSearch: false,
+                      userId, // Pass userId for server-side fetch
                     });
                     console.log(`[memory-tool] Listed ${allMemories.length} memories`);
                     break;
