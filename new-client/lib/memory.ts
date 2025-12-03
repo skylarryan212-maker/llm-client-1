@@ -1,4 +1,6 @@
 import { supabase } from './supabaseClient';
+import { supabaseServerAdmin } from "@/lib/supabase/server";
+import { getCurrentUserIdServer } from "@/lib/supabase/user";
 
 export type MemoryType = 'preference' | 'identity' | 'constraint' | 'workflow' | 'project' | 'instruction' | 'other';
 
@@ -120,10 +122,18 @@ export async function writeMemory(memory: {
   try {
     // Generate embedding for the content
     const embedding = await generateEmbedding(memory.content);
-    
-    const { data, error } = await supabase
+    // Resolve current user id for ownership
+    const userId = await getCurrentUserIdServer();
+    if (!userId) {
+      throw new Error("Not authenticated: cannot write memory");
+    }
+    // Use admin client to bypass RLS safely for server-side insert, while scoping to the user
+    const admin = await supabaseServerAdmin();
+
+    const { data, error } = await admin
       .from('memories')
       .insert([{
+        user_id: userId,
         type: memory.type,
         title: memory.title,
         content: memory.content,
