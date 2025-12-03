@@ -9,6 +9,9 @@ create table if not exists public.memories (
   type text not null check (type in ('preference','identity','constraint','workflow','project','instruction','other')),
   title text not null,
   content text not null,
+  -- raw numeric embedding we write from the app
+  embedding_raw float8[] null,
+  -- pgvector column maintained in the database from embedding_raw
   embedding vector(1536),
   importance int not null default 50,
   enabled boolean not null default true,
@@ -23,6 +26,28 @@ create index if not exists memories_user_enabled_idx on public.memories (user_id
 create index if not exists memories_type_idx on public.memories (type);
 create index if not exists memories_created_at_idx on public.memories (created_at desc);
 create index if not exists memories_metadata_gin_idx on public.memories using gin (metadata);
+
+-- keep pgvector column in sync with raw array
+create or replace function public.sync_memory_embedding()
+returns trigger
+language plpgsql
+as $$
+begin
+  if NEW.embedding_raw is not null then
+    NEW.embedding := NEW.embedding_raw::vector(1536);
+  else
+    NEW.embedding := null;
+  end if;
+  return NEW;
+end;
+$$;
+
+drop trigger if exists trg_sync_memory_embedding on public.memories;
+
+create trigger trg_sync_memory_embedding
+before insert or update of embedding_raw on public.memories
+for each row
+execute procedure public.sync_memory_embedding();
 
 -- Optional ANN index for embedding similarity (future-proofing)
 create index if not exists memories_embedding_idx

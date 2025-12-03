@@ -70,7 +70,8 @@ export async function fetchMemories({
       }
       
       const { data, error } = await client.rpc('match_memories', {
-        query_embedding: `[${queryEmbedding.join(',')}]`, // Format as PostgreSQL vector literal
+        // pgvector will be fed from embedding_raw via trigger; here we just send numeric array
+        query_embedding: queryEmbedding as any,
         match_threshold: 0.7,
         match_count: limit,
         filter_type: type,
@@ -156,7 +157,8 @@ export async function writeMemory(memory: {
     // Check for similar existing memories to avoid duplicates
     const admin = await supabaseServerAdmin();
     const { data: similarMemories, error: searchError } = await (admin as any).rpc('match_memories', {
-      query_embedding: `[${embedding.join(',')}]`, // Format as PostgreSQL vector literal
+      // pass raw numeric array; DB trigger keeps pgvector column in sync
+      query_embedding: embedding as any,
       match_threshold: 0.85, // High threshold for detecting duplicates
       match_count: 3,
       filter_type: memory.type,
@@ -181,7 +183,7 @@ export async function writeMemory(memory: {
           .update({
             content: memory.content,
             title: memory.title,
-            embedding: `[${embedding.join(',')}]`, // Format as PostgreSQL vector literal
+            embedding_raw: embedding as any,
             updated_at: new Date().toISOString(),
           } as any)
           .eq('id', topMatch.id)
@@ -203,7 +205,7 @@ export async function writeMemory(memory: {
         type: memory.type,
         title: memory.title,
         content: memory.content,
-        embedding: `[${embedding.join(',')}]`, // Format as PostgreSQL vector literal
+        embedding_raw: embedding as any,
         enabled: memory.enabled ?? true,
         importance: memory.importance ?? 50,
         created_at: new Date().toISOString(),
