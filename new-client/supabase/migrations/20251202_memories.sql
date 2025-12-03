@@ -6,7 +6,7 @@ create table if not exists public.memories (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references auth.users(id) on delete cascade,
   project_id uuid null,
-  type text not null check (type in ('preference','identity','constraint','workflow','project','instruction','other')),
+  type text not null constraint memories_type_nonempty_check check (char_length(trim(type)) > 0),
   title text not null,
   content text not null,
   -- raw numeric embedding we write from the app

@@ -457,7 +457,7 @@ export async function getConversationContextForRouter(
   messages.reverse();
   
   // Build truncated context with token cap
-  let contextLines: string[] = [];
+  const contextLines: string[] = [];
   let totalTokens = 0;
   const TOKEN_CAP = 2000;
   

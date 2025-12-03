@@ -233,6 +233,11 @@ export async function writeMemory(memory: {
   importance?: number;
 }) {
   try {
+    // Normalize type to avoid empty values or pure whitespace
+    const rawType = (memory.type ?? "other").toString();
+    const normalizedType = rawType.trim();
+    const safeType = normalizedType.length > 0 ? normalizedType : "other";
+
     // Generate embedding for the content
     const embedding = await generateEmbedding(memory.content);
     console.log(`[memory] Generated embedding with ${embedding.length} dimensions for: "${memory.title}"`);
@@ -249,7 +254,7 @@ export async function writeMemory(memory: {
       query_embedding: embedding,
       match_threshold: 0.85, // High threshold for detecting duplicates
       match_count: 3,
-      filter_type: memory.type,
+      filter_type: safeType,
       p_user_id: userId,
     });
     
@@ -290,7 +295,7 @@ export async function writeMemory(memory: {
       .from('memories')
       .insert({
         user_id: userId,
-        type: memory.type,
+        type: safeType,
         title: memory.title,
         content: memory.content,
         embedding_raw: embedding, // Supabase will handle float8[] type
@@ -306,7 +311,7 @@ export async function writeMemory(memory: {
       throw error;
     }
     
-    console.log(`[memory] Successfully wrote memory: "${memory.title}" (${embedding.length} dims)`);
+    console.log(`[memory] Successfully wrote memory: "${memory.title}" (${embedding.length} dims, type: ${safeType})`);
     return data as MemoryItem;
   } catch (error) {
     console.error("[memory] Failed to write memory:", error);
