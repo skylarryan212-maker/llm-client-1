@@ -267,18 +267,19 @@ export async function writeMemory(memory: {
     const normalizedType = rawType.trim();
     const safeType = normalizedType.length > 0 ? normalizedType : "other";
 
-    // Generate embedding for the content
-    const embedding = await generateEmbedding(memory.content, {
-      userId,
-      conversationId: memory.conversationId,
-    });
-    console.log(`[memory] Generated embedding with ${embedding.length} dimensions for: "${memory.title}"`);
-    
     // Resolve current user id for ownership
     const userId = await getCurrentUserIdServer();
     if (!userId) {
       throw new Error("Not authenticated: cannot write memory");
     }
+    const ensuredUserId = userId as string;
+
+    // Generate embedding for the content
+    const embedding = await generateEmbedding(memory.content, {
+      userId: ensuredUserId,
+      conversationId: memory.conversationId,
+    });
+    console.log(`[memory] Generated embedding with ${embedding.length} dimensions for: "${memory.title}"`);
     // Check for similar existing memories to avoid duplicates
     const admin = await supabaseServerAdmin();
     const { data: similarMemories, error: searchError } = await (admin as any).rpc('match_memories', {
@@ -287,7 +288,7 @@ export async function writeMemory(memory: {
       match_threshold: 0.85, // High threshold for detecting duplicates
       match_count: 3,
       filter_type: safeType,
-      p_user_id: userId,
+      p_user_id: ensuredUserId,
     });
     
     if (!searchError && similarMemories && similarMemories.length > 0) {
@@ -326,7 +327,7 @@ export async function writeMemory(memory: {
     const { data, error } = await admin
       .from('memories')
       .insert({
-        user_id: userId,
+        user_id: ensuredUserId,
         type: safeType,
         title: memory.title,
         content: memory.content,
