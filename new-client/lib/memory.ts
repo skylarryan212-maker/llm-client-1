@@ -152,7 +152,7 @@ export async function writeMemory(memory: {
     
     // Check for similar existing memories to avoid duplicates
     const admin = await supabaseServerAdmin();
-    const { data: similarMemories, error: searchError } = await admin.rpc('match_memories', {
+    const { data: similarMemories, error: searchError } = await (admin as any).rpc('match_memories', {
       query_embedding: embedding,
       match_threshold: 0.85, // High threshold for detecting duplicates
       match_count: 3,
