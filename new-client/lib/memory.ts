@@ -173,14 +173,14 @@ export async function writeMemory(memory: {
       // If somewhat similar (0.85-0.90), update existing instead of creating new
       if (topMatch.similarity > 0.85) {
         console.log(`[memory] Updating existing memory instead of creating duplicate`);
-        const { data: updated, error: updateError } = await admin
+        const { data: updated, error: updateError } = await (admin as any)
           .from('memories')
           .update({
             content: memory.content,
             title: memory.title,
             embedding: JSON.stringify(embedding),
             updated_at: new Date().toISOString(),
-          })
+          } as any)
           .eq('id', topMatch.id)
           .select()
           .single();
