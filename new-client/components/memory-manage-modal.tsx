@@ -1,7 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { z } from "zod";
+import { useEffect, useState } from "react";
 import { fetchMemories, updateMemoryEnabled, deleteMemory, MemoryType, MemoryItem } from "@/lib/memory";
 
 import { Dialog } from "@/components/ui/dialog";
@@ -22,7 +21,7 @@ export default function ManageMemoriesModal({ open, onOpenChange }: { open: bool
     try {
       const data = await fetchMemories({ query, type });
       setItems(data);
-    } catch (e) {
+    } catch {
       setItems([]);
     } finally {
       setLoading(false);

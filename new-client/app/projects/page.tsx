@@ -15,7 +15,6 @@ import { useChatStore } from "@/components/chat/chat-provider";
 
 export default function ProjectsPage() {
   const [isSidebarOpen, setIsSidebarOpen] = usePersistentSidebarOpen(true);
-  const [currentModel, setCurrentModel] = useState("GPT-5.1");
   const [selectedProjectId, setSelectedProjectId] = useState("");
   const [isNewProjectOpen, setIsNewProjectOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -89,8 +88,6 @@ export default function ProjectsPage() {
       <ChatSidebar
         isOpen={isSidebarOpen}
         onToggle={() => setIsSidebarOpen((open) => !open)}
-        currentModel={currentModel}
-        onModelSelect={setCurrentModel}
         selectedChatId={""}
         conversations={sidebarConversations}
         projects={projects}

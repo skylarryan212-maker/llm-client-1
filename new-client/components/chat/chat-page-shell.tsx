@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { useCallback, useEffect, useMemo, useRef, useState, useLayoutEffect } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useUserIdentity } from "@/components/user-identity-provider";
 
@@ -16,7 +16,6 @@ import { StatusBubble } from "@/components/chat/status-bubble";
 import { ApiUsageBadge } from "@/components/api-usage-badge";
 import { UsageLimitModal } from "@/components/usage-limit-modal";
 import {
-  appendUserMessageAction,
   startGlobalConversationAction,
   startProjectConversationAction,
 } from "@/app/actions/chat-actions";
@@ -34,7 +33,7 @@ import { useProjects } from "@/components/projects/projects-provider";
 import { NewProjectModal } from "@/components/projects/new-project-modal";
 import { StoredMessage, useChatStore } from "@/components/chat/chat-provider";
 import { usePersistentSidebarOpen } from "@/lib/hooks/use-sidebar-open";
-import { normalizeModelFamily, normalizeSpeedMode, getModelAndReasoningConfig, getModelSettingsFromDisplayName } from "@/lib/modelConfig";
+import { getModelAndReasoningConfig, getModelSettingsFromDisplayName } from "@/lib/modelConfig";
 import type { ModelFamily, SpeedMode, ReasoningEffort } from "@/lib/modelConfig";
 import { isPlaceholderTitle } from "@/lib/conversation-utils";
 import { requestAutoNaming } from "@/lib/autoNaming";
@@ -81,6 +80,10 @@ type ThinkingTimingInfo = {
   label: string;
   effort?: ReasoningEffort | null;
 };
+
+const AUTO_STREAM_KEY_PREFIX = "llm-client-auto-stream:";
+const getAutoStreamKey = (conversationId: string) =>
+  `${AUTO_STREAM_KEY_PREFIX}${conversationId}`;
 
 function mergeThinkingTimingIntoMetadata(
   metadata: AssistantMessageMetadata | null,
@@ -147,7 +150,6 @@ export default function ChatPageShell({
   } = useChatStore();
   const { isGuest } = useUserIdentity();
   const [guestWarning, setGuestWarning] = useState<string | null>(null);
-  const [guestAssistantId, setGuestAssistantId] = useState<string | null>(null);
 
   const [isSidebarOpen, setIsSidebarOpen] = usePersistentSidebarOpen(true);
   const [currentModel, setCurrentModel] = useState("Auto");
@@ -172,7 +174,7 @@ export default function ChatPageShell({
   const [isStreaming, setIsStreaming] = useState(false);
   const [thinkingStatus, setThinkingStatus] = useState<{ variant: "thinking" | "extended"; label: string } | null>(null);
   // Force re-render while thinking so a live duration chip can update
-  const [thinkingTick, setThinkingTick] = useState(0);
+  const [, setThinkingTick] = useState(0);
   const [searchIndicator, setSearchIndicator] = useState<
     | {
         message: string;
@@ -199,36 +201,37 @@ export default function ChatPageShell({
   const pendingThinkingInfoRef = useRef<ThinkingTimingInfo | null>(null);
   const searchIndicatorTimerRef = useRef<NodeJS.Timeout | null>(null);
   const fileIndicatorTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const AUTO_STREAM_KEY_PREFIX = "llm-client-auto-stream:";
+  const hasSessionAutoStream = useCallback((conversationId: string) => {
+    return (
+      typeof window !== "undefined" &&
+      sessionStorage.getItem(getAutoStreamKey(conversationId)) === "1"
+    );
+  }, []);
 
-  const getAutoStreamKey = (conversationId: string) =>
-    `${AUTO_STREAM_KEY_PREFIX}${conversationId}`;
-
-  const hasSessionAutoStream = (conversationId: string) =>
-    typeof window !== "undefined" &&
-    sessionStorage.getItem(getAutoStreamKey(conversationId)) === "1";
-
-  const markConversationAsAutoStreamed = (conversationId: string) => {
+  const markConversationAsAutoStreamed = useCallback((conversationId: string) => {
     autoStreamedConversations.current.add(conversationId);
     if (typeof window !== "undefined") {
       sessionStorage.setItem(getAutoStreamKey(conversationId), "1");
     }
-  };
+  }, []);
 
-  const clearConversationAutoStreamed = (conversationId: string) => {
+  const clearConversationAutoStreamed = useCallback((conversationId: string) => {
     autoStreamedConversations.current.delete(conversationId);
     if (typeof window !== "undefined") {
       sessionStorage.removeItem(getAutoStreamKey(conversationId));
     }
-  };
+  }, []);
 
-  const isConversationAutoStreamed = (conversationId: string) => {
-    if (!conversationId) return false;
-    return (
-      autoStreamedConversations.current.has(conversationId) ||
-      hasSessionAutoStream(conversationId)
-    );
-  };
+  const isConversationAutoStreamed = useCallback(
+    (conversationId: string) => {
+      if (!conversationId) return false;
+      return (
+        autoStreamedConversations.current.has(conversationId) ||
+        hasSessionAutoStream(conversationId)
+      );
+    },
+    [hasSessionAutoStream]
+  );
 
   const autoStreamHandled =
     searchParams?.autoStreamHandled?.toString() === "true";
@@ -325,7 +328,7 @@ export default function ChatPageShell({
       const merged = mergeThinkingTimingIntoMetadata(metadata, thinkingInfo);
       return merged ?? metadata;
     },
-    [hideThinkingIndicator, updateMessage]
+    [hideThinkingIndicator]
   );
 
   const clearSearchIndicator = useCallback(() => {
@@ -511,7 +514,7 @@ export default function ChatPageShell({
   ]);
 
   const currentChat = chats.find((c) => c.id === selectedChatId);
-  const messages = currentChat?.messages || [];
+  const messages = useMemo<StoredMessage[]>(() => currentChat?.messages ?? [], [currentChat]);
 
   const scrollToBottom = useCallback(
     (behavior: ScrollBehavior = "smooth") => {
@@ -562,7 +565,7 @@ export default function ChatPageShell({
         return;
       }
       // Persist the modal open state until the user closes it manually
-      setUsageLimitModal((prev) => ({
+      setUsageLimitModal(() => ({
         isOpen: true,
         currentSpending,
         limit,
@@ -755,7 +758,6 @@ export default function ChatPageShell({
         } as any,
       };
       appendMessages(chatId, [assistantMessage]);
-      setGuestAssistantId(assistantId);
       await streamGuestResponse(assistantId, chatId, message);
       return;
     }
@@ -893,7 +895,7 @@ export default function ChatPageShell({
     }
   };
 
-  const streamModelResponse = async (
+  const streamModelResponse = useCallback(async (
     conversationId: string,
     projectId: string | undefined,
     message: string,
@@ -1182,7 +1184,7 @@ export default function ChatPageShell({
                 // Streaming complete
                 break;
               }
-            } catch (parseError) {
+            } catch {
               // Skip lines that aren't valid JSON
             }
           }
@@ -1208,7 +1210,20 @@ export default function ChatPageShell({
       // Clear active indicator so buttons appear after streaming completes
       setActiveIndicatorMessageId(null);
     }
-  };
+  }, [
+    addSearchDomain,
+    appendMessages,
+    clearFileReadingIndicator,
+    clearSearchIndicator,
+    currentModel,
+    handleStatusEvent,
+    hideThinkingIndicator,
+    recordFirstTokenTiming,
+    resetThinkingIndicator,
+    showThinkingIndicator,
+    startResponseTiming,
+    updateMessage,
+  ]);
 
   const handleStopGeneration = useCallback(() => {
     const controller = streamAbortControllerRef.current;
@@ -1249,7 +1264,15 @@ export default function ChatPageShell({
         console.error("Failed to stream initial message:", err);
       });
     }
-  }, [activeConversationId, initialMessages.length, autoStreamHandled]); // Run when conversation changes or message count changes
+  }, [
+    activeConversationId,
+    autoStreamHandled,
+    clearConversationAutoStreamed,
+    initialMessages,
+    isConversationAutoStreamed,
+    projectId,
+    streamModelResponse,
+  ]); // Run when conversation changes or message count changes
 
   const handleRetryWithModel = async (retryModelName: string, messageId: string) => {
     if (!selectedChatId) return;
@@ -1461,7 +1484,7 @@ export default function ChatPageShell({
                  // Streaming complete
                  break;
                }
-             } catch (parseError) {
+             } catch {
                // Skip lines that aren't valid JSON
              }
            }
@@ -1630,8 +1653,6 @@ export default function ChatPageShell({
         <ChatSidebar
           isOpen={isSidebarOpen}
           onToggle={() => setIsSidebarOpen((open) => !open)}
-          currentModel={currentModel}
-          onModelSelect={setCurrentModel}
           selectedChatId={selectedChatId ?? ""} // Sidebar API expects string
           conversations={sidebarConversations}
           projects={sortedProjects}
@@ -1968,6 +1989,22 @@ export default function ChatPageShell({
             )}
           </div>
         </div>
+
+        {guestWarning && (
+          <div className="border-b border-border bg-[#2a2416]/60 px-4 py-3">
+            <div className="mx-auto flex w-full max-w-3xl items-center justify-between gap-3">
+              <StatusBubble label={guestWarning} variant="warning" />
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 px-3 text-xs text-yellow-200"
+                onClick={() => setGuestWarning(null)}
+              >
+                Dismiss
+              </Button>
+            </div>
+          </div>
+        )}
 
         {/* Messages */}
         {!selectedChatId || messages.length === 0 ? (

@@ -30,13 +30,13 @@ export function Dialog({ open, onClose, children }: DialogProps) {
 
   const portalContainer = useMemo(() => (mounted ? document.body : null), [mounted])
 
-  if (!open || !portalContainer) {
-    return null
-  }
-
   const handleBackdropClick = useCallback(() => {
     onClose()
   }, [onClose])
+
+  if (!open || !portalContainer) {
+    return null
+  }
 
   return createPortal(
     <div className="fixed inset-0 z-[1000] flex items-center justify-center px-4 py-6">

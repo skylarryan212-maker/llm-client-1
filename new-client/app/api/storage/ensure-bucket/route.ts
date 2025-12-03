@@ -1,10 +1,10 @@
 export const runtime = "nodejs";
 export const maxDuration = 30;
 
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 
-export async function POST(_req: NextRequest) {
+export async function POST() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   const bucket = "attachments";

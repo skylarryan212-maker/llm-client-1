@@ -58,7 +58,6 @@ export function ChatMessage({
   const modelUsed = typedMetadata?.modelUsed as string | undefined
   const isGuest = Boolean((typedMetadata as any)?.isGuest)
   let resolvedFamily = typedMetadata?.resolvedFamily as string | undefined
-  const reasoningEffort = typedMetadata?.reasoningEffort as string | undefined
   // Map resolved family to display name
   const getDisplayModelName = (family?: string): string => {
     if (!family) return 'Unknown'

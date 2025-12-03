@@ -3,7 +3,7 @@
 import { useState, KeyboardEvent, FormEvent, useRef, useCallback, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Mic, ArrowUp, Square } from "lucide-react";
+import { Mic, ArrowUp } from "lucide-react";
 import { AttachmentMenuButton } from "@/components/chat/attachment-menu";
 
 type UploadedFragment = {
@@ -19,7 +19,6 @@ type ChatComposerProps = {
   onSendMessage?: (message: string) => void;
   isStreaming?: boolean;
   onStop?: () => void;
-  onRegenerate?: () => void;
   placeholder?: string;
 };
 
@@ -28,7 +27,6 @@ export function ChatComposer({
   onSendMessage,
   isStreaming,
   onStop,
-  onRegenerate,
   placeholder,
 }: ChatComposerProps) {
   const [value, setValue] = useState("");

@@ -51,7 +51,6 @@ function LoginPageContent() {
       for (let i = 0; i < 5; i++) {
         pkceVal = typeof window !== "undefined" ? localStorage.getItem(SUPABASE_PKCE_VERIFIER_KEY) : null;
         if (pkceVal) break;
-        // eslint-disable-next-line no-await-in-loop
         await new Promise((r) => setTimeout(r, 50));
       }
       if (pkceVal) {

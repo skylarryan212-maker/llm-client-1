@@ -1,6 +1,5 @@
 'use client'
 
-import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { ChevronUp, Crown, LogIn, Sparkles, Zap, Code2 } from 'lucide-react'
@@ -11,7 +10,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { SettingsModal } from '@/components/settings-modal'
 import supabaseClient from '@/lib/supabase/browser-client'
 import { useUserIdentity } from '@/components/user-identity-provider'
 import { useUserPlan } from '@/lib/hooks/use-user-plan'

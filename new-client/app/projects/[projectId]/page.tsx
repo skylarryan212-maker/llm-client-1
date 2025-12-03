@@ -2,7 +2,7 @@
 
 import { useMemo, useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { Menu, Plus, ArrowLeft, MoreHorizontal } from 'lucide-react'
+import { Menu, Plus, ArrowLeft } from 'lucide-react'
 import { ChatContextMenu } from '@/components/chat-context-menu'
 import { renameConversationAction, moveConversationToProjectAction, deleteConversationAction } from '@/app/actions/chat-actions'
 import { Dialog } from '@/components/ui/dialog'
@@ -49,6 +49,11 @@ const getLatestMessageTimestamp = (messages: StoredMessage[], fallback?: string)
   return fallback;
 };
 
+type ActiveAction =
+  | { type: 'renameChat'; chatId: string; currentTitle?: string }
+  | { type: 'moveChat'; chatId: string; currentProjectId?: string }
+  | { type: 'deleteChat'; chatId: string; currentTitle?: string };
+
 export default function ProjectDetailPage() {
   const params = useParams<{ projectId: string }>();
   const router = useRouter();
@@ -57,13 +62,14 @@ export default function ProjectDetailPage() {
   const { isGuest } = useUserIdentity();
 
   const [isSidebarOpen, setIsSidebarOpen] = usePersistentSidebarOpen(true);
-  const [currentModel, setCurrentModel] = useState("GPT-5.1");
   const [isNewProjectOpen, setIsNewProjectOpen] = useState(false);
   const [selectedChatId, setSelectedChatId] = useState("");
   const [selectedProjectId, setSelectedProjectId] = useState(params.projectId);
   const [guestWarning, setGuestWarning] = useState<string | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [settingsTab, setSettingsTab] = useState<'general' | 'personalization'>('personalization');
+  const [activeAction, setActiveAction] = useState<ActiveAction | null>(null);
+  const [pendingName, setPendingName] = useState('');
 
   const projectId = params.projectId;
 
@@ -72,17 +78,58 @@ export default function ProjectDetailPage() {
     [projects, projectId]
   );
 
-  // Redirect to projects page if project doesn't exist
-  if (projects.length > 0 && !project) {
-    router.push("/projects");
-    return null;
-  }
+  const shouldRedirectToProjects = projects.length > 0 && !project;
 
   useEffect(() => {
     if (isGuest) {
       setGuestWarning("Guest mode: view only. Sign in to manage projects and chats.");
     }
   }, [isGuest]);
+
+  useEffect(() => {
+    if (!activeAction) {
+      setPendingName('');
+      return;
+    }
+
+    if (activeAction.type === 'renameChat') {
+      setPendingName(activeAction.currentTitle ?? '');
+    }
+  }, [activeAction]);
+
+  useEffect(() => {
+    if (!shouldRedirectToProjects) return;
+    router.push("/projects");
+  }, [router, shouldRedirectToProjects]);
+
+  const sidebarConversations = useMemo(
+    () =>
+      globalChats.map((chat) => ({
+        id: chat.id,
+        title: chat.title,
+        timestamp: chat.timestamp,
+      })),
+    [globalChats]
+  );
+
+  const projectConversations = useMemo(() => {
+    const map: Record<string, StoredChat[]> = {};
+    chats.forEach((chat) => {
+      if (!chat.projectId) return;
+      if (!map[chat.projectId]) map[chat.projectId] = [];
+      map[chat.projectId].push(chat);
+    });
+    return map;
+  }, [chats]);
+
+  const projectChatList = useMemo(() => {
+    const list = projectConversations[projectId] ?? [];
+    return [...list].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+  }, [projectConversations, projectId]);
+
+  if (shouldRedirectToProjects) {
+    return null;
+  }
 
   const handleNewProject = () => {
     if (isGuest) {
@@ -139,31 +186,6 @@ export default function ProjectDetailPage() {
     router.push(`/projects/${projectIdValue}/c/${chatId}`);
   };
 
-  const sidebarConversations = useMemo(
-    () =>
-      globalChats.map((chat) => ({
-        id: chat.id,
-        title: chat.title,
-        timestamp: chat.timestamp,
-      })),
-    [globalChats]
-  );
-
-  const projectConversations = useMemo(() => {
-    const map: Record<string, StoredChat[]> = {};
-    chats.forEach((chat) => {
-      if (!chat.projectId) return;
-      if (!map[chat.projectId]) map[chat.projectId] = [];
-      map[chat.projectId].push(chat);
-    });
-    return map;
-  }, [chats]);
-
-  const projectChatList = useMemo(() => {
-    const list = projectConversations[projectId] ?? [];
-    return [...list].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
-  }, [projectConversations, projectId]);
-
   const handleProjectChatSubmit = async (message: string) => {
     if (isGuest) {
       setGuestWarning("Sign in to start and save chats.");
@@ -198,15 +220,6 @@ export default function ProjectDetailPage() {
     router.push(`/projects/${projectId}/c/${chatId}`);
   };
 
-  // Local dialog state for rename / move / delete (copied from chat-sidebar)
-  type ActiveAction =
-    | { type: 'renameChat'; chatId: string; currentTitle?: string }
-    | { type: 'moveChat'; chatId: string; currentProjectId?: string }
-    | { type: 'deleteChat'; chatId: string; currentTitle?: string }
-
-  const [activeAction, setActiveAction] = useState<ActiveAction | null>(null)
-  const [pendingName, setPendingName] = useState('')
-
   const clearAction = () => {
     setActiveAction(null)
     setPendingName('')
@@ -223,19 +236,6 @@ export default function ProjectDetailPage() {
   const queueDeleteChat = (chatId: string, currentTitle?: string) => {
     setActiveAction({ type: 'deleteChat', chatId, currentTitle })
   }
-
-  // sync pending name when action changes
-  useEffect(() => {
-    if (!activeAction) {
-      setPendingName('')
-      return
-    }
-
-    if (activeAction.type === 'renameChat') {
-      setPendingName(activeAction.currentTitle ?? '')
-    }
-  }, [activeAction])
-
   const confirmRename = async () => {
     if (!activeAction || activeAction.type !== 'renameChat') return
     const nextName = pendingName.trim()
@@ -284,8 +284,6 @@ export default function ProjectDetailPage() {
       <ChatSidebar
         isOpen={isSidebarOpen}
         onToggle={() => setIsSidebarOpen((open) => !open)}
-        currentModel={currentModel}
-        onModelSelect={setCurrentModel}
         selectedChatId={selectedChatId}
         conversations={sidebarConversations}
         projects={projects}

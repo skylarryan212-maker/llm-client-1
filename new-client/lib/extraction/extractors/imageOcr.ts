@@ -36,12 +36,12 @@ export const imageOcrExtractor: Extractor = async (buffer, name, _mime, ctx) => 
           .toFormat("png")
           .toBuffer();
         ocrBuffer = resized;
-      } catch (resizeErr) {
+      } catch {
         // If sharp isn't available or fails, continue with original buffer
       }
     }
 
-    // @ts-ignore - tesseract.js is an optional dependency
+    // @ts-expect-error - tesseract.js is an optional dependency
     const Tesseract = await import("tesseract.js");
 
     // Enforce a max OCR duration so responses don't hang

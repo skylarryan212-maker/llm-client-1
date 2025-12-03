@@ -1,6 +1,5 @@
 import { supabase } from './supabaseClient';
 import { supabaseServerAdmin } from "@/lib/supabase/server";
-import type { Database } from "@/lib/supabase/types";
 import { getCurrentUserIdServer } from "@/lib/supabase/user";
 
 export type MemoryType = 'preference' | 'identity' | 'constraint' | 'workflow' | 'project' | 'instruction' | 'other';

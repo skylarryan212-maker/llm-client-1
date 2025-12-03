@@ -5,7 +5,7 @@ import { ArrowLeft, Check, Lock, X } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { unlockPlanWithCode, upgradeToPlan, type PlanType } from "@/app/actions/plan-actions";
+import { unlockPlanWithCode, type PlanType } from "@/app/actions/plan-actions";
 import { useUserPlan } from "@/lib/hooks/use-user-plan";
 
 const plans = [
@@ -108,10 +108,6 @@ function UpgradePageContent() {
 
   const isLowerTier = (planId: PlanType) => {
     return planHierarchy[planId] < planHierarchy[currentPlan];
-  };
-
-  const isHigherTier = (planId: PlanType) => {
-    return planHierarchy[planId] > planHierarchy[currentPlan];
   };
 
   return (

@@ -18,12 +18,12 @@ export async function POST(request: Request) {
         sameSite: "lax",
         maxAge: 60 * 10,
       });
-    } catch (e) {
-      console.error("[pkce] failed to set cookie", e);
+    } catch (error) {
+      console.error("[pkce] failed to set cookie", error);
       return NextResponse.json({ error: "cookie_set_failed" }, { status: 500 });
     }
     return res;
-  } catch (e) {
+  } catch {
     return NextResponse.json({ error: "invalid_json" }, { status: 400 });
   }
 }

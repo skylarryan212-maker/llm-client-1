@@ -24,11 +24,6 @@ import { PDF_MAX_PAGES } from "../config";
 import type { Extractor } from "../types";
 import { truncateUtf8 } from "../utils/text";
 
-type PdfTextItem = {
-  str?: string;
-  unicode?: string;
-};
-
 export const pdfExtractor: Extractor = async (buffer, _name, _mime, ctx) => {
   try {
     const pdfjsLib = await loadPdfJs();

@@ -38,8 +38,6 @@ interface Project {
 interface ChatSidebarProps {
   isOpen: boolean
   onToggle: () => void
-  currentModel?: string
-  onModelSelect?: (model: string) => void
   selectedChatId?: string
   conversations?: Conversation[]
   projects?: Project[]
@@ -59,8 +57,6 @@ interface ChatSidebarProps {
 export function ChatSidebar({ 
   isOpen, 
   onToggle, 
-  currentModel = 'GPT-4',
-  onModelSelect,
   selectedChatId = '4',
   conversations: propConversations,
   projects: propProjects,
@@ -78,7 +74,6 @@ export function ChatSidebar({
 }: ChatSidebarProps) {
   const pathname = usePathname()
   const isAgentsPage = pathname === '/agents'
-  const isProjectsPage = pathname?.startsWith('/projects')
   const [projectsCollapsed, setProjectsCollapsed] = useState(false)
   const [chatsCollapsed, setChatsCollapsed] = useState(false)
   const [showMoreProjects, setShowMoreProjects] = useState(false)

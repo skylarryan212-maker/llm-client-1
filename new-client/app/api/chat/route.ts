@@ -4,7 +4,7 @@ export const maxDuration = 60; // Allow up to 60 seconds for file processing
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase/server";
 import { getCurrentUserIdServer } from "@/lib/supabase/user";
-import { getModelAndReasoningConfig, getModelAndReasoningConfigWithLLM } from "@/lib/modelConfig";
+import { getModelAndReasoningConfigWithLLM } from "@/lib/modelConfig";
 import type {
   ModelFamily,
   ReasoningEffort,
@@ -22,7 +22,6 @@ import { dispatchExtract } from "@/lib/extraction/dispatcher";
 import type {
   Tool,
   ToolChoiceOptions,
-  WebSearchTool,
 } from "openai/resources/responses/responses";
 import { calculateCost, calculateVectorStorageCost } from "@/lib/pricing";
 import { getUserPlan } from "@/app/actions/plan-actions";
@@ -30,7 +29,7 @@ import { getMonthlySpending } from "@/app/actions/usage-actions";
 import { hasExceededLimit, getPlanLimit } from "@/lib/usage-limits";
 import { getRelevantMemories, type PersonalizationMemorySettings } from "@/lib/memory-router";
 import type { MemoryItem } from "@/lib/memory";
-import { writeMemory, fetchMemories, deleteMemory, updateMemoryEnabled } from "@/lib/memory";
+import { writeMemory, fetchMemories, deleteMemory } from "@/lib/memory";
 import { analyzeForMemory, getMemoryAnalysisUsageEstimate } from "@/lib/llm-router";
 
 // Utility: convert a data URL (base64) to a Buffer
@@ -45,7 +44,6 @@ function dataUrlToBuffer(dataUrl: string): Buffer {
 }
 
 type MessageRow = Database["public"]["Tables"]["messages"]["Row"];
-type ConversationRow = Database["public"]["Tables"]["conversations"]["Row"];
 type OpenAIClient = any;
 
 interface ChatRequestBody {
@@ -428,13 +426,6 @@ type WebSearchCall = {
   data?: { results?: unknown };
   metadata?: { results?: unknown };
 };
-
-function isWebSearchCall(value: unknown): value is WebSearchCall {
-  return (
-    Boolean(value && typeof value === "object") &&
-    (value as { type?: string }).type === "web_search_call"
-  );
-}
 
 // ============================================================================
 // resolveWebSearchPreference() and referencesEmergingEntity() removed
@@ -1135,7 +1126,6 @@ export async function POST(request: NextRequest) {
       );
     }
     try {
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
       const OpenAIModule = require("openai");
       const OpenAIClass = OpenAIModule.default || OpenAIModule;
       openai = new OpenAIClass({
@@ -1424,8 +1414,6 @@ export async function POST(request: NextRequest) {
               const args = call.function?.arguments ? JSON.parse(call.function.arguments) : {};
               
               try {
-                let result: any = null;
-                
                 switch (functionName) {
                   case "save_memory":
                     await writeMemory({
@@ -1434,7 +1422,6 @@ export async function POST(request: NextRequest) {
                       content: args.content,
                       enabled: true,
                     });
-                    result = { success: true, message: `Saved memory: ${args.title}` };
                     console.log(`[memory-tool] Saved: ${args.title}`);
                     break;
                     
@@ -1445,17 +1432,6 @@ export async function POST(request: NextRequest) {
                       limit: 10,
                       useSemanticSearch: true,
                     });
-                    result = {
-                      success: true,
-                      count: searchResults.length,
-                      memories: searchResults.map(m => ({
-                        id: m.id,
-                        type: m.type,
-                        title: m.title,
-                        content: m.content,
-                        created_at: m.created_at,
-                      })),
-                    };
                     console.log(`[memory-tool] Search found ${searchResults.length} results`);
                     break;
                     
@@ -1466,28 +1442,16 @@ export async function POST(request: NextRequest) {
                       limit: 50,
                       useSemanticSearch: false,
                     });
-                    result = {
-                      success: true,
-                      count: allMemories.length,
-                      memories: allMemories.map(m => ({
-                        id: m.id,
-                        type: m.type,
-                        title: m.title,
-                        content: m.content,
-                        created_at: m.created_at,
-                      })),
-                    };
                     console.log(`[memory-tool] Listed ${allMemories.length} memories`);
                     break;
                     
                   case "delete_memory":
                     await deleteMemory(args.memory_id);
-                    result = { success: true, message: `Deleted memory: ${args.memory_id}` };
                     console.log(`[memory-tool] Deleted: ${args.memory_id}`);
                     break;
                     
                   default:
-                    result = { success: false, error: `Unknown function: ${functionName}` };
+                    console.warn(`[memory-tool] Unknown function requested: ${functionName}`);
                 }
                 
                 sendStatusUpdate({
@@ -1573,7 +1537,7 @@ export async function POST(request: NextRequest) {
               };
               console.log("[usage] Attempting to insert:", insertData);
               
-              const { data, error } = await supabaseAny.from("user_api_usage").insert(insertData);
+              const { error } = await supabaseAny.from("user_api_usage").insert(insertData);
               
               if (error) {
                 console.error("[usage] Insert error:", error);

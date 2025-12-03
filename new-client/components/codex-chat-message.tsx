@@ -8,12 +8,9 @@ interface CodexChatMessageProps {
   role: 'user' | 'assistant'
   content: string
   model?: string
-  hasCode?: boolean
-  code?: string
-  language?: string
 }
 
-export function CodexChatMessage({ role, content, model, hasCode, code, language = 'typescript' }: CodexChatMessageProps) {
+export function CodexChatMessage({ role, content, model }: CodexChatMessageProps) {
   if (role === 'user') {
     return (
       <div className="flex justify-end px-4 py-4">

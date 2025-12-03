@@ -10,11 +10,21 @@ import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import { Copy, Check } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useState } from 'react'
+import Image from 'next/image'
 import 'katex/dist/katex.min.css'
 
 interface MarkdownContentProps {
   content: string
 }
+
+const withoutNode = <P extends { node?: unknown }>(
+  render: (props: Omit<P, "node">) => React.ReactNode
+) => {
+  return ({ node, ...rest }: P) => {
+    void node;
+    return render(rest as Omit<P, "node">);
+  };
+};
 
 export function MarkdownContent({ content }: MarkdownContentProps) {
   const [copiedCode, setCopiedCode] = useState<string | null>(null)
@@ -32,99 +42,99 @@ export function MarkdownContent({ content }: MarkdownContentProps) {
         rehypePlugins={[rehypeKatex, rehypeRaw]}
         components={{
         // Headings
-        h1: ({ node, ...props }) => (
+        h1: withoutNode((props) => (
           <h1 className="text-2xl font-bold mt-6 mb-4 text-foreground" {...props} />
-        ),
-        h2: ({ node, ...props }) => (
+        )),
+        h2: withoutNode((props) => (
           <h2 className="text-xl font-bold mt-5 mb-3 text-foreground" {...props} />
-        ),
-        h3: ({ node, ...props }) => (
+        )),
+        h3: withoutNode((props) => (
           <h3 className="text-lg font-bold mt-4 mb-2 text-foreground" {...props} />
-        ),
-        h4: ({ node, ...props }) => (
+        )),
+        h4: withoutNode((props) => (
           <h4 className="text-base font-bold mt-3 mb-2 text-foreground" {...props} />
-        ),
-        h5: ({ node, ...props }) => (
+        )),
+        h5: withoutNode((props) => (
           <h5 className="text-sm font-bold mt-2 mb-1 text-foreground" {...props} />
-        ),
-        h6: ({ node, ...props }) => (
+        )),
+        h6: withoutNode((props) => (
           <h6 className="text-sm font-bold mt-2 mb-1 text-muted-foreground" {...props} />
-        ),
+        )),
 
         // Paragraphs
-        p: ({ node, ...props }) => (
+        p: withoutNode((props) => (
           <p className="text-base leading-relaxed text-foreground mb-4 break-words" {...props} />
-        ),
+        )),
 
         // Lists
-        ul: ({ node, ...props }) => (
+        ul: withoutNode((props) => (
           <ul className="list-disc list-outside ml-6 mb-4 space-y-1 text-foreground" {...props} />
-        ),
-        ol: ({ node, ...props }) => (
+        )),
+        ol: withoutNode((props) => (
           <ol className="list-decimal list-outside ml-6 mb-4 space-y-1 text-foreground" {...props} />
-        ),
-        li: ({ node, ...props }) => (
+        )),
+        li: withoutNode((props) => (
           <li className="text-base leading-relaxed" {...props} />
-        ),
+        )),
 
         // Inline formatting
-        strong: ({ node, ...props }) => (
+        strong: withoutNode((props) => (
           <strong className="font-bold text-foreground" {...props} />
-        ),
-        em: ({ node, ...props }) => (
+        )),
+        em: withoutNode((props) => (
           <em className="italic" {...props} />
-        ),
-        del: ({ node, ...props }) => (
+        )),
+        del: withoutNode((props) => (
           <del className="line-through text-muted-foreground" {...props} />
-        ),
+        )),
 
         // Links
-        a: ({ node, ...props }) => (
+        a: withoutNode((props) => (
           <a
             className="text-blue-400 hover:text-blue-300 underline underline-offset-2"
             target="_blank"
             rel="noopener noreferrer"
             {...props}
           />
-        ),
+        )),
 
         // Blockquotes
-        blockquote: ({ node, ...props }) => (
+        blockquote: withoutNode((props) => (
           <blockquote
             className="border-l-4 border-muted-foreground/30 pl-4 py-1 my-4 italic text-muted-foreground"
             {...props}
           />
-        ),
+        )),
 
         // Horizontal rule
-        hr: ({ node, ...props }) => (
+        hr: withoutNode((props) => (
           <hr className="my-6 border-border" {...props} />
-        ),
+        )),
 
         // Tables
-        table: ({ node, ...props }) => (
+        table: withoutNode((props) => (
           <div className="overflow-x-auto my-4">
             <table className="min-w-full border-collapse border border-border" {...props} />
           </div>
-        ),
-        thead: ({ node, ...props }) => (
+        )),
+        thead: withoutNode((props) => (
           <thead className="bg-muted" {...props} />
-        ),
-        tbody: ({ node, ...props }) => (
+        )),
+        tbody: withoutNode((props) => (
           <tbody {...props} />
-        ),
-        tr: ({ node, ...props }) => (
+        )),
+        tr: withoutNode((props) => (
           <tr className="border-b border-border" {...props} />
-        ),
-        th: ({ node, ...props }) => (
+        )),
+        th: withoutNode((props) => (
           <th className="px-4 py-2 text-left font-semibold text-foreground border border-border" {...props} />
-        ),
-        td: ({ node, ...props }) => (
+        )),
+        td: withoutNode((props) => (
           <td className="px-4 py-2 text-foreground border border-border" {...props} />
-        ),
+        )),
 
         // Inline code
-        code: ({ node, inline, className, children, ...props }: any) => {
+        code: ({ inline, className, children }: any) => {
           const match = /language-(\w+)/.exec(className || '')
           const language = match ? match[1] : ''
           const codeString = String(children).replace(/\n$/, '')
@@ -181,15 +191,39 @@ export function MarkdownContent({ content }: MarkdownContentProps) {
         },
 
         // Images
-        img: ({ node, ...props }) => (
-          <img
-            className="rounded-lg max-w-full h-auto my-4"
-            {...props}
-          />
-        ),
+        img: ({ src, alt, title, width, height }: any) => {
+          const resolvedSrc = typeof src === 'string' ? src : '';
+          if (!resolvedSrc) return null;
+          const altText = typeof alt === 'string' && alt.length > 0 ? alt : 'Markdown image';
+          const titleText = typeof title === 'string' ? title : undefined;
+          const numericWidth = typeof width === 'string' ? parseInt(width, 10) : Number(width);
+          const numericHeight = typeof height === 'string' ? parseInt(height, 10) : Number(height);
+          const ratioString =
+            Number.isFinite(numericWidth) && Number.isFinite(numericHeight) && numericWidth > 0 && numericHeight > 0
+              ? `${numericWidth}/${numericHeight}`
+              : undefined;
+          return (
+            <span className="block my-4">
+              <div
+                className="relative w-full"
+                style={{ aspectRatio: ratioString ?? '16 / 9', minHeight: ratioString ? undefined : 150 }}
+              >
+                <Image
+                  src={resolvedSrc}
+                  alt={altText}
+                  title={titleText}
+                  fill
+                  sizes="(max-width: 768px) 100vw, 768px"
+                  className="rounded-lg object-contain"
+                  unoptimized
+                />
+              </div>
+            </span>
+          );
+        },
 
         // Task lists (from GFM)
-        input: ({ node, ...props }: any) => {
+        input: withoutNode((props: any) => {
           if (props.type === 'checkbox') {
             return (
               <input
@@ -201,7 +235,7 @@ export function MarkdownContent({ content }: MarkdownContentProps) {
             )
           }
           return <input {...props} />
-        },
+        }),
       }}
     >
       {content}

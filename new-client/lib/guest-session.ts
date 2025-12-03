@@ -46,11 +46,13 @@ export async function ensureGuestSession(
     newlyIssuedCookie = sessionId;
   }
 
-  let { data: session, error } = await (supabase as any)
+  const { data: sessionData, error } = await (supabase as any)
     .from("guest_sessions")
     .select("*")
     .eq("id", sessionId)
     .maybeSingle();
+
+  let session = sessionData as GuestSessionRow | null;
 
   if (error) {
     console.error("[guestSession] Failed to load session:", error);

@@ -45,7 +45,7 @@ export function UsageLimitModal({ isOpen, onClose, currentSpending, limit, planT
                 Monthly Usage Limit Reached
               </h3>
               <p className="text-sm text-muted-foreground mt-1">
-                You've used ${currentSpending.toFixed(4)} of your ${limit.toFixed(2)} monthly limit
+                You&apos;ve used ${currentSpending.toFixed(4)} of your ${limit.toFixed(2)} monthly limit
               </p>
             </div>
           </div>

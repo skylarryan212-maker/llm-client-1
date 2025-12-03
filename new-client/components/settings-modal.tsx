@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import { X, Settings, Bell, User, Grid3x3, Calendar, ShoppingCart, Database, Shield, Users2, UserCircle, ChevronDown } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
@@ -445,7 +445,7 @@ export function SettingsModal({ isOpen, onClose, initialTab = 'personalization' 
                   {usageStatus?.exceeded && (
                     <div className="rounded-md bg-red-500/10 border border-red-500/20 p-3">
                       <p className="text-xs text-red-600 dark:text-red-400 font-medium">
-                        ⚠️ You've exceeded your monthly limit. Upgrade your plan to continue using the service.
+                        ⚠️ You&rsquo;ve exceeded your monthly limit. Upgrade your plan to continue using the service.
                       </p>
                     </div>
                   )}
@@ -473,7 +473,7 @@ export function SettingsModal({ isOpen, onClose, initialTab = 'personalization' 
                   {usageStatus?.warning && (usageStatus?.percentage ?? 0) < 80 && (
                     <div className="rounded-md bg-yellow-500/10 border border-yellow-500/20 p-3">
                       <p className="text-xs text-yellow-600 dark:text-yellow-400 font-medium">
-                        ⚠️ You're approaching your monthly limit. Consider upgrading your plan.
+                        ⚠️ You&rsquo;re approaching your monthly limit. Consider upgrading your plan.
                       </p>
                     </div>
                   )}
