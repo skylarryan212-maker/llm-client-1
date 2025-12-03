@@ -20,7 +20,7 @@ export default function ManageMemoriesModal({ open, onOpenChange }: { open: bool
     setLoading(true);
     try {
       // Note: client-side fetch without userId will use client auth context
-      const data = await fetchMemories({ query, type, useSemanticSearch: false });
+      const data = await fetchMemories({ query, types: type, useSemanticSearch: false });
       setItems(data);
     } catch (err) {
       console.error("Failed to load memories:", err);
