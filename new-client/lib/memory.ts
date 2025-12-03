@@ -174,7 +174,6 @@ export async function writeMemory(memory: {
       match_count: 3,
       filter_type: memory.type,
       p_user_id: userId,
-    });_user_id: userId,
     });
     
     if (!searchError && similarMemories && similarMemories.length > 0) {
