@@ -1410,12 +1410,15 @@ export async function POST(request: NextRequest) {
                 });
               }
             } else if (event.type === "response.function_call.completed") {
-              // Memory tool completed - handle the function call
+              // Memory tool completed - handle the function call and submit output
               const call = event as any;
               const functionName = call.function?.name;
+              const callId = call.id;
               const args = call.function?.arguments ? JSON.parse(call.function.arguments) : {};
               
               try {
+                let toolOutput: string;
+                
                 switch (functionName) {
                   case "save_memory":
                     await writeMemory({
@@ -1425,6 +1428,7 @@ export async function POST(request: NextRequest) {
                       enabled: true,
                     });
                     console.log(`[memory-tool] Saved: ${args.title}`);
+                    toolOutput = JSON.stringify({ success: true, message: `Saved: ${args.title}` });
                     break;
                     
                   case "search_memories":
@@ -1436,6 +1440,7 @@ export async function POST(request: NextRequest) {
                       userId, // Pass userId for server-side fetch
                     }) || [];
                     console.log(`[memory-tool] Search found ${searchResults.length} results`);
+                    toolOutput = JSON.stringify({ memories: searchResults.map(m => ({ title: m.title, content: m.content, type: m.type })) });
                     break;
                     
                   case "list_memories":
@@ -1447,24 +1452,35 @@ export async function POST(request: NextRequest) {
                       userId, // Pass userId for server-side fetch
                     }) || [];
                     console.log(`[memory-tool] Listed ${allMemories.length} memories`);
+                    toolOutput = JSON.stringify({ memories: allMemories.map(m => ({ id: m.id, title: m.title, content: m.content, type: m.type })) });
                     break;
                     
                   case "delete_memory":
                     await deleteMemory(args.memory_id);
                     console.log(`[memory-tool] Deleted: ${args.memory_id}`);
+                    toolOutput = JSON.stringify({ success: true, message: `Deleted memory ${args.memory_id}` });
                     break;
                     
                   default:
                     console.warn(`[memory-tool] Unknown function requested: ${functionName}`);
+                    toolOutput = JSON.stringify({ error: "Unknown function" });
+                }
+                
+                // Submit tool output to OpenAI Responses API
+                if (callId && toolOutput) {
+                  await responseStream.submitToolOutputs({
+                    tool_outputs: [{
+                      call_id: callId,
+                      output: toolOutput
+                    }]
+                  });
+                  console.log(`[memory-tool] Submitted output for ${functionName}`);
                 }
                 
                 sendStatusUpdate({
                   type: "search-complete",
                   query: functionName || "memory operation",
                 });
-                
-                // Note: With Responses API, we might not need to manually inject results
-                // The API handles this automatically
                 
               } catch (error: any) {
                 console.error(`[memory-tool] Error in ${functionName}:`, error);
