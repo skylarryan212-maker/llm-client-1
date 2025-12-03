@@ -134,17 +134,13 @@ export async function writeMemory(memory: {
     type MemoryInsert = Database["public"]["Tables"]["memories"]["Insert"];
     const payload: MemoryInsert = {
       user_id: userId,
-      type: memory.type as any,
+      type: memory.type,
       title: memory.title,
       content: memory.content,
-      // @ts-expect-error: embedding vector may be typed differently; cast at runtime
-      embedding: embedding as any,
+      embedding: JSON.stringify(embedding),
       enabled: memory.enabled ?? true,
-      // Some schemas may not include importance/created_at; include if present
-      // @ts-expect-error optional field depending on schema
-      importance: (memory.importance ?? 50) as any,
-      // @ts-expect-error server default may handle created_at
-      created_at: new Date().toISOString() as any,
+      importance: memory.importance ?? 50,
+      created_at: new Date().toISOString(),
     };
 
     const { data, error } = await admin
