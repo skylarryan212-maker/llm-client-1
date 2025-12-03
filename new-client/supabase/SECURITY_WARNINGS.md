@@ -4,6 +4,10 @@
 - **Function Search Path Mutable** - Fixed with migration `20251203_fix_function_search_path.sql`
   - Added `SET search_path = public, pg_temp` to `match_memories` function
   - Added `SET search_path = public, pg_temp` to `sync_memory_embedding` function
+- **RLS InitPlan & Duplicate Policies** - Fixed with migration `20251205_optimize_rls_policies.sql`
+  - Recreated RLS policies for: `user_preferences`, `conversations`, `messages`, `projects`, `user_api_usage`, `user_plans`, `guest_sessions`, `memories`
+  - Wrapped all `auth.uid()` checks with `(select auth.uid())` to avoid per-row evaluation
+  - Consolidated overlapping permissive policies so each table/action has a single policy per role
 
 ## ⚠️ Requires Manual Action
 
