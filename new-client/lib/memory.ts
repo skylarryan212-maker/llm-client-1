@@ -178,7 +178,7 @@ export async function writeMemory(memory: {
           .update({
             content: memory.content,
             title: memory.title,
-            embedding: JSON.stringify(embedding),
+            embedding: embedding, // Store as raw array for PostgreSQL vector type
             updated_at: new Date().toISOString(),
           } as any)
           .eq('id', topMatch.id)
@@ -200,7 +200,7 @@ export async function writeMemory(memory: {
         type: memory.type,
         title: memory.title,
         content: memory.content,
-        embedding: JSON.stringify(embedding),
+        embedding: embedding, // Store as raw array for PostgreSQL vector type
         enabled: memory.enabled ?? true,
         importance: memory.importance ?? 50,
         created_at: new Date().toISOString(),
