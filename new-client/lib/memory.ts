@@ -77,7 +77,10 @@ export async function fetchMemories({
         p_user_id: userId, // Pass user_id explicitly for server calls
       });
 
-      if (error) throw error;
+      if (error) {
+        console.error("[memory] RPC error:", error);
+        throw error;
+      }
       
       console.log(`[memory] Vector search found ${data?.length || 0} matches`);
       return data as MemoryItem[];
