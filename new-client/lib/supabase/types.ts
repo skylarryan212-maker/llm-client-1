@@ -111,6 +111,38 @@ export interface GuestSessionUpdate {
   estimated_cost?: number | null;
 }
 
+export interface Memory {
+  id: string;
+  user_id: string;
+  type: string;
+  title: string;
+  content: string;
+  enabled: boolean;
+  importance?: number;
+  embedding?: string; // pgvector stored as string in schema
+  created_at: string | null;
+}
+
+export interface MemoryInsert {
+  user_id: string;
+  type: string;
+  title: string;
+  content: string;
+  enabled?: boolean;
+  importance?: number;
+  embedding?: string;
+  created_at?: string;
+}
+
+export interface MemoryUpdate {
+  type?: string;
+  title?: string;
+  content?: string;
+  enabled?: boolean;
+  importance?: number;
+  embedding?: string;
+}
+
 export interface Database {
   public: {
     Tables: {
@@ -138,6 +170,11 @@ export interface Database {
         Row: GuestSession;
         Insert: GuestSessionInsert;
         Update: GuestSessionUpdate;
+      };
+      memories: {
+        Row: Memory;
+        Insert: MemoryInsert;
+        Update: MemoryUpdate;
       };
     };
   };
