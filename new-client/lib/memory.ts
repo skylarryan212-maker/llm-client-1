@@ -72,12 +72,12 @@ export async function fetchMemories({
         client = browserClient as any;
       }
       
-      console.log(`[memory] Calling match_memories with embedding length: ${queryEmbedding.length}, threshold: 0.5, userId: ${userId || 'client-auth'}`);
+      console.log(`[memory] Calling match_memories with embedding length: ${queryEmbedding.length}, threshold: 0.3, userId: ${userId || 'client-auth'}`);
       
       const { data, error } = await client.rpc('match_memories', {
         // Supabase JS automatically converts number[] to vector when function expects vector type
         query_embedding: queryEmbedding,
-        match_threshold: 0.5, // Lower threshold for better recall
+        match_threshold: 0.3, // Very low threshold for broader recall
         match_count: limit,
         filter_type: type,
         p_user_id: userId, // Pass user_id explicitly for server calls
