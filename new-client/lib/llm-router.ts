@@ -219,6 +219,8 @@ Decide if the user's prompt contains information that should be saved:
 - Explicit requests: "remember that...", "save this...", "don't forget..."
 - Personal information: name, location, preferences, constraints, goals
 - Important context: work details, project info, relationships, habits
+- When the instructions mention available memory types, treat those names as canonical categories. Reuse whichever one most closely matches the new fact. Only invent a new type when none of the existing names capture the topic, and avoid creating near-duplicate names (e.g., don't use both "romantic_interests" and "romance" for similar info).
+- Never shoehorn an unrelated fact into an existing category just because it already exists.
 
 **Memory Writing Examples:**
 - "remember that I like steak" → [{"type": "food_preferences", "title": "Likes steak", "content": "User enjoys eating steak"}]
@@ -311,7 +313,7 @@ export async function routeWithLLM(
       contextNote += `\nUser is at ${context.usagePercentage.toFixed(0)}% usage - prefer smaller models (nano/mini) to save costs.`;
     }
     if (context?.availableMemoryTypes && context.availableMemoryTypes.length > 0) {
-      contextNote += `\n\nAvailable memory types for this user: ${context.availableMemoryTypes.join(", ")}`;
+      contextNote += `\n\nAvailable memory types for this user: ${context.availableMemoryTypes.join(", ")}. Reuse whichever one best matches any new fact you want to store; only invent a new type name when none of these categories fit, and avoid creating near-duplicate names.`;
     } else {
       contextNote += `\n\nNo memory types available yet (user hasn't saved any memories).`;
     }
