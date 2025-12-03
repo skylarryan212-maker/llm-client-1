@@ -15,7 +15,7 @@ export type AssistantMessageMetadata = {
   userRequestedFamily?: string;
   userRequestedSpeedMode?: SpeedMode;
   userRequestedReasoningEffort?: ReasoningEffort;
-  routedBy?: "llm" | "code" | "code-fallback";
+  routedBy?: "llm" | "code" | "code-fallback" | "cache";
   thinkingDurationMs?: number;
   thinkingDurationSeconds?: number;
   thoughtDurationLabel?: string;
