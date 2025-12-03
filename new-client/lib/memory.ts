@@ -1,7 +1,29 @@
 import { supabaseServerAdmin } from "@/lib/supabase/server";
 import { getCurrentUserIdServer } from "@/lib/supabase/user";
 
-export type MemoryType = 'preference' | 'identity' | 'constraint' | 'workflow' | 'project' | 'instruction' | 'other';
+// Dynamic type system - can be any category name
+export type MemoryType = string;
+
+/**
+ * Get all unique memory type categories for a user
+ */
+export async function getMemoryTypes(userId: string): Promise<string[]> {
+  const admin = await supabaseServerAdmin();
+  const { data, error } = await (admin as any)
+    .from('memories')
+    .select('type')
+    .eq('user_id', userId)
+    .eq('enabled', true);
+  
+  if (error) {
+    console.error('[memory] Failed to get memory types:', error);
+    return [];
+  }
+  
+  const types = [...new Set(data?.map((m: any) => m.type) || [])].sort();
+  console.log(`[memory] Found ${types.length} memory types:`, types);
+  return types;
+}
 
 export interface MemoryItem {
   id: string;
@@ -45,17 +67,20 @@ async function generateEmbedding(text: string): Promise<number[]> {
  */
 export async function fetchMemories({
   query = '',
-  type = 'all',
+  types = 'all',
   limit = 50,
   useSemanticSearch = true,
   userId,
 }: { 
   query?: string; 
-  type?: MemoryType | 'all'; 
+  types?: MemoryType | MemoryType[] | 'all'; 
   limit?: number;
   useSemanticSearch?: boolean;
   userId?: string;
 }) {
+  // Normalize types to array for consistent handling
+  const typeArray = types === 'all' ? null : (Array.isArray(types) ? types : [types]);
+  
   // If we have a query and semantic search is enabled, use vector search
   if (query && useSemanticSearch) {
     try {
@@ -72,24 +97,54 @@ export async function fetchMemories({
         client = browserClient as any;
       }
       
-      console.log(`[memory] Calling match_memories with embedding length: ${queryEmbedding.length}, threshold: 0.3, userId: ${userId || 'client-auth'}`);
+      console.log(`[memory] Calling match_memories with embedding length: ${queryEmbedding.length}, threshold: 0.3, types: ${JSON.stringify(typeArray)}, userId: ${userId || 'client-auth'}`);
       
-      const { data, error } = await client.rpc('match_memories', {
-        // Supabase JS automatically converts number[] to vector when function expects vector type
-        query_embedding: queryEmbedding,
-        match_threshold: 0.3, // Very low threshold for broader recall
-        match_count: limit,
-        filter_type: type,
-        p_user_id: userId, // Pass user_id explicitly for server calls
-      });
-
-      if (error) {
-        console.error("[memory] RPC error:", error);
-        throw error;
+      // For vector search with multiple types, we'll need to handle differently
+      // For now, if multiple types specified, we'll do multiple searches and merge
+      let allResults: MemoryItem[] = [];
+      
+      if (typeArray && typeArray.length > 0) {
+        // Search each type separately and merge results
+        for (const singleType of typeArray) {
+          const { data, error } = await client.rpc('match_memories', {
+            query_embedding: queryEmbedding,
+            match_threshold: 0.3,
+            match_count: limit,
+            filter_type: singleType,
+            p_user_id: userId,
+          });
+          if (!error && data) {
+            allResults.push(...(data as MemoryItem[]));
+          }
+        }
+        // Deduplicate and sort by similarity
+        const seen = new Set<string>();
+        allResults = allResults
+          .filter(m => {
+            if (seen.has(m.id)) return false;
+            seen.add(m.id);
+            return true;
+          })
+          .slice(0, limit);
+      } else {
+        // Search all types
+        const { data, error } = await client.rpc('match_memories', {
+          query_embedding: queryEmbedding,
+          match_threshold: 0.3,
+          match_count: limit,
+          filter_type: 'all',
+          p_user_id: userId,
+        });
+        if (error) {
+          console.error("[memory] RPC error:", error);
+          throw error;
+        }
+        allResults = (data as MemoryItem[]) || [];
       }
+
       
-      console.log(`[memory] Vector search found ${data?.length || 0} matches, first result:`, data?.[0]?.title);
-      return data as MemoryItem[];
+      console.log(`[memory] Vector search found ${allResults.length} matches, first result:`, allResults[0]?.title);
+      return allResults;
     } catch (error) {
       console.error("[memory] Vector search failed, falling back to keyword search:", error);
       // Fall through to keyword search
@@ -116,7 +171,13 @@ export async function fetchMemories({
     .limit(limit);
     
   if (userId) q = q.eq('user_id', userId);
-  if (type && type !== 'all') q = q.eq('type', type);
+  if (typeArray && typeArray.length > 0) {
+    if (typeArray.length === 1) {
+      q = q.eq('type', typeArray[0]);
+    } else {
+      q = q.in('type', typeArray);
+    }
+  }
   if (query) q = q.ilike('content', `%${query}%`);
   
   const { data, error } = await q;

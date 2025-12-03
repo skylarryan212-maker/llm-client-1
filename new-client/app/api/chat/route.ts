@@ -27,8 +27,9 @@ import { calculateCost, calculateVectorStorageCost } from "@/lib/pricing";
 import { getUserPlan } from "@/app/actions/plan-actions";
 import { getMonthlySpending } from "@/app/actions/usage-actions";
 import { hasExceededLimit, getPlanLimit } from "@/lib/usage-limits";
-import { getRelevantMemories, type PersonalizationMemorySettings } from "@/lib/memory-router";
+import { getRelevantMemories, type PersonalizationMemorySettings, type MemoryStrategy } from "@/lib/memory-router";
 import type { MemoryItem } from "@/lib/memory";
+import { getMemoryTypes } from "@/lib/memory";
 import { writeMemory, fetchMemories, deleteMemory } from "@/lib/memory";
 import { analyzeForMemory, getMemoryAnalysisUsageEstimate } from "@/lib/llm-router";
 
@@ -715,7 +716,8 @@ export async function POST(request: NextRequest) {
       speedMode, 
       message, 
       reasoningEffortHint,
-      usagePercentage
+      usagePercentage,
+      userId  // Pass userId to get memory types for router
     );
     const reasoningEffort = modelConfig.reasoning?.effort ?? "none";
 
@@ -809,16 +811,22 @@ export async function POST(request: NextRequest) {
     
     console.log(`[web-search-strategy] Router decision: ${webSearchStrategy} (allow: ${allowWebSearch}, require: ${requireWebSearch})`);
 
-    // Load personalization settings and relevant memories
+    // Load personalization settings and relevant memories using router's memory strategy
     const personalizationSettings = loadPersonalizationSettings();
     let relevantMemories: MemoryItem[] = [];
     try {
       if (personalizationSettings.referenceSavedMemories) {
+        // Get memory strategy from router (default to loading identity if not provided)
+        const memoryStrategy: MemoryStrategy = (modelConfig as any).memoryStrategy || {
+          types: ["identity"],
+          useSemanticSearch: false,
+          limit: 10
+        };
+        
+        console.log(`[memory] Using strategy:`, JSON.stringify(memoryStrategy));
         relevantMemories = await getRelevantMemories(
           { referenceSavedMemories: true, allowSavingMemory: personalizationSettings.allowSavingMemory },
-          message,
-          "all",
-          8,
+          memoryStrategy,
           userId // Pass userId for server-side memory fetch
         );
         console.log(`[memory] Loaded ${relevantMemories.length} relevant memories`);
@@ -1166,8 +1174,7 @@ export async function POST(request: NextRequest) {
           properties: {
             type: {
               type: "string",
-              enum: ["identity", "preference", "constraint", "workflow", "project", "instruction", "other"],
-              description: "Category of memory: identity (name, personal info), preference (likes/dislikes), constraint (rules), workflow (process), project (context), instruction (directives), other"
+              description: "Category name for this memory. Use clear, descriptive names like 'food_preferences', 'work_context', 'fitness_routine', etc. Common types: identity (personal info), preference (likes/dislikes), constraint (rules), workflow (processes), project (project context)"
             },
             title: {
               type: "string",

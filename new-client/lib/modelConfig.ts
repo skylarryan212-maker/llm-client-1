@@ -289,7 +289,8 @@ export async function getModelAndReasoningConfigWithLLM(
   speedMode: SpeedMode,
   promptText: string,
   reasoningEffortHint?: ReasoningEffort,
-  usagePercentage?: number
+  usagePercentage?: number,
+  userId?: string
 ): Promise<ModelConfig> {
   // Don't use LLM router if user explicitly selected a specific model (not "auto")
   const shouldUseLLMRouter = modelFamily === "auto";
@@ -297,16 +298,29 @@ export async function getModelAndReasoningConfigWithLLM(
   if (shouldUseLLMRouter) {
     try {
       const { routeWithLLM } = await import("./llm-router");
+      const { getMemoryTypes } = await import("./memory");
       
       console.log("[modelConfig] Attempting LLM-based routing");
+      
+      // Get available memory types for this user
+      let availableMemoryTypes: string[] = [];
+      if (userId) {
+        try {
+          availableMemoryTypes = await getMemoryTypes(userId);
+        } catch (err) {
+          console.error("[modelConfig] Failed to get memory types:", err);
+        }
+      }
+      
       const decision = await routeWithLLM(promptText, {
         userModelPreference: modelFamily,
         speedMode,
         usagePercentage,
+        availableMemoryTypes,
       });
 
       if (decision) {
-        console.log(`[modelConfig] LLM router decided: ${decision.model} with ${decision.effort} effort, context: ${decision.contextStrategy}, webSearch: ${decision.webSearchStrategy}`);
+        console.log(`[modelConfig] LLM router decided: ${decision.model} with ${decision.effort} effort, context: ${decision.contextStrategy}, webSearch: ${decision.webSearchStrategy}, memoryStrategy:`, JSON.stringify(decision.memoryStrategy));
         
         const MODEL_ID_MAP_LOCAL: Record<Exclude<ModelFamily, "auto">, string> = {
           "gpt-5.1": "gpt-5.1-2025-11-13",
@@ -343,7 +357,8 @@ export async function getModelAndReasoningConfigWithLLM(
           routedBy: "llm",
           contextStrategy: decision.contextStrategy,      // Pass through for chat route
           webSearchStrategy: decision.webSearchStrategy,  // Pass through for chat route
-        } as ModelConfig & { contextStrategy?: string; webSearchStrategy?: string };
+          memoryStrategy: decision.memoryStrategy,        // Pass through for chat route
+        } as ModelConfig & { contextStrategy?: string; webSearchStrategy?: string; memoryStrategy?: any };
       }
 
       console.warn("[modelConfig] LLM routing failed, falling back to code-based logic");

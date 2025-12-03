@@ -19,11 +19,19 @@ export type WebSearchStrategy =
   | "optional"     // Model can choose (might need fresh data)
   | "required";    // Must search (explicit requests, current events, prices)
 
+export interface MemoryStrategy {
+  types: string[] | "all";      // Which memory types to load
+  useSemanticSearch: boolean;   // Whether to use vector search
+  query?: string;               // Optimized query for semantic search
+  limit: number;                // Max memories to load
+}
+
 export interface RouterDecision {
   model: Exclude<ModelFamily, "auto">;
   effort: ReasoningEffort;
   contextStrategy: ContextStrategy;
   webSearchStrategy: WebSearchStrategy;
+  memoryStrategy: MemoryStrategy;
   routedBy: "llm";
 }
 
@@ -31,6 +39,7 @@ export interface RouterContext {
   userModelPreference?: ModelFamily;
   speedMode?: "auto" | "instant" | "thinking";
   usagePercentage?: number;
+  availableMemoryTypes?: string[];  // Dynamic memory categories user has created
 }
 
 const ROUTER_SYSTEM_PROMPT = `You are a routing assistant that analyzes user prompts and recommends the optimal AI model, reasoning effort, context strategy, and web search strategy.
@@ -107,6 +116,29 @@ Note: gpt-5-mini and gpt-5-nano MUST use "low", "medium", or "high" (never "none
 - Very long prompts (1000+ words) → 5.1 + high + recent + never/optional
 - Creative writing, deep analysis → 5.1 + medium or high + recent + never
 
+**Memory Strategy:**
+You will be provided with a list of available memory types (categories the user has created). Decide which to load based on the prompt:
+
+**Memory Loading Rules:**
+- "What do you know about me?" → types: ["all"], useSemanticSearch: false, limit: 50 (load everything)
+- "Tell me everything" → types: ["all"], useSemanticSearch: false, limit: 50
+- Specific topic questions → types: [relevant categories], useSemanticSearch: true, query: "optimized search terms", limit: 15
+- Questions referencing multiple topics → types: [relevant categories], useSemanticSearch: true, limit: 20
+- Greetings, unrelated questions → types: [], useSemanticSearch: false, limit: 0 (no memories needed)
+
+**Examples:**
+- "What's my workout routine?" with types: ["fitness", "health", "identity"] 
+  → types: ["fitness"], useSemanticSearch: true, query: "workout exercise routine", limit: 10
+  
+- "Plan dinner based on my food preferences and diet" with types: ["food_preferences", "health", "fitness"]
+  → types: ["food_preferences", "health"], useSemanticSearch: true, query: "food diet nutrition meals", limit: 15
+  
+- "What do you remember about me?" with types: ["identity", "work_context", "preferences"]
+  → types: ["all"], useSemanticSearch: false, limit: 50
+  
+- "Hello" with types: ["identity", "preferences"]
+  → types: ["identity"], useSemanticSearch: false, limit: 5 (just basic identity)
+
 **Response Format:**
 Respond with ONLY a valid JSON object (no markdown, no explanation, no additional text):
 {
@@ -114,6 +146,12 @@ Respond with ONLY a valid JSON object (no markdown, no explanation, no additiona
   "effort": "none" | "low" | "medium" | "high",
   "contextStrategy": "minimal" | "recent" | "full",
   "webSearchStrategy": "never" | "optional" | "required",
+  "memoryStrategy": {
+    "types": ["type1", "type2"] | "all",
+    "useSemanticSearch": boolean,
+    "query": "optional search query" | undefined,
+    "limit": number
+  },
   "reasoning": "brief one-line explanation"
 }
 
@@ -150,8 +188,13 @@ export async function routeWithLLM(
     if (context?.usagePercentage && context.usagePercentage >= 80) {
       contextNote += `\nUser is at ${context.usagePercentage.toFixed(0)}% usage - prefer smaller models (nano/mini) to save costs.`;
     }
+    if (context?.availableMemoryTypes && context.availableMemoryTypes.length > 0) {
+      contextNote += `\n\nAvailable memory types for this user: ${context.availableMemoryTypes.join(", ")}`;
+    } else {
+      contextNote += `\n\nNo memory types available yet (user hasn't saved any memories).`;
+    }
 
-    const routerPrompt = `${contextNote ? contextNote + "\n\n" : ""}Analyze this prompt and recommend model + effort:\n\n${promptText}`;
+    const routerPrompt = `${contextNote ? contextNote + "\n\n" : ""}Analyze this prompt and recommend model + effort + memory strategy:\n\n${promptText}`;
 
     console.log("[llm-router] Starting LLM routing call");
     const startTime = Date.now();
@@ -216,6 +259,22 @@ export async function routeWithLLM(
       parsed.webSearchStrategy = "optional";
     }
 
+    // Validate and default memory strategy
+    if (!parsed.memoryStrategy || typeof parsed.memoryStrategy !== 'object') {
+      console.warn('[llm-router] Missing memoryStrategy, using default');
+      parsed.memoryStrategy = { types: "all", useSemanticSearch: false, limit: 20 };
+    } else {
+      if (!parsed.memoryStrategy.types) {
+        parsed.memoryStrategy.types = "all";
+      }
+      if (typeof parsed.memoryStrategy.useSemanticSearch !== 'boolean') {
+        parsed.memoryStrategy.useSemanticSearch = false;
+      }
+      if (typeof parsed.memoryStrategy.limit !== 'number' || parsed.memoryStrategy.limit < 0) {
+        parsed.memoryStrategy.limit = 20;
+      }
+    }
+
     // Block GPT 5 Pro
     if (parsed.model === "gpt-5-pro-2025-10-06") {
       console.warn("[llm-router] Router tried to select GPT 5 Pro, defaulting to 5.1");
@@ -233,6 +292,7 @@ export async function routeWithLLM(
       effort: parsed.effort as ReasoningEffort,
       contextStrategy: parsed.contextStrategy as ContextStrategy,
       webSearchStrategy: parsed.webSearchStrategy as WebSearchStrategy,
+      memoryStrategy: parsed.memoryStrategy as MemoryStrategy,
       routedBy: "llm",
     };
   } catch (error) {
