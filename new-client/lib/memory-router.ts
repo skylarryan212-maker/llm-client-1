@@ -13,12 +13,14 @@ export interface PersonalizationMemorySettings {
  * @param query Optional semantic/text query for filtering
  * @param type Optional type filter
  * @param limit Max number of memories to fetch
+ * @param userId User ID for server-side calls
  */
 export async function getRelevantMemories(
   settings: PersonalizationMemorySettings,
   query: string = "",
   type: MemoryType | "all" = "all",
-  limit: number = 8
+  limit: number = 8,
+  userId?: string
 ): Promise<MemoryItem[]> {
   if (!settings.referenceSavedMemories) return [];
   
@@ -27,6 +29,7 @@ export async function getRelevantMemories(
     query, 
     type, 
     limit,
-    useSemanticSearch: true 
+    useSemanticSearch: true,
+    userId
   });
 }

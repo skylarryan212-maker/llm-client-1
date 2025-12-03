@@ -95,7 +95,8 @@ const BASE_SYSTEM_PROMPT =
   "- When a user asks 'what do you remember', 'what do you know about me', use `list_memories` or `search_memories`\\n" +
   "- When a user says 'forget X' or 'delete that memory', use `search_memories` to find it, then `delete_memory` with the ID\\n" +
   "- Memory types: identity (name, personal info), preference (likes/dislikes), constraint (rules/never statements), workflow (process preferences), project (project context), instruction (specific directives), other\\n" +
-  "- Always confirm after saving or deleting memories\\n\\n" +
+  "- **CRITICAL**: After calling `save_memory`, you MUST provide a text response confirming what was saved (e.g., 'Got it, I\\'ve saved that you like steak!'). Never save a memory without responding.\\n" +
+  "- Always confirm after deleting memories too\\n\\n" +
   "**General Rules:**\\n" +
   "- Keep answers clear and grounded, blending background context with any live data you retrieved.\\n" +
   "- When the user provides attachment URLs (marked as 'Attachment: name -> url'), fetch and read those documents directly from the URL without asking the user to re-upload. Use their contents in your reasoning and summarize as requested.\\n" +
@@ -815,7 +816,8 @@ export async function POST(request: NextRequest) {
           { referenceSavedMemories: true, allowSavingMemory: personalizationSettings.allowSavingMemory },
           message,
           "all",
-          8
+          8,
+          userId // Pass userId for server-side memory fetch
         );
         console.log(`[memory] Loaded ${relevantMemories.length} relevant memories`);
       }

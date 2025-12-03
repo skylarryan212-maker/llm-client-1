@@ -19,9 +19,11 @@ export default function ManageMemoriesModal({ open, onOpenChange }: { open: bool
   async function loadMemories() {
     setLoading(true);
     try {
-      const data = await fetchMemories({ query, type });
+      // Note: client-side fetch without userId will use client auth context
+      const data = await fetchMemories({ query, type, useSemanticSearch: false });
       setItems(data);
-    } catch {
+    } catch (err) {
+      console.error("Failed to load memories:", err);
       setItems([]);
     } finally {
       setLoading(false);
@@ -41,6 +43,16 @@ export default function ManageMemoriesModal({ open, onOpenChange }: { open: bool
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query]);
+  
+  // Poll for updates while modal is open (to catch memories saved during chat)
+  useEffect(() => {
+    if (!open) return;
+    const interval = setInterval(() => {
+      loadMemories();
+    }, 3000); // Refresh every 3 seconds
+    return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, query, type]);
 
 
 

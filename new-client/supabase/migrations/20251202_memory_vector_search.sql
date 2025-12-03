@@ -3,7 +3,8 @@ create or replace function match_memories(
   query_embedding vector(1536),
   match_threshold float default 0.7,
   match_count int default 8,
-  filter_type text default 'all'
+  filter_type text default 'all',
+  p_user_id uuid default null
 )
 returns table (
   id uuid,
@@ -39,7 +40,7 @@ as $$
     memories.updated_at,
     1 - (memories.embedding <=> query_embedding) as similarity
   from memories
-  where memories.user_id = auth.uid()
+  where memories.user_id = coalesce(p_user_id, auth.uid())
     and memories.enabled = true
     and memories.embedding is not null
     and (filter_type = 'all' or memories.type = filter_type)

@@ -41,28 +41,40 @@ async function generateEmbedding(text: string): Promise<number[]> {
 
 /**
  * Fetch memories using vector similarity search
+ * When userId is provided, uses server admin client with proper user scoping
+ * Otherwise uses regular client (for client-side calls)
  */
 export async function fetchMemories({
   query = '',
   type = 'all',
   limit = 50,
   useSemanticSearch = true,
+  userId,
 }: { 
   query?: string; 
   type?: MemoryType | 'all'; 
   limit?: number;
   useSemanticSearch?: boolean;
+  userId?: string;
 }) {
   // If we have a query and semantic search is enabled, use vector search
   if (query && useSemanticSearch) {
     try {
       const queryEmbedding = await generateEmbedding(query);
       
-      const { data, error } = await supabase.rpc('match_memories', {
+      // Use server admin client when userId is provided (server-side call)
+      let client = supabase;
+      if (userId) {
+        const admin = await supabaseServerAdmin();
+        client = admin as any;
+      }
+      
+      const { data, error } = await client.rpc('match_memories', {
         query_embedding: queryEmbedding,
         match_threshold: 0.7,
         match_count: limit,
         filter_type: type,
+        p_user_id: userId, // Pass user_id explicitly for server calls
       });
 
       if (error) throw error;
@@ -76,13 +88,21 @@ export async function fetchMemories({
   }
 
   // Fallback: keyword search or no query
-  let q = supabase
+  // For server-side calls with userId, use admin client
+  let client = supabase;
+  if (userId) {
+    const admin = await supabaseServerAdmin();
+    client = admin as any;
+  }
+  
+  let q = client
     .from('memories')
     .select('*')
     .eq('enabled', true)
     .order('created_at', { ascending: false })
     .limit(limit);
     
+  if (userId) q = q.eq('user_id', userId);
   if (type && type !== 'all') q = q.eq('type', type);
   if (query) q = q.ilike('content', `%${query}%`);
   
@@ -111,6 +131,7 @@ export async function deleteMemory(id: string) {
 
 /**
  * Write a new memory with embedding
+ * Checks for duplicate/similar memories before saving
  */
 export async function writeMemory(memory: {
   type: MemoryType;
@@ -122,14 +143,56 @@ export async function writeMemory(memory: {
   try {
     // Generate embedding for the content
     const embedding = await generateEmbedding(memory.content);
+    
     // Resolve current user id for ownership
     const userId = await getCurrentUserIdServer();
     if (!userId) {
       throw new Error("Not authenticated: cannot write memory");
     }
-    // Use admin client to bypass RLS safely for server-side insert, while scoping to the user
+    
+    // Check for similar existing memories to avoid duplicates
     const admin = await supabaseServerAdmin();
+    const { data: similarMemories, error: searchError } = await admin.rpc('match_memories', {
+      query_embedding: embedding,
+      match_threshold: 0.85, // High threshold for detecting duplicates
+      match_count: 3,
+      filter_type: memory.type,
+      p_user_id: userId,
+    });
+    
+    if (!searchError && similarMemories && similarMemories.length > 0) {
+      const topMatch = similarMemories[0];
+      console.log(`[memory] Found similar memory (similarity: ${topMatch.similarity.toFixed(3)}): "${topMatch.title}"`);
+      
+      // If very similar (>0.90), skip creating duplicate
+      if (topMatch.similarity > 0.90) {
+        console.log(`[memory] Skipping duplicate memory: "${memory.title}"`);
+        return topMatch as MemoryItem;
+      }
+      
+      // If somewhat similar (0.85-0.90), update existing instead of creating new
+      if (topMatch.similarity > 0.85) {
+        console.log(`[memory] Updating existing memory instead of creating duplicate`);
+        const { data: updated, error: updateError } = await admin
+          .from('memories')
+          .update({
+            content: memory.content,
+            title: memory.title,
+            embedding: JSON.stringify(embedding),
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', topMatch.id)
+          .select()
+          .single();
+        
+        if (!updateError && updated) {
+          console.log(`[memory] Updated memory: ${memory.title}`);
+          return updated as MemoryItem;
+        }
+      }
+    }
 
+    // No duplicates found, insert new memory
     const { data, error } = await admin
       .from('memories')
       .insert({
