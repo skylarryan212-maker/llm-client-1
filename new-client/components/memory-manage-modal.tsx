@@ -44,18 +44,6 @@ export default function ManageMemoriesModal({ open, onOpenChange }: { open: bool
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query]);
   
-  // Poll for updates while modal is open (to catch memories saved during chat)
-  useEffect(() => {
-    if (!open) return;
-    const interval = setInterval(() => {
-      loadMemories();
-    }, 3000); // Refresh every 3 seconds
-    return () => clearInterval(interval);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, query, type]);
-
-
-
   return (
     <Dialog open={open} onClose={() => onOpenChange(false)}>
       <div className="sm:max-w-2xl">
