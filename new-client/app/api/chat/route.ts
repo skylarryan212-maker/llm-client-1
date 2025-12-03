@@ -73,10 +73,12 @@ const BASE_SYSTEM_PROMPT =
   "You are a web-connected assistant with access to multiple tools for enhanced capabilities:\\n" +
   "- `web_search`: Live internet search for current events, weather, news, prices, etc.\\n" +
   "- `file_search`: Semantic search through uploaded documents\\n" +
-  "- `save_memory`: Save important information about the user for future conversations\\n" +
-  "- `search_memories`: Search through saved user memories\\n" +
-  "- `list_memories`: List all saved memories\\n" +
-  "- `delete_memory`: Delete a specific memory by ID\\n\\n" +
+  "- `save_memory`: Save important information about the user for future conversations (available in specific contexts)\\n\\n" +
+  "**Memory Behavior:**\\n" +
+  "- User memories are preloaded in the 'Saved Memories' section below\\n" +
+  "- When asked 'what do you know about me', respond based on the memories listed in your instructions\\n" +
+  "- Do NOT say you need to search or list memories - just use what's already provided\\n" +
+  "- After saving a memory with `save_memory`, confirm what was saved in your response\\n\\n" +
   "**Web Search Rules:**\\n" +
   "- Use internal knowledge for timeless concepts, math, or historical context.\\n" +
   "- For questions about current events, market conditions, weather, schedules, releases, or other fast-changing facts, prefer calling `web_search` to gather fresh data.\\n" +
@@ -1179,64 +1181,6 @@ export async function POST(request: NextRequest) {
           required: ["type", "title", "content"]
         },
         strict: true,
-      },
-      {
-        type: "function",
-        name: "search_memories",
-        description: "Search through user's saved memories using semantic search. Use when user asks about specific memories or you need to check if information already exists.",
-        parameters: {
-          type: "object",
-          additionalProperties: false,
-          properties: {
-            query: {
-              type: "string",
-              description: "Search query (semantic search will find related memories)"
-            },
-            type: {
-              type: "string",
-              enum: ["all", "identity", "preference", "constraint", "workflow", "project", "instruction", "other"],
-              description: "Filter by memory type, or 'all' for no filter"
-            }
-          },
-          required: ["query", "type"]
-        },
-        strict: true,
-      },
-      {
-        type: "function",
-        name: "list_memories",
-        description: "List all saved memories. Use when user asks 'what do you remember about me' or wants to see all memories.",
-        parameters: {
-          type: "object",
-          additionalProperties: false,
-          properties: {
-            type: {
-              type: "string",
-              enum: ["all", "identity", "preference", "constraint", "workflow", "project", "instruction", "other"],
-              description: "Filter by memory type, or 'all' to list everything"
-            }
-          }
-          ,
-          required: ["type"]
-        },
-        strict: true,
-      },
-      {
-        type: "function",
-        name: "delete_memory",
-        description: "Delete a specific memory by ID. First search for the memory to get its ID, then delete it. Always confirm with user what will be deleted.",
-        parameters: {
-          type: "object",
-          additionalProperties: false,
-          properties: {
-            memory_id: {
-              type: "string",
-              description: "The ID of the memory to delete"
-            }
-          },
-          required: ["memory_id"]
-        },
-        strict: true,
       }
     ] : [];
     
@@ -1410,85 +1354,32 @@ export async function POST(request: NextRequest) {
                 });
               }
             } else if (event.type === "response.function_call.completed") {
-              // Memory tool completed - handle the function call and submit output
+              // Handle save_memory function (write operation)
+              // Read operations (list/search/delete) removed - memories are preloaded in system prompt
               const call = event as any;
               const functionName = call.function?.name;
-              const callId = call.id;
               const args = call.function?.arguments ? JSON.parse(call.function.arguments) : {};
               
-              try {
-                let toolOutput: string;
-                
-                switch (functionName) {
-                  case "save_memory":
-                    await writeMemory({
-                      type: args.type,
-                      title: args.title,
-                      content: args.content,
-                      enabled: true,
-                    });
-                    console.log(`[memory-tool] Saved: ${args.title}`);
-                    toolOutput = JSON.stringify({ success: true, message: `Saved: ${args.title}` });
-                    break;
-                    
-                  case "search_memories":
-                    const searchResults = await fetchMemories({
-                      query: args.query,
-                      type: args.type || "all",
-                      limit: 10,
-                      useSemanticSearch: true,
-                      userId, // Pass userId for server-side fetch
-                    }) || [];
-                    console.log(`[memory-tool] Search found ${searchResults.length} results`);
-                    toolOutput = JSON.stringify({ memories: searchResults.map(m => ({ title: m.title, content: m.content, type: m.type })) });
-                    break;
-                    
-                  case "list_memories":
-                    const allMemories = await fetchMemories({
-                      query: "",
-                      type: args.type || "all",
-                      limit: 50,
-                      useSemanticSearch: false,
-                      userId, // Pass userId for server-side fetch
-                    }) || [];
-                    console.log(`[memory-tool] Listed ${allMemories.length} memories`);
-                    toolOutput = JSON.stringify({ memories: allMemories.map(m => ({ id: m.id, title: m.title, content: m.content, type: m.type })) });
-                    break;
-                    
-                  case "delete_memory":
-                    await deleteMemory(args.memory_id);
-                    console.log(`[memory-tool] Deleted: ${args.memory_id}`);
-                    toolOutput = JSON.stringify({ success: true, message: `Deleted memory ${args.memory_id}` });
-                    break;
-                    
-                  default:
-                    console.warn(`[memory-tool] Unknown function requested: ${functionName}`);
-                    toolOutput = JSON.stringify({ error: "Unknown function" });
-                }
-                
-                // Submit tool output to OpenAI Responses API
-                if (callId && toolOutput) {
-                  await responseStream.submitToolOutputs({
-                    tool_outputs: [{
-                      call_id: callId,
-                      output: toolOutput
-                    }]
+              if (functionName === "save_memory") {
+                try {
+                  await writeMemory({
+                    type: args.type,
+                    title: args.title,
+                    content: args.content,
+                    enabled: true,
                   });
-                  console.log(`[memory-tool] Submitted output for ${functionName}`);
+                  console.log(`[memory-tool] Saved: ${args.title}`);
+                } catch (error: any) {
+                  console.error(`[memory-tool] Error saving memory:`, error);
                 }
-                
-                sendStatusUpdate({
-                  type: "search-complete",
-                  query: functionName || "memory operation",
-                });
-                
-              } catch (error: any) {
-                console.error(`[memory-tool] Error in ${functionName}:`, error);
-                sendStatusUpdate({
-                  type: "search-complete",
-                  query: `${functionName} (error)`,
-                });
               }
+              
+              sendStatusUpdate({
+                type: "search-complete",
+                query: functionName || "memory operation",
+              });
+              
+              console.log(`[memory-tool] Function call completed: ${functionName}`);
             } else if (
               event.type === "response.output_item.added" ||
               event.type === "response.output_item.done"
