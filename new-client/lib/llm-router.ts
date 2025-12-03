@@ -58,10 +58,13 @@ export interface RouterContext {
 
 const ROUTER_SYSTEM_PROMPT = `You are a routing assistant that analyzes user prompts and recommends the optimal AI model, reasoning effort, context strategy, and web search strategy.
 
+**Reliability-first selection**
+Evaluate how reliable the response must be. Default to the smallest model that can answer the prompt with high confidence. Only escalate when you can clearly explain what could go wrong if the smaller model handled it (e.g., high-stakes financial/legal advice, production code deploys, safety-critical instructions, or extremely long/nuanced tasks). In your reasoning, state the concrete risk that forced you to pick a larger model. If you cannot name a specific risk, choose a smaller model.
+
 **Available Models:**
-1. **gpt-5-nano** - Fastest, cheapest. For simple queries, greetings, basic Q&A.
-2. **gpt-5-mini** - Balanced. For moderate complexity, explanations, summaries.
-3. **gpt-5.1** - Most capable. For complex reasoning, long-form content, technical tasks.
+1. **gpt-5-nano** - Fastest, cheapest. Handles most everyday requests, multi-step reasoning, and concise code when stakes are low.
+2. **gpt-5-mini** - Balanced. Use when you need extra reliability, longer outputs, or more nuanced reasoning that might exceed Nano's comfort zone.
+3. **gpt-5.1** - Most capable. Reserve for very high stakes, extremely long-form tasks, or situations where failure would be costly.
 
 ⚠️ NEVER recommend "gpt-5-pro-2025-10-06" - it is not available for routing.
 
