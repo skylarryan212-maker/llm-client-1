@@ -29,9 +29,15 @@ import { getMonthlySpending } from "@/app/actions/usage-actions";
 import { hasExceededLimit, getPlanLimit } from "@/lib/usage-limits";
 import { getRelevantMemories, type PersonalizationMemorySettings, type MemoryStrategy } from "@/lib/memory-router";
 import type { MemoryItem } from "@/lib/memory";
-import { getMemoryTypes } from "@/lib/memory";
-import { writeMemory, fetchMemories, deleteMemory } from "@/lib/memory";
-import { analyzeForMemory, getMemoryAnalysisUsageEstimate } from "@/lib/llm-router";
+import { writeMemory, deleteMemory } from "@/lib/memory";
+import {
+  appendRouterContextLine,
+  renderRouterContextText,
+  ensureRouterContextLines,
+  getConversationContextForRouter,
+  persistRouterContextCache,
+  type RouterContextLine,
+} from "@/lib/llm-router";
 
 // Utility: convert a data URL (base64) to a Buffer
 function dataUrlToBuffer(dataUrl: string): Buffer {
@@ -45,6 +51,7 @@ function dataUrlToBuffer(dataUrl: string): Buffer {
 }
 
 type MessageRow = Database["public"]["Tables"]["messages"]["Row"];
+type ConversationRow = Database["public"]["Tables"]["conversations"]["Row"];
 type OpenAIClient = any;
 
 interface ChatRequestBody {
@@ -608,20 +615,22 @@ export async function POST(request: NextRequest) {
     const supabaseAny = supabase as any;
 
     // Validate conversation exists and belongs to current user
-    const { data: conversation, error: convError } = await supabaseAny
+    const { data: conversationData, error: convError } = await supabaseAny
       .from("conversations")
       .select("*")
       .eq("id", conversationId)
       .eq("user_id", userId)
       .maybeSingle();
 
-    if (convError || !conversation) {
+    if (convError || !conversationData) {
       console.error("Conversation validation error:", convError);
       return NextResponse.json(
         { error: "Conversation not found" },
         { status: 404 }
       );
     }
+
+    const conversation = conversationData as ConversationRow;
 
     // Validate projectId if provided
     if (projectId && conversation.project_id !== projectId) {
@@ -653,6 +662,7 @@ export async function POST(request: NextRequest) {
 
     // Optionally insert the user message unless the client indicates it's already persisted (e.g., first send via server action, or retry)
     let userMessageRow: MessageRow | null = null;
+    let routerContextLines: RouterContextLine[] = [];
     if (!skipUserInsert) {
       const insertResult = await supabaseAny
         .from("messages")
@@ -703,6 +713,32 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    const cachedLinesRaw = ensureRouterContextLines(
+      (conversation.router_context_cache as RouterContextLine[] | null) ?? []
+    );
+    const cachedLastMessageId = (conversation.router_context_cache_last_message_id as string | null) ?? null;
+    const lastAssistantMessageId = lastAssistantMessage?.id ?? null;
+    let routerContextSource: "cache" | "db" = "cache";
+    routerContextLines = cachedLinesRaw;
+
+    if (!routerContextLines.length || cachedLastMessageId !== lastAssistantMessageId) {
+      try {
+        const contextResult = await getConversationContextForRouter(conversationId, supabaseAny);
+        routerContextLines = contextResult.lines;
+        routerContextSource = "db";
+      } catch (ctxErr) {
+        console.error("[context-cache] Failed to rebuild router context:", ctxErr);
+        routerContextLines = [];
+        routerContextSource = "db";
+      }
+    }
+
+    routerContextLines = appendRouterContextLine(routerContextLines, "user", message);
+    const routerConversationHistory = renderRouterContextText(routerContextLines);
+    console.log(
+      `[context-cache] ${routerContextSource === "cache" ? "Reused" : "Refreshed"} router context with ${routerContextLines.length} entries`
+    );
+
     // Get model config using LLM-based routing (with code-based fallback)
     const modelConfig = await getModelAndReasoningConfigWithLLM(
       modelFamily, 
@@ -712,7 +748,8 @@ export async function POST(request: NextRequest) {
       usagePercentage,
       userId,          // Pass userId to get memory types for router
       conversationId,  // Pass conversationId for context loading
-      supabaseAny      // Pass supabase client for context loading
+      supabaseAny,     // Pass supabase client for context loading
+      { conversationHistory: routerConversationHistory }
     );
     const reasoningEffort = modelConfig.reasoning?.effort ?? "none";
 
@@ -808,6 +845,7 @@ export async function POST(request: NextRequest) {
 
     // Load personalization settings and relevant memories using router's memory strategy
     const personalizationSettings = loadPersonalizationSettings();
+    const availableMemoryTypes = (modelConfig as any).availableMemoryTypes as string[] | undefined;
     let relevantMemories: MemoryItem[] = [];
     try {
       if (personalizationSettings.referenceSavedMemories) {
@@ -823,7 +861,8 @@ export async function POST(request: NextRequest) {
           { referenceSavedMemories: true, allowSavingMemory: personalizationSettings.allowSavingMemory },
           memoryStrategy,
           userId, // Pass userId for server-side memory fetch
-          conversationId
+          conversationId,
+          { availableMemoryTypes }
         );
         console.log(`[memory] Loaded ${relevantMemories.length} relevant memories`);
       }
@@ -1004,30 +1043,42 @@ export async function POST(request: NextRequest) {
       }
     }
     
-    // Second pass: extract previews for all files (no HEAD requests for dataUrls)
-    for (const att of body.attachments) {
-      if (!att?.dataUrl) continue;
-      console.log(`[chatApi] Extracting content from: ${att.name} (${att.mime})`);
-      const buffer = dataUrlToBuffer(att.dataUrl);
-      const extraction = await dispatchExtract(
-        buffer,
-        att.name ?? "attachment",
-        att.mime ?? null,
-        { userId, conversationId },
-      );
-      const { preview, meta } = extraction;
-      console.log(
-        `[chatApi] Extraction result for ${att.name}: ${preview ? preview.length + " chars" : "null"}`,
-      );
-      const label = att.name || "attachment";
-      const fileSize = buffer.length;
-      const isLargeFile = fileSize > 100 * 1024;
-      const truncationNote = isLargeFile
-        ? " [Preview truncated; full content searchable via file_search tool]"
-        : "";
-      expandedMessageWithAttachments += `\n\n[Attachment preview: ${label}${truncationNote}]\n${preview}\n`;
-      if (meta?.notes?.length) {
-        expandedMessageWithAttachments += `Notes: ${meta.notes.join(" | ")}\n`;
+    const extractionResults = await Promise.all(
+      body.attachments.map(async att => {
+        if (!att?.dataUrl) return null;
+        console.log(`[chatApi] Extracting content from: ${att.name} (${att.mime})`);
+        const buffer = dataUrlToBuffer(att.dataUrl);
+        const extraction = await dispatchExtract(
+          buffer,
+          att.name ?? "attachment",
+          att.mime ?? null,
+          { userId, conversationId },
+        );
+        const { preview, meta } = extraction;
+        console.log(
+          `[chatApi] Extraction result for ${att.name}: ${preview ? preview.length + " chars" : "null"}`,
+        );
+        const label = att.name || "attachment";
+        const fileSize = buffer.length;
+        const isLargeFile = fileSize > 100 * 1024;
+        const truncationNote = isLargeFile
+          ? " [Preview truncated; full content searchable via file_search tool]"
+          : "";
+        return {
+          label,
+          preview,
+          notes: meta?.notes ?? [],
+          truncationNote,
+        };
+      })
+    );
+
+    for (const result of extractionResults) {
+      if (!result) continue;
+      const previewText = typeof result.preview === "string" ? result.preview : "null";
+      expandedMessageWithAttachments += `\n\n[Attachment preview: ${result.label}${result.truncationNote}]\n${previewText}\n`;
+      if (result.notes.length) {
+        expandedMessageWithAttachments += `Notes: ${result.notes.join(" | ")}\n`;
       }
     }
   }
@@ -1484,6 +1535,18 @@ export async function POST(request: NextRequest) {
               },
             });
           } else {
+            try {
+              routerContextLines = appendRouterContextLine(routerContextLines, "assistant", assistantContent);
+              await persistRouterContextCache(
+                supabaseAny,
+                conversationId,
+                routerContextLines,
+                assistantMessageRow.id
+              );
+            } catch (cacheErr) {
+              console.warn("[context-cache] Failed to persist router cache:", cacheErr);
+            }
+
             // Router-based memory writing
             // The router has already analyzed the user's prompt and decided what to save
             try {

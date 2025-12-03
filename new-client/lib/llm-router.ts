@@ -27,6 +27,8 @@ export interface MemoryStrategy {
   limit: number;                // Max memories to load
 }
 
+export type NextTurnPrediction = "likely" | "unlikely" | "unknown";
+
 export interface MemoryToWrite {
   type: string;      // Dynamic category name
   title: string;     // Brief title
@@ -38,6 +40,14 @@ export interface MemoryToDelete {
   reason: string;    // Why it should be deleted
 }
 
+export interface RouterContextLine {
+  role: string;
+  content: string;
+}
+
+const ROUTER_CONTEXT_MAX_LINES = 10;
+const ROUTER_CONTEXT_TOKEN_CAP = 2000;
+
 export interface RouterDecision {
   model: Exclude<ModelFamily, "auto">;
   effort: ReasoningEffort;
@@ -46,7 +56,53 @@ export interface RouterDecision {
   memoryStrategy: MemoryStrategy;
   memoriesToWrite: MemoryToWrite[];  // Memories to save based on user's prompt
   memoriesToDelete: MemoryToDelete[];  // Memories to delete based on user's request
+  nextTurnPrediction?: NextTurnPrediction;
   routedBy: "llm";
+}
+
+export function appendRouterContextLine(
+  lines: RouterContextLine[] | undefined,
+  role: string,
+  rawContent: string
+): RouterContextLine[] {
+  const base = Array.isArray(lines) ? [...lines] : [];
+  const truncated = truncateMessageForRouter(role, rawContent || "");
+  const next = [...base, { role, content: truncated }];
+
+  while (next.length > ROUTER_CONTEXT_MAX_LINES) {
+    next.shift();
+  }
+
+  while (estimateLinesTokens(next) > ROUTER_CONTEXT_TOKEN_CAP && next.length > 1) {
+    next.shift();
+  }
+
+  return next;
+}
+
+export function renderRouterContextText(lines: RouterContextLine[]): string {
+  if (!Array.isArray(lines) || lines.length === 0) {
+    return "";
+  }
+  return lines.map((line) => `${line.role}: ${line.content}`).join("\n");
+}
+
+export function ensureRouterContextLines(value: unknown): RouterContextLine[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((entry) => {
+      if (!entry || typeof entry !== "object") return null;
+      const role = typeof (entry as any).role === "string" ? (entry as any).role : "";
+      const content = typeof (entry as any).content === "string" ? (entry as any).content : "";
+      if (!role || !content) return null;
+      return { role, content };
+    })
+    .filter((entry): entry is RouterContextLine => Boolean(entry));
+}
+
+function estimateLinesTokens(lines: RouterContextLine[]): number {
+  if (!Array.isArray(lines) || lines.length === 0) return 0;
+  return lines.reduce((total, line) => total + estimateTokens(`${line.role}: ${line.content}`), 0);
 }
 
 export interface RouterContext {
@@ -188,6 +244,12 @@ If the user explicitly asks to delete, forget, or remove a memory, identify whic
 
 IMPORTANT: Only include memory IDs that are present in the loaded memories provided in the instructions. You cannot delete memories that weren't loaded.
 
+**Next-turn prediction**
+After you decide on the current response, predict whether the user will likely send another complex follow-up that needs fresh routing. Output:
+- "likely" when wording implies more parts are coming, the user promises additional info, or the task clearly continues (e.g., "first draft", "I'll send more data", "keep going with several ideas").
+- "unlikely" for closings, confirmations, gratitude, or when the prompt clearly ends the thread.
+- "unknown" when intent is unclear.
+
 **Dynamic Memory Types:**
 Create ANY descriptive category name that makes sense! Examples: romantic_interests, fitness_goals, food_preferences, work_projects, travel_plans, hobbies, family_info, coding_style, meeting_schedule, health_conditions, etc.
 
@@ -210,6 +272,7 @@ Respond with ONLY a valid JSON object (no markdown, no explanation, no additiona
   "memoriesToDelete": [
     {"id": "memory-id", "reason": "why deleting"}
   ],  // empty array if nothing to delete
+  "nextTurnPrediction": "likely" | "unlikely" | "unknown",
   "reasoning": "brief one-line explanation"
 }
 
@@ -310,6 +373,7 @@ export async function routeWithLLM(
     const validEfforts: ReasoningEffort[] = ["none", "low", "medium", "high"];
     const validStrategies: ContextStrategy[] = ["minimal", "recent", "full"];
     const validWebSearch: WebSearchStrategy[] = ["never", "optional", "required"];
+    const validPredictions: NextTurnPrediction[] = ["likely", "unlikely", "unknown"];
 
     if (!validModels.includes(parsed.model)) {
       console.error(`[llm-router] Invalid model: ${parsed.model}`);
@@ -369,6 +433,10 @@ export async function routeWithLLM(
       );
     }
 
+    if (!parsed.nextTurnPrediction || !validPredictions.includes(parsed.nextTurnPrediction)) {
+      parsed.nextTurnPrediction = "unknown";
+    }
+
     // Block GPT 5 Pro
     if (parsed.model === "gpt-5-pro-2025-10-06") {
       console.warn("[llm-router] Router tried to select GPT 5 Pro, defaulting to 5.1");
@@ -389,6 +457,7 @@ export async function routeWithLLM(
       memoryStrategy: parsed.memoryStrategy as MemoryStrategy,
       memoriesToWrite: parsed.memoriesToWrite as MemoryToWrite[],
       memoriesToDelete: parsed.memoriesToDelete as MemoryToDelete[],
+      nextTurnPrediction: parsed.nextTurnPrediction as NextTurnPrediction,
       routedBy: "llm",
     };
   } catch (error) {
@@ -435,26 +504,19 @@ function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4);
 }
 
+export interface RouterContextResult {
+  text: string;
+  lines: RouterContextLine[];
+}
+
 /**
- * Load conversation context for router with smart truncation
- * 
- * FUTURE: Replace this function body with summary lookup from database
- * when you implement the active chat summarization feature.
- * The interface stays the same - just return a string of context.
+ * Load conversation context for router with smart truncation.
+ * Returns both the serialized text and the structured lines for caching.
  */
 export async function getConversationContextForRouter(
   conversationId: string,
   supabase: SupabaseClient
-): Promise<string> {
-  // FUTURE IMPLEMENTATION (not today):
-  // const { data: summary } = await supabase
-  //   .from('conversation_summaries')
-  //   .select('summary_text')
-  //   .eq('conversation_id', conversationId)
-  //   .single();
-  // if (summary) return summary.summary_text;
-  
-  // CURRENT: Load last 10 messages with truncation
+): Promise<RouterContextResult> {
   const { data: messages, error } = await supabase
     .from('messages')
     .select('role, content, created_at')
@@ -463,31 +525,50 @@ export async function getConversationContextForRouter(
     .limit(10);
   
   if (error || !messages || messages.length === 0) {
-    return ''; // No context available
+    return { text: '', lines: [] };
   }
   
   // Reverse to chronological order
   messages.reverse();
   
   // Build truncated context with token cap
-  const contextLines: string[] = [];
-  let totalTokens = 0;
-  const TOKEN_CAP = 2000;
-  
+  const lines: RouterContextLine[] = [];
   for (const msg of messages) {
-    const truncated = truncateMessageForRouter(msg.role, msg.content);
-    const line = `${msg.role}: ${truncated}`;
-    const tokens = estimateTokens(line);
-    
-    if (totalTokens + tokens > TOKEN_CAP) {
-      break; // Stop if we'd exceed cap
-    }
-    
-    contextLines.push(line);
-    totalTokens += tokens;
+    lines.push({
+      role: msg.role,
+      content: truncateMessageForRouter(msg.role, msg.content),
+    });
   }
-  
-  return contextLines.join('\n');
+
+  let trimmed = lines;
+  while (estimateLinesTokens(trimmed) > ROUTER_CONTEXT_TOKEN_CAP && trimmed.length > 1) {
+    trimmed = trimmed.slice(1);
+  }
+
+  return {
+    text: renderRouterContextText(trimmed),
+    lines: trimmed,
+  };
+}
+
+export async function persistRouterContextCache(
+  supabase: SupabaseClient,
+  conversationId: string,
+  lines: RouterContextLine[],
+  lastMessageId: string | null
+) {
+  try {
+    await supabase
+      .from("conversations")
+      .update({
+        router_context_cache: lines,
+        router_context_cache_last_message_id: lastMessageId,
+        router_context_cache_updated_at: new Date().toISOString(),
+      })
+      .eq("id", conversationId);
+  } catch (error) {
+    console.warn("[llm-router] Failed to persist router context cache:", error);
+  }
 }
 
 /**

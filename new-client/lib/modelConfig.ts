@@ -1,3 +1,12 @@
+import type {
+  ContextStrategy,
+  MemoryStrategy,
+  MemoryToDelete,
+  MemoryToWrite,
+  RouterDecision,
+  WebSearchStrategy,
+} from "./llm-router";
+
 export type SpeedMode = "auto" | "instant" | "thinking";
 export type ModelFamily =
   | "auto"
@@ -13,7 +22,13 @@ export interface ModelConfig {
   reasoning?: {
     effort: ReasoningEffort;
   };
-  routedBy?: "llm" | "code" | "code-fallback";
+  routedBy?: "llm" | "code" | "code-fallback" | "cache";
+  contextStrategy?: ContextStrategy;
+  webSearchStrategy?: WebSearchStrategy;
+  memoryStrategy?: MemoryStrategy;
+  memoriesToWrite?: MemoryToWrite[];
+  memoriesToDelete?: MemoryToDelete[];
+  availableMemoryTypes?: string[];
 }
 
 const MODEL_ID_MAP: Record<Exclude<ModelFamily, "auto">, string> = {
@@ -22,6 +37,16 @@ const MODEL_ID_MAP: Record<Exclude<ModelFamily, "auto">, string> = {
   "gpt-5-nano": "gpt-5-nano-2025-08-07",
   "gpt-5-pro-2025-10-06": "gpt-5-pro-2025-10-06",
 };
+
+const ROUTER_DECISION_CACHE_TTL_MS = 3 * 60 * 1000;
+
+interface CachedRouterDecisionEntry {
+  decision: RouterDecision;
+  expiresAt: number;
+  forceRouterNext: boolean;
+}
+
+const routerDecisionCache = new Map<string, CachedRouterDecisionEntry>();
 
 const LIGHT_REASONING_KEYWORDS = [
   "step by step",
@@ -69,6 +94,32 @@ const EXTREME_COMPLEXITY_PHRASES = [
 const LONG_PROMPT_THRESHOLD = 360;
 const MEDIUM_PROMPT_THRESHOLD = 640;
 const HIGH_PROMPT_THRESHOLD = 900;
+
+const ACKNOWLEDGEMENT_PATTERNS = [
+  /^thanks?\b/,
+  /^thank you\b/,
+  /^thx\b/,
+  /^ok\b/,
+  /^okay\b/,
+  /^cool\b/,
+  /^awesome\b/,
+  /^sounds good\b/,
+  /^looks good\b/,
+  /^great\b/,
+  /^perfect\b/,
+  /^nice\b/,
+  /^got it\b/,
+  /^understood\b/,
+  /^makes sense\b/,
+  /^appreciate\b/,
+  /^cheers\b/,
+  /^lol\b/,
+  /^haha\b/,
+];
+
+interface RouterRequestOptions {
+  conversationHistory?: string;
+}
 
 export function shouldUseLightReasoning(promptText: string) {
   const normalized = promptText.trim().toLowerCase();
@@ -210,11 +261,98 @@ function selectGpt51AutoFamily(
     return "gpt-5.1";
   }
 
-  // effort === "high"
   if (length < 900 && !mentionsComplexity) {
     return "gpt-5-mini";
   }
   return "gpt-5.1";
+}
+
+function classifyLowRiskPrompt(promptText: string): "ack" | "followup" | null {
+  const normalized = promptText.trim().toLowerCase();
+  if (!normalized) return "ack";
+  if (ACKNOWLEDGEMENT_PATTERNS.some((regex) => regex.test(normalized))) {
+    return "ack";
+  }
+  if (normalized.length > 180) return null;
+  if (/[?]/.test(normalized)) return null;
+  if (/\b(write|create|generate|draft|code|design|build|plan|calculate|summarize|explain|research|debug|fix|analyze|strategy)\b/.test(normalized)) {
+    return null;
+  }
+  const wordCount = normalized.split(/\s+/).filter(Boolean).length;
+  return wordCount <= 24 ? "followup" : null;
+}
+
+function getCachedRouterDecision(conversationId?: string | null): CachedRouterDecisionEntry | null {
+  if (!conversationId) return null;
+  const cached = routerDecisionCache.get(conversationId);
+  if (!cached) return null;
+  if (cached.expiresAt < Date.now()) {
+    routerDecisionCache.delete(conversationId);
+    return null;
+  }
+  return cached;
+}
+
+function cacheRouterDecision(conversationId: string | undefined, decision: RouterDecision) {
+  if (!conversationId) return;
+  routerDecisionCache.set(conversationId, {
+    decision,
+    expiresAt: Date.now() + ROUTER_DECISION_CACHE_TTL_MS,
+    forceRouterNext: decision.nextTurnPrediction === "likely",
+  });
+}
+
+function buildConfigFromRouterDecision(
+  decision: RouterDecision,
+  speedMode: SpeedMode,
+  promptText: string,
+  options?: {
+    routedBy?: ModelConfig["routedBy"];
+    reuseMemoryInstructions?: boolean;
+  }
+): ModelConfig & {
+  contextStrategy: ContextStrategy;
+  webSearchStrategy: WebSearchStrategy;
+  memoryStrategy: MemoryStrategy;
+  memoriesToWrite: MemoryToWrite[];
+  memoriesToDelete: MemoryToDelete[];
+} {
+  const MODEL_ID_MAP_LOCAL: Record<Exclude<ModelFamily, "auto">, string> = {
+    "gpt-5.1": "gpt-5.1-2025-11-13",
+    "gpt-5-mini": "gpt-5-mini-2025-08-07",
+    "gpt-5-nano": "gpt-5-nano-2025-08-07",
+    "gpt-5-pro-2025-10-06": "gpt-5-pro-2025-10-06",
+  };
+
+  let finalEffort = decision.effort;
+  if (speedMode === "instant") {
+    const isFullModel = decision.model === "gpt-5.1" || decision.model === "gpt-5-pro-2025-10-06";
+    finalEffort = isFullModel ? "none" : "low";
+  } else if (speedMode === "thinking") {
+    if (finalEffort === "none" || finalEffort === "low") {
+      finalEffort = pickMediumOrHigh(promptText);
+    }
+  }
+
+  if ((decision.model === "gpt-5-mini" || decision.model === "gpt-5-nano") && finalEffort === "none") {
+    finalEffort = "low";
+  }
+
+  const reuseMemory = options?.reuseMemoryInstructions ?? true;
+  const memoriesToWrite = reuseMemory ? decision.memoriesToWrite : [];
+  const memoriesToDelete = reuseMemory ? decision.memoriesToDelete : [];
+
+  return {
+    model: MODEL_ID_MAP_LOCAL[decision.model],
+    resolvedFamily: decision.model,
+    reasoning: finalEffort ? { effort: finalEffort } : undefined,
+    routedBy: options?.routedBy ?? "llm",
+    contextStrategy: decision.contextStrategy,
+    webSearchStrategy: decision.webSearchStrategy,
+    memoryStrategy: decision.memoryStrategy,
+    memoriesToWrite,
+    memoriesToDelete,
+  };
 }
 
 export function getModelAndReasoningConfig(
@@ -292,38 +430,63 @@ export async function getModelAndReasoningConfigWithLLM(
   usagePercentage?: number,
   userId?: string,
   conversationId?: string,
-  supabase?: any
+  supabase?: any,
+  routerOptions?: RouterRequestOptions
 ): Promise<ModelConfig> {
-  // Don't use LLM router if user explicitly selected a specific model (not "auto")
   const shouldUseLLMRouter = modelFamily === "auto";
+
+  let availableMemoryTypes: string[] = [];
+  if (userId) {
+    try {
+      const { getMemoryTypes } = await import("./memory");
+      availableMemoryTypes = await getMemoryTypes(userId);
+    } catch (err) {
+      console.error("[modelConfig] Failed to get memory types:", err);
+    }
+  }
+
+  if (shouldUseLLMRouter) {
+    const cachedEntry = getCachedRouterDecision(conversationId);
+    const heuristicBucket =
+      cachedEntry && !cachedEntry.forceRouterNext
+        ? classifyLowRiskPrompt(promptText)
+        : null;
+
+    if (cachedEntry && heuristicBucket) {
+      console.log(
+        `[modelConfig] Reusing cached router decision (${heuristicBucket}) for conversation ${conversationId ?? "unknown"}`
+      );
+      const cachedConfig = buildConfigFromRouterDecision(
+        cachedEntry.decision,
+        speedMode,
+        promptText,
+        { routedBy: "cache", reuseMemoryInstructions: false }
+      );
+      cachedConfig.contextStrategy =
+        heuristicBucket === "followup" ? "recent" : "minimal";
+      cachedConfig.availableMemoryTypes = availableMemoryTypes;
+      cachedConfig.memoriesToWrite = [];
+      cachedConfig.memoriesToDelete = [];
+      return cachedConfig;
+    }
+  }
 
   if (shouldUseLLMRouter) {
     try {
       const { routeWithLLM, getConversationContextForRouter } = await import("./llm-router");
-      const { getMemoryTypes } = await import("./memory");
-      
+
       console.log("[modelConfig] Attempting LLM-based routing");
-      
-      // Get available memory types for this user
-      let availableMemoryTypes: string[] = [];
-      if (userId) {
+
+      let conversationHistory = routerOptions?.conversationHistory || "";
+      if (!conversationHistory && conversationId && supabase) {
         try {
-          availableMemoryTypes = await getMemoryTypes(userId);
-        } catch (err) {
-          console.error("[modelConfig] Failed to get memory types:", err);
-        }
-      }
-      
-      // Load conversation context for router
-      let conversationHistory = "";
-      if (conversationId && supabase) {
-        try {
-          conversationHistory = await getConversationContextForRouter(conversationId, supabase);
+          const ctx = await getConversationContextForRouter(conversationId, supabase);
+          conversationHistory = ctx.text;
         } catch (err) {
           console.error("[modelConfig] Failed to load conversation context:", err);
         }
       }
-      
+
       const decision = await routeWithLLM(promptText, conversationHistory, {
         userModelPreference: modelFamily,
         speedMode,
@@ -332,46 +495,13 @@ export async function getModelAndReasoningConfigWithLLM(
       });
 
       if (decision) {
-        console.log(`[modelConfig] LLM router decided: ${decision.model} with ${decision.effort} effort, context: ${decision.contextStrategy}, webSearch: ${decision.webSearchStrategy}, memoryStrategy:`, JSON.stringify(decision.memoryStrategy), `memoriesToWrite: ${decision.memoriesToWrite.length} memories`);
-        
-        const MODEL_ID_MAP_LOCAL: Record<Exclude<ModelFamily, "auto">, string> = {
-          "gpt-5.1": "gpt-5.1-2025-11-13",
-          "gpt-5-mini": "gpt-5-mini-2025-08-07",
-          "gpt-5-nano": "gpt-5-nano-2025-08-07",
-          "gpt-5-pro-2025-10-06": "gpt-5-pro-2025-10-06",
-        };
-
-        let finalEffort = decision.effort;
-        
-        // Apply speed mode overrides if needed
-        if (speedMode === "instant") {
-          const isFullModel = decision.model === "gpt-5.1" || decision.model === "gpt-5-pro-2025-10-06";
-          finalEffort = isFullModel ? "none" : "low";
-          console.log(`[modelConfig] Speed mode override: instant → ${finalEffort}`);
-        } else if (speedMode === "thinking") {
-          // For thinking mode, ensure at least medium effort
-          if (finalEffort === "none" || finalEffort === "low") {
-            finalEffort = pickMediumOrHigh(promptText);
-            console.log(`[modelConfig] Speed mode override: thinking → ${finalEffort}`);
-          }
-        }
-
-        // Ensure Mini/Nano always have reasoning effort
-        if ((decision.model === "gpt-5-mini" || decision.model === "gpt-5-nano") && finalEffort === "none") {
-          finalEffort = "low";
-          console.log(`[modelConfig] Enforcing minimum effort for ${decision.model}: low`);
-        }
-
-        return {
-          model: MODEL_ID_MAP_LOCAL[decision.model],
-          resolvedFamily: decision.model,
-          reasoning: finalEffort ? { effort: finalEffort } : undefined,
-          routedBy: "llm",
-          contextStrategy: decision.contextStrategy,        // Pass through for chat route
-          webSearchStrategy: decision.webSearchStrategy,    // Pass through for chat route
-          memoryStrategy: decision.memoryStrategy,          // Pass through for chat route
-          memoriesToWrite: decision.memoriesToWrite,        // Pass through for chat route
-        } as ModelConfig & { contextStrategy?: string; webSearchStrategy?: string; memoryStrategy?: any; memoriesToWrite?: any[] };
+        console.log(
+          `[modelConfig] LLM router decided: ${decision.model} with ${decision.effort} effort, context: ${decision.contextStrategy}, webSearch: ${decision.webSearchStrategy}, memoryStrategy: ${JSON.stringify(decision.memoryStrategy)}, memoriesToWrite: ${decision.memoriesToWrite.length}, nextTurnPrediction: ${decision.nextTurnPrediction}`
+        );
+        cacheRouterDecision(conversationId, decision);
+        const config = buildConfigFromRouterDecision(decision, speedMode, promptText);
+        config.availableMemoryTypes = availableMemoryTypes;
+        return config;
       }
 
       console.warn("[modelConfig] LLM routing failed, falling back to code-based logic");
@@ -380,16 +510,17 @@ export async function getModelAndReasoningConfigWithLLM(
     }
   }
 
-  // Fallback to original code-based logic
   const config = getModelAndReasoningConfig(modelFamily, speedMode, promptText, reasoningEffortHint);
-  
-  // Mark as fallback if we tried LLM routing
+  config.availableMemoryTypes = availableMemoryTypes;
+  config.memoriesToWrite = [];
+  config.memoriesToDelete = [];
+
   if (shouldUseLLMRouter) {
     config.routedBy = "code-fallback";
   } else {
     config.routedBy = "code";
   }
-  
+
   return config;
 }
 

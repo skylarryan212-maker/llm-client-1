@@ -13,6 +13,9 @@ export interface Conversation {
   project_id: string | null;
   metadata: Json | null;
   created_at: string | null;
+  router_context_cache: Json | null;
+  router_context_cache_last_message_id: string | null;
+  router_context_cache_updated_at: string | null;
 }
 
 export interface ConversationInsert {
@@ -20,12 +23,18 @@ export interface ConversationInsert {
   title?: string | null;
   project_id?: string | null;
   metadata?: Json | null;
+  router_context_cache?: Json | null;
+  router_context_cache_last_message_id?: string | null;
+  router_context_cache_updated_at?: string | null;
 }
 
 export interface ConversationUpdate {
   title?: string | null;
   project_id?: string | null;
   metadata?: Json | null;
+  router_context_cache?: Json | null;
+  router_context_cache_last_message_id?: string | null;
+  router_context_cache_updated_at?: string | null;
 }
 
 export interface Message {
