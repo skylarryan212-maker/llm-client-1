@@ -23,8 +23,175 @@
   }
 }
 
+@layer components {
+  @keyframes assistant-streaming-shimmer {
+    0% {
+      transform: translateX(-100%);
+    }
+    100% {
+      transform: translateX(200%);
+    }
+  }
+
+  .assistant-streaming {
+    position: relative;
+    isolation: isolate;
+  }
+
+  .assistant-streaming::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(120deg, transparent 10%, rgba(255, 255, 255, 0.08) 35%, transparent 60%);
+    animation: assistant-streaming-shimmer 1.4s linear infinite;
+    pointer-events: none;
+    opacity: 0.8;
+    mix-blend-mode: screen;
+  }
+
+  .sidebar-entry {
+    transition: transform 180ms ease, background-color 200ms ease, box-shadow 200ms ease;
+    will-change: transform;
+  }
+
+  .sidebar-entry:hover {
+    transform: translateX(4px);
+  }
+
+  .sidebar-entry[data-sidebar-selected="true"] {
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+    transform: translateX(0);
+  }
+
+  .composer-shell {
+    transition: box-shadow 220ms ease, transform 220ms ease, background-color 200ms ease;
+  }
+
+  .composer-shell:focus-within {
+    box-shadow: 0 18px 45px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(118, 127, 255, 0.35);
+    transform: translateY(-1px);
+    background-color: rgba(17, 17, 26, 0.9);
+  }
+
+  @keyframes scroll-tip-slide {
+    from {
+      transform: translate(-50%, 16px);
+      opacity: 0;
+    }
+    to {
+      transform: translate(-50%, 0);
+      opacity: 1;
+    }
+  }
+
+  .scroll-tip {
+    will-change: transform, opacity;
+  }
+
+  .scroll-tip.scroll-tip-visible {
+    animation: scroll-tip-slide 240ms ease forwards;
+  }
+
+  .scroll-tip-button {
+    animation: scroll-tip-pulse 2s ease-in-out infinite;
+  }
+
+  @keyframes scroll-tip-pulse {
+    0%,
+    100% {
+      box-shadow: 0 0 0 0 rgba(118, 127, 255, 0.25);
+    }
+    50% {
+      box-shadow: 0 0 0 8px rgba(118, 127, 255, 0);
+    }
+  }
+
+  .status-bubble {
+    animation: status-bubble-pop 260ms ease forwards;
+  }
+
+  @keyframes status-bubble-pop {
+    0% {
+      opacity: 0;
+      transform: translateY(6px) scale(0.92);
+    }
+    100% {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+  }
+
+  .status-bubble-dot {
+    position: relative;
+  }
+
+  .status-bubble-dot::after {
+    content: "";
+    position: absolute;
+    inset: -4px;
+    border-radius: 999px;
+    border: 1px solid currentColor;
+    opacity: 0.35;
+    pointer-events: none;
+    animation: status-dot-pulse 1.4s ease-in-out infinite;
+  }
+
+  @keyframes status-dot-pulse {
+    0% {
+      transform: scale(0.6);
+      opacity: 0.4;
+    }
+    100% {
+      transform: scale(1.8);
+      opacity: 0;
+    }
+  }
+
+  .modal-overlay {
+    animation: modal-overlay-fade 280ms ease forwards;
+  }
+
+  .modal-panel {
+    animation: modal-panel-pop 320ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    transform-origin: center;
+  }
+
+  @keyframes modal-overlay-fade {
+    from {
+      opacity: 0;
+      backdrop-filter: blur(0px);
+    }
+    to {
+      opacity: 1;
+      backdrop-filter: blur(6px);
+    }
+  }
+
+  @keyframes modal-panel-pop {
+    0% {
+      opacity: 0;
+      transform: translateY(12px) scale(0.96);
+    }
+    100% {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .chat-entry-animate {
     animation: none !important;
+  }
+
+  .assistant-streaming::after,
+  .sidebar-entry,
+  .composer-shell,
+  .scroll-tip-button,
+  .status-bubble,
+  .modal-overlay,
+  .modal-panel {
+    animation: none !important;
+    transition: none !important;
   }
 }

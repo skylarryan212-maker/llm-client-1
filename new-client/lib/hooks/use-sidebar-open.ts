@@ -1,25 +1,37 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useState } from "react";
+
+const useIsomorphicLayoutEffect =
+  typeof window !== "undefined" ? useLayoutEffect : useEffect;
 
 export function usePersistentSidebarOpen(defaultValue = true) {
-  const [isOpen, setIsOpen] = useState<boolean>(() => {
-    if (typeof window === "undefined") return defaultValue;
+  const [isOpen, setIsOpen] = useState<boolean>(defaultValue);
+
+  useIsomorphicLayoutEffect(() => {
+    if (typeof window === "undefined") return;
+
     try {
       const stored = localStorage.getItem("sidebarOpen");
       if (stored !== null) {
-        return stored === "true";
+        setIsOpen(stored === "true");
+        return;
       }
     } catch {
       // Ignore storage access issues and fall back to computed defaults
     }
-    // No stored preference yet – default to open on desktop widths, closed on mobile/tablet
+
     const prefersDesktop = window.matchMedia("(min-width: 1024px)").matches;
-    return prefersDesktop ? true : false;
-  });
+    setIsOpen(prefersDesktop);
+  }, []);
 
   useEffect(() => {
-    localStorage.setItem("sidebarOpen", isOpen ? "true" : "false");
+    if (typeof window === "undefined") return;
+    try {
+      localStorage.setItem("sidebarOpen", isOpen ? "true" : "false");
+    } catch {
+      // Ignore storage write errors (e.g., private browsing)
+    }
   }, [isOpen]);
 
   return [isOpen, setIsOpen] as const;

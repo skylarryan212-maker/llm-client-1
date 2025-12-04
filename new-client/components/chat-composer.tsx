@@ -391,7 +391,7 @@ export function ChatComposer({
           ))}
         </div>
       )}
-      <div className="relative flex items-center gap-1.5 sm:gap-2 rounded-3xl border border-border bg-muted/30 px-2 sm:px-3 lg:px-4 py-2 sm:py-2.5 transition-all focus-within:border-ring focus-within:bg-background">
+      <div className="composer-shell relative flex items-center gap-1.5 sm:gap-2 rounded-3xl border border-border bg-muted/30 px-2 sm:px-3 lg:px-4 py-2 sm:py-2.5 transition-all focus-within:border-ring focus-within:bg-background">
         {isRecording ? (
           <div className="flex items-center gap-2 flex-1 w-full">
             <button

@@ -78,6 +78,7 @@ export function ChatMessage({
   }, [enableEntryAnimation, messageId])
 
   const animateClass = isAnimating ? 'chat-entry-animate' : ''
+  const assistantStreamingClass = role === 'assistant' && isStreaming ? 'assistant-streaming' : ''
 
   // Extract metadata safely
   let metadataObj: AssistantMessageMetadata | Record<string, unknown> | null = null
@@ -172,7 +173,7 @@ export function ChatMessage({
   }
 
   return (
-    <div className={`py-4 sm:py-6 ${animateClass}`}>
+    <div className={`py-4 sm:py-6 ${animateClass} ${assistantStreamingClass}`}>
       <div className="mx-auto w-full max-w-3xl">
         <div className="space-y-3 sm:space-y-4">
           <MarkdownContent content={content} />

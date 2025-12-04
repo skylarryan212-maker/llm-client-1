@@ -147,7 +147,7 @@ export default function ChatPageShell({
   const { isGuest } = useUserIdentity();
   const [guestWarning, setGuestWarning] = useState<string | null>(null);
 
-  const [isSidebarOpen, setIsSidebarOpen] = usePersistentSidebarOpen(false);
+  const [isSidebarOpen, setIsSidebarOpen] = usePersistentSidebarOpen();
   const [currentModel, setCurrentModel] = useState("Auto");
   const [selectedChatId, setSelectedChatId] = useState<string | null>(
     activeConversationId ?? null
@@ -235,6 +235,7 @@ export default function ChatPageShell({
         lastCreatedConversationIdRef.current = null;
       } else {
         allowAssistantHistoryAnimation = true;
+        lastCreatedConversationIdRef.current = null;
       }
     }
   }
@@ -1584,7 +1585,7 @@ export default function ChatPageShell({
     }
     setSelectedChatId(null);
     setSelectedProjectId("");
-    router.push("/");
+    router.replace("/");
   };
 
   const handleProjectSelect = (id: string) => {
@@ -1761,7 +1762,7 @@ export default function ChatPageShell({
                     timestamp: new Date().toISOString(),
                     messages: [],
                   });
-                  router.push("/");
+                  router.replace("/");
                 }}
               >
                 <Plus className="h-4 w-4" />
@@ -2094,6 +2095,7 @@ export default function ChatPageShell({
                     if (message.role === "assistant") {
                       if (
                         allowAssistantHistoryAnimation &&
+                        isNewestMessage &&
                         !alreadyAnimated
                       ) {
                         shouldAnimateEntry = true;
@@ -2189,14 +2191,14 @@ export default function ChatPageShell({
           style={{ transform: `translateY(${-Math.max(0, composerLiftPx + 4)}px)` }}
         >
           <div
-            className={`pointer-events-none fixed left-1/2 -translate-x-1/2 bottom-[calc(96px+env(safe-area-inset-bottom,0px))] z-30 transition-opacity duration-200 ${
-              showScrollToBottom ? "opacity-100" : "opacity-0"
+            className={`scroll-tip pointer-events-none fixed left-1/2 -translate-x-1/2 bottom-[calc(96px+env(safe-area-inset-bottom,0px))] z-30 transition-opacity duration-200 ${
+              showScrollToBottom ? "opacity-100 scroll-tip-visible" : "opacity-0"
             }`}
           >
             <Button
               type="button"
               size="icon"
-              className="pointer-events-auto h-10 w-10 rounded-full border border-border bg-card/90 text-foreground shadow-md backdrop-blur hover:bg-background"
+              className={`${showScrollToBottom ? "scroll-tip-button" : ""} pointer-events-auto h-10 w-10 rounded-full border border-border bg-card/90 text-foreground shadow-md backdrop-blur hover:bg-background`}
               onClick={() => {
                 scrollToBottom("smooth");
                 // Re-enable autoscroll after scrolling to bottom

@@ -282,7 +282,7 @@ export function ChatSidebar({
                 closeSidebarIfMobile()
               }}
               variant="ghost"
-              className={`${isOpen ? 'w-full justify-start px-2.5' : 'w-10 h-10 p-0 justify-center'} h-9 gap-2 text-sidebar-foreground hover:bg-sidebar-accent`}
+              className={`${isOpen ? 'w-full justify-start px-2.5' : 'w-10 h-10 p-0 justify-center'} h-9 gap-2 text-sidebar-foreground hover:bg-sidebar-accent sidebar-entry`}
               title={!isOpen ? "New Chat" : undefined}
             >
               <Plus className="h-4 w-4 flex-shrink-0" />
@@ -353,11 +353,12 @@ export function ChatSidebar({
                                   onProjectSelect?.(project.id)
                                   closeSidebarIfMobile()
                                 }}
-                                className={`group relative flex w-full max-w-[231px] items-center gap-2 rounded-lg px-2.5 py-2 transition-colors ${
+                                className={`group relative flex w-full max-w-[231px] items-center gap-2 rounded-lg px-2.5 py-2 transition-colors sidebar-entry ${
                                   isProjectActive
                                     ? 'bg-zinc-800 text-white'
                                     : 'hover:bg-sidebar-accent'
                                 }`}
+                                data-sidebar-selected={isProjectActive ? "true" : "false"}
                               >
                                 <div className="flex items-center gap-2 flex-1 min-w-0">
                                   {(() => {
@@ -391,11 +392,12 @@ export function ChatSidebar({
                                       onKeyDown={(event) =>
                                         handleListItemKeyDown(event, () => onProjectChatSelect?.(project.id, chat.id))
                                       }
-                                      className={`group/chat flex w-full max-w-[231px] items-center gap-2 rounded-lg pl-7 pr-2.5 py-1.5 text-left transition-colors ${
+                                      className={`group/chat flex w-full max-w-[231px] items-center gap-2 rounded-lg pl-7 pr-2.5 py-1.5 text-left transition-colors sidebar-entry ${
                                         selectedChatId === chat.id
                                           ? 'bg-zinc-800 text-white'
                                           : 'hover:bg-sidebar-accent'
                                       }`}
+                                      data-sidebar-selected={selectedChatId === chat.id ? "true" : "false"}
                                     >
                                       <div className="flex-1 min-w-0 pr-0">
                                         <AnimatedTitle 
