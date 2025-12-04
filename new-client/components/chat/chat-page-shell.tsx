@@ -167,6 +167,7 @@ export default function ChatPageShell({
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const messageRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const [bottomSpacerPx, setBottomSpacerPx] = useState(220);
+  const [composerLiftPx, setComposerLiftPx] = useState(0);
   const [showOtherModels, setShowOtherModels] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
   const [thinkingStatus, setThinkingStatus] = useState<{ variant: "thinking" | "extended"; label: string } | null>(null);
@@ -565,21 +566,20 @@ export default function ChatPageShell({
     };
   }, [isSidebarOpen]);
 
-  // When the mobile keyboard hides (viewport height increases), settle layout and keep composer anchored
+  // Track keyboard height (visualViewport) to smoothly lift composer with the on-screen keyboard
   useEffect(() => {
     if (typeof window === "undefined" || !window.visualViewport) return;
-    const handler = () => {
-      // Allow the viewport to settle, then reset scroll positions
-      setTimeout(() => {
-        window.scrollTo({ top: 0, left: 0, behavior: "auto" });
-        scrollToBottom("auto");
-      }, 150);
+    const update = () => {
+      const vv = window.visualViewport!;
+      const delta = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+      setComposerLiftPx(delta);
     };
-    window.visualViewport.addEventListener("resize", handler);
+    update();
+    window.visualViewport.addEventListener("resize", update);
     return () => {
-      window.visualViewport?.removeEventListener("resize", handler);
+      window.visualViewport?.removeEventListener("resize", update);
     };
-  }, [scrollToBottom]);
+  }, []);
 
   // Listen for usage limit exceeded events
   useEffect(() => {
@@ -2130,7 +2130,10 @@ export default function ChatPageShell({
         </div>
 
         {/* Composer: full-width bar, centered pill like ChatGPT */}
-        <div className="bg-background px-4 sm:px-6 lg:px-12 py-3 sm:py-4 relative sticky bottom-0 z-20 pb-[max(env(safe-area-inset-bottom),0px)] -translate-y-[4px] sm:translate-y-0">
+        <div
+          className="bg-background px-4 sm:px-6 lg:px-12 py-3 sm:py-4 relative sticky bottom-0 z-20 pb-[max(env(safe-area-inset-bottom),0px)] transition-transform duration-200 ease-out"
+          style={{ transform: `translateY(${-Math.max(0, composerLiftPx + 4)}px)` }}
+        >
           <div
             className={`pointer-events-none fixed right-4 bottom-[calc(96px+env(safe-area-inset-bottom,0px))] z-30 transition-opacity duration-200 ${
               showScrollToBottom ? "opacity-100" : "opacity-0"
