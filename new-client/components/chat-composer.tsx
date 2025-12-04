@@ -514,7 +514,7 @@ export function ChatComposer({
                       className="h-5 w-5"
                       fill="currentColor"
                     >
-                      <rect x="0" y="15" width="12" height="30" rx="" />
+                      <rect x="0" y="15" width="12" height="30" rx="3" />
                       <rect x="18" y="0" width="12" height="70" rx="3" />
                       <rect x="36" y="6" width="12" height="50" rx="3" />
                       <rect x="55" y="15" width="12" height="30" rx="3" />
