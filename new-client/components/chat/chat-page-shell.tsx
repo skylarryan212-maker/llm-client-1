@@ -147,7 +147,7 @@ export default function ChatPageShell({
   const { isGuest } = useUserIdentity();
   const [guestWarning, setGuestWarning] = useState<string | null>(null);
 
-  const [isSidebarOpen, setIsSidebarOpen] = usePersistentSidebarOpen(true);
+  const [isSidebarOpen, setIsSidebarOpen] = usePersistentSidebarOpen(false);
   const [currentModel, setCurrentModel] = useState("Auto");
   const [selectedChatId, setSelectedChatId] = useState<string | null>(
     activeConversationId ?? null
@@ -552,6 +552,18 @@ export default function ChatPageShell({
       return () => window.removeEventListener("resize", compute);
     }
   }, [messages.length]);
+
+  // Lock body scroll when mobile sidebar is open so only sidebar scrolls
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const isMobile = window.innerWidth < 1024;
+    if (!isMobile || !isSidebarOpen) return;
+    const original = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = original;
+    };
+  }, [isSidebarOpen]);
 
   // Listen for usage limit exceeded events
   useEffect(() => {
@@ -2102,7 +2114,7 @@ export default function ChatPageShell({
         </div>
 
         {/* Composer: full-width bar, centered pill like ChatGPT */}
-        <div className="bg-background px-4 sm:px-6 lg:px-12 py-3 sm:py-4 relative sticky bottom-0 z-20 pb-[max(env(safe-area-inset-bottom),0px)]">
+        <div className="bg-background px-4 sm:px-6 lg:px-12 py-3 sm:py-4 relative sticky bottom-0 z-20 pb-[max(env(safe-area-inset-bottom),0px)] -translate-y-[2px] sm:translate-y-0">
           <div
             className={`pointer-events-none fixed right-4 bottom-[calc(96px+env(safe-area-inset-bottom,0px))] z-30 transition-opacity duration-200 ${
               showScrollToBottom ? "opacity-100" : "opacity-0"

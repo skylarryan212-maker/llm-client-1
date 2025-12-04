@@ -241,8 +241,9 @@ export function ChatSidebar({
     <>
       {isOpen && (
         <div 
-          className="fixed inset-0 bg-black/50 z-40 lg:hidden"
+          className="fixed inset-0 bg-black/50 z-40 lg:hidden touch-none"
           onClick={onToggle}
+          onTouchMove={(e) => e.preventDefault()}
         />
       )}
 

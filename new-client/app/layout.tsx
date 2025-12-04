@@ -29,6 +29,7 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "LLM Client - AI Platform for Developers",
   description: "A refined, modern AI platform built for developers",
+  themeColor: "#000000",
 };
 
 export const viewport = {
