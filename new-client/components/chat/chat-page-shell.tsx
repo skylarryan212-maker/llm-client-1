@@ -223,12 +223,11 @@ export default function ChatPageShell({
   }, []);
 
   const currentConversationKey = activeConversationId ?? "__no_conversation__";
-  const conversationJustChanged = conversationRenderKeyRef.current !== currentConversationKey;
-  if (conversationJustChanged) {
+  const conversationChanged = conversationRenderKeyRef.current !== currentConversationKey;
+  if (conversationChanged) {
     animatedMessageIdsRef.current.clear();
   }
   conversationRenderKeyRef.current = currentConversationKey;
-  const allowEntryAnimations = conversationJustChanged;
 
   const isConversationAutoStreamed = useCallback(
     (conversationId: string) => {
@@ -2076,12 +2075,8 @@ export default function ChatPageShell({
                       Boolean(displayMetadata?.searchedDomains?.length);
                     
                     let shouldAnimateEntry = false;
-                    if (
-                      allowEntryAnimations &&
-                      !isStreamingMessage &&
-                      index === messages.length - 1 &&
-                      !animatedMessageIdsRef.current.has(message.id)
-                    ) {
+                    const isNewestMessage = index === messages.length - 1;
+                    if (isNewestMessage && !animatedMessageIdsRef.current.has(message.id)) {
                       shouldAnimateEntry = true;
                       animatedMessageIdsRef.current.add(message.id);
                     }
