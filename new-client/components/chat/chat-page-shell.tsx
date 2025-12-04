@@ -1732,7 +1732,7 @@ export default function ChatPageShell({
                 </Button>
               </DropdownMenuTrigger>
               {!isGuest ? (
-                <DropdownMenuContent align="start" className="w-64 space-y-1 py-2">
+                <DropdownMenuContent align="start" sideOffset={8} className="w-[calc(100vw-24px)] max-w-sm sm:w-64 space-y-1 py-2">
                   <div className="px-3 pb-1 text-sm font-semibold text-muted-foreground">
                     GPT 5.1
                   </div>
@@ -1784,15 +1784,15 @@ export default function ChatPageShell({
                   </div>
 
                   <DropdownMenuSub>
-                    <DropdownMenuSubTrigger className="items-center gap-3 px-3 py-2">
+                     <DropdownMenuSubTrigger className="items-center gap-3 px-3 py-2">
                       <div className="flex flex-col text-left">
                         <span className="font-medium leading-none">
                           Other models
                         </span>
                       </div>
                     </DropdownMenuSubTrigger>
-                    <DropdownMenuPortal>
-                      <DropdownMenuSubContent className="w-56 p-2 space-y-1">
+                     <DropdownMenuPortal>
+                       <DropdownMenuSubContent sideOffset={-4} className="w-[calc(100vw-32px)] max-w-sm sm:w-56 p-2 space-y-1">
                         <div className="px-3 pb-1 text-sm font-semibold text-muted-foreground">
                           GPT 5 Nano
                         </div>

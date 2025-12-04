@@ -118,7 +118,7 @@ export function ChatContextMenu({ onShare, onRename, onMoveToProject, onRemoveFr
               onShare?.()
               setIsOpen(false)
             }}
-            className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-popover-foreground hover:bg-accent"
+            className="hidden sm:flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-popover-foreground hover:bg-accent"
           >
             <Share className="h-4 w-4" />
             Share
@@ -173,7 +173,7 @@ export function ChatContextMenu({ onShare, onRename, onMoveToProject, onRemoveFr
               onArchive?.()
               setIsOpen(false)
             }}
-            className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-popover-foreground hover:bg-accent"
+            className="hidden sm:flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-popover-foreground hover:bg-accent"
           >
             <Archive className="h-4 w-4" />
             Archive
