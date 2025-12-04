@@ -189,6 +189,7 @@ export default function ChatPageShell({
   const scrollViewportRef = useRef<HTMLDivElement | null>(null);
   const conversationRenderKeyRef = useRef<string | null>(null);
   const animatedMessageIdsRef = useRef<Set<string>>(new Set());
+  const lastCreatedConversationIdRef = useRef<string | null>(null);
   const autoStreamedConversations = useRef<Set<string>>(new Set());
   const inFlightRequests = useRef<Set<string>>(new Set());
   const streamAbortControllerRef = useRef<AbortController | null>(null);
@@ -224,8 +225,18 @@ export default function ChatPageShell({
 
   const currentConversationKey = activeConversationId ?? "__no_conversation__";
   const conversationChanged = conversationRenderKeyRef.current !== currentConversationKey;
+  let allowAssistantHistoryAnimation = false;
   if (conversationChanged) {
     animatedMessageIdsRef.current.clear();
+    const lastCreatedId = lastCreatedConversationIdRef.current;
+    if (currentConversationKey && currentConversationKey !== "__no_conversation__") {
+      if (lastCreatedId && currentConversationKey === lastCreatedId) {
+        // Suppress animations for the initial navigation into a brand-new chat
+        lastCreatedConversationIdRef.current = null;
+      } else {
+        allowAssistantHistoryAnimation = true;
+      }
+    }
   }
   conversationRenderKeyRef.current = currentConversationKey;
 
@@ -842,6 +853,7 @@ export default function ChatPageShell({
         });
         setSelectedChatId(newChatId);
         setSelectedProjectId(targetProjectId);
+        lastCreatedConversationIdRef.current = conversationId;
         
         // Mark this conversation as already auto-streamed to prevent duplicate in useEffect
         console.log("[chatDebug] Marking conversation as auto-streamed:", conversationId);
@@ -886,6 +898,7 @@ export default function ChatPageShell({
         });
         setSelectedChatId(newChatId);
         setSelectedProjectId("");
+        lastCreatedConversationIdRef.current = conversationId;
         
         // Mark this conversation as already auto-streamed to prevent duplicate in useEffect
         console.log("[chatDebug] Marking conversation as auto-streamed:", conversationId);
@@ -2076,9 +2089,21 @@ export default function ChatPageShell({
                     
                     let shouldAnimateEntry = false;
                     const isNewestMessage = index === messages.length - 1;
-                    if (isNewestMessage && !animatedMessageIdsRef.current.has(message.id)) {
-                      shouldAnimateEntry = true;
-                      animatedMessageIdsRef.current.add(message.id);
+                    const alreadyAnimated = animatedMessageIdsRef.current.has(message.id);
+
+                    if (message.role === "assistant") {
+                      if (
+                        allowAssistantHistoryAnimation &&
+                        !alreadyAnimated
+                      ) {
+                        shouldAnimateEntry = true;
+                        animatedMessageIdsRef.current.add(message.id);
+                      }
+                    } else {
+                      if (isNewestMessage && !alreadyAnimated) {
+                        shouldAnimateEntry = true;
+                        animatedMessageIdsRef.current.add(message.id);
+                      }
                     }
 
                     return (
