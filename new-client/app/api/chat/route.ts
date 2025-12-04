@@ -969,28 +969,53 @@ export async function POST(request: NextRequest) {
     const permanentInstructionWrites = (modelConfig as any).permanentInstructionsToWrite || [];
     let permanentInstructionDeletes = (modelConfig as any).permanentInstructionsToDelete || [];
 
-    // Fallback: if the user asks to stop a nickname but the router didn't return IDs, delete any nickname instructions by content match
-    const userWantsNicknameRemoved = /stop\\s+call(?:ing)?\\s+me|don['’]t\\s+call\\s+me|do\\s+not\\s+call\\s+me|forget\\s+.*call\\s+me/i.test(
-      message.toLowerCase()
+    // Fallback: infer deletes from the user's request and loaded instructions when the router doesn't supply IDs
+    const loadedInstructions = permanentInstructionState?.instructions ?? [];
+    const lowerMsg = message.toLowerCase();
+    const existingDeleteIds = new Set(
+      (permanentInstructionDeletes || []).map((d: any) => d?.id).filter(Boolean)
     );
-    if (
-      userWantsNicknameRemoved &&
-      (!permanentInstructionDeletes || permanentInstructionDeletes.length === 0)
-    ) {
-      const nicknameIds =
-        permanentInstructionState?.instructions
-          ?.filter((inst) => {
-            const text = `${inst.title || ""} ${inst.content}`.toLowerCase();
-            return (
-              text.includes("call me") ||
-              text.includes("address") ||
-              text.includes("nickname")
-            );
-          })
-          .map((inst) => ({ id: inst.id, reason: "User revoked nickname" })) || [];
-      if (nicknameIds.length) {
-        permanentInstructionDeletes = nicknameIds;
+    const deleteCandidates: { id: string; reason?: string }[] = [];
+    const addDeleteIfMissing = (id: string, reason?: string) => {
+      if (!id || existingDeleteIds.has(id)) return;
+      existingDeleteIds.add(id);
+      deleteCandidates.push({ id, reason });
+    };
+
+    // Clear-all request
+    const wantsFullClear = /(forget|remove|clear|delete)\s+(all\s+)?(permanent\s+)?(instructions|behaviors|rules)/i.test(
+      lowerMsg
+    );
+    if (wantsFullClear) {
+      for (const inst of loadedInstructions) {
+        addDeleteIfMissing(inst.id, "User requested to clear permanent instructions");
       }
+    } else {
+      // Nickname removal or specific name revocation
+      const userWantsNicknameRemoved = /stop\s+call(?:ing)?\s+me|don['’]t\s+call\s+me|do\s+not\s+call\s+me|forget\s+.*call\s+me/i.test(
+        lowerMsg
+      );
+      const nameMatch = lowerMsg.match(/call\s+me\s+([a-z0-9 .,'\"-]+)/i);
+      const nameToken = nameMatch?.[1]?.trim().toLowerCase();
+
+      for (const inst of loadedInstructions) {
+        const text = `${inst.title || ""} ${inst.content}`.toLowerCase();
+        const isNickname = text.includes("call me") || text.includes("address") || text.includes("nickname");
+        const mentionsName = nameToken ? text.includes(nameToken) : false;
+
+        if (userWantsNicknameRemoved && (isNickname || mentionsName)) {
+          addDeleteIfMissing(inst.id, "User revoked nickname");
+        } else if (nameToken && text.includes(nameToken) && lowerMsg.includes("forget")) {
+          addDeleteIfMissing(inst.id, "User revoked a named permanent instruction");
+        }
+      }
+    }
+
+    if (deleteCandidates.length) {
+      permanentInstructionDeletes = [
+        ...(permanentInstructionDeletes || []),
+        ...deleteCandidates,
+      ];
     }
     let permanentInstructionsChanged = false;
     if (permanentInstructionWrites.length || permanentInstructionDeletes.length) {
