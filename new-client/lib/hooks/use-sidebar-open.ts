@@ -2,28 +2,61 @@
 
 import { useEffect, useLayoutEffect, useState } from "react";
 
+const MOBILE_BREAKPOINT = "(min-width: 1024px)";
+
 const useIsomorphicLayoutEffect =
   typeof window !== "undefined" ? useLayoutEffect : useEffect;
 
+function computeInitial(defaultValue: boolean): boolean {
+  if (typeof window === "undefined") {
+    return defaultValue;
+  }
+
+  const isDesktop = window.matchMedia(MOBILE_BREAKPOINT).matches;
+  if (!isDesktop) {
+    return false;
+  }
+
+  try {
+    const stored = localStorage.getItem("sidebarOpen");
+    if (stored !== null) {
+      return stored === "true";
+    }
+  } catch {
+    // ignore
+  }
+  return defaultValue;
+}
+
 export function usePersistentSidebarOpen(defaultValue = true) {
-  const [isOpen, setIsOpen] = useState<boolean>(defaultValue);
+  const [isOpen, setIsOpen] = useState<boolean>(() =>
+    typeof window === "undefined" ? defaultValue : computeInitial(defaultValue)
+  );
 
   useIsomorphicLayoutEffect(() => {
-    if (typeof window === "undefined") return;
+    setIsOpen(computeInitial(defaultValue));
 
-    try {
-      const stored = localStorage.getItem("sidebarOpen");
-      if (stored !== null) {
-        setIsOpen(stored === "true");
-        return;
-      }
-    } catch {
-      // Ignore storage access issues and fall back to computed defaults
+    if (typeof window === "undefined") return;
+    const mediaQuery = window.matchMedia(MOBILE_BREAKPOINT);
+
+    const handleChange = () => {
+      setIsOpen(computeInitial(defaultValue));
+    };
+
+    if (mediaQuery.addEventListener) {
+      mediaQuery.addEventListener("change", handleChange);
+    } else {
+      mediaQuery.addListener(handleChange);
     }
 
-    const prefersDesktop = window.matchMedia("(min-width: 1024px)").matches;
-    setIsOpen(prefersDesktop);
-  }, []);
+    return () => {
+      if (mediaQuery.removeEventListener) {
+        mediaQuery.removeEventListener("change", handleChange);
+      } else {
+        mediaQuery.removeListener(handleChange);
+      }
+    };
+  }, [defaultValue]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;

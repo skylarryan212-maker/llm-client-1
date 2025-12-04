@@ -2154,7 +2154,7 @@ export default function ChatPageShell({
                   })() && (
                     <div className="px-4 sm:px-6 pb-8">
                       <div className="mx-auto w-full max-w-3xl">
-                        <div className="flex items-center min-h-[28px]">
+                        <div className="flex items-center justify-center min-h-[28px]">
                           {/* Priority order: file reading > search > thinking (only show one at a time) */}
                           {fileReadingIndicator ? (
                             <StatusBubble
