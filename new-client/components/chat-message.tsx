@@ -10,7 +10,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Copy, ExternalLink, Check } from 'lucide-react'
 import Image from 'next/image'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { AssistantMessageMetadata } from '@/lib/chatTypes'
 import { MessageInsightChips } from '@/components/chat/message-insight-chips'
 import { MarkdownContent } from '@/components/markdown-content'
@@ -42,6 +42,15 @@ export function ChatMessage({
   const [copied, setCopied] = useState(false)
   const [retryModel, setRetryModel] = useState('')
   const [showSources, setShowSources] = useState(false)
+  const [shouldAnimate, setShouldAnimate] = useState(true)
+
+  useEffect(() => {
+    if (!shouldAnimate) return
+    const id = requestAnimationFrame(() => setShouldAnimate(false))
+    return () => cancelAnimationFrame(id)
+  }, [shouldAnimate])
+
+  const animateClass = shouldAnimate ? 'chat-entry-animate' : ''
 
   // Extract metadata safely
   let metadataObj: AssistantMessageMetadata | Record<string, unknown> | null = null
@@ -94,7 +103,7 @@ export function ChatMessage({
 
   if (role === 'user') {
     return (
-      <div className="py-3 sm:py-4 chat-entry-animate">
+      <div className={`py-3 sm:py-4 ${animateClass}`}>
         <div className="mx-auto w-full max-w-3xl flex flex-col items-end">
           {Array.isArray((metadata as any)?.files) && (metadata as any).files.length > 0 && (
             <div className="mb-2 flex flex-wrap gap-2 justify-end max-w-[92%] sm:max-w-4xl lg:max-w-5xl xl:max-w-[1200px] 2xl:max-w-[1400px]">
@@ -136,7 +145,7 @@ export function ChatMessage({
   }
 
   return (
-    <div className="py-4 sm:py-6 chat-entry-animate">
+    <div className={`py-4 sm:py-6 ${animateClass}`}>
       <div className="mx-auto w-full max-w-3xl">
         <div className="space-y-3 sm:space-y-4">
           <MarkdownContent content={content} />

@@ -132,6 +132,16 @@ export async function deleteAllConversations() {
   const supabase = await supabaseServer();
   const userId = await requireUserIdServer();
 
+  // Remove all messages first so there are no dangling rows referencing deleted conversations
+  const { error: messageError } = await supabase
+    .from("messages")
+    .delete()
+    .eq("user_id", userId);
+
+  if (messageError) {
+    throw new Error(`Failed to delete all messages: ${messageError.message}`);
+  }
+
   const { error } = await supabase
     .from("conversations")
     .delete()
