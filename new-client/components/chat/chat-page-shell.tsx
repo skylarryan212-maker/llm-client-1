@@ -2070,29 +2070,31 @@ export default function ChatPageShell({
                         }}
                       >
                         {message.role === "assistant" && (
-                          <div className="flex flex-col gap-2 pb-2 px-4 sm:px-6" style={{ minHeight: metadataIndicators ? 'auto' : '0px' }}>
-                            <div className="mx-auto w-full max-w-3xl">
-                              <div className="flex flex-wrap items-center gap-1.5 pt-1">
-                                {metadataIndicators && <MessageInsightChips metadata={displayMetadata || undefined} />}
-                              </div>
+                        <div className="flex flex-col gap-2 pb-2 px-4 sm:px-6" style={{ minHeight: metadataIndicators ? 'auto' : '0px' }}>
+                          <div className="mx-auto w-full max-w-[min(720px,100%)]">
+                            <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                              {metadataIndicators && <MessageInsightChips metadata={displayMetadata || undefined} />}
                             </div>
                           </div>
-                        )}
-                        <div className="px-4 sm:px-6">
-                          <ChatMessage
-                            {...message}
-                            showInsightChips={false}
-                            isStreaming={isStreamingMessage}
-                            onRetry={
-                              message.role === "assistant"
-                                ? (model) => handleRetryWithModel(model, message.id)
-                                : undefined
-                            }
-                          />
+                        </div>
+                      )}
+                      <div className="px-4 sm:px-6">
+                        <div className="mx-auto w-full max-w-[min(720px,100%)]">
+                        <ChatMessage
+                          {...message}
+                          showInsightChips={false}
+                          isStreaming={isStreamingMessage}
+                          onRetry={
+                            message.role === "assistant"
+                              ? (model) => handleRetryWithModel(model, message.id)
+                              : undefined
+                          }
+                        />
                         </div>
                       </div>
-                    );
-                  })}
+                    </div>
+                  );
+                })}
                   {/* Show indicators with priority. Allow web/file indicators even when last assistant message is empty. */}
                   {(() => {
                     const hasIndicator = Boolean(thinkingStatus || searchIndicator || fileReadingIndicator);

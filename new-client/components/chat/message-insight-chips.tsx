@@ -41,18 +41,6 @@ export function MessageInsightChips({ metadata }: MessageInsightChipsProps) {
     chips.push(<StatusBubble key="thought" label={thoughtLabel} />);
   }
 
-  const searchLine = formatSearchedDomainsLine(typed.searchedDomains);
-  if (searchLine) {
-    chips.push(
-      <StatusBubble
-        key="search"
-        label={searchLine}
-        subtext={typed.searchedSiteLabel || undefined}
-        variant="search"
-      />
-    );
-  }
-
   if (!chips.length) return null;
 
   return <div className="flex flex-wrap items-center gap-1.5 pt-1">{chips}</div>;
