@@ -10,12 +10,13 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Copy, ExternalLink, Check } from 'lucide-react'
 import Image from 'next/image'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { AssistantMessageMetadata } from '@/lib/chatTypes'
 import { MessageInsightChips } from '@/components/chat/message-insight-chips'
 import { MarkdownContent } from '@/components/markdown-content'
 
 interface ChatMessageProps {
+  messageId?: string
   role: 'user' | 'assistant'
   content: string
   model?: string
@@ -26,9 +27,11 @@ interface ChatMessageProps {
   onRetry?: (modelName: string) => void
   showInsightChips?: boolean
   isStreaming?: boolean
+  enableEntryAnimation?: boolean
 }
 
 export function ChatMessage({
+  messageId,
   role,
   content,
   metadata,
@@ -38,19 +41,43 @@ export function ChatMessage({
   onRetry,
   showInsightChips = true,
   isStreaming = false,
+  enableEntryAnimation = false,
 }: ChatMessageProps) {
   const [copied, setCopied] = useState(false)
   const [retryModel, setRetryModel] = useState('')
   const [showSources, setShowSources] = useState(false)
-  const [shouldAnimate, setShouldAnimate] = useState(true)
+  const [isAnimating, setIsAnimating] = useState(Boolean(enableEntryAnimation))
+  const animationTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
-    if (!shouldAnimate) return
-    const id = requestAnimationFrame(() => setShouldAnimate(false))
-    return () => cancelAnimationFrame(id)
-  }, [shouldAnimate])
+    if (!enableEntryAnimation) {
+      setIsAnimating(false)
+      return undefined
+    }
 
-  const animateClass = shouldAnimate ? 'chat-entry-animate' : ''
+    setIsAnimating(true)
+    if (typeof window === 'undefined') {
+      return undefined
+    }
+
+    if (animationTimeoutRef.current) {
+      clearTimeout(animationTimeoutRef.current)
+    }
+
+    animationTimeoutRef.current = window.setTimeout(() => {
+      setIsAnimating(false)
+      animationTimeoutRef.current = null
+    }, 650)
+
+    return () => {
+      if (animationTimeoutRef.current) {
+        clearTimeout(animationTimeoutRef.current)
+        animationTimeoutRef.current = null
+      }
+    }
+  }, [enableEntryAnimation, messageId])
+
+  const animateClass = isAnimating ? 'chat-entry-animate' : ''
 
   // Extract metadata safely
   let metadataObj: AssistantMessageMetadata | Record<string, unknown> | null = null

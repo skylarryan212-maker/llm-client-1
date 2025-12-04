@@ -187,6 +187,7 @@ export default function ChatPageShell({
   const [fileReadingIndicator, setFileReadingIndicator] = useState<"running" | "error" | null>(null);
   const [activeIndicatorMessageId, setActiveIndicatorMessageId] = useState<string | null>(null);
   const scrollViewportRef = useRef<HTMLDivElement | null>(null);
+  const conversationRenderKeyRef = useRef<string | null>(null);
   const autoStreamedConversations = useRef<Set<string>>(new Set());
   const inFlightRequests = useRef<Set<string>>(new Set());
   const streamAbortControllerRef = useRef<AbortController | null>(null);
@@ -219,6 +220,11 @@ export default function ChatPageShell({
       sessionStorage.removeItem(getAutoStreamKey(conversationId));
     }
   }, []);
+
+  const currentConversationKey = activeConversationId ?? "__no_conversation__";
+  const conversationJustChanged = conversationRenderKeyRef.current !== currentConversationKey;
+  conversationRenderKeyRef.current = currentConversationKey;
+  const allowEntryAnimations = !conversationJustChanged;
 
   const isConversationAutoStreamed = useCallback(
     (conversationId: string) => {
@@ -2065,9 +2071,12 @@ export default function ChatPageShell({
                       Boolean(displayMetadata?.thoughtDurationLabel) ||
                       Boolean(displayMetadata?.searchedDomains?.length);
                     
-                    return (
-                      <div
-                        key={message.id}
+                const shouldAnimateEntry =
+                  allowEntryAnimations && index === messages.length - 1;
+
+                return (
+                  <div
+                    key={message.id}
                         ref={(el) => {
                           if (el) {
                             messageRefs.current[message.id] = el;
@@ -2087,6 +2096,8 @@ export default function ChatPageShell({
                         <div className="mx-auto w-full max-w-[min(720px,100%)]">
                         <ChatMessage
                           {...message}
+                          messageId={message.id}
+                          enableEntryAnimation={shouldAnimateEntry}
                           showInsightChips={false}
                           isStreaming={isStreamingMessage}
                           onRetry={

@@ -127,6 +127,8 @@ export interface RouterContext {
   permanentInstructions?: PermanentInstructionToWrite[]; // Full list with IDs/content/scope
 }
 
+const ROUTER_MODEL_ID = "gpt-4.1-nano";
+
 const ROUTER_SYSTEM_PROMPT = `You are a routing assistant that analyzes user prompts and recommends the optimal AI model, reasoning effort, context strategy, and web search strategy.
 
 **Reliability-first selection**
@@ -382,7 +384,7 @@ export async function routeWithLLM(
     const startTime = Date.now();
 
     const response = await openai.responses.create({
-      model: "gpt-5-nano-2025-08-07",
+      model: ROUTER_MODEL_ID,
       input: [
         { role: "system", content: ROUTER_SYSTEM_PROMPT, type: "message" },
         { role: "user", content: routerPrompt, type: "message" },
@@ -396,7 +398,7 @@ export async function routeWithLLM(
     const usageInfo = (response as { usage?: { input_tokens?: number; output_tokens?: number } }).usage;
     if (usageInfo) {
       lastRouterUsage = {
-        model: "gpt-5-nano-2025-08-07",
+        model: ROUTER_MODEL_ID,
         inputTokens: usageInfo.input_tokens ?? lastRouterUsage.inputTokens,
         outputTokens: usageInfo.output_tokens ?? lastRouterUsage.outputTokens,
       };
@@ -546,7 +548,7 @@ export async function routeWithLLM(
  * Returns usage data for the router call (for cost tracking)
  */
 let lastRouterUsage = {
-  model: "gpt-5-nano-2025-08-07",
+  model: ROUTER_MODEL_ID,
   inputTokens: 100,
   outputTokens: 20,
 };

@@ -93,7 +93,12 @@ export default function CodexAgentChatPage({ params }: CodexChatPageProps) {
         <div className="py-4">
           <div className="w-full px-4 sm:px-6 lg:px-12 space-y-4">
             {messages.map((message, index) => (
-              <ChatMessage key={`${params.chatId}-${index}`} {...message} />
+              <ChatMessage
+                key={`${params.chatId}-${index}`}
+                messageId={`${params.chatId}-${index}`}
+                enableEntryAnimation={false}
+                {...message}
+              />
             ))}
           </div>
         </div>
