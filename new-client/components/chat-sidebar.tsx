@@ -241,9 +241,8 @@ export function ChatSidebar({
     <>
       {isOpen && (
         <div 
-          className="fixed inset-0 bg-black/50 z-40 lg:hidden touch-none"
+          className="fixed inset-0 bg-black/50 z-40 lg:hidden"
           onClick={onToggle}
-          onTouchMove={(e) => e.preventDefault()}
         />
       )}
 
@@ -311,7 +310,7 @@ export function ChatSidebar({
 
           {isOpen && (
             <div className="flex-1 overflow-hidden min-h-0">
-              <ScrollArea className="h-full px-3 pb-20" viewportClassName="pr-2">
+              <ScrollArea className="h-full px-3 pb-20 touch-pan-y" viewportClassName="pr-2 touch-pan-y">
                 <div className="space-y-4 py-3 pb-4">
                   <div>
                     <button

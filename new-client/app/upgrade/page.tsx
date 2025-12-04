@@ -125,7 +125,7 @@ function UpgradePageContent() {
           </div>
 
           <div className="max-w-7xl mx-auto">
-            <div className="flex flex-col items-center justify-start gap-6">
+            <div className="flex flex-col lg:flex-row lg:flex-wrap lg:items-stretch items-center justify-start lg:justify-center gap-6">
           {plans
             .filter((plan) => {
               // If showing all plans (from settings), show all

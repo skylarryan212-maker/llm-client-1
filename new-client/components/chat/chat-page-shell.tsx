@@ -565,6 +565,22 @@ export default function ChatPageShell({
     };
   }, [isSidebarOpen]);
 
+  // When the mobile keyboard hides (viewport height increases), settle layout and keep composer anchored
+  useEffect(() => {
+    if (typeof window === "undefined" || !window.visualViewport) return;
+    const handler = () => {
+      // Allow the viewport to settle, then reset scroll positions
+      setTimeout(() => {
+        window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+        scrollToBottom("auto");
+      }, 150);
+    };
+    window.visualViewport.addEventListener("resize", handler);
+    return () => {
+      window.visualViewport?.removeEventListener("resize", handler);
+    };
+  }, [scrollToBottom]);
+
   // Listen for usage limit exceeded events
   useEffect(() => {
     const handleUsageLimitExceeded = (event: Event) => {
@@ -2114,7 +2130,7 @@ export default function ChatPageShell({
         </div>
 
         {/* Composer: full-width bar, centered pill like ChatGPT */}
-        <div className="bg-background px-4 sm:px-6 lg:px-12 py-3 sm:py-4 relative sticky bottom-0 z-20 pb-[max(env(safe-area-inset-bottom),0px)] -translate-y-[2px] sm:translate-y-0">
+        <div className="bg-background px-4 sm:px-6 lg:px-12 py-3 sm:py-4 relative sticky bottom-0 z-20 pb-[max(env(safe-area-inset-bottom),0px)] -translate-y-[4px] sm:translate-y-0">
           <div
             className={`pointer-events-none fixed right-4 bottom-[calc(96px+env(safe-area-inset-bottom,0px))] z-30 transition-opacity duration-200 ${
               showScrollToBottom ? "opacity-100" : "opacity-0"
