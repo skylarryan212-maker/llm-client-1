@@ -2006,131 +2006,132 @@ export default function ChatPageShell({
           </div>
         )}
 
-        {/* Messages */}
-        {!selectedChatId || messages.length === 0 ? (
-          <div className="flex flex-1 items-center justify-center px-4 overflow-hidden">
-            <div className="text-center">
-              <h2 className="text-xl sm:text-2xl font-semibold text-foreground mb-2">
-                Where should we begin?
-              </h2>
-            </div>
-          </div>
-        ) : (
-          <ScrollArea
-            className="flex-1 overflow-auto"
-            viewportRef={scrollViewportRef}
-            onViewportScroll={handleScroll}
-          >
-            <div className="py-4 pb-20">
-              {/* Wide desktop layout with padded container */}
-              <div className="w-full space-y-4">
-                {messages.map((message) => {
-                  const metadata = message.metadata as AssistantMessageMetadata | null;
-                  const isStreamingMessage = message.id === activeIndicatorMessageId;
-
-                  // Build display metadata so we can show a live "Thought for xx" chip while waiting for first token
-                  let displayMetadata: AssistantMessageMetadata | null = metadata ? { ...metadata } : null;
-                  
-                  // If metadata already has thinking duration (from database), use it and skip live calculations
-                  const hasStoredThinkingDuration = metadata && 
-                    (typeof metadata.thinkingDurationMs === 'number' || typeof metadata.thinkingDurationSeconds === 'number');
-                  
-                  // Show timing: stored from DB, or pending from first token, or live while thinking
-                  const hasPendingTiming = Boolean(pendingThinkingInfoRef.current);
-                  
-                  if (!hasStoredThinkingDuration && isStreamingMessage && hasPendingTiming) {
-                    // Show pending timing from first token (triggered immediately when first token arrives)
-                    const timing = pendingThinkingInfoRef.current!;
-                    displayMetadata = {
-                      ...(displayMetadata || ({} as AssistantMessageMetadata)),
-                      thoughtDurationLabel: timing.label,
-                      thinkingDurationMs: timing.durationMs,
-                      thinkingDurationSeconds: timing.durationSeconds,
-                      thinking: {
-                        ...(displayMetadata?.thinking || {}),
-                        effort: timing.effort,
-                        durationMs: timing.durationMs,
-                        durationSeconds: timing.durationSeconds,
-                      },
-                    } as AssistantMessageMetadata;
-                  }
-
-                  // Show insight chips for thinking duration and web search domains as soon as metadata arrives (or live during thinking)
-                  const metadataIndicators =
-                    Boolean(displayMetadata?.thoughtDurationLabel) ||
-                    Boolean(displayMetadata?.searchedDomains?.length);
-                  
-                  return (
-                    <div
-                      key={message.id}
-                      ref={(el) => {
-                        if (el) {
-                          messageRefs.current[message.id] = el;
-                        }
-                      }}
-                    >
-                      {message.role === "assistant" && (
-                        <div className="flex flex-col gap-2 pb-2 px-4 sm:px-6" style={{ minHeight: metadataIndicators ? 'auto' : '0px' }}>
-                          <div className="mx-auto w-full max-w-3xl">
-                            <div className="flex flex-wrap items-center gap-1.5 pt-1">
-                              {metadataIndicators && <MessageInsightChips metadata={displayMetadata || undefined} />}
-                            </div>
-                          </div>
-                        </div>
-                      )}
-                      <div className="px-4 sm:px-6">
-                        <ChatMessage
-                          {...message}
-                          showInsightChips={false}
-                          isStreaming={isStreamingMessage}
-                          onRetry={
-                            message.role === "assistant"
-                              ? (model) => handleRetryWithModel(model, message.id)
-                              : undefined
-                          }
-                        />
-                      </div>
-                    </div>
-                  );
-                })}
-                {/* Show indicators with priority. Allow web/file indicators even when last assistant message is empty. */}
-                {(() => {
-                  const hasIndicator = Boolean(thinkingStatus || searchIndicator || fileReadingIndicator);
-                  const lastHasContent = messages.length === 0 || Boolean(messages[messages.length - 1]?.content);
-                  const allowRegardless = Boolean(searchIndicator || fileReadingIndicator);
-                  return hasIndicator && (lastHasContent || allowRegardless);
-                })() && (
-                  <div className="px-4 sm:px-6 pb-8">
-                    <div className="mx-auto w-full max-w-3xl">
-                      <div className="flex items-center min-h-[28px]">
-                        {/* Priority order: file reading > search > thinking (only show one at a time) */}
-                        {fileReadingIndicator ? (
-                          <StatusBubble
-                            label="Reading documents"
-                            variant={fileReadingIndicator === "error" ? "error" : "reading"}
-                          />
-                        ) : searchIndicator ? (
-                          <StatusBubble
-                            label={searchIndicator.message}
-                            variant={searchIndicator.variant === "error" ? "error" : "search"}
-                            subtext={searchIndicator.subtext}
-                          />
-                        ) : thinkingStatus ? (
-                          <StatusBubble
-                            label={thinkingStatus.label}
-                            variant={thinkingStatus.variant === "extended" ? "extended" : "default"}
-                          />
-                        ) : null}
-                      </div>
-                    </div>
-                  </div>
-                )}
-                {/* Bottom spacer for proper scrolling */}
-                <div aria-hidden="true" style={{ height: `${bottomSpacerPx}px` }} />
+        <div className="flex-1 overflow-hidden flex flex-col min-h-0">
+          {!selectedChatId || messages.length === 0 ? (
+            <div className="flex flex-1 items-center justify-center px-4">
+              <div className="text-center">
+                <h2 className="text-xl sm:text-2xl font-semibold text-foreground mb-2">
+                  Where should we begin?
+                </h2>
               </div>
             </div>
-          </ScrollArea>
-        )}
+          ) : (
+            <ScrollArea
+              className="h-full"
+              viewportRef={scrollViewportRef}
+              onViewportScroll={handleScroll}
+            >
+              <div className="py-4 pb-20">
+                {/* Wide desktop layout with padded container */}
+                <div className="w-full space-y-4">
+                  {messages.map((message) => {
+                    const metadata = message.metadata as AssistantMessageMetadata | null;
+                    const isStreamingMessage = message.id === activeIndicatorMessageId;
+
+                    // Build display metadata so we can show a live "Thought for xx" chip while waiting for first token
+                    let displayMetadata: AssistantMessageMetadata | null = metadata ? { ...metadata } : null;
+                    
+                    // If metadata already has thinking duration (from database), use it and skip live calculations
+                    const hasStoredThinkingDuration = metadata && 
+                      (typeof metadata.thinkingDurationMs === 'number' || typeof metadata.thinkingDurationSeconds === 'number');
+                    
+                    // Show timing: stored from DB, or pending from first token, or live while thinking
+                    const hasPendingTiming = Boolean(pendingThinkingInfoRef.current);
+                    
+                    if (!hasStoredThinkingDuration && isStreamingMessage && hasPendingTiming) {
+                      // Show pending timing from first token (triggered immediately when first token arrives)
+                      const timing = pendingThinkingInfoRef.current!;
+                      displayMetadata = {
+                        ...(displayMetadata || ({} as AssistantMessageMetadata)),
+                        thoughtDurationLabel: timing.label,
+                        thinkingDurationMs: timing.durationMs,
+                        thinkingDurationSeconds: timing.durationSeconds,
+                        thinking: {
+                          ...(displayMetadata?.thinking || {}),
+                          effort: timing.effort,
+                          durationMs: timing.durationMs,
+                          durationSeconds: timing.durationSeconds,
+                        },
+                      } as AssistantMessageMetadata;
+                    }
+
+                    // Show insight chips for thinking duration and web search domains as soon as metadata arrives (or live during thinking)
+                    const metadataIndicators =
+                      Boolean(displayMetadata?.thoughtDurationLabel) ||
+                      Boolean(displayMetadata?.searchedDomains?.length);
+                    
+                    return (
+                      <div
+                        key={message.id}
+                        ref={(el) => {
+                          if (el) {
+                            messageRefs.current[message.id] = el;
+                          }
+                        }}
+                      >
+                        {message.role === "assistant" && (
+                          <div className="flex flex-col gap-2 pb-2 px-4 sm:px-6" style={{ minHeight: metadataIndicators ? 'auto' : '0px' }}>
+                            <div className="mx-auto w-full max-w-3xl">
+                              <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                                {metadataIndicators && <MessageInsightChips metadata={displayMetadata || undefined} />}
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                        <div className="px-4 sm:px-6">
+                          <ChatMessage
+                            {...message}
+                            showInsightChips={false}
+                            isStreaming={isStreamingMessage}
+                            onRetry={
+                              message.role === "assistant"
+                                ? (model) => handleRetryWithModel(model, message.id)
+                                : undefined
+                            }
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {/* Show indicators with priority. Allow web/file indicators even when last assistant message is empty. */}
+                  {(() => {
+                    const hasIndicator = Boolean(thinkingStatus || searchIndicator || fileReadingIndicator);
+                    const lastHasContent = messages.length === 0 || Boolean(messages[messages.length - 1]?.content);
+                    const allowRegardless = Boolean(searchIndicator || fileReadingIndicator);
+                    return hasIndicator && (lastHasContent || allowRegardless);
+                  })() && (
+                    <div className="px-4 sm:px-6 pb-8">
+                      <div className="mx-auto w-full max-w-3xl">
+                        <div className="flex items-center min-h-[28px]">
+                          {/* Priority order: file reading > search > thinking (only show one at a time) */}
+                          {fileReadingIndicator ? (
+                            <StatusBubble
+                              label="Reading documents"
+                              variant={fileReadingIndicator === "error" ? "error" : "reading"}
+                            />
+                          ) : searchIndicator ? (
+                            <StatusBubble
+                              label={searchIndicator.message}
+                              variant={searchIndicator.variant === "error" ? "error" : "search"}
+                              subtext={searchIndicator.subtext}
+                            />
+                          ) : thinkingStatus ? (
+                            <StatusBubble
+                              label={thinkingStatus.label}
+                              variant={thinkingStatus.variant === "extended" ? "extended" : "default"}
+                            />
+                          ) : null}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  {/* Bottom spacer for proper scrolling */}
+                  <div aria-hidden="true" style={{ height: `${bottomSpacerPx}px` }} />
+                </div>
+              </div>
+            </ScrollArea>
+          )}
+        </div>
 
         {/* Composer: full-width bar, centered pill like ChatGPT */}
         <div className="bg-background px-4 sm:px-6 lg:px-12 py-3 sm:py-4 relative sticky bottom-0 z-20 pb-[max(env(safe-area-inset-bottom),0px)]">
