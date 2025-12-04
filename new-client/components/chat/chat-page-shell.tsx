@@ -2035,7 +2035,7 @@ export default function ChatPageShell({
               <div className="py-4 pb-20">
                 {/* Wide desktop layout with padded container */}
                 <div className="w-full space-y-4">
-                  {messages.map((message) => {
+                  {messages.map((message, index) => {
                     const metadata = message.metadata as AssistantMessageMetadata | null;
                     const isStreamingMessage = message.id === activeIndicatorMessageId;
 
@@ -2071,10 +2071,10 @@ export default function ChatPageShell({
                       Boolean(displayMetadata?.thoughtDurationLabel) ||
                       Boolean(displayMetadata?.searchedDomains?.length);
                     
-                const shouldAnimateEntry =
-                  allowEntryAnimations && index === messages.length - 1;
+                    const shouldAnimateEntry =
+                      allowEntryAnimations && index === messages.length - 1;
 
-                return (
+                    return (
                   <div
                     key={message.id}
                         ref={(el) => {
