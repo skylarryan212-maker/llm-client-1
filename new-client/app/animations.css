@@ -1,0 +1,30 @@
+@layer base {
+  @keyframes chat-entry {
+    0% {
+      opacity: 0;
+      transform: translateY(24px) scale(0.97);
+      filter: blur(8px);
+    }
+    55% {
+      opacity: 1;
+      transform: translateY(-3px) scale(1.01);
+      filter: blur(0);
+    }
+    100% {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+      filter: blur(0);
+    }
+  }
+
+  .chat-entry-animate {
+    animation: chat-entry 0.55s cubic-bezier(0.16, 0.84, 0.44, 1) both;
+    will-change: opacity, transform, filter;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-entry-animate {
+    animation: none !important;
+  }
+}

@@ -29,10 +29,6 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "LLM Client - AI Platform for Developers",
   description: "A refined, modern AI platform built for developers",
-  themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#000000" },
-    { media: "(prefers-color-scheme: dark)", color: "#000000" },
-  ],
   appleWebApp: {
     statusBarStyle: "black-translucent",
   },
@@ -41,6 +37,10 @@ export const metadata: Metadata = {
 export const viewport = {
   width: "device-width",
   initialScale: 1,
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#000000" },
+    { media: "(prefers-color-scheme: dark)", color: "#000000" },
+  ],
 };
 
 export default async function RootLayout({

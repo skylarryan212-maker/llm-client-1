@@ -94,7 +94,7 @@ export function ChatMessage({
 
   if (role === 'user') {
     return (
-      <div className="py-3 sm:py-4">
+      <div className="py-3 sm:py-4 chat-entry-animate">
         <div className="mx-auto w-full max-w-3xl flex flex-col items-end">
           {Array.isArray((metadata as any)?.files) && (metadata as any).files.length > 0 && (
             <div className="mb-2 flex flex-wrap gap-2 justify-end max-w-[92%] sm:max-w-4xl lg:max-w-5xl xl:max-w-[1200px] 2xl:max-w-[1400px]">
@@ -136,7 +136,7 @@ export function ChatMessage({
   }
 
   return (
-    <div className="py-4 sm:py-6">
+    <div className="py-4 sm:py-6 chat-entry-animate">
       <div className="mx-auto w-full max-w-3xl">
         <div className="space-y-3 sm:space-y-4">
           <MarkdownContent content={content} />
