@@ -324,7 +324,6 @@ export function ChatSidebar({
                     {!projectsCollapsed && (
                       <div className="space-y-1">
                         <Button
-                          onClick={onNewProject}
                           variant="ghost"
                             className="h-9 w-full max-w-[231px] justify-start gap-2 px-2.5 text-sidebar-foreground hover:bg-sidebar-accent"
                           onClick={() => {
