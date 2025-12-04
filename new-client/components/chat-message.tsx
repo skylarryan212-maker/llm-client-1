@@ -64,7 +64,7 @@ export function ChatMessage({
       clearTimeout(animationTimeoutRef.current)
     }
 
-    animationTimeoutRef.current = window.setTimeout(() => {
+    animationTimeoutRef.current = setTimeout(() => {
       setIsAnimating(false)
       animationTimeoutRef.current = null
     }, 650)
