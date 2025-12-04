@@ -764,7 +764,7 @@ export async function POST(request: NextRequest) {
     // Optionally insert the user message unless the client indicates it's already persisted (e.g., first send via server action, or retry)
     let userMessageRow: MessageRow | null = null;
     let routerContextLines: RouterContextLine[] = [];
-    let permanentInstructionState: { instructions: PermanentInstructionCacheItem[]; metadata: Conversation["metadata"] } | null = null;
+    let permanentInstructionState: { instructions: PermanentInstructionCacheItem[]; metadata: ConversationRow["metadata"] } | null = null;
     let permanentInstructionSummaryForRouter = "No permanent instructions are saved for this user yet.";
     if (!skipUserInsert) {
       const insertResult = await supabaseAny

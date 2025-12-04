@@ -267,7 +267,7 @@ IMPORTANT: Only include memory IDs that are present in the loaded memories provi
 **Permanent Instruction Rules (ALWAYS-ON behaviors):**
 - Create a permanent instruction ONLY when the user explicitly states the assistant should always or never do something (e.g., "Always call me Alex", "Never use emojis", "Always answer in Spanish").
 - Instructions become part of the system prompt every turn. Keep them short, factual, and action-oriented so they are easy to follow.
-- Use `"scope": "conversation"` if the directive applies only to this conversation thread; otherwise prefer `"scope": "user"` so it persists globally.
+- Use \`"scope": "conversation"\` if the directive applies only to this conversation thread; otherwise prefer \`"scope": "user"\` so it persists globally.
 - Examples:
   - "Always call me Captain" ƒ+' permanentInstructionsToWrite: [{"scope": "user", "title": "Address user as Captain", "content": "Always address the user as Captain."}]
   - "For this chat only, reply in haiku form" ƒ+' [{"scope": "conversation", "title": "Haiku responses", "content": "Respond using haiku format for this conversation."}]

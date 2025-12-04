@@ -76,7 +76,7 @@ async function fetchInstructionVersion(
     .from("permanent_instruction_versions")
     .select("version")
     .eq("user_id", userId)
-    .maybeSingle<{ version: string | null }>();
+    .maybeSingle();
 
   if (error && error.code !== "PGRST116") {
     console.warn("[permanent-instructions] Failed to load version:", error);
@@ -135,7 +135,7 @@ export async function loadPermanentInstructions({
       version: versionKey,
       instructions: sanitized,
     },
-  };
+  } as unknown as Conversation["metadata"];
 
   try {
     await supabase
@@ -178,11 +178,11 @@ export async function applyPermanentInstructionMutations({
 }: MutationOptions): Promise<boolean> {
   let mutated = false;
 
-  const trimmedWrites = writes
+  const trimmedWrites: Array<{ title: string | null; content: string; scope: PermanentInstructionScope }> = writes
     .map((item) => ({
       title: (item.title ?? "").trim() || null,
       content: item.content?.trim() ?? "",
-      scope: item.scope === "conversation" ? "conversation" : "user",
+      scope: (item.scope === "conversation" ? "conversation" : "user") as PermanentInstructionScope,
     }))
     .filter((item) => item.content.length > 0);
 
