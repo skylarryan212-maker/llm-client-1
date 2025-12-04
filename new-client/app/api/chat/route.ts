@@ -967,7 +967,31 @@ export async function POST(request: NextRequest) {
     // Load personalization settings and relevant memories using router's memory strategy
     const personalizationSettings = loadPersonalizationSettings();
     const permanentInstructionWrites = (modelConfig as any).permanentInstructionsToWrite || [];
-    const permanentInstructionDeletes = (modelConfig as any).permanentInstructionsToDelete || [];
+    let permanentInstructionDeletes = (modelConfig as any).permanentInstructionsToDelete || [];
+
+    // Fallback: if the user asks to stop a nickname but the router didn't return IDs, delete any nickname instructions by content match
+    const userWantsNicknameRemoved = /stop\\s+call(?:ing)?\\s+me|don['’]t\\s+call\\s+me|do\\s+not\\s+call\\s+me|forget\\s+.*call\\s+me/i.test(
+      message.toLowerCase()
+    );
+    if (
+      userWantsNicknameRemoved &&
+      (!permanentInstructionDeletes || permanentInstructionDeletes.length === 0)
+    ) {
+      const nicknameIds =
+        permanentInstructionState?.instructions
+          ?.filter((inst) => {
+            const text = `${inst.title || ""} ${inst.content}`.toLowerCase();
+            return (
+              text.includes("call me") ||
+              text.includes("address") ||
+              text.includes("nickname")
+            );
+          })
+          .map((inst) => ({ id: inst.id, reason: "User revoked nickname" })) || [];
+      if (nicknameIds.length) {
+        permanentInstructionDeletes = nicknameIds;
+      }
+    }
     let permanentInstructionsChanged = false;
     if (permanentInstructionWrites.length || permanentInstructionDeletes.length) {
       try {
