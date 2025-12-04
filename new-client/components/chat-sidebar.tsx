@@ -246,7 +246,7 @@ export function ChatSidebar({
         ${isOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
         ${isOpen ? 'w-64' : 'lg:w-[60px] w-64'}
       `}>
-        <div className="flex h-full flex-col">
+        <div className="flex h-full flex-col overflow-hidden">
           <div className={`flex h-[53px] items-center border-b border-sidebar-border px-4 ${isOpen ? 'justify-between' : 'lg:justify-center justify-between'}`}>
             {isOpen && (
               <div className="text-sm font-semibold text-sidebar-foreground">
@@ -297,8 +297,8 @@ export function ChatSidebar({
           </div>
 
           {isOpen && (
-            <div className="flex-1 overflow-hidden">
-              <ScrollArea className="h-full px-3">
+            <div className="flex-1 overflow-hidden min-h-0">
+              <ScrollArea className="h-full px-3" viewportClassName="pr-2">
                 <div className="space-y-4 py-3 pb-4">
                   <div>
                     <button

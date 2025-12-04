@@ -1797,9 +1797,11 @@ export default function ChatPageShell({
                     </DropdownMenuSubTrigger>
                     <DropdownMenuPortal>
                       <DropdownMenuSubContent
-                        sideOffset={-16}
+                        side="bottom"
+                        align="start"
+                        sideOffset={4}
                         collisionPadding={12}
-                        className="w-[min(300px,calc(100vw-16px))] max-w-[calc(100vw-16px)] sm:w-56 p-2 space-y-1 data-[side=right]:-translate-x-6 sm:data-[side=right]:translate-x-0"
+                        className="w-auto min-w-[220px] max-w-[90vw] sm:min-w-[220px] sm:max-w-[320px] p-2 space-y-1"
                       >
                         <div className="px-3 pb-1 text-sm font-semibold text-muted-foreground">
                           GPT 5 Nano
