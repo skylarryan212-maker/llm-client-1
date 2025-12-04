@@ -909,55 +909,54 @@ export async function POST(request: NextRequest) {
 
     // Smart context loading based on router decision
     let contextMessagesToLoad: MessageRow[] = [];
-    const contextStrategy = (modelConfig as any).contextStrategy || "recent"; // Default to recent if not present
+    let contextStrategy = (modelConfig as any).contextStrategy || "recent"; // Default to recent if not present
     
+    /* Original adaptive logic commented out for testing simplified full-history context
     if (contextStrategy === "minimal") {
-      // Use cache only, don't load history
-      contextMessagesToLoad = [];
-      console.log(`[context-strategy] Using minimal - cache only (0 messages loaded)`);
+      ...
     } else if (contextStrategy === "recent") {
-      // If chain exists, trust it completely (don't send explicit messages)
-      // Only load from DB when starting fresh (no chain)
-      if (previousResponseId) {
-        contextMessagesToLoad = [];
-        console.log(`[context-strategy] Using recent with chain - relying on OpenAI cache (0 explicit messages)`);
-      } else {
-        const { data: recentHistory, error: recentError } = await supabaseAny
-          .from("messages")
-          .select("*")
-          .eq("conversation_id", conversationId)
-          .order("created_at", { ascending: true })
-          .limit(15);
-        
-        if (recentError) {
-          console.error("Failed to load recent history:", recentError);
-        } else {
-          contextMessagesToLoad = recentHistory || [];
-        }
-        console.log(`[context-strategy] Using recent without chain - loaded ${contextMessagesToLoad.length} messages from DB`);
-      }
+      ...
     } else if (contextStrategy === "full") {
-      // Load all messages for enumeration/recall
-      // User explicitly wants to list/count messages, so we need explicit data
-      // Send explicit messages WITHOUT previous_response_id to avoid duplication
-      const { data: fullHistory, error: fullError } = await supabaseAny
-        .from("messages")
-        .select("*")
-        .eq("conversation_id", conversationId)
-        .order("created_at", { ascending: true })
-        .limit(100);  // Cap at 100 for safety
-      
-      if (fullError) {
-        console.error("Failed to load full history:", fullError);
-      } else {
-        // Exclude the current user message (just inserted) to avoid duplication
-        // It will be added separately in messagesForAPI
-        contextMessagesToLoad = (fullHistory || []).filter(
-          (msg: MessageRow) => msg.id !== userMessageRow?.id
-        );
-      }
-      console.log(`[context-strategy] Using full - loaded ${contextMessagesToLoad.length} messages for enumeration (excluding current)`);
+      ...
     }
+    */
+
+    contextStrategy = "full";
+    const { data: fullHistory, error: fullError } = await supabaseAny
+      .from("messages")
+      .select("*")
+      .eq("conversation_id", conversationId)
+      .order("created_at", { ascending: true })
+      .limit(400);
+
+    if (fullError) {
+      console.error("Failed to load conversation history:", fullError);
+      contextMessagesToLoad = [];
+    } else {
+    const fullMessages = (fullHistory || []).filter(
+      (msg: MessageRow) => msg.id !== userMessageRow?.id
+    );
+      const MAX_CONTEXT_TOKENS = 200_000;
+      const estimateTokensFromMessage = (msg: MessageRow) => {
+        const base = typeof msg.content === "string" ? msg.content.length : 0;
+        return Math.ceil(base / 4) + 20;
+      };
+      let runningTokens = 0;
+      const trimmed: MessageRow[] = [];
+      for (let i = fullMessages.length - 1; i >= 0; i--) {
+        const candidate = fullMessages[i];
+        const tok = estimateTokensFromMessage(candidate);
+        if (runningTokens + tok > MAX_CONTEXT_TOKENS) {
+          break;
+        }
+        trimmed.push(candidate);
+        runningTokens += tok;
+      }
+      contextMessagesToLoad = trimmed.reverse();
+    }
+    console.log(
+      `[context-strategy] Forced full history mode - loaded ${contextMessagesToLoad.length} messages (${contextMessagesToLoad.reduce((sum, m) => sum + (m.content?.length || 0), 0)} chars) clamped to ~200K tokens`
+    );
 
     // Smart web search decision based on router (replaces hardcoded heuristics)
     const webSearchStrategy = (modelConfig as any).webSearchStrategy || "optional";
