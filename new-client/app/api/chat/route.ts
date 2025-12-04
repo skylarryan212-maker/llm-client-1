@@ -983,7 +983,7 @@ export async function POST(request: NextRequest) {
     };
 
     // Clear-all request
-    const wantsFullClear = /(forget|remove|clear|delete)\s+(all\s+)?(permanent\s+)?(instructions|behaviors|rules)/i.test(
+    const wantsFullClear = /(forget|remove|clear|delete)\s+(all\s+)?(permanent\s+)?(instructions?|behaviors?|rules?|memories?|memory)/i.test(
       lowerMsg
     );
     if (wantsFullClear) {
