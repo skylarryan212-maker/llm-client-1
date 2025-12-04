@@ -219,15 +219,6 @@ function buildPermanentInstructionSummaryForRouter(
   return `Current permanent instructions (use IDs if you need to delete one):\n${lines.join("\n")}${suffix}`;
 }
 
-function wantsPermanentClear(message: string): boolean {
-  const lowerMsg = message.toLowerCase();
-  const directMatch = /(forget|remove|clear|delete)\s+(all\s+)?(permanent\s+)?(instructions?|behaviors?|rules?|memories?|memory)/i.test(
-    lowerMsg
-  );
-  if (directMatch) return true;
-  return false;
-}
-
 function buildSystemPromptWithPersonalization(
   basePrompt: string,
   settings: { customInstructions?: string; baseStyle?: string },
@@ -994,7 +985,7 @@ export async function POST(request: NextRequest) {
     };
 
     // Clear-all request
-    const wantsFullClear = wantsPermanentClear(message);
+    const wantsFullClear = false; // Intent is determined by router output only
     if (wantsFullClear) {
       for (const inst of loadedInstructions) {
         addDeleteIfMissing(inst.id, "User requested to clear permanent instructions");
