@@ -188,6 +188,7 @@ export default function ChatPageShell({
   const [activeIndicatorMessageId, setActiveIndicatorMessageId] = useState<string | null>(null);
   const scrollViewportRef = useRef<HTMLDivElement | null>(null);
   const conversationRenderKeyRef = useRef<string | null>(null);
+  const animatedMessageIdsRef = useRef<Set<string>>(new Set());
   const autoStreamedConversations = useRef<Set<string>>(new Set());
   const inFlightRequests = useRef<Set<string>>(new Set());
   const streamAbortControllerRef = useRef<AbortController | null>(null);
@@ -223,8 +224,11 @@ export default function ChatPageShell({
 
   const currentConversationKey = activeConversationId ?? "__no_conversation__";
   const conversationJustChanged = conversationRenderKeyRef.current !== currentConversationKey;
+  if (conversationJustChanged) {
+    animatedMessageIdsRef.current.clear();
+  }
   conversationRenderKeyRef.current = currentConversationKey;
-  const allowEntryAnimations = !conversationJustChanged;
+  const allowEntryAnimations = conversationJustChanged;
 
   const isConversationAutoStreamed = useCallback(
     (conversationId: string) => {
@@ -2071,8 +2075,16 @@ export default function ChatPageShell({
                       Boolean(displayMetadata?.thoughtDurationLabel) ||
                       Boolean(displayMetadata?.searchedDomains?.length);
                     
-                    const shouldAnimateEntry =
-                      allowEntryAnimations && index === messages.length - 1;
+                    let shouldAnimateEntry = false;
+                    if (
+                      allowEntryAnimations &&
+                      !isStreamingMessage &&
+                      index === messages.length - 1 &&
+                      !animatedMessageIdsRef.current.has(message.id)
+                    ) {
+                      shouldAnimateEntry = true;
+                      animatedMessageIdsRef.current.add(message.id);
+                    }
 
                     return (
                   <div

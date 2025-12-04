@@ -127,7 +127,7 @@ export interface RouterContext {
   permanentInstructions?: PermanentInstructionToWrite[]; // Full list with IDs/content/scope
 }
 
-const ROUTER_MODEL_ID = "gpt-4.1-nano";
+const ROUTER_MODEL_ID = "gpt-5-nano";
 
 const ROUTER_SYSTEM_PROMPT = `You are a routing assistant that analyzes user prompts and recommends the optimal AI model, reasoning effort, context strategy, and web search strategy.
 
