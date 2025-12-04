@@ -2021,7 +2021,7 @@ export default function ChatPageShell({
             </div>
           ) : (
             <ScrollArea
-              className="h-full overscroll-y-contain"
+              className="flex-1 overscroll-y-contain"
               viewportRef={scrollViewportRef}
               viewportClassName="overscroll-y-contain overscroll-contain"
               onViewportScroll={handleScroll}
