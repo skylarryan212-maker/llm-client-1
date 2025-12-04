@@ -86,7 +86,7 @@ export function ChatContextMenu({ onShare, onRename, onMoveToProject, onRemoveFr
         ref={buttonRef}
         variant="ghost"
         size="icon"
-        className="h-7 w-7 opacity-0 group-hover:opacity-100 group-hover/chat:opacity-100 transition-opacity duration-200"
+        className="h-7 w-7 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:group-hover/chat:opacity-100 transition-opacity duration-200"
         onClick={(e) => {
           e.preventDefault()
           e.stopPropagation()
