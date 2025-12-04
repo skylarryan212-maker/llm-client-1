@@ -3,7 +3,7 @@ import ChatPageShell from "@/components/chat/chat-page-shell";
 
 export default async function HomePage() {
   return (
-    <main>
+    <main className="h-[100dvh] max-h-[100dvh] overflow-hidden bg-background">
       <ChatPageShell
         conversations={[]}
         activeConversationId={null}

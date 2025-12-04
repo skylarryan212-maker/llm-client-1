@@ -54,7 +54,7 @@ export default async function ConversationPage({
   }));
 
   return (
-    <main>
+    <main className="h-[100dvh] max-h-[100dvh] overflow-hidden bg-background">
       <ChatPageShell
         conversations={conversations}
         activeConversationId={conversationId}
