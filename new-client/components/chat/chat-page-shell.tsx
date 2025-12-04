@@ -2146,7 +2146,7 @@ export default function ChatPageShell({
           style={{ transform: `translateY(${-Math.max(0, composerLiftPx + 4)}px)` }}
         >
           <div
-            className={`pointer-events-none fixed right-4 bottom-[calc(96px+env(safe-area-inset-bottom,0px))] z-30 transition-opacity duration-200 ${
+            className={`pointer-events-none fixed left-1/2 -translate-x-1/2 bottom-[calc(96px+env(safe-area-inset-bottom,0px))] z-30 transition-opacity duration-200 ${
               showScrollToBottom ? "opacity-100" : "opacity-0"
             }`}
           >
