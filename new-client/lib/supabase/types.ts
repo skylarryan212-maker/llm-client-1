@@ -45,6 +45,7 @@ export interface Message {
   openai_response_id: string | null;
   created_at: string | null;
   metadata: Json | null;
+  topic_id: string | null;
 }
 
 export interface MessageInsert {
@@ -54,10 +55,12 @@ export interface MessageInsert {
   content: string;
   openai_response_id?: string | null;
   metadata?: Json | null;
+  topic_id?: string | null;
 }
 
 export interface MessageUpdate {
   metadata?: Json | null;
+  topic_id?: string | null;
 }
 
 export interface Project {
@@ -193,6 +196,67 @@ export interface PermanentInstructionVersion {
   updated_at: string | null;
 }
 
+export interface ConversationTopic {
+  id: string;
+  conversation_id: string;
+  parent_topic_id: string | null;
+  label: string;
+  description: string | null;
+  summary: string | null;
+  token_estimate: number;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface ConversationTopicInsert {
+  conversation_id: string;
+  label: string;
+  parent_topic_id?: string | null;
+  description?: string | null;
+  summary?: string | null;
+  token_estimate?: number;
+}
+
+export interface ConversationTopicUpdate {
+  parent_topic_id?: string | null;
+  label?: string;
+  description?: string | null;
+  summary?: string | null;
+  token_estimate?: number;
+  updated_at?: string | null;
+}
+
+export interface Artifact {
+  id: string;
+  conversation_id: string;
+  topic_id: string | null;
+  created_by_message_id: string | null;
+  type: string;
+  title: string;
+  summary: string | null;
+  content: string;
+  created_at: string | null;
+}
+
+export interface ArtifactInsert {
+  conversation_id: string;
+  type: string;
+  title: string;
+  content: string;
+  topic_id?: string | null;
+  created_by_message_id?: string | null;
+  summary?: string | null;
+}
+
+export interface ArtifactUpdate {
+  topic_id?: string | null;
+  created_by_message_id?: string | null;
+  type?: string;
+  title?: string;
+  summary?: string | null;
+  content?: string;
+}
+
 export interface Database {
   public: {
     Tables: {
@@ -235,6 +299,16 @@ export interface Database {
         Row: PermanentInstructionVersion;
         Insert: PermanentInstructionVersion;
         Update: PermanentInstructionVersion;
+      };
+      conversation_topics: {
+        Row: ConversationTopic;
+        Insert: ConversationTopicInsert;
+        Update: ConversationTopicUpdate;
+      };
+      artifacts: {
+        Row: Artifact;
+        Insert: ArtifactInsert;
+        Update: ArtifactUpdate;
       };
     };
   };

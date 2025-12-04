@@ -59,7 +59,7 @@ export interface RouterContextLine {
 const ROUTER_CONTEXT_MAX_LINES = 10;
 const ROUTER_CONTEXT_TOKEN_CAP = 2000;
 
-export interface RouterDecision {
+export interface LLMRouterDecision {
   model: Exclude<ModelFamily, "auto">;
   effort: ReasoningEffort;
   contextStrategy: ContextStrategy;
@@ -325,7 +325,7 @@ export async function routeWithLLM(
   promptText: string,
   conversationHistory: string,
   context?: RouterContext
-): Promise<RouterDecision | null> {
+): Promise<LLMRouterDecision | null> {
   try {
     // Dynamic import to avoid build-time dependency
     const OpenAI = (await import("openai")).default;

@@ -35,6 +35,10 @@ import {
   loadPermanentInstructions,
   type PermanentInstructionCacheItem,
 } from "@/lib/permanentInstructions";
+import { decideRoutingForMessage, createFallbackTopicDecision } from "@/lib/router/decideRoutingForMessage";
+import type { RouterDecision } from "@/lib/router/types";
+import { buildContextForMainModel } from "@/lib/context/buildContextForMainModel";
+import { maybeExtractArtifactsFromMessage } from "@/lib/artifacts/maybeExtractArtifactsFromMessage";
 import {
   appendRouterContextLine,
   renderRouterContextText,
@@ -761,6 +765,8 @@ export async function POST(request: NextRequest) {
     // Check if we have an OpenAI response chain we can continue
     const lastAssistantMessage = recentMessages?.findLast((m: MessageRow) => m.role === "assistant");
     const previousResponseId = lastAssistantMessage?.openai_response_id || null;
+    const lastTopicIdFromHistory =
+      recentMessages?.findLast((m: MessageRow) => Boolean(m.topic_id))?.topic_id ?? null;
 
     // Optionally insert the user message unless the client indicates it's already persisted (e.g., first send via server action, or retry)
     let userMessageRow: MessageRow | null = null;
@@ -816,6 +822,24 @@ export async function POST(request: NextRequest) {
         }
       }
     }
+    if (!userMessageRow) {
+      const latestFromHistory = recentMessages?.findLast((m: MessageRow) => m.role === "user");
+      if (latestFromHistory) {
+        userMessageRow = latestFromHistory as MessageRow;
+      }
+    }
+
+    if (userMessageRow && resolvedTopicDecision.primaryTopicId && userMessageRow.topic_id !== resolvedTopicDecision.primaryTopicId) {
+      try {
+        await supabaseAny
+          .from("messages")
+          .update({ topic_id: resolvedTopicDecision.primaryTopicId })
+          .eq("id", userMessageRow.id);
+        userMessageRow = { ...userMessageRow, topic_id: resolvedTopicDecision.primaryTopicId };
+      } catch (topicUpdateErr) {
+        console.error("[topic-router] Failed to tag user message topic:", topicUpdateErr);
+      }
+    }
 
     const cachedLinesRaw = ensureRouterContextLines(
       (conversation.router_context_cache as RouterContextLine[] | null) ?? []
@@ -857,6 +881,19 @@ export async function POST(request: NextRequest) {
     } catch (permInitErr) {
       console.error("[permanent-instructions] Failed to preload instructions:", permInitErr);
     }
+
+    let topicRoutingDecision: RouterDecision | null = null;
+    try {
+      topicRoutingDecision = await decideRoutingForMessage({
+        supabase: supabaseAny,
+        conversationId,
+        userMessage: message,
+      });
+    } catch (topicErr) {
+      console.error("[topic-router] Failed to route message:", topicErr);
+    }
+    const resolvedTopicDecision =
+      topicRoutingDecision ?? createFallbackTopicDecision(lastTopicIdFromHistory);
 
     // Get model config using LLM-based routing (with code-based fallback)
       const modelConfig = await getModelAndReasoningConfigWithLLM(
@@ -907,55 +944,22 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Smart context loading based on router decision
-    let contextMessagesToLoad: MessageRow[] = [];
-    let contextStrategy = (modelConfig as any).contextStrategy || "recent"; // Default to recent if not present
-    
-    /* Original adaptive logic commented out for testing simplified full-history context
-    if (contextStrategy === "minimal") {
-      ...
-    } else if (contextStrategy === "recent") {
-      ...
-    } else if (contextStrategy === "full") {
-      ...
-    }
-    */
-
-    contextStrategy = "full";
-    const { data: fullHistory, error: fullError } = await supabaseAny
-      .from("messages")
-      .select("*")
-      .eq("conversation_id", conversationId)
-      .order("created_at", { ascending: true })
-      .limit(400);
-
-    if (fullError) {
-      console.error("Failed to load conversation history:", fullError);
-      contextMessagesToLoad = [];
-    } else {
-    const fullMessages = (fullHistory || []).filter(
-      (msg: MessageRow) => msg.id !== userMessageRow?.id
-    );
-      const MAX_CONTEXT_TOKENS = 200_000;
-      const estimateTokensFromMessage = (msg: MessageRow) => {
-        const base = typeof msg.content === "string" ? msg.content.length : 0;
-        return Math.ceil(base / 4) + 20;
-      };
-      let runningTokens = 0;
-      const trimmed: MessageRow[] = [];
-      for (let i = fullMessages.length - 1; i >= 0; i--) {
-        const candidate = fullMessages[i];
-        const tok = estimateTokensFromMessage(candidate);
-        if (runningTokens + tok > MAX_CONTEXT_TOKENS) {
-          break;
-        }
-        trimmed.push(candidate);
-        runningTokens += tok;
-      }
-      contextMessagesToLoad = trimmed.reverse();
-    }
+    const contextStrategy = ((modelConfig as any).contextStrategy || "recent") as
+      | "minimal"
+      | "recent"
+      | "full";
+    const {
+      messages: historyMessages,
+      source: contextSource,
+      includedTopicIds,
+    } = await buildContextForMainModel({
+      supabase: supabaseAny,
+      conversationId,
+      routerDecision: resolvedTopicDecision,
+      contextStrategy,
+    });
     console.log(
-      `[context-strategy] Forced full history mode - loaded ${contextMessagesToLoad.length} messages (${contextMessagesToLoad.reduce((sum, m) => sum + (m.content?.length || 0), 0)} chars) clamped to ~200K tokens`
+      `[context-strategy] ${contextSource === "topic" ? "Topic-aware" : "Fallback"} mode - loaded ${historyMessages.length} messages (${includedTopicIds.length ? `topics: ${includedTopicIds.join(", ")}` : "no topics"})`
     );
 
     // Smart web search decision based on router (replaces hardcoded heuristics)
@@ -1315,34 +1319,6 @@ export async function POST(request: NextRequest) {
       relevantMemories,
       permanentInstructions
     );
-
-    const cleanMessageContent = (msg: MessageRow): string => {
-      let content = msg.content ?? "";
-      
-      // Only clean user messages with file metadata
-      if (msg.role === "user") {
-        const meta = msg.metadata as Record<string, any> | null | undefined;
-        if (meta?.files && Array.isArray(meta.files) && meta.files.length > 0) {
-          // Remove inline "Attachment: filename" lines that were added to the message
-          const attachmentPattern = /\n\nAttachment: [^\n]+ \([^)]+\)(?:\n|$)/g;
-          content = content.replace(attachmentPattern, "");
-          
-          // Add a subtle marker that files were attached (without including them in content)
-          if (content && !content.includes("[Files attached]")) {
-            content = content.trim() + " [Files attached]";
-          }
-        }
-      }
-      
-      return content;
-    };
-
-    // Build history messages based on context strategy
-    const historyMessages = contextMessagesToLoad.map((msg: MessageRow) => ({
-      role: msg.role as "user" | "assistant",
-      content: cleanMessageContent(msg),
-      type: "message",
-    }));
 
     // Build user content with native image inputs when available to leverage model vision
     const userContentParts: any[] = [
@@ -1729,6 +1705,7 @@ export async function POST(request: NextRequest) {
                 content: assistantContent,
                 openai_response_id: finalResponse.id || null,
                 metadata: metadataPayload,
+                topic_id: resolvedTopicDecision.primaryTopicId ?? null,
               })
               .select()
               .single();
@@ -1813,6 +1790,14 @@ export async function POST(request: NextRequest) {
                   metadataPayload,
               },
             });
+            try {
+              await maybeExtractArtifactsFromMessage({
+                supabase: supabaseAny,
+                message: assistantMessageRow as MessageRow,
+              });
+            } catch (artifactError) {
+              console.error("[artifacts] Extraction failed:", artifactError);
+            }
           }
         } catch (error) {
           console.error("Stream error:", error);

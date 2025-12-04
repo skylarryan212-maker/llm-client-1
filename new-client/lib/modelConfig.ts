@@ -5,7 +5,7 @@ import type {
   MemoryToWrite,
   PermanentInstructionToDelete,
   PermanentInstructionToWrite,
-  RouterDecision,
+  LLMRouterDecision,
   WebSearchStrategy,
 } from "./llm-router";
 
@@ -45,7 +45,7 @@ const MODEL_ID_MAP: Record<Exclude<ModelFamily, "auto">, string> = {
 const ROUTER_DECISION_CACHE_TTL_MS = 3 * 60 * 1000;
 
 interface CachedRouterDecisionEntry {
-  decision: RouterDecision;
+  decision: LLMRouterDecision;
   expiresAt: number;
   forceRouterNext: boolean;
 }
@@ -299,7 +299,7 @@ function getCachedRouterDecision(conversationId?: string | null): CachedRouterDe
   return cached;
 }
 
-function cacheRouterDecision(conversationId: string | undefined, decision: RouterDecision) {
+function cacheRouterDecision(conversationId: string | undefined, decision: LLMRouterDecision) {
   if (!conversationId) return;
   routerDecisionCache.set(conversationId, {
     decision,
@@ -309,7 +309,7 @@ function cacheRouterDecision(conversationId: string | undefined, decision: Route
 }
 
 function buildConfigFromRouterDecision(
-  decision: RouterDecision,
+  decision: LLMRouterDecision,
   speedMode: SpeedMode,
   promptText: string,
   options?: {
