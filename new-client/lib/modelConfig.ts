@@ -124,6 +124,7 @@ const ACKNOWLEDGEMENT_PATTERNS = [
 interface RouterRequestOptions {
   conversationHistory?: string;
   permanentInstructionSummary?: string;
+  permanentInstructions?: PermanentInstructionToWrite[];
 }
 
 export function shouldUseLightReasoning(promptText: string) {

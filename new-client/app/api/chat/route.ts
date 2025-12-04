@@ -42,6 +42,7 @@ import {
   getConversationContextForRouter,
   persistRouterContextCache,
   type RouterContextLine,
+  type PermanentInstructionToWrite,
 } from "@/lib/llm-router";
 
 // Utility: convert a data URL (base64) to a Buffer
@@ -216,6 +217,15 @@ function buildPermanentInstructionSummaryForRouter(
   const extraCount = Math.max(instructions.length - limit, 0);
   const suffix = extraCount > 0 ? `\n- ...and ${extraCount} more.` : "";
   return `Current permanent instructions (use IDs if you need to delete one):\n${lines.join("\n")}${suffix}`;
+}
+
+function wantsPermanentClear(message: string): boolean {
+  const lowerMsg = message.toLowerCase();
+  const directMatch = /(forget|remove|clear|delete)\s+(all\s+)?(permanent\s+)?(instructions?|behaviors?|rules?|memories?|memory)/i.test(
+    lowerMsg
+  );
+  if (directMatch) return true;
+  return false;
 }
 
 function buildSystemPromptWithPersonalization(
@@ -858,20 +868,21 @@ export async function POST(request: NextRequest) {
     }
 
     // Get model config using LLM-based routing (with code-based fallback)
-    const modelConfig = await getModelAndReasoningConfigWithLLM(
-      modelFamily, 
-      speedMode, 
-      message, 
-      reasoningEffortHint,
-      usagePercentage,
-      userId,          // Pass userId to get memory types for router
-      conversationId,  // Pass conversationId for context loading
-      supabaseAny,     // Pass supabase client for context loading
-      { 
-        conversationHistory: routerConversationHistory,
-        permanentInstructionSummary: permanentInstructionSummaryForRouter,
-      }
-    );
+      const modelConfig = await getModelAndReasoningConfigWithLLM(
+        modelFamily, 
+        speedMode, 
+        message, 
+        reasoningEffortHint,
+        usagePercentage,
+        userId,          // Pass userId to get memory types for router
+        conversationId,  // Pass conversationId for context loading
+        supabaseAny,     // Pass supabase client for context loading
+        { 
+          conversationHistory: routerConversationHistory,
+          permanentInstructionSummary: permanentInstructionSummaryForRouter,
+          permanentInstructions: permanentInstructionState?.instructions as unknown as PermanentInstructionToWrite[] | undefined,
+        }
+      );
     const reasoningEffort = modelConfig.reasoning?.effort ?? "none";
 
     // Log router usage if LLM routing was used
@@ -983,9 +994,7 @@ export async function POST(request: NextRequest) {
     };
 
     // Clear-all request
-    const wantsFullClear = /(forget|remove|clear|delete)\s+(all\s+)?(permanent\s+)?(instructions?|behaviors?|rules?|memories?|memory)/i.test(
-      lowerMsg
-    );
+    const wantsFullClear = wantsPermanentClear(message);
     if (wantsFullClear) {
       for (const inst of loadedInstructions) {
         addDeleteIfMissing(inst.id, "User requested to clear permanent instructions");

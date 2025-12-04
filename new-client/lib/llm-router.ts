@@ -124,6 +124,7 @@ export interface RouterContext {
   usagePercentage?: number;
   availableMemoryTypes?: string[];  // Dynamic memory categories user has created
   permanentInstructionSummary?: string;
+  permanentInstructions?: PermanentInstructionToWrite[]; // Full list with IDs/content/scope
 }
 
 const ROUTER_SYSTEM_PROMPT = `You are a routing assistant that analyzes user prompts and recommends the optimal AI model, reasoning effort, context strategy, and web search strategy.
@@ -265,7 +266,8 @@ If the user explicitly asks to delete, forget, or remove a memory, identify whic
 IMPORTANT: Only include memory IDs that are present in the loaded memories provided in the instructions. You cannot delete memories that weren't loaded.
 
 **Permanent Instruction Rules (ALWAYS-ON behaviors):**
-- Create a permanent instruction ONLY when the user explicitly states the assistant should always or never do something (e.g., "Always call me Alex", "Never use emojis", "Always answer in Spanish").
+- You are responsible for creating/updating/deleting permanent instructions when the user explicitly asks (e.g., "Always/never...", "stop calling me X", "forget permanent instructions").
+- You will be given the full permanent instruction list with IDs. When deleting, reference the IDs you were given; do NOT invent IDs.
 - Instructions become part of the system prompt every turn. Keep them short, factual, and action-oriented so they are easy to follow.
 - Use \`"scope": "conversation"\` if the directive applies only to this conversation thread; otherwise prefer \`"scope": "user"\` so it persists globally.
 - Examples:
@@ -273,7 +275,7 @@ IMPORTANT: Only include memory IDs that are present in the loaded memories provi
   - "For this chat only, reply in haiku form" ƒ+' [{"scope": "conversation", "title": "Haiku responses", "content": "Respond using haiku format for this conversation."}]
   - "Stop calling me Captain" ƒ+' permanentInstructionsToDelete: [{"id": "<instruction-id>", "reason": "User revoked nickname"}]
 - Do NOT create instructions for one-off requests ("write this email", "summarize this article") or vague hints ("remember this later" without specifics).
-- Before deleting, make sure the referenced instruction is currently loaded and matches what the user wants removed.
+- Only mutate permanent instructions when the user clearly asks; otherwise leave them unchanged.
 
 **Next-turn prediction**
 After you decide on the current response, predict whether the user will likely send another complex follow-up that needs fresh routing. Output:
@@ -354,6 +356,18 @@ export async function routeWithLLM(
     }
     if (context?.permanentInstructionSummary) {
       contextNote += `\n\n${context.permanentInstructionSummary}`;
+    }
+    if (context?.permanentInstructions && context.permanentInstructions.length > 0) {
+      const lines = context.permanentInstructions
+        .map((inst) => {
+          const scope = inst.scope ?? "user";
+          const title = inst.title ? `${inst.title}: ` : "";
+          const content = inst.content || "";
+          const id = (inst as any).id ? ` [${(inst as any).id}]` : "";
+          return `- (${scope}${id}) ${title}${content}`;
+        })
+        .join("\n");
+      contextNote += `\n\nPermanent instructions with IDs (use these IDs if you need to delete one):\n${lines}`;
     }
 
     // Add conversation history if available
