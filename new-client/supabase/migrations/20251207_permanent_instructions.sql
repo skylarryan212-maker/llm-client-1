@@ -25,23 +25,28 @@ create index if not exists permanent_instructions_conversation_idx
 
 alter table public.permanent_instructions enable row level security;
 
-create policy if not exists permanent_instructions_select_own
+-- Policies (Postgres doesn't support IF NOT EXISTS for policies)
+drop policy if exists permanent_instructions_select_own on public.permanent_instructions;
+create policy permanent_instructions_select_own
   on public.permanent_instructions
   for select
   using (auth.uid() = user_id);
 
-create policy if not exists permanent_instructions_insert_own
+drop policy if exists permanent_instructions_insert_own on public.permanent_instructions;
+create policy permanent_instructions_insert_own
   on public.permanent_instructions
   for insert
   with check (auth.uid() = user_id);
 
-create policy if not exists permanent_instructions_update_own
+drop policy if exists permanent_instructions_update_own on public.permanent_instructions;
+create policy permanent_instructions_update_own
   on public.permanent_instructions
   for update
   using (auth.uid() = user_id)
   with check (auth.uid() = user_id);
 
-create policy if not exists permanent_instructions_delete_own
+drop policy if exists permanent_instructions_delete_own on public.permanent_instructions;
+create policy permanent_instructions_delete_own
   on public.permanent_instructions
   for delete
   using (auth.uid() = user_id);
@@ -71,7 +76,8 @@ create table if not exists public.permanent_instruction_versions (
 
 alter table public.permanent_instruction_versions enable row level security;
 
-create policy if not exists permanent_instruction_versions_select_own
+drop policy if exists permanent_instruction_versions_select_own on public.permanent_instruction_versions;
+create policy permanent_instruction_versions_select_own
   on public.permanent_instruction_versions
   for select
   using (auth.uid() = user_id);
