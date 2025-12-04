@@ -572,12 +572,23 @@ export default function ChatPageShell({
     const update = () => {
       const vv = window.visualViewport!;
       const delta = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
-      setComposerLiftPx(delta);
+      // Ignore tiny changes; reset when keyboard is gone
+      setComposerLiftPx(delta > 6 ? delta : 0);
     };
     update();
     window.visualViewport.addEventListener("resize", update);
+    window.visualViewport.addEventListener("scroll", update);
+    // Fallback: when focus leaves inputs, drop the composer after the keyboard hides
+    const handleFocusOut = () => {
+      setTimeout(() => {
+        update();
+      }, 200);
+    };
+    window.addEventListener("focusout", handleFocusOut);
     return () => {
       window.visualViewport?.removeEventListener("resize", update);
+      window.visualViewport?.removeEventListener("scroll", update);
+      window.removeEventListener("focusout", handleFocusOut);
     };
   }, []);
 
