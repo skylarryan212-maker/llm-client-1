@@ -1647,7 +1647,7 @@ export default function ChatPageShell({
   }, [projects, projectConversations]);
 
   return (
-    <div className="flex h-screen overflow-hidden bg-background text-foreground dark">
+    <div className="flex min-h-[100dvh] bg-background text-foreground dark">
       {/* Sidebar */}
       {!isGuest && (
         <ChatSidebar
