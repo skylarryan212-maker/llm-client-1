@@ -2145,38 +2145,6 @@ export default function ChatPageShell({
                     </div>
                   );
                 })}
-                  {/* Show indicators with priority. Allow web/file indicators even when last assistant message is empty. */}
-                  {(() => {
-                    const hasIndicator = Boolean(thinkingStatus || searchIndicator || fileReadingIndicator);
-                    const lastHasContent = messages.length === 0 || Boolean(messages[messages.length - 1]?.content);
-                    const allowRegardless = Boolean(searchIndicator || fileReadingIndicator);
-                    return hasIndicator && (lastHasContent || allowRegardless);
-                  })() && (
-                    <div className="px-4 sm:px-6 pb-8">
-                      <div className="mx-auto w-full max-w-3xl">
-                        <div className="flex items-center justify-center min-h-[28px]">
-                          {/* Priority order: file reading > search > thinking (only show one at a time) */}
-                          {fileReadingIndicator ? (
-                            <StatusBubble
-                              label="Reading documents"
-                              variant={fileReadingIndicator === "error" ? "error" : "reading"}
-                            />
-                          ) : searchIndicator ? (
-                            <StatusBubble
-                              label={searchIndicator.message}
-                              variant={searchIndicator.variant === "error" ? "error" : "search"}
-                              subtext={searchIndicator.subtext}
-                            />
-                          ) : thinkingStatus ? (
-                            <StatusBubble
-                              label={thinkingStatus.label}
-                              variant={thinkingStatus.variant === "extended" ? "extended" : "default"}
-                            />
-                          ) : null}
-                        </div>
-                      </div>
-                    </div>
-                  )}
                   {/* Bottom spacer for proper scrolling */}
                   <div aria-hidden="true" style={{ height: `${bottomSpacerPx}px` }} />
                 </div>
@@ -2184,6 +2152,42 @@ export default function ChatPageShell({
             </ScrollArea>
           )}
         </div>
+
+        {/* Runtime status indicators anchored just above the composer */}
+        {selectedChatId &&
+        (() => {
+          const hasIndicator = Boolean(thinkingStatus || searchIndicator || fileReadingIndicator);
+          const lastHasContent = messages.length === 0 || Boolean(messages[messages.length - 1]?.content);
+          const allowRegardless = Boolean(searchIndicator || fileReadingIndicator);
+          if (!hasIndicator || (!lastHasContent && !allowRegardless)) {
+            return null;
+          }
+          return (
+            <div className="px-4 sm:px-6 pb-2">
+              <div className="mx-auto w-full max-w-3xl">
+                <div className="flex items-center justify-center min-h-[32px]">
+                  {fileReadingIndicator ? (
+                    <StatusBubble
+                      label="Reading documents"
+                      variant={fileReadingIndicator === "error" ? "error" : "reading"}
+                    />
+                  ) : searchIndicator ? (
+                    <StatusBubble
+                      label={searchIndicator.message}
+                      variant={searchIndicator.variant === "error" ? "error" : "search"}
+                      subtext={searchIndicator.subtext}
+                    />
+                  ) : thinkingStatus ? (
+                    <StatusBubble
+                      label={thinkingStatus.label}
+                      variant={thinkingStatus.variant === "extended" ? "extended" : "default"}
+                    />
+                  ) : null}
+                </div>
+              </div>
+            </div>
+          );
+        })()}
 
         {/* Composer: full-width bar, centered pill like ChatGPT */}
         <div
