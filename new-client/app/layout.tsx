@@ -29,10 +29,11 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "LLM Client - AI Platform for Developers",
   description: "A refined, modern AI platform built for developers",
-  viewport: {
-    width: "device-width",
-    initialScale: 1,
-  },
+};
+
+export const viewport = {
+  width: "device-width",
+  initialScale: 1,
 };
 
 export default async function RootLayout({

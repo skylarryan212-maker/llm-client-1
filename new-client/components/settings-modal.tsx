@@ -260,7 +260,7 @@ export function SettingsModal({ isOpen, onClose, initialTab = 'personalization' 
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm pointer-events-none">
-      <div className="relative flex h-[600px] w-full max-w-4xl overflow-hidden rounded-xl border border-border bg-card shadow-2xl pointer-events-auto">
+      <div className="relative flex h-auto min-h-[60dvh] max-h-[90dvh] w-full max-w-[min(520px,95vw)] overflow-hidden rounded-xl border border-border bg-card shadow-2xl pointer-events-auto">
         {/* Sidebar */}
         <div className="w-56 border-r border-border bg-muted/30 p-3">
           <Button
@@ -291,7 +291,7 @@ export function SettingsModal({ isOpen, onClose, initialTab = 'personalization' 
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto p-8">
+        <div className="flex-1 overflow-y-auto p-6 sm:p-8">
           {activeTab === 'general' && (
             <div className="space-y-6">
               <div>

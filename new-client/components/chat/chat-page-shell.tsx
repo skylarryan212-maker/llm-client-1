@@ -1674,9 +1674,9 @@ export default function ChatPageShell({
       )}
 
       {/* Right column: header + messages + composer */}
-      <div className="flex flex-1 flex-col w-full min-w-0">
+      <div className="flex flex-1 flex-col w-full min-w-0 min-h-0">
         {/* Header bar */}
-        <div className="flex h-[53px] items-center justify-between border-b border-border px-3 lg:px-6">
+        <div className="sticky top-0 z-20 flex h-[53px] items-center justify-between border-b border-border bg-background px-3 lg:px-6">
           <div className="flex items-center gap-2 min-w-0">
             {!isGuest && (
               <Button
@@ -2133,9 +2133,9 @@ export default function ChatPageShell({
         )}
 
         {/* Composer: full-width bar, centered pill like ChatGPT */}
-        <div className="bg-background px-4 sm:px-6 lg:px-12 py-3 sm:py-4 relative">
+        <div className="bg-background px-4 sm:px-6 lg:px-12 py-3 sm:py-4 relative sticky bottom-0 z-20 pb-[max(env(safe-area-inset-bottom),0px)]">
           <div
-            className={`pointer-events-none absolute left-1/2 -translate-x-1/2 -top-9 z-20 transition-opacity duration-200 ${
+            className={`pointer-events-none fixed right-4 bottom-[calc(96px+env(safe-area-inset-bottom,0px))] z-30 transition-opacity duration-200 ${
               showScrollToBottom ? "opacity-100" : "opacity-0"
             }`}
           >
