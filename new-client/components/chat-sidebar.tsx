@@ -231,6 +231,12 @@ export function ChatSidebar({
     renameAction && (renameAction.type === 'renameProject' ? renameAction.currentName : renameAction.currentTitle)
   const renameDisabled = !pendingName.trim() || pendingName.trim() === renameExistingName?.trim()
 
+  const closeSidebarIfMobile = () => {
+    if (typeof window !== 'undefined' && window.innerWidth < 1024) {
+      onToggle()
+    }
+  }
+
   return (
     <>
       {isOpen && (
@@ -241,7 +247,7 @@ export function ChatSidebar({
       )}
 
       <div className={`
-        fixed lg:relative h-full border-r border-border bg-sidebar z-50
+        fixed lg:sticky lg:top-0 lg:h-[100dvh] h-full border-r border-border bg-sidebar z-50
         transition-all duration-300 ease-in-out
         ${isOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
         ${isOpen ? 'w-64' : 'lg:w-[60px] w-64'}
@@ -271,7 +277,10 @@ export function ChatSidebar({
 
           <div className={`space-y-2 p-3 ${!isOpen && 'lg:flex lg:flex-col lg:items-center hidden'}`}>
             <Button
-              onClick={onNewChat}
+              onClick={() => {
+                onNewChat?.()
+                closeSidebarIfMobile()
+              }}
               variant="ghost"
               className={`${isOpen ? 'w-full justify-start px-2.5' : 'w-10 h-10 p-0 justify-center'} h-9 gap-2 text-sidebar-foreground hover:bg-sidebar-accent`}
               title={!isOpen ? "New Chat" : undefined}
@@ -289,6 +298,9 @@ export function ChatSidebar({
                     : 'text-sidebar-foreground hover:bg-sidebar-accent'
                 }`}
                 title={!isOpen ? "Agents" : undefined}
+                onClick={() => {
+                  closeSidebarIfMobile()
+                }}
               >
                 <Sparkles className="h-4 w-4 flex-shrink-0" />
                 {isOpen && "Agents"}
@@ -298,7 +310,7 @@ export function ChatSidebar({
 
           {isOpen && (
             <div className="flex-1 overflow-hidden min-h-0">
-              <ScrollArea className="h-full px-3" viewportClassName="pr-2">
+              <ScrollArea className="h-full px-3 pb-20" viewportClassName="pr-2">
                 <div className="space-y-4 py-3 pb-4">
                   <div>
                     <button
@@ -315,6 +327,10 @@ export function ChatSidebar({
                           onClick={onNewProject}
                           variant="ghost"
                             className="h-9 w-full max-w-[231px] justify-start gap-2 px-2.5 text-sidebar-foreground hover:bg-sidebar-accent"
+                          onClick={() => {
+                            onNewProject?.()
+                            closeSidebarIfMobile()
+                          }}
                         >
                           <FolderPlus className="h-4 w-4" />
                           New project
@@ -334,7 +350,10 @@ export function ChatSidebar({
                             <div key={project.id} className="space-y-1">
                               <Link
                                 href={`/projects/${project.id}`}
-                                onClick={() => onProjectSelect?.(project.id)}
+                                onClick={() => {
+                                  onProjectSelect?.(project.id)
+                                  closeSidebarIfMobile()
+                                }}
                                 className={`group relative flex w-full max-w-[231px] items-center gap-2 rounded-lg px-2.5 py-2 transition-colors ${
                                   isProjectActive
                                     ? 'bg-zinc-800 text-white'
@@ -366,7 +385,10 @@ export function ChatSidebar({
                                       key={chat.id}
                                       role="button"
                                       tabIndex={0}
-                                      onClick={() => onProjectChatSelect?.(project.id, chat.id)}
+                                      onClick={() => {
+                                        onProjectChatSelect?.(project.id, chat.id)
+                                        closeSidebarIfMobile()
+                                      }}
                                       onKeyDown={(event) =>
                                         handleListItemKeyDown(event, () => onProjectChatSelect?.(project.id, chat.id))
                                       }
@@ -491,7 +513,10 @@ export function ChatSidebar({
                             key={conv.id}
                             role="button"
                             tabIndex={0}
-                            onClick={() => onChatSelect?.(conv.id)}
+                    onClick={() => {
+                      onChatSelect?.(conv.id)
+                      closeSidebarIfMobile()
+                    }}
                             onKeyDown={(event) =>
                               handleListItemKeyDown(event, () => onChatSelect?.(conv.id))
                             }
@@ -529,7 +554,17 @@ export function ChatSidebar({
         </div>
 
         <div className="absolute bottom-0 left-0 right-0 border-t border-sidebar-border bg-sidebar">
-          <UserProfileMenu isCompressed={!isOpen} onSettingsOpen={onSettingsOpen} onGeneralSettingsOpen={onGeneralSettingsOpen} />
+          <UserProfileMenu
+            isCompressed={!isOpen}
+            onSettingsOpen={() => {
+              onSettingsOpen?.()
+              closeSidebarIfMobile()
+            }}
+            onGeneralSettingsOpen={() => {
+              onGeneralSettingsOpen?.()
+              closeSidebarIfMobile()
+            }}
+          />
         </div>
       </div>
 

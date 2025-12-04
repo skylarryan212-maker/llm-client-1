@@ -79,7 +79,7 @@ export default async function RootLayout({
   return (
     <html
       lang="en"
-      className={`dark ${geistSans.variable} ${geistMono.variable}`}
+      className={`dark bg-background ${geistSans.variable} ${geistMono.variable}`}
     >
       <body className="font-sans antialiased bg-background text-foreground">
         <UserIdentityProvider identity={identity}>
