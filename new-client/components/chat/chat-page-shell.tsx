@@ -1647,7 +1647,7 @@ export default function ChatPageShell({
   }, [projects, projectConversations]);
 
   return (
-    <div className="flex min-h-[100dvh] bg-background text-foreground dark">
+    <div className="flex min-h-[100dvh] bg-background text-foreground dark overflow-hidden overscroll-y-none">
       {/* Sidebar */}
       {!isGuest && (
         <ChatSidebar
@@ -1674,7 +1674,7 @@ export default function ChatPageShell({
       )}
 
       {/* Right column: header + messages + composer */}
-      <div className="flex flex-1 flex-col w-full min-w-0 min-h-0">
+      <div className="flex flex-1 flex-col w-full min-w-0 min-h-0 overflow-hidden">
         {/* Header bar */}
         <div className="sticky top-0 z-20 flex h-[53px] items-center justify-between border-b border-border bg-background px-3 lg:px-6">
           <div className="flex items-center gap-2 min-w-0">
@@ -1795,11 +1795,12 @@ export default function ChatPageShell({
                         </span>
                       </div>
                     </DropdownMenuSubTrigger>
-                     <DropdownMenuPortal>
-                       <DropdownMenuSubContent
-                         sideOffset={-4}
-                         className="w-auto min-w-[220px] max-w-[90vw] sm:w-56 p-2 space-y-1"
-                       >
+                    <DropdownMenuPortal>
+                      <DropdownMenuSubContent
+                        sideOffset={-16}
+                        collisionPadding={12}
+                        className="w-[min(300px,calc(100vw-16px))] max-w-[calc(100vw-16px)] sm:w-56 p-2 space-y-1 data-[side=right]:-translate-x-6 sm:data-[side=right]:translate-x-0"
+                      >
                         <div className="px-3 pb-1 text-sm font-semibold text-muted-foreground">
                           GPT 5 Nano
                         </div>
@@ -1950,50 +1951,7 @@ export default function ChatPageShell({
                   Sign up for free
                 </Button>
               </>
-            ) : (
-              <>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="gap-2 text-muted-foreground"
-                >
-                  <svg
-                    className="h-4 w-4"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth="2"
-                      d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.368 2.684 3 3 0 00-5.368-2.684z"
-                    />
-                  </svg>
-                  <span className="hidden md:inline">Share</span>
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="gap-2 text-muted-foreground"
-                >
-                  <svg
-                    className="h-4 w-4"
-                    fill="none"
-                    stroke="currentColor"
-                    viewBox="0 0 24 24"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth="2"
-                      d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"
-                    />
-                  </svg>
-                  <span className="hidden md:inline">Archive</span>
-                </Button>
-              </>
-            )}
+            ) : null}
           </div>
         </div>
 
@@ -2024,8 +1982,9 @@ export default function ChatPageShell({
             </div>
           ) : (
             <ScrollArea
-              className="h-full"
+              className="h-full overscroll-y-contain"
               viewportRef={scrollViewportRef}
+              viewportClassName="overscroll-y-contain overscroll-contain"
               onViewportScroll={handleScroll}
             >
               <div className="py-4 pb-20">
