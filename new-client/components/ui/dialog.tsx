@@ -2,14 +2,16 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { cn } from '@/lib/utils'
 
 interface DialogProps {
   open: boolean
   onClose: () => void
   children: React.ReactNode
+  contentClassName?: string
 }
 
-export function Dialog({ open, onClose, children }: DialogProps) {
+export function Dialog({ open, onClose, children, contentClassName }: DialogProps) {
   const [mounted, setMounted] = useState(false)
 
   useEffect(() => {
@@ -45,7 +47,10 @@ export function Dialog({ open, onClose, children }: DialogProps) {
         onClick={handleBackdropClick}
       />
       <div
-        className="relative z-10 w-full max-w-sm overflow-hidden rounded-2xl border border-border bg-popover p-4 shadow-2xl"
+        className={cn(
+          "relative z-10 w-full max-w-sm overflow-hidden rounded-2xl border border-border bg-popover p-4 shadow-2xl",
+          contentClassName
+        )}
         onClick={(event) => event.stopPropagation()}
       >
         {children}

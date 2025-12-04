@@ -2118,8 +2118,8 @@ export default function ChatPageShell({
                         }}
                       >
                         {message.role === "assistant" && (
-                        <div className="flex flex-col gap-2 pb-2 px-4 sm:px-6" style={{ minHeight: metadataIndicators ? 'auto' : '0px' }}>
-                          <div className="mx-auto w-full max-w-[min(720px,100%)]">
+                        <div className="flex flex-col gap-2 pb-2 px-4 sm:px-6">
+                          <div className="mx-auto w-full max-w-[min(720px,100%)] px-1.5 sm:px-0" style={{ minHeight: metadataIndicators ? 'auto' : '0px' }}>
                             <div className="flex flex-wrap items-center gap-1.5 pt-1">
                               {metadataIndicators && <MessageInsightChips metadata={displayMetadata || undefined} />}
                             </div>
@@ -2127,7 +2127,7 @@ export default function ChatPageShell({
                         </div>
                       )}
                       <div className="px-4 sm:px-6">
-                        <div className="mx-auto w-full max-w-[min(720px,100%)]">
+                        <div className="mx-auto w-full max-w-[min(720px,100%)] px-1.5 sm:px-0">
                         <ChatMessage
                           {...message}
                           messageId={message.id}
@@ -2195,25 +2195,27 @@ export default function ChatPageShell({
           style={{ transform: `translateY(${-Math.max(0, composerLiftPx + 4)}px)` }}
         >
           <div
-            className={`scroll-tip pointer-events-none fixed left-1/2 -translate-x-1/2 bottom-[calc(96px+env(safe-area-inset-bottom,0px))] z-30 transition-opacity duration-200 ${
+            className={`scroll-tip pointer-events-none fixed inset-x-0 bottom-[calc(96px+env(safe-area-inset-bottom,0px))] z-30 transition-opacity duration-200 ${
               showScrollToBottom ? "opacity-100 scroll-tip-visible" : "opacity-0"
             }`}
           >
-            <Button
-              type="button"
-              size="icon"
-              className={`${showScrollToBottom ? "scroll-tip-button" : ""} pointer-events-auto h-10 w-10 rounded-full border border-border bg-card/90 text-foreground shadow-md backdrop-blur hover:bg-background`}
-              onClick={() => {
-                scrollToBottom("smooth");
-                // Re-enable autoscroll after scrolling to bottom
-                setTimeout(() => {
-                  setIsAutoScroll(true);
-                  setShowScrollToBottom(false);
-                }, 100);
-              }}
-            >
-              <ArrowDown className="h-4 w-4 text-foreground" />
-            </Button>
+            <div className="flex w-full justify-center">
+              <Button
+                type="button"
+                size="icon"
+                className={`${showScrollToBottom ? "scroll-tip-button" : ""} pointer-events-auto h-10 w-10 rounded-full border border-border bg-card/90 text-foreground shadow-md backdrop-blur hover:bg-background`}
+                onClick={() => {
+                  scrollToBottom("smooth");
+                  // Re-enable autoscroll after scrolling to bottom
+                  setTimeout(() => {
+                    setIsAutoScroll(true);
+                    setShowScrollToBottom(false);
+                  }, 100);
+                }}
+              >
+                <ArrowDown className="h-4 w-4 text-foreground" />
+              </Button>
+            </div>
           </div>
           <div className="mx-auto w-full max-w-3xl">
             <ChatComposer

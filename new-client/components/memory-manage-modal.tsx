@@ -45,18 +45,26 @@ export default function ManageMemoriesModal({ open, onOpenChange }: { open: bool
   }, [query]);
   
   return (
-    <Dialog open={open} onClose={() => onOpenChange(false)}>
-      <div className="sm:max-w-2xl">
-        <div className="mb-3">
+    <Dialog
+      open={open}
+      onClose={() => onOpenChange(false)}
+      contentClassName="w-full max-w-[min(520px,95vw)] sm:max-w-4xl max-h-[90vh] overflow-hidden p-0"
+    >
+      <div className="flex h-full flex-col">
+        <div className="px-5 pt-5 pb-3 border-b border-border">
           <h2 className="text-lg font-semibold">Saved memories</h2>
         </div>
-        <div className="space-y-4">
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+        <div className="flex-1 overflow-hidden p-5 space-y-4">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
             <div className="sm:col-span-2">
-              <Input placeholder="Search memories" value={query} onChange={(e) => setQuery(e.target.value)} />
+              <Input
+                placeholder="Search memories"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+              />
             </div>
             <div>
-              <Select value={type} onValueChange={v => setType(v as MemoryType | "all") }>
+              <Select value={type} onValueChange={(v) => setType(v as MemoryType | "all")}>
                 <SelectTrigger>
                   <SelectValue placeholder="Type" />
                 </SelectTrigger>
@@ -74,25 +82,43 @@ export default function ManageMemoriesModal({ open, onOpenChange }: { open: bool
             </div>
           </div>
 
-          <div className="space-y-2">
+          <div className="flex-1 overflow-y-auto pr-1 space-y-2">
             {loading ? (
               <p className="text-sm text-muted-foreground">Loading…</p>
             ) : items.length === 0 ? (
               <p className="text-sm text-muted-foreground">No memories found.</p>
             ) : (
-              items.map(m => (
-                <div key={m.id} className="rounded border p-3">
-                  <div className="flex items-start justify-between">
+              items.map((m) => (
+                <div key={m.id} className="rounded border border-border bg-card/60 p-3">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                     <div>
                       <p className="text-sm font-medium">{m.title}</p>
-                      <p className="text-xs text-muted-foreground">{m.type}</p>
+                      <p className="text-xs text-muted-foreground capitalize">{m.type}</p>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <Button size="sm" variant="outline" onClick={async () => { await updateMemoryEnabled(m.id, !m.enabled); loadMemories(); }}>{m.enabled ? "Disable" : "Enable"}</Button>
-                      <Button size="sm" variant="destructive" onClick={async () => { await deleteMemory(m.id); loadMemories(); }}>Delete</Button>
+                    <div className="flex flex-shrink-0 items-center gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={async () => {
+                          await updateMemoryEnabled(m.id, !m.enabled);
+                          loadMemories();
+                        }}
+                      >
+                        {m.enabled ? "Disable" : "Enable"}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="destructive"
+                        onClick={async () => {
+                          await deleteMemory(m.id);
+                          loadMemories();
+                        }}
+                      >
+                        Delete
+                      </Button>
                     </div>
                   </div>
-                  <p className="text-sm mt-2">{m.content}</p>
+                  <p className="mt-2 text-sm text-foreground/90">{m.content}</p>
                 </div>
               ))
             )}

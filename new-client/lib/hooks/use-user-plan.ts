@@ -1,21 +1,21 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { getUserPlan, type PlanType } from "@/app/actions/plan-actions";
 
 const PLAN_CACHE_KEY = "user_plan_cache";
+const PLAN_CACHE_TTL_MS = 5 * 60 * 1000;
 
-// Get cached plan from localStorage
-function getCachedPlan(): PlanType | null {
+type PlanCacheEntry = { plan: PlanType; timestamp: number };
+
+function readPlanCache(): PlanCacheEntry | null {
   if (typeof window === "undefined") return null;
   try {
     const cached = localStorage.getItem(PLAN_CACHE_KEY);
-    if (cached) {
-      const { plan, timestamp } = JSON.parse(cached);
-      // Cache is valid for 5 minutes
-      if (Date.now() - timestamp < 5 * 60 * 1000) {
-        return plan as PlanType;
-      }
+    if (!cached) return null;
+    const parsed = JSON.parse(cached) as PlanCacheEntry;
+    if (parsed && typeof parsed.plan === "string" && typeof parsed.timestamp === "number") {
+      return parsed;
     }
   } catch (error) {
     console.error("Error reading cached plan:", error);
@@ -23,39 +23,56 @@ function getCachedPlan(): PlanType | null {
   return null;
 }
 
-// Save plan to localStorage
-function cachePlan(plan: PlanType) {
-  if (typeof window === "undefined") return;
+function cachePlan(plan: PlanType): PlanCacheEntry | null {
+  if (typeof window === "undefined") return null;
+  const entry: PlanCacheEntry = { plan, timestamp: Date.now() };
   try {
-    localStorage.setItem(
-      PLAN_CACHE_KEY,
-      JSON.stringify({ plan, timestamp: Date.now() })
-    );
+    localStorage.setItem(PLAN_CACHE_KEY, JSON.stringify(entry));
   } catch (error) {
     console.error("Error caching plan:", error);
   }
+  return entry;
 }
 
 export function useUserPlan() {
-  const cachedPlan = getCachedPlan();
-  const [plan, setPlan] = useState<PlanType>(cachedPlan || "free");
+  const initialCache = typeof window !== "undefined" ? readPlanCache() : null;
+  const cacheRef = useRef<PlanCacheEntry | null>(initialCache);
+  const [plan, setPlan] = useState<PlanType>(() => initialCache?.plan ?? "free");
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
+    let cancelled = false;
+
+    const needsRefresh =
+      !cacheRef.current || Date.now() - cacheRef.current.timestamp >= PLAN_CACHE_TTL_MS;
+
+    if (!needsRefresh) {
+      setIsLoading(false);
+      return;
+    }
+
     async function loadPlan() {
       try {
         const userPlan = await getUserPlan();
+        if (cancelled) return;
         setPlan(userPlan);
-        cachePlan(userPlan);
+        cacheRef.current = cachePlan(userPlan) ?? { plan: userPlan, timestamp: Date.now() };
       } catch (error) {
         console.error("Error loading user plan:", error);
-        setPlan("free");
+        if (!cancelled) {
+          setPlan("free");
+        }
       } finally {
-        setIsLoading(false);
+        if (!cancelled) {
+          setIsLoading(false);
+        }
       }
     }
 
     loadPlan();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const refreshPlan = async () => {
@@ -63,7 +80,7 @@ export function useUserPlan() {
     try {
       const userPlan = await getUserPlan();
       setPlan(userPlan);
-      cachePlan(userPlan);
+      cacheRef.current = cachePlan(userPlan) ?? { plan: userPlan, timestamp: Date.now() };
     } catch (error) {
       console.error("Error refreshing user plan:", error);
     } finally {

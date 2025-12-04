@@ -132,7 +132,7 @@ export function ChatMessage({
   if (role === 'user') {
     return (
       <div className={`py-3 sm:py-4 ${animateClass}`}>
-        <div className="mx-auto w-full max-w-3xl flex flex-col items-end">
+      <div className="mx-auto w-full max-w-3xl flex flex-col items-end px-1.5 sm:px-0">
           {Array.isArray((metadata as any)?.files) && (metadata as any).files.length > 0 && (
             <div className="mb-2 flex flex-wrap gap-2 justify-end max-w-[92%] sm:max-w-4xl lg:max-w-5xl xl:max-w-[1200px] 2xl:max-w-[1400px]">
               {((metadata as any).files as Array<{ name?: string; mimeType?: string; dataUrl: string }>).map((file, idx) => (
@@ -174,7 +174,7 @@ export function ChatMessage({
 
   return (
     <div className={`py-4 sm:py-6 ${animateClass} ${assistantStreamingClass}`}>
-      <div className="mx-auto w-full max-w-3xl">
+      <div className="mx-auto w-full max-w-3xl px-1.5 sm:px-0">
         <div className="space-y-3 sm:space-y-4">
           <MarkdownContent content={content} />
 
