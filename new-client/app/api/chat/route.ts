@@ -1424,7 +1424,12 @@ export async function POST(request: NextRequest) {
         console.log(`[usageLimit] Enforcing flex processing for GPT 5 Pro (${userPlan} plan)`);
       }
       
-      const promptCacheKey = `${conversationId}:${resolvedTopicDecision.primaryTopicId || "none"}`;
+      const rawPromptKey = `${conversationId}:${resolvedTopicDecision.primaryTopicId || "none"}`;
+      let promptCacheKey = rawPromptKey;
+      if (rawPromptKey.length > 64) {
+        const { createHash } = require("crypto");
+        promptCacheKey = createHash("sha256").update(rawPromptKey).digest("hex").slice(0, 64);
+      }
       responseStream = await openai.responses.stream({
         model: modelConfig.model,
         instructions: systemInstructions,
