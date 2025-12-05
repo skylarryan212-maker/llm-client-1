@@ -52,7 +52,8 @@ export async function buildContextForMainModel({
     return { messages: fallbackMessages, source: "fallback", includedTopicIds: [] };
   }
 
-  const topicMap = new Map(topics.map((topic) => [topic.id, topic]));
+  const topicRows: TopicRow[] = Array.isArray(topics) ? topics : [];
+  const topicMap = new Map<string, TopicRow>(topicRows.map((topic) => [topic.id, topic]));
   const primaryTopic = topicMap.get(routerDecision.primaryTopicId);
   if (!primaryTopic) {
     const fallbackMessages = await loadFallbackMessages(supabase, conversationId, contextStrategy);
@@ -197,13 +198,14 @@ async function loadArtifactsByIds(
     .from("artifacts")
     .select("*")
     .in("id", ids);
-  if (!Array.isArray(data)) {
+  const artifacts = Array.isArray(data) ? (data as ArtifactRow[]) : [];
+  if (!artifacts.length) {
     return [];
   }
 
   const selected: ArtifactRow[] = [];
   let budget = tokenBudget;
-  for (const artifact of data) {
+  for (const artifact of artifacts) {
     const tokens = estimateTokens(artifact.content ?? "");
     if (tokens > budget) {
       continue;

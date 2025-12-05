@@ -70,7 +70,7 @@ export async function decideRoutingForMessage(
       !validated.primaryTopicId &&
       validated.newTopicLabel?.trim()
     ) {
-      const { data: inserted, error: insertError } = await supabase
+      const { data: inserted, error: insertError } = await (supabase as SupabaseClient<any>)
         .from("conversation_topics")
         .insert({
           conversation_id: conversationId,

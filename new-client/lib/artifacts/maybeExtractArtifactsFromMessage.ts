@@ -63,12 +63,7 @@ export async function maybeExtractArtifactsFromMessage({
   }
 
   try {
-    await supabase
-      .from<
-        Database["public"]["Tables"]["artifacts"]["Row"],
-        Database["public"]["Tables"]["artifacts"]["Insert"]
-      >("artifacts")
-      .insert(inserts);
+    await (supabase as SupabaseClient<any>).from("artifacts").insert(inserts);
   } catch (error) {
     console.error("[artifacts] Failed to insert extracted artifacts:", error);
   }
