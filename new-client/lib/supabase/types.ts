@@ -311,5 +311,9 @@ export interface Database {
         Update: ArtifactUpdate;
       };
     };
+    Views: {};
+    Functions: {};
+    Enums: {};
+    CompositeTypes: {};
   };
 }
