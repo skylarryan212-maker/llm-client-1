@@ -1,0 +1,9 @@
+{
+  "framework": "nextjs",
+  "installCommand": "cd new-ui-client && npm install",
+  "buildCommand": "cd new-ui-client && npm run build",
+  "outputDirectory": "new-ui-client/.next",
+  "routes": [
+    { "src": "/(.*)", "dest": "new-ui-client/$1" }
+  ]
+}
