@@ -829,6 +829,19 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    let topicRoutingDecision: RouterDecision | null = null;
+    try {
+      topicRoutingDecision = await decideRoutingForMessage({
+        supabase: supabaseAny,
+        conversationId,
+        userMessage: message,
+      });
+    } catch (topicErr) {
+      console.error("[topic-router] Failed to route message:", topicErr);
+    }
+    const resolvedTopicDecision =
+      topicRoutingDecision ?? createFallbackTopicDecision(lastTopicIdFromHistory);
+
     if (userMessageRow && resolvedTopicDecision.primaryTopicId && userMessageRow.topic_id !== resolvedTopicDecision.primaryTopicId) {
       try {
         await supabaseAny
@@ -881,19 +894,6 @@ export async function POST(request: NextRequest) {
     } catch (permInitErr) {
       console.error("[permanent-instructions] Failed to preload instructions:", permInitErr);
     }
-
-    let topicRoutingDecision: RouterDecision | null = null;
-    try {
-      topicRoutingDecision = await decideRoutingForMessage({
-        supabase: supabaseAny,
-        conversationId,
-        userMessage: message,
-      });
-    } catch (topicErr) {
-      console.error("[topic-router] Failed to route message:", topicErr);
-    }
-    const resolvedTopicDecision =
-      topicRoutingDecision ?? createFallbackTopicDecision(lastTopicIdFromHistory);
 
     // Get model config using LLM-based routing (with code-based fallback)
       const modelConfig = await getModelAndReasoningConfigWithLLM(
