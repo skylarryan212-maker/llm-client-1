@@ -4,7 +4,7 @@ import type { Database, ArtifactInsert } from "@/lib/supabase/types";
 type MessageRow = Database["public"]["Tables"]["messages"]["Row"];
 
 interface Params {
-  supabase: SupabaseClient<Database, "public">;
+  supabase: SupabaseClient<Database>;
   message: MessageRow;
 }
 
