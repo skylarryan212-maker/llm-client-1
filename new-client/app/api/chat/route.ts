@@ -1430,33 +1430,52 @@ export async function POST(request: NextRequest) {
         const { createHash } = require("crypto");
         promptCacheKey = createHash("sha256").update(rawPromptKey).digest("hex").slice(0, 64);
       }
-      const supportsExtendedCache = [
+      const extendedCacheModels = new Set([
         "gpt-5.1",
-        "gpt-5-codex",
+        "gpt-5.1-codex",
+        "gpt-5.1-codex-mini",
+        "gpt-5.1-chat-latest",
         "gpt-5",
+        "gpt-5-codex",
         "gpt-4.1",
-      ].some((prefix) => modelConfig.model.startsWith(prefix));
+      ]);
+      const supportsExtendedCache = extendedCacheModels.has(modelConfig.model);
 
-      responseStream = await openai.responses.stream({
+      // Only include prompt_cache_retention for supported models (not gpt-5-nano)
+      const streamOptions: any = {
         model: modelConfig.model,
         instructions: systemInstructions,
         input: messagesForAPI,
         stream: true,
         store: true,
         prompt_cache_key: promptCacheKey,
-        ...(supportsExtendedCache ? { prompt_cache_retention: "24h" } : {}),
         // Only use chain when NOT doing enumeration (full strategy needs explicit messages)
         metadata: {
           user_id: userId,
           conversation_id: conversationId,
           ...(userMessageRow?.id ? { message_id: userMessageRow.id } : {}),
-          ...(projectId ? { project_id: projectId } : {}),
         },
-        ...(toolsForRequest.length ? { tools: toolsForRequest } : {}),
-        ...(toolChoice ? { tool_choice: toolChoice } : {}),
-        ...(modelConfig.reasoning && { reasoning: modelConfig.reasoning }),
-        ...(useFlex ? { service_tier: "flex" } : {}),
-      });
+      };
+      if (supportsExtendedCache) {
+        streamOptions.prompt_cache_retention = "24h";
+      }
+      // Add additional options to streamOptions
+      if (projectId) {
+        streamOptions.metadata.project_id = projectId;
+      }
+      if (toolsForRequest.length) {
+        streamOptions.tools = toolsForRequest;
+      }
+      if (toolChoice) {
+        streamOptions.tool_choice = toolChoice;
+      }
+      if (modelConfig.reasoning) {
+        streamOptions.reasoning = modelConfig.reasoning;
+      }
+      if (typeof useFlex !== 'undefined' && useFlex) {
+        streamOptions.service_tier = "flex";
+      }
+      responseStream = await openai.responses.stream(streamOptions);
       console.log("OpenAI stream started for model:", modelConfig.model, useFlex ? "(flex)" : "(standard)");
     } catch (streamErr) {
       console.error("Failed to start OpenAI stream:", streamErr);
