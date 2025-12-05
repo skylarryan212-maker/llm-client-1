@@ -4,7 +4,7 @@ import type { Database, ArtifactInsert } from "@/lib/supabase/types";
 type MessageRow = Database["public"]["Tables"]["messages"]["Row"];
 
 interface Params {
-  supabase: SupabaseClient<Database>;
+  supabase: SupabaseClient<Database, "public">;
   message: MessageRow;
 }
 
@@ -63,7 +63,10 @@ export async function maybeExtractArtifactsFromMessage({
   }
 
   try {
-    await supabase.from("artifacts").insert<ArtifactInsert>(inserts);
+    const artifactInserts: Database["public"]["Tables"]["artifacts"]["Insert"][] =
+      inserts;
+
+    await supabase.from("artifacts").insert(artifactInserts);
   } catch (error) {
     console.error("[artifacts] Failed to insert extracted artifacts:", error);
   }
