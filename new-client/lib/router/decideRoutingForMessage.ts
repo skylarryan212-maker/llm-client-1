@@ -181,14 +181,15 @@ async function loadCandidateArtifacts(
     .order("created_at", { ascending: false })
     .limit(30);
 
-  if (!Array.isArray(data)) {
+  const artifacts = Array.isArray(data) ? (data as Artifact[]) : [];
+  if (!artifacts.length) {
     return [];
   }
   if (!keywords.length) {
-    return data.slice(0, MAX_ARTIFACTS);
+    return artifacts.slice(0, MAX_ARTIFACTS);
   }
 
-  const filtered = data.filter((artifact) => {
+  const filtered = artifacts.filter((artifact) => {
     const haystack = `${artifact.title} ${artifact.summary ?? ""}`.toLowerCase();
     return keywords.some((kw) => haystack.includes(kw));
   });
@@ -198,7 +199,7 @@ async function loadCandidateArtifacts(
   }
 
   const seen = new Set(filtered.map((artifact) => artifact.id));
-  for (const artifact of data) {
+  for (const artifact of artifacts) {
     if (seen.size >= MAX_ARTIFACTS) break;
     if (!seen.has(artifact.id)) {
       filtered.push(artifact);
