@@ -935,7 +935,8 @@ export async function POST(request: NextRequest) {
     }
 
     const {
-      messages: historyMessages,
+      prefixMessages,
+      historyMessages,
       source: contextSource,
       includedTopicIds,
       summaryCount,
@@ -946,7 +947,7 @@ export async function POST(request: NextRequest) {
       routerDecision: resolvedTopicDecision,
     });
     console.log(
-      `[context-builder] ${contextSource} mode - loaded ${historyMessages.length} messages (summaries: ${summaryCount}, artifacts: ${artifactMessagesCount}, topics: ${
+      `[context-builder] ${contextSource} mode - prefix ${prefixMessages.length} msgs, history ${historyMessages.length} msgs (summaries: ${summaryCount}, artifacts: ${artifactMessagesCount}, topics: ${
         includedTopicIds.length ? includedTopicIds.join(", ") : "none"
       })`
     );
@@ -1342,8 +1343,9 @@ export async function POST(request: NextRequest) {
       } catch {}
     }
 
+    const cachedConversationPrefix = [...prefixMessages, ...historyMessages];
     const messagesForAPI = [
-      ...historyMessages,
+      ...cachedConversationPrefix,
       {
         role: "user" as const,
         content: userContentParts,
@@ -1422,12 +1424,15 @@ export async function POST(request: NextRequest) {
         console.log(`[usageLimit] Enforcing flex processing for GPT 5 Pro (${userPlan} plan)`);
       }
       
+      const promptCacheKey = `${conversationId}:${resolvedTopicDecision.primaryTopicId || "none"}`;
       responseStream = await openai.responses.stream({
         model: modelConfig.model,
         instructions: systemInstructions,
         input: messagesForAPI,
         stream: true,
         store: true,
+        prompt_cache_key: promptCacheKey,
+        prompt_cache_retention: "24h",
         // Only use chain when NOT doing enumeration (full strategy needs explicit messages)
         metadata: {
           user_id: userId,

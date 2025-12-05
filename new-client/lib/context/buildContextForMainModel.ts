@@ -8,7 +8,7 @@ type MessageRow = Database["public"]["Tables"]["messages"]["Row"];
 type TopicRow = Database["public"]["Tables"]["conversation_topics"]["Row"];
 type ArtifactRow = Database["public"]["Tables"]["artifacts"]["Row"];
 
-type ContextMessage = {
+export type ContextMessage = {
   role: "user" | "assistant";
   content: string;
   type: "message";
@@ -22,7 +22,8 @@ export interface BuildContextParams {
 }
 
 export interface BuildContextResult {
-  messages: ContextMessage[];
+  prefixMessages: ContextMessage[];
+  historyMessages: ContextMessage[];
   source: "topic" | "fallback";
   includedTopicIds: string[];
   summaryCount: number;
@@ -42,7 +43,8 @@ export async function buildContextForMainModel({
   if (!routerDecision.primaryTopicId) {
     const fallbackMessages = await loadFallbackMessages(supabase, conversationId, maxContextTokens);
     return {
-      messages: fallbackMessages,
+      prefixMessages: [],
+      historyMessages: fallbackMessages,
       source: "fallback",
       includedTopicIds: [],
       summaryCount: 0,
@@ -58,7 +60,8 @@ export async function buildContextForMainModel({
   if (topicError || !Array.isArray(topics)) {
     const fallbackMessages = await loadFallbackMessages(supabase, conversationId, maxContextTokens);
     return {
-      messages: fallbackMessages,
+      prefixMessages: [],
+      historyMessages: fallbackMessages,
       source: "fallback",
       includedTopicIds: [],
       summaryCount: 0,
@@ -72,7 +75,8 @@ export async function buildContextForMainModel({
   if (!primaryTopic) {
     const fallbackMessages = await loadFallbackMessages(supabase, conversationId, maxContextTokens);
     return {
-      messages: fallbackMessages,
+      prefixMessages: [],
+      historyMessages: fallbackMessages,
       source: "fallback",
       includedTopicIds: [],
       summaryCount: 0,
@@ -178,7 +182,20 @@ export async function buildContextForMainModel({
   if (!combinedMessages.length) {
     const fallbackMessages = await loadFallbackMessages(supabase, conversationId, maxContextTokens);
     return {
-      messages: fallbackMessages,
+      prefixMessages: [],
+      historyMessages: fallbackMessages,
+      source: "fallback",
+      includedTopicIds: Array.from(includedTopics),
+      summaryCount,
+      artifactCount,
+    };
+  }
+
+  if (!summaryMessages.length && !artifactMessages.length && !conversationMessages.length) {
+    const fallbackMessages = await loadFallbackMessages(supabase, conversationId, maxContextTokens);
+    return {
+      prefixMessages: [],
+      historyMessages: fallbackMessages,
       source: "fallback",
       includedTopicIds: Array.from(includedTopics),
       summaryCount,
@@ -187,7 +204,8 @@ export async function buildContextForMainModel({
   }
 
   return {
-    messages: combinedMessages,
+    prefixMessages: [...summaryMessages, ...artifactMessages],
+    historyMessages: conversationMessages,
     source: "topic",
     includedTopicIds: Array.from(includedTopics),
     summaryCount,
