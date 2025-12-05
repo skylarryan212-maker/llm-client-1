@@ -16,7 +16,6 @@ export interface BuildContextParams {
   supabase: SupabaseClient<Database>;
   conversationId: string;
   routerDecision: RouterDecision;
-  contextStrategy?: "minimal" | "recent" | "full";
   maxContextTokens?: number;
 }
 
@@ -34,11 +33,10 @@ export async function buildContextForMainModel({
   supabase,
   conversationId,
   routerDecision,
-  contextStrategy = "recent",
   maxContextTokens = DEFAULT_MAX_TOKENS,
 }: BuildContextParams): Promise<BuildContextResult> {
   if (!routerDecision.primaryTopicId) {
-    const fallbackMessages = await loadFallbackMessages(supabase, conversationId, contextStrategy);
+    const fallbackMessages = await loadFallbackMessages(supabase, conversationId);
     return { messages: fallbackMessages, source: "fallback", includedTopicIds: [] };
   }
 
@@ -48,7 +46,7 @@ export async function buildContextForMainModel({
     .eq("conversation_id", conversationId);
 
   if (topicError || !Array.isArray(topics)) {
-    const fallbackMessages = await loadFallbackMessages(supabase, conversationId, contextStrategy);
+    const fallbackMessages = await loadFallbackMessages(supabase, conversationId);
     return { messages: fallbackMessages, source: "fallback", includedTopicIds: [] };
   }
 
@@ -56,7 +54,7 @@ export async function buildContextForMainModel({
   const topicMap = new Map<string, TopicRow>(topicRows.map((topic) => [topic.id, topic]));
   const primaryTopic = topicMap.get(routerDecision.primaryTopicId);
   if (!primaryTopic) {
-    const fallbackMessages = await loadFallbackMessages(supabase, conversationId, contextStrategy);
+    const fallbackMessages = await loadFallbackMessages(supabase, conversationId);
     return { messages: fallbackMessages, source: "fallback", includedTopicIds: [] };
   }
 
@@ -144,7 +142,7 @@ export async function buildContextForMainModel({
   }
 
   if (!contextMessages.length) {
-    const fallbackMessages = await loadFallbackMessages(supabase, conversationId, contextStrategy);
+    const fallbackMessages = await loadFallbackMessages(supabase, conversationId);
     return { messages: fallbackMessages, source: "fallback", includedTopicIds: Array.from(includedTopics) };
   }
 
@@ -218,30 +216,23 @@ async function loadArtifactsByIds(
 
 async function loadFallbackMessages(
   supabase: SupabaseClient<Database>,
-  conversationId: string,
-  contextStrategy: "minimal" | "recent" | "full"
+  conversationId: string
 ): Promise<ContextMessage[]> {
-  const limit =
-    contextStrategy === "minimal" ? 2 : contextStrategy === "recent" ? 20 : 400;
+  const FALLBACK_LIMIT = 400;
 
   const { data, error } = await supabase
     .from("messages")
     .select("id, role, content, metadata, created_at")
     .eq("conversation_id", conversationId)
     .order("created_at", { ascending: true })
-    .limit(limit);
+    .limit(FALLBACK_LIMIT);
 
   if (error || !Array.isArray(data)) {
     return [];
   }
 
   const sanitized = data.map((msg) => toContextMessage(msg));
-
-  if (contextStrategy === "full") {
-    return trimContextMessages(sanitized, FALLBACK_TOKEN_CAP);
-  }
-
-  return sanitized;
+  return trimContextMessages(sanitized, FALLBACK_TOKEN_CAP);
 }
 
 function trimMessagesToBudget(messages: MessageRow[], tokenCap: number): MessageRow[] {

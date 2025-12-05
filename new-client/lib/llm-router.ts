@@ -8,12 +8,6 @@
 
 import type { ModelFamily, ReasoningEffort } from "./modelConfig";
 import type { MemoryType } from "./memory";
-import type { SupabaseClient } from "@supabase/supabase-js";
-
-export type ContextStrategy = 
-  | "minimal"      // Use cache only (new factual questions)
-  | "recent"       // Load last 15 messages (normal conversation)
-  | "full";        // Load all messages (enumeration/recall)
 
 export type WebSearchStrategy =
   | "never"        // No search needed (greetings, meta questions, offline tasks)
@@ -26,8 +20,6 @@ export interface MemoryStrategy {
   query?: string;               // Optimized query for semantic search
   limit: number;                // Max memories to load
 }
-
-export type NextTurnPrediction = "likely" | "unlikely" | "unknown";
 
 export interface MemoryToWrite {
   type: string;      // Dynamic category name
@@ -51,71 +43,16 @@ export interface PermanentInstructionToDelete {
   reason?: string;
 }
 
-export interface RouterContextLine {
-  role: string;
-  content: string;
-}
-
-const ROUTER_CONTEXT_MAX_LINES = 10;
-const ROUTER_CONTEXT_TOKEN_CAP = 2000;
-
 export interface LLMRouterDecision {
   model: Exclude<ModelFamily, "auto">;
   effort: ReasoningEffort;
-  contextStrategy: ContextStrategy;
   webSearchStrategy: WebSearchStrategy;
   memoryStrategy: MemoryStrategy;
   memoriesToWrite: MemoryToWrite[];  // Memories to save based on user's prompt
   memoriesToDelete: MemoryToDelete[];  // Memories to delete based on user's request
   permanentInstructionsToWrite: PermanentInstructionToWrite[];
   permanentInstructionsToDelete: PermanentInstructionToDelete[];
-  nextTurnPrediction?: NextTurnPrediction;
   routedBy: "llm";
-}
-
-export function appendRouterContextLine(
-  lines: RouterContextLine[] | undefined,
-  role: string,
-  rawContent: string
-): RouterContextLine[] {
-  const base = Array.isArray(lines) ? [...lines] : [];
-  const truncated = truncateMessageForRouter(role, rawContent || "");
-  const next = [...base, { role, content: truncated }];
-
-  while (next.length > ROUTER_CONTEXT_MAX_LINES) {
-    next.shift();
-  }
-
-  while (estimateLinesTokens(next) > ROUTER_CONTEXT_TOKEN_CAP && next.length > 1) {
-    next.shift();
-  }
-
-  return next;
-}
-
-export function renderRouterContextText(lines: RouterContextLine[]): string {
-  if (!Array.isArray(lines) || lines.length === 0) {
-    return "";
-  }
-  return lines.map((line) => `${line.role}: ${line.content}`).join("\n");
-}
-
-export function ensureRouterContextLines(value: unknown): RouterContextLine[] {
-  if (!Array.isArray(value)) return [];
-  return value
-    .map((entry) => {
-      if (!entry || typeof entry !== "object") return null;
-      const role = typeof (entry as any).role === "string" ? (entry as any).role : "";
-      const content = typeof (entry as any).content === "string" ? (entry as any).content : "";
-      if (!role || !content) return null;
-      return { role, content };
-    })
-    .filter((entry): entry is RouterContextLine => Boolean(entry));
-}
-
-function estimateLinesTokens(lines: RouterContextLine[]): number {
-  if (!Array.isArray(lines) || lines.length === 0) return 0;
-  return lines.reduce((total, line) => total + estimateTokens(`${line.role}: ${line.content}`), 0);
 }
 
 export interface RouterContext {
@@ -127,83 +64,63 @@ export interface RouterContext {
   permanentInstructions?: PermanentInstructionToWrite[]; // Full list with IDs/content/scope
 }
 
-const ROUTER_MODEL_ID = "gpt-5-nano-2025-08-07"
-const ROUTER_SYSTEM_PROMPT = `You are a routing assistant that analyzes user prompts and recommends the optimal AI model, reasoning effort, context strategy, and web search strategy.
+const ROUTER_MODEL_ID = "gpt-5-nano-2025-08-07";
+const ROUTER_SYSTEM_PROMPT = `You are a routing assistant that analyzes user prompts and recommends the optimal AI model, reasoning effort, and web search/memory strategies.
 
-**Reliability-first selection**
-Evaluate how reliable the response must be. Default to the smallest model that can answer the prompt with high confidence. Only escalate when you can clearly explain what could go wrong if the smaller model handled it (e.g., high-stakes financial/legal advice, production code deploys, safety-critical instructions, or extremely long/nuanced tasks). In your reasoning, state the concrete risk that forced you to pick a larger model. If you cannot name a specific risk, choose a smaller model.
+  **Reliability-first selection**
+  Evaluate how reliable the response must be. Default to the smallest model that can answer the prompt with high confidence. Only escalate when you can clearly explain what could go wrong if the smaller model handled it (e.g., high-stakes financial/legal advice, production code deploys, safety-critical instructions, or extremely long/nuanced tasks). In your reasoning, state the concrete risk that forced you to pick a larger model. If you cannot name a specific risk, choose a smaller model.
 
-**Available Models:**
-1. **gpt-5-nano** - Fastest, cheapest. Handles most everyday requests, multi-step reasoning, and concise code when stakes are low.
-2. **gpt-5-mini** - Balanced. Use when you need extra reliability, longer outputs, or more nuanced reasoning that might exceed Nano's comfort zone.
-3. **gpt-5.1** - Most capable. Reserve for very high stakes, extremely long-form tasks, or situations where failure would be costly.
+  **Available Models:**
+  1. **gpt-5-nano** - Fastest, cheapest. Handles most everyday requests, multi-step reasoning, and concise code when stakes are low.
+  2. **gpt-5-mini** - Balanced. Use when you need extra reliability, longer outputs, or more nuanced reasoning that might exceed Nano's comfort zone.
+  3. **gpt-5.1** - Most capable. Reserve for very high stakes, extremely long-form tasks, or situations where failure would be costly.
 
-⚠️ NEVER recommend "gpt-5-pro-2025-10-06" - it is not available for routing.
+  Гs Л,? NEVER recommend "gpt-5-pro-2025-10-06" - it is not available for routing.
 
-**Reasoning Effort Levels:**
-- **none**: No extended reasoning (GPT 5.1 only, for instant responses)
-- **low**: Minimal reasoning (quick thinking)
-- **medium**: Moderate reasoning (balanced)
-- **high**: Deep reasoning (complex problems)
+  **Reasoning Effort Levels:**
+  - **none**: No extended reasoning (GPT 5.1 only, for instant responses)
+  - **low**: Minimal reasoning (quick thinking)
+  - **medium**: Moderate reasoning (balanced)
+  - **high**: Deep reasoning (complex problems)
 
-Note: gpt-5-mini and gpt-5-nano MUST use "low", "medium", or "high" (never "none").
+  Note: gpt-5-mini and gpt-5-nano MUST use "low", "medium", or "high" (never "none").
 
-**Context Strategy:**
-- **minimal**: Use cached context only, don't load message history (ONLY for completely standalone questions with no conversational signals)
-- **recent**: Load last 15 messages (for ANY conversational continuations, clarifications, corrections, follow-ups, or references)
-- **full**: Load ALL messages from database (for enumeration, listing, recalling old messages)
+  **Web Search Strategy (IMPORTANT):**
+  - **never**: No search needed (greetings, offline math/logic, meta questions, timeless concepts)
+  - **optional**: Model can decide to search (questions that might need fresh data, ambiguous cases)
+  - **required**: Must use web search (explicit search requests, current events, live data, prices, weather, recent news)
 
-**Context Strategy Examples:**
-- "What's the weather in Paris?" → minimal (ONLY if first message or topic change)
-- "Explain quantum mechanics" → minimal (ONLY if standalone, not part of conversation)
-- "no", "yes", "ok", "no thats ok" → recent (conversational responses)
-- "its X specifically", "I meant Y" → recent (clarifications/corrections)
-- "im talking about X", "I have X, so..." → recent (references previous context)
-- "Can you explain that better?" → recent (refers to recent context)
-- "tell me more", "what about..." → recent (follow-ups)
-- "Continue from where we left off" → recent (conversation flow)
-- "What were all my prompts?" → full (needs to enumerate messages)
-- "List everything we discussed" → full (needs full history)
-- "What was my first question?" → full (needs oldest message)
-- "Summarize our conversation" → full (needs all messages)
+  **Web Search Examples:**
+  - "Hi" / "Hello" Г+' never (greeting)
+  - "What's 2+2?" Г+' never (math, no search needed)
+  - "Explain quantum mechanics" Г+' never (timeless concept)
+  - "Can you search the web?" Г+' never (meta question about capabilities)
+  - "Who won the game last night?" Г+' required (recent event)
+  - "What's the weather today?" Г+' required (live data)
+  - "Current price of Bitcoin" Г+' required (real-time data)
+  - "Search the web for..." Г+' required (explicit request)
+  - "Latest news about AI" Г+' required (current events)
+  - "When does the sun set?" Г+' optional (could calculate or search for exact time)
+  - "Best restaurants in NYC" Г+' optional (could use knowledge or search for current)
+  - "What happened in 2024?" Г+' optional (recent past, search might help)
 
-⚠️ **CRITICAL**: If message is short (<20 words) and continues/responds to previous context, ALWAYS use "recent". Better to load extra context than hallucinate.
+  **Routing Guidelines:**
+  - Short greetings ("hi", "hello") Г+' nano + low + never
+  - Simple factual questions Г+' nano or mini + low + never
+  - Short conversational responses ("no", "yes", "ok") Г+' nano + low + never
+  - Clarifications/corrections ("it's X specifically", "I meant Y") Г+' mini + low + never
+  - References to prior context ("I'm talking about X") Г+' mini + low + never
+  - Follow-up questions ("tell me more", "what about...") Г+' mini + low + never
+  - Explanations, summaries, analysis Г+' mini + low or medium + never
+  - Current events, news, prices Г+' mini + low + required
+  - Weather/live data Г+' nano or mini + low + required when live data is necessary
+  - Explicit search requests Г+' mini + low + required
+  - Long prompts (600+ words) Г+' mini or 5.1 + medium + optional search
+  - Complex technical, coding, research Г+' 5.1 + medium or high + optional search
+  - Enumeration/recall requests Г+' mini or 5.1 + low + never
+  - Creative writing, deep analysis Г+' 5.1 + medium or high + never
 
-**Web Search Strategy (NEW - IMPORTANT):**
-- **never**: No search needed (greetings, offline math/logic, meta questions about AI, explanations of known concepts)
-- **optional**: Model can decide to search (questions that might need fresh data, ambiguous cases)
-- **required**: Must use web search (explicit search requests, current events, live data, prices, weather, recent news)
 
-**Web Search Examples:**
-- "Hi" / "Hello" → never (greeting)
-- "What's 2+2?" → never (math, no search needed)
-- "Explain quantum mechanics" → never (timeless concept)
-- "Can you search the web?" → never (meta question about capabilities)
-- "Who won the game last night?" → required (recent event)
-- "What's the weather today?" → required (live data)
-- "Current price of Bitcoin" → required (real-time data)
-- "Search the web for..." → required (explicit request)
-- "Latest news about AI" → required (current events)
-- "When does the sun set?" → optional (could calculate or search for exact time)
-- "Best restaurants in NYC" → optional (could use knowledge or search for current)
-- "What happened in 2024?" → optional (recent past, search might help)
-
-**Routing Guidelines:**
-- Short greetings ("hi", "hello") → nano + low + minimal + never (ONLY if first message)
-- Simple factual questions → nano or mini + low + minimal + never (ONLY if standalone, no context needed)
-- Short conversational responses ("no", "yes", "ok") → nano + low + recent + never
-- Clarifications/corrections ("its X specifically", "I meant Y") → mini + low + recent + never
-- References to prior context ("I have X, so...", "im talking about X") → mini + low + recent + never
-- Follow-up questions ("explain that", "tell me more", "what about...") → mini + low + recent + never
-- Explanations, summaries, analysis → mini + low or medium + recent + never
-- Current events, news, prices → mini + low + minimal + required (if standalone) OR recent + required (if follow-up)
-- Weather, live data → nano or mini + low + minimal + required (if standalone) OR recent + required (if follow-up)
-- Explicit search requests → mini + low + recent + required (usually references prior context)
-- Long prompts (600+ words) → mini or 5.1 + medium + recent + never/optional
-- Complex technical, coding, research → 5.1 + medium or high + recent + optional
-- Enumeration/recall requests → mini or 5.1 + low + full + never
-- Very long prompts (1000+ words) → 5.1 + high + recent + never/optional
-- Creative writing, deep analysis → 5.1 + medium or high + recent + never
 
 **Memory Strategy:**
 You will be provided with a list of available memory types (categories the user has created). Decide which to load based on the prompt:
@@ -277,14 +194,7 @@ IMPORTANT: Only include memory IDs that are present in the loaded memories provi
   - "Stop calling me Captain" ƒ+' permanentInstructionsToDelete: [{"id": "<instruction-id>", "reason": "User revoked nickname"}]
 - Do NOT create instructions for one-off requests ("write this email", "summarize this article") or vague hints ("remember this later" without specifics).
 - Only mutate permanent instructions when the user clearly asks; otherwise leave them unchanged.
-
-**Next-turn prediction**
-After you decide on the current response, predict whether the user will likely send another complex follow-up that needs fresh routing. Output:
-- "likely" when wording implies more parts are coming, the user promises additional info, or the task clearly continues (e.g., "first draft", "I'll send more data", "keep going with several ideas").
-- "unlikely" for closings, confirmations, gratitude, or when the prompt clearly ends the thread.
-- "unknown" when intent is unclear.
-
-**Dynamic Memory Types:**
+  **Dynamic Memory Types:**
 Create ANY descriptive category name that makes sense! Examples: romantic_interests, fitness_goals, food_preferences, work_projects, travel_plans, hobbies, family_info, coding_style, meeting_schedule, health_conditions, etc.
 
 **Response Format:**
@@ -292,7 +202,6 @@ Respond with ONLY a valid JSON object (no markdown, no explanation, no additiona
 {
   "model": "gpt-5-nano" | "gpt-5-mini" | "gpt-5.1",
   "effort": "none" | "low" | "medium" | "high",
-  "contextStrategy": "minimal" | "recent" | "full",
   "webSearchStrategy": "never" | "optional" | "required",
   "memoryStrategy": {
     "types": ["type1", "type2"] | "all",
@@ -312,7 +221,6 @@ Respond with ONLY a valid JSON object (no markdown, no explanation, no additiona
   "permanentInstructionsToDelete": [
     {"id": "instruction-id", "reason": "optional explanation"}
   ],  // empty array if nothing to delete
-  "nextTurnPrediction": "likely" | "unlikely" | "unknown",
   "reasoning": "brief one-line explanation"
 }
 
@@ -323,7 +231,6 @@ CRITICAL: Your entire response must be ONLY the JSON object. No other text befor
  */
 export async function routeWithLLM(
   promptText: string,
-  conversationHistory: string,
   context?: RouterContext
 ): Promise<LLMRouterDecision | null> {
   try {
@@ -371,13 +278,7 @@ export async function routeWithLLM(
       contextNote += `\n\nPermanent instructions with IDs (use these IDs if you need to delete one):\n${lines}`;
     }
 
-    // Add conversation history if available
-    let historySection = "";
-    if (conversationHistory) {
-      historySection = `\n\n**Recent Conversation History:**\n${conversationHistory}\n\n**Current User Prompt (analyze THIS for memories):**\n`;
-    }
-
-    const routerPrompt = `${contextNote ? contextNote + "\n" : ""}${historySection}${historySection ? '' : 'Analyze this prompt and recommend model + effort + memory strategy:\n\n'}${promptText}`;
+    const routerPrompt = `${contextNote ? `${contextNote}\n\n` : ""}Analyze this prompt and recommend model + effort + memory strategy:\n\n${promptText}`;
 
     console.log("[llm-router] Starting LLM routing call");
     const startTime = Date.now();
@@ -426,9 +327,7 @@ export async function routeWithLLM(
       "gpt-5.1",
     ];
     const validEfforts: ReasoningEffort[] = ["none", "low", "medium", "high"];
-    const validStrategies: ContextStrategy[] = ["minimal", "recent", "full"];
     const validWebSearch: WebSearchStrategy[] = ["never", "optional", "required"];
-    const validPredictions: NextTurnPrediction[] = ["likely", "unlikely", "unknown"];
 
     if (!validModels.includes(parsed.model)) {
       console.error(`[llm-router] Invalid model: ${parsed.model}`);
@@ -438,12 +337,6 @@ export async function routeWithLLM(
     if (!validEfforts.includes(parsed.effort)) {
       console.error(`[llm-router] Invalid effort: ${parsed.effort}`);
       return null;
-    }
-
-    // Default to "recent" if contextStrategy is missing or invalid
-    if (!parsed.contextStrategy || !validStrategies.includes(parsed.contextStrategy)) {
-      console.warn(`[llm-router] Invalid or missing contextStrategy: ${parsed.contextStrategy}, defaulting to "recent"`);
-      parsed.contextStrategy = "recent";
     }
 
     // Default to "optional" if webSearchStrategy is missing or invalid
@@ -508,10 +401,6 @@ export async function routeWithLLM(
       );
     }
 
-    if (!parsed.nextTurnPrediction || !validPredictions.includes(parsed.nextTurnPrediction)) {
-      parsed.nextTurnPrediction = "unknown";
-    }
-
     // Block GPT 5 Pro
     if (parsed.model === "gpt-5-pro-2025-10-06") {
       console.warn("[llm-router] Router tried to select GPT 5 Pro, defaulting to 5.1");
@@ -527,14 +416,12 @@ export async function routeWithLLM(
     return {
       model: parsed.model as Exclude<ModelFamily, "auto">,
       effort: parsed.effort as ReasoningEffort,
-      contextStrategy: parsed.contextStrategy as ContextStrategy,
       webSearchStrategy: parsed.webSearchStrategy as WebSearchStrategy,
       memoryStrategy: parsed.memoryStrategy as MemoryStrategy,
       memoriesToWrite: parsed.memoriesToWrite as MemoryToWrite[],
       memoriesToDelete: parsed.memoriesToDelete as MemoryToDelete[],
       permanentInstructionsToWrite: parsed.permanentInstructionsToWrite as PermanentInstructionToWrite[],
       permanentInstructionsToDelete: parsed.permanentInstructionsToDelete as PermanentInstructionToDelete[],
-      nextTurnPrediction: parsed.nextTurnPrediction as NextTurnPrediction,
       routedBy: "llm",
     };
   } catch (error) {
@@ -554,98 +441,6 @@ let lastRouterUsage = {
 
 export function getRouterUsageEstimate() {
   return lastRouterUsage;
-}
-
-/**
- * Truncate a message intelligently for router context
- */
-function truncateMessageForRouter(role: string, content: string): string {
-  // Remove attachment content, just show marker
-  const cleanContent = content.replace(/\[Attachment:.*?\]/g, '[File]');
-  
-  if (role === 'user') {
-    // User: first 200 + last 100 chars
-    if (cleanContent.length <= 300) return cleanContent;
-    return cleanContent.slice(0, 200) + '...' + cleanContent.slice(-100);
-  } else {
-    // Assistant: first 150 chars
-    if (cleanContent.length <= 150) return cleanContent;
-    return cleanContent.slice(0, 150) + '...';
-  }
-}
-
-/**
- * Rough token counter (4 chars ≈ 1 token)
- */
-function estimateTokens(text: string): number {
-  return Math.ceil(text.length / 4);
-}
-
-export interface RouterContextResult {
-  text: string;
-  lines: RouterContextLine[];
-}
-
-/**
- * Load conversation context for router with smart truncation.
- * Returns both the serialized text and the structured lines for caching.
- */
-export async function getConversationContextForRouter(
-  conversationId: string,
-  supabase: SupabaseClient
-): Promise<RouterContextResult> {
-  const { data: messages, error } = await supabase
-    .from('messages')
-    .select('role, content, created_at')
-    .eq('conversation_id', conversationId)
-    .order('created_at', { ascending: false })
-    .limit(10);
-  
-  if (error || !messages || messages.length === 0) {
-    return { text: '', lines: [] };
-  }
-  
-  // Reverse to chronological order
-  messages.reverse();
-  
-  // Build truncated context with token cap
-  const lines: RouterContextLine[] = [];
-  for (const msg of messages) {
-    lines.push({
-      role: msg.role,
-      content: truncateMessageForRouter(msg.role, msg.content),
-    });
-  }
-
-  let trimmed = lines;
-  while (estimateLinesTokens(trimmed) > ROUTER_CONTEXT_TOKEN_CAP && trimmed.length > 1) {
-    trimmed = trimmed.slice(1);
-  }
-
-  return {
-    text: renderRouterContextText(trimmed),
-    lines: trimmed,
-  };
-}
-
-export async function persistRouterContextCache(
-  supabase: SupabaseClient,
-  conversationId: string,
-  lines: RouterContextLine[],
-  lastMessageId: string | null
-) {
-  try {
-    await supabase
-      .from("conversations")
-      .update({
-        router_context_cache: lines,
-        router_context_cache_last_message_id: lastMessageId,
-        router_context_cache_updated_at: new Date().toISOString(),
-      })
-      .eq("id", conversationId);
-  } catch (error) {
-    console.warn("[llm-router] Failed to persist router context cache:", error);
-  }
 }
 
 /**

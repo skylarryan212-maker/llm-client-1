@@ -39,15 +39,7 @@ import { decideRoutingForMessage, createFallbackTopicDecision } from "@/lib/rout
 import type { RouterDecision } from "@/lib/router/types";
 import { buildContextForMainModel } from "@/lib/context/buildContextForMainModel";
 import { maybeExtractArtifactsFromMessage } from "@/lib/artifacts/maybeExtractArtifactsFromMessage";
-import {
-  appendRouterContextLine,
-  renderRouterContextText,
-  ensureRouterContextLines,
-  getConversationContextForRouter,
-  persistRouterContextCache,
-  type RouterContextLine,
-  type PermanentInstructionToWrite,
-} from "@/lib/llm-router";
+import type { PermanentInstructionToWrite } from "@/lib/llm-router";
 
 // Utility: convert a data URL (base64) to a Buffer
 function dataUrlToBuffer(dataUrl: string): Buffer {
@@ -762,15 +754,13 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Check if we have an OpenAI response chain we can continue
+    // Last assistant message used for router cache comparisons and metadata
     const lastAssistantMessage = recentMessages?.findLast((m: MessageRow) => m.role === "assistant");
-    const previousResponseId = lastAssistantMessage?.openai_response_id || null;
     const lastTopicIdFromHistory =
       recentMessages?.findLast((m: MessageRow) => Boolean(m.topic_id))?.topic_id ?? null;
 
     // Optionally insert the user message unless the client indicates it's already persisted (e.g., first send via server action, or retry)
     let userMessageRow: MessageRow | null = null;
-    let routerContextLines: RouterContextLine[] = [];
     let permanentInstructionState: { instructions: PermanentInstructionCacheItem[]; metadata: ConversationRow["metadata"] } | null = null;
     let permanentInstructionSummaryForRouter = "No permanent instructions are saved for this user yet.";
     if (!skipUserInsert) {
@@ -829,32 +819,6 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const cachedLinesRaw = ensureRouterContextLines(
-      (conversation.router_context_cache as RouterContextLine[] | null) ?? []
-    );
-    const cachedLastMessageId = (conversation.router_context_cache_last_message_id as string | null) ?? null;
-    const lastAssistantMessageId = lastAssistantMessage?.id ?? null;
-    let routerContextSource: "cache" | "db" = "cache";
-    routerContextLines = cachedLinesRaw;
-
-    if (!routerContextLines.length || cachedLastMessageId !== lastAssistantMessageId) {
-      try {
-        const contextResult = await getConversationContextForRouter(conversationId, supabaseAny);
-        routerContextLines = contextResult.lines;
-        routerContextSource = "db";
-      } catch (ctxErr) {
-        console.error("[context-cache] Failed to rebuild router context:", ctxErr);
-        routerContextLines = [];
-        routerContextSource = "db";
-      }
-    }
-
-    routerContextLines = appendRouterContextLine(routerContextLines, "user", message);
-    const routerConversationHistory = renderRouterContextText(routerContextLines);
-    console.log(
-      `[context-cache] ${routerContextSource === "cache" ? "Reused" : "Refreshed"} router context with ${routerContextLines.length} entries`
-    );
-
     try {
       permanentInstructionState = await loadPermanentInstructions({
         supabase: supabaseAny,
@@ -880,8 +844,14 @@ export async function POST(request: NextRequest) {
     } catch (topicErr) {
       console.error("[topic-router] Failed to route message:", topicErr);
     }
+    if (!topicRoutingDecision) {
+      console.log("[topic-router] No structured decision returned, using fallback topic assignment");
+    }
     const resolvedTopicDecision =
       topicRoutingDecision ?? createFallbackTopicDecision(lastTopicIdFromHistory);
+    console.log(
+      `[topic-router] Decision action=${resolvedTopicDecision.topicAction} primary=${resolvedTopicDecision.primaryTopicId ?? "none"} secondary=${resolvedTopicDecision.secondaryTopicIds.length} artifacts=${resolvedTopicDecision.artifactsToLoad.length}`
+    );
 
     if (userMessageRow && resolvedTopicDecision.primaryTopicId && userMessageRow.topic_id !== resolvedTopicDecision.primaryTopicId) {
       try {
@@ -897,18 +867,17 @@ export async function POST(request: NextRequest) {
 
     // Get model config using LLM-based routing (with code-based fallback)
       const modelConfig = await getModelAndReasoningConfigWithLLM(
-        modelFamily, 
-        speedMode, 
-        message, 
+        modelFamily,
+        speedMode,
+        message,
         reasoningEffortHint,
         usagePercentage,
-        userId,          // Pass userId to get memory types for router
-        conversationId,  // Pass conversationId for context loading
-        supabaseAny,     // Pass supabase client for context loading
-        { 
-          conversationHistory: routerConversationHistory,
+        userId,
+        conversationId,
+        {
           permanentInstructionSummary: permanentInstructionSummaryForRouter,
-          permanentInstructions: permanentInstructionState?.instructions as unknown as PermanentInstructionToWrite[] | undefined,
+          permanentInstructions:
+            (permanentInstructionState?.instructions as unknown as PermanentInstructionToWrite[] | undefined),
         }
       );
     const reasoningEffort = modelConfig.reasoning?.effort ?? "none";
@@ -944,10 +913,6 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const contextStrategy = ((modelConfig as any).contextStrategy || "recent") as
-      | "minimal"
-      | "recent"
-      | "full";
     const {
       messages: historyMessages,
       source: contextSource,
@@ -956,10 +921,9 @@ export async function POST(request: NextRequest) {
       supabase: supabaseAny,
       conversationId,
       routerDecision: resolvedTopicDecision,
-      contextStrategy,
     });
     console.log(
-      `[context-strategy] ${contextSource === "topic" ? "Topic-aware" : "Fallback"} mode - loaded ${historyMessages.length} messages (${includedTopicIds.length ? `topics: ${includedTopicIds.join(", ")}` : "no topics"})`
+      `[context-builder] ${contextSource} mode - loaded ${historyMessages.length} messages (topics: ${includedTopicIds.length ? includedTopicIds.join(", ") : "none"}, artifacts: ${resolvedTopicDecision.artifactsToLoad.length})`
     );
 
     // Smart web search decision based on router (replaces hardcoded heuristics)
@@ -1440,7 +1404,6 @@ export async function POST(request: NextRequest) {
         stream: true,
         store: true,
         // Only use chain when NOT doing enumeration (full strategy needs explicit messages)
-        ...(previousResponseId && contextStrategy !== "full" ? { previous_response_id: previousResponseId } : {}),
         metadata: {
           user_id: userId,
           conversation_id: conversationId,
@@ -1452,7 +1415,7 @@ export async function POST(request: NextRequest) {
         ...(modelConfig.reasoning && { reasoning: modelConfig.reasoning }),
         ...(useFlex ? { service_tier: "flex" } : {}),
       });
-      console.log("OpenAI stream started for model:", modelConfig.model, useFlex ? "(flex)" : "(standard)", contextStrategy === "full" ? "(no chain - explicit enumeration)" : "");
+      console.log("OpenAI stream started for model:", modelConfig.model, useFlex ? "(flex)" : "(standard)");
     } catch (streamErr) {
       console.error("Failed to start OpenAI stream:", streamErr);
       // ...existing code...
@@ -1619,7 +1582,6 @@ export async function POST(request: NextRequest) {
             cachedTokens,
             outputTokens,
             model: modelConfig.model,
-            usingChain: !!previousResponseId && contextStrategy !== "full",
             rawUsageKeys: Object.keys(usage),
           });
 
@@ -1727,18 +1689,6 @@ export async function POST(request: NextRequest) {
               },
             });
           } else {
-            try {
-              routerContextLines = appendRouterContextLine(routerContextLines, "assistant", assistantContent);
-              await persistRouterContextCache(
-                supabaseAny,
-                conversationId,
-                routerContextLines,
-                assistantMessageRow.id
-              );
-            } catch (cacheErr) {
-              console.warn("[context-cache] Failed to persist router cache:", cacheErr);
-            }
-
             // Router-based memory writing
             // The router has already analyzed the user's prompt and decided what to save
             try {

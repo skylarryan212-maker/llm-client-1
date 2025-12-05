@@ -1,5 +1,4 @@
 import type {
-  ContextStrategy,
   MemoryStrategy,
   MemoryToDelete,
   MemoryToWrite,
@@ -25,7 +24,6 @@ export interface ModelConfig {
     effort: ReasoningEffort;
   };
   routedBy?: "llm" | "code" | "code-fallback" | "cache";
-  contextStrategy?: ContextStrategy;
   webSearchStrategy?: WebSearchStrategy;
   memoryStrategy?: MemoryStrategy;
   memoriesToWrite?: MemoryToWrite[];
@@ -41,16 +39,6 @@ const MODEL_ID_MAP: Record<Exclude<ModelFamily, "auto">, string> = {
   "gpt-5-nano": "gpt-5-nano-2025-08-07",
   "gpt-5-pro-2025-10-06": "gpt-5-pro-2025-10-06",
 };
-
-const ROUTER_DECISION_CACHE_TTL_MS = 3 * 60 * 1000;
-
-interface CachedRouterDecisionEntry {
-  decision: LLMRouterDecision;
-  expiresAt: number;
-  forceRouterNext: boolean;
-}
-
-const routerDecisionCache = new Map<string, CachedRouterDecisionEntry>();
 
 const LIGHT_REASONING_KEYWORDS = [
   "step by step",
@@ -122,7 +110,6 @@ const ACKNOWLEDGEMENT_PATTERNS = [
 ];
 
 interface RouterRequestOptions {
-  conversationHistory?: string;
   permanentInstructionSummary?: string;
   permanentInstructions?: PermanentInstructionToWrite[];
 }
@@ -273,41 +260,6 @@ function selectGpt51AutoFamily(
   return "gpt-5.1";
 }
 
-function classifyLowRiskPrompt(promptText: string): "ack" | "followup" | null {
-  const normalized = promptText.trim().toLowerCase();
-  if (!normalized) return "ack";
-  if (ACKNOWLEDGEMENT_PATTERNS.some((regex) => regex.test(normalized))) {
-    return "ack";
-  }
-  if (normalized.length > 180) return null;
-  if (/[?]/.test(normalized)) return null;
-  if (/\b(write|create|generate|draft|code|design|build|plan|calculate|summarize|explain|research|debug|fix|analyze|strategy)\b/.test(normalized)) {
-    return null;
-  }
-  const wordCount = normalized.split(/\s+/).filter(Boolean).length;
-  return wordCount <= 24 ? "followup" : null;
-}
-
-function getCachedRouterDecision(conversationId?: string | null): CachedRouterDecisionEntry | null {
-  if (!conversationId) return null;
-  const cached = routerDecisionCache.get(conversationId);
-  if (!cached) return null;
-  if (cached.expiresAt < Date.now()) {
-    routerDecisionCache.delete(conversationId);
-    return null;
-  }
-  return cached;
-}
-
-function cacheRouterDecision(conversationId: string | undefined, decision: LLMRouterDecision) {
-  if (!conversationId) return;
-  routerDecisionCache.set(conversationId, {
-    decision,
-    expiresAt: Date.now() + ROUTER_DECISION_CACHE_TTL_MS,
-    forceRouterNext: decision.nextTurnPrediction === "likely",
-  });
-}
-
 function buildConfigFromRouterDecision(
   decision: LLMRouterDecision,
   speedMode: SpeedMode,
@@ -318,7 +270,6 @@ function buildConfigFromRouterDecision(
     reusePermanentInstructions?: boolean;
   }
 ): ModelConfig & {
-  contextStrategy: ContextStrategy;
   webSearchStrategy: WebSearchStrategy;
   memoryStrategy: MemoryStrategy;
   memoriesToWrite: MemoryToWrite[];
@@ -359,7 +310,6 @@ function buildConfigFromRouterDecision(
     resolvedFamily: decision.model,
     reasoning: finalEffort ? { effort: finalEffort } : undefined,
     routedBy: options?.routedBy ?? "llm",
-    contextStrategy: decision.contextStrategy,
     webSearchStrategy: decision.webSearchStrategy,
     memoryStrategy: decision.memoryStrategy,
     memoriesToWrite,
@@ -444,7 +394,6 @@ export async function getModelAndReasoningConfigWithLLM(
   usagePercentage?: number,
   userId?: string,
   conversationId?: string,
-  supabase?: any,
   routerOptions?: RouterRequestOptions
 ): Promise<ModelConfig> {
   const shouldUseLLMRouter = modelFamily === "auto";
@@ -460,60 +409,26 @@ export async function getModelAndReasoningConfigWithLLM(
   }
 
   if (shouldUseLLMRouter) {
-    const cachedEntry = getCachedRouterDecision(conversationId);
-    const heuristicBucket =
-      cachedEntry && !cachedEntry.forceRouterNext
-        ? classifyLowRiskPrompt(promptText)
-        : null;
-
-      if (cachedEntry && heuristicBucket) {
-        console.log(
-          `[modelConfig] Reusing cached router decision (${heuristicBucket}) for conversation ${conversationId ?? "unknown"}`
-        );
-        const cachedConfig = buildConfigFromRouterDecision(
-          cachedEntry.decision,
-          speedMode,
-          promptText,
-          { routedBy: "cache", reuseMemoryInstructions: false, reusePermanentInstructions: false }
-        );
-      cachedConfig.contextStrategy =
-        heuristicBucket === "followup" ? "recent" : "minimal";
-      cachedConfig.availableMemoryTypes = availableMemoryTypes;
-      cachedConfig.memoriesToWrite = [];
-      cachedConfig.memoriesToDelete = [];
-      return cachedConfig;
-    }
-  }
-
-  if (shouldUseLLMRouter) {
     try {
-      const { routeWithLLM, getConversationContextForRouter } = await import("./llm-router");
+      const { routeWithLLM } = await import("./llm-router");
 
       console.log("[modelConfig] Attempting LLM-based routing");
 
-      let conversationHistory = routerOptions?.conversationHistory || "";
-      if (!conversationHistory && conversationId && supabase) {
-        try {
-          const ctx = await getConversationContextForRouter(conversationId, supabase);
-          conversationHistory = ctx.text;
-        } catch (err) {
-          console.error("[modelConfig] Failed to load conversation context:", err);
-        }
-      }
-
-      const decision = await routeWithLLM(promptText, conversationHistory, {
+      const decision = await routeWithLLM(promptText, {
         userModelPreference: modelFamily,
         speedMode,
         usagePercentage,
         availableMemoryTypes,
         permanentInstructionSummary: routerOptions?.permanentInstructionSummary,
+        permanentInstructions: routerOptions?.permanentInstructions,
       });
 
       if (decision) {
         console.log(
-          `[modelConfig] LLM router decided: ${decision.model} with ${decision.effort} effort, context: ${decision.contextStrategy}, webSearch: ${decision.webSearchStrategy}, memoryStrategy: ${JSON.stringify(decision.memoryStrategy)}, memoriesToWrite: ${decision.memoriesToWrite.length}, nextTurnPrediction: ${decision.nextTurnPrediction}`
+          `[modelConfig] LLM router decided: ${decision.model} with ${decision.effort} effort, webSearch: ${decision.webSearchStrategy}, memoryStrategy: ${JSON.stringify(
+            decision.memoryStrategy
+          )}, memoriesToWrite: ${decision.memoriesToWrite.length}`
         );
-        cacheRouterDecision(conversationId, decision);
         const config = buildConfigFromRouterDecision(decision, speedMode, promptText);
         config.availableMemoryTypes = availableMemoryTypes;
         return config;

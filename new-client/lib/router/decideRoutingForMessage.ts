@@ -86,6 +86,9 @@ export async function decideRoutingForMessage(
         validated.primaryTopicId = fallback.primaryTopicId;
       } else {
         validated.primaryTopicId = inserted.id;
+        console.log(
+          `[topic-router] Created topic ${inserted.id} label="${inserted.label}" parent=${inserted.parent_topic_id ?? "none"}`
+        );
       }
     }
 
