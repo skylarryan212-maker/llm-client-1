@@ -829,18 +829,6 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    if (userMessageRow && resolvedTopicDecision.primaryTopicId && userMessageRow.topic_id !== resolvedTopicDecision.primaryTopicId) {
-      try {
-        await supabaseAny
-          .from("messages")
-          .update({ topic_id: resolvedTopicDecision.primaryTopicId })
-          .eq("id", userMessageRow.id);
-        userMessageRow = { ...userMessageRow, topic_id: resolvedTopicDecision.primaryTopicId };
-      } catch (topicUpdateErr) {
-        console.error("[topic-router] Failed to tag user message topic:", topicUpdateErr);
-      }
-    }
-
     const cachedLinesRaw = ensureRouterContextLines(
       (conversation.router_context_cache as RouterContextLine[] | null) ?? []
     );
@@ -894,6 +882,18 @@ export async function POST(request: NextRequest) {
     }
     const resolvedTopicDecision =
       topicRoutingDecision ?? createFallbackTopicDecision(lastTopicIdFromHistory);
+
+    if (userMessageRow && resolvedTopicDecision.primaryTopicId && userMessageRow.topic_id !== resolvedTopicDecision.primaryTopicId) {
+      try {
+        await supabaseAny
+          .from("messages")
+          .update({ topic_id: resolvedTopicDecision.primaryTopicId })
+          .eq("id", userMessageRow.id);
+        userMessageRow = { ...userMessageRow, topic_id: resolvedTopicDecision.primaryTopicId };
+      } catch (topicUpdateErr) {
+        console.error("[topic-router] Failed to tag user message topic:", topicUpdateErr);
+      }
+    }
 
     // Get model config using LLM-based routing (with code-based fallback)
       const modelConfig = await getModelAndReasoningConfigWithLLM(
