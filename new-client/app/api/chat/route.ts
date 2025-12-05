@@ -1430,6 +1430,13 @@ export async function POST(request: NextRequest) {
         const { createHash } = require("crypto");
         promptCacheKey = createHash("sha256").update(rawPromptKey).digest("hex").slice(0, 64);
       }
+      const supportsExtendedCache = [
+        "gpt-5.1",
+        "gpt-5-codex",
+        "gpt-5",
+        "gpt-4.1",
+      ].some((prefix) => modelConfig.model.startsWith(prefix));
+
       responseStream = await openai.responses.stream({
         model: modelConfig.model,
         instructions: systemInstructions,
@@ -1437,7 +1444,7 @@ export async function POST(request: NextRequest) {
         stream: true,
         store: true,
         prompt_cache_key: promptCacheKey,
-        prompt_cache_retention: "24h",
+        ...(supportsExtendedCache ? { prompt_cache_retention: "24h" } : {}),
         // Only use chain when NOT doing enumeration (full strategy needs explicit messages)
         metadata: {
           user_id: userId,
