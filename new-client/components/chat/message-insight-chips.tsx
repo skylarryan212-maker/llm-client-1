@@ -2,7 +2,6 @@
 
 import type { JSX } from "react";
 import type { AssistantMessageMetadata } from "@/lib/chatTypes";
-import { formatSearchedDomainsLine } from "@/lib/metadata";
 import { StatusBubble } from "@/components/chat/status-bubble";
 
 interface MessageInsightChipsProps {
