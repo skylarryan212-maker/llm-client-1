@@ -1,6 +1,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/supabase/types";
 import type { RouterDecision } from "@/lib/router/types";
+import { estimateTokens } from "@/lib/tokens/estimateTokens";
+import { sanitizeTopicMessageContent } from "@/lib/topics/messageSanitizer";
 
 type MessageRow = Database["public"]["Tables"]["messages"]["Row"];
 type TopicRow = Database["public"]["Tables"]["conversation_topics"]["Row"];
@@ -23,9 +25,11 @@ export interface BuildContextResult {
   messages: ContextMessage[];
   source: "topic" | "fallback";
   includedTopicIds: string[];
+  summaryCount: number;
+  artifactCount: number;
 }
 
-const DEFAULT_MAX_TOKENS = 400_000;
+const DEFAULT_MAX_TOKENS = 350_000;
 const FALLBACK_TOKEN_CAP = 200_000;
 const SECONDARY_TOPIC_TAIL = 3;
 
@@ -36,8 +40,14 @@ export async function buildContextForMainModel({
   maxContextTokens = DEFAULT_MAX_TOKENS,
 }: BuildContextParams): Promise<BuildContextResult> {
   if (!routerDecision.primaryTopicId) {
-    const fallbackMessages = await loadFallbackMessages(supabase, conversationId);
-    return { messages: fallbackMessages, source: "fallback", includedTopicIds: [] };
+    const fallbackMessages = await loadFallbackMessages(supabase, conversationId, maxContextTokens);
+    return {
+      messages: fallbackMessages,
+      source: "fallback",
+      includedTopicIds: [],
+      summaryCount: 0,
+      artifactCount: 0,
+    };
   }
 
   const { data: topics, error: topicError } = await supabase
@@ -46,110 +56,142 @@ export async function buildContextForMainModel({
     .eq("conversation_id", conversationId);
 
   if (topicError || !Array.isArray(topics)) {
-    const fallbackMessages = await loadFallbackMessages(supabase, conversationId);
-    return { messages: fallbackMessages, source: "fallback", includedTopicIds: [] };
+    const fallbackMessages = await loadFallbackMessages(supabase, conversationId, maxContextTokens);
+    return {
+      messages: fallbackMessages,
+      source: "fallback",
+      includedTopicIds: [],
+      summaryCount: 0,
+      artifactCount: 0,
+    };
   }
 
-  const topicRows: TopicRow[] = Array.isArray(topics) ? topics : [];
+  const topicRows: TopicRow[] = topics ?? [];
   const topicMap = new Map<string, TopicRow>(topicRows.map((topic) => [topic.id, topic]));
   const primaryTopic = topicMap.get(routerDecision.primaryTopicId);
   if (!primaryTopic) {
-    const fallbackMessages = await loadFallbackMessages(supabase, conversationId);
-    return { messages: fallbackMessages, source: "fallback", includedTopicIds: [] };
+    const fallbackMessages = await loadFallbackMessages(supabase, conversationId, maxContextTokens);
+    return {
+      messages: fallbackMessages,
+      source: "fallback",
+      includedTopicIds: [],
+      summaryCount: 0,
+      artifactCount: 0,
+    };
   }
 
-  const contextMessages: ContextMessage[] = [];
+  const summaryMessages: ContextMessage[] = [];
+  const artifactMessages: ContextMessage[] = [];
+  const conversationMessages: ContextMessage[] = [];
   let tokenBudgetRemaining = maxContextTokens;
   const includedTopics = new Set<string>([primaryTopic.id]);
+  let summaryCount = 0;
+  let artifactCount = 0;
 
-  const pushMessage = (message: ContextMessage) => {
+  const pushMessage = (target: ContextMessage[], message: ContextMessage) => {
     const tokens = estimateTokens(message.content);
     if (tokens > tokenBudgetRemaining) {
       return false;
     }
-    contextMessages.push(message);
+    target.push(message);
     tokenBudgetRemaining -= tokens;
     return true;
   };
 
-  // Add primary topic summary if present
   if (primaryTopic.summary?.trim()) {
-    pushMessage({
-      role: "assistant",
-      content: `[Topic summary: ${primaryTopic.label}] ${primaryTopic.summary.trim()}`,
-      type: "message",
-    });
-  }
-
-  const primaryMessages = await loadTopicMessages(supabase, conversationId, primaryTopic.id);
-  const trimmedPrimary = trimMessagesToBudget(primaryMessages, Math.floor(maxContextTokens * 0.7));
-  trimmedPrimary.forEach((msg) => pushMessage(toContextMessage(msg)));
-
-  // Load artifacts selected by router
-  if (routerDecision.artifactsToLoad.length) {
-    const artifacts = await loadArtifactsByIds(
-      supabase,
-      routerDecision.artifactsToLoad,
-      Math.floor(maxContextTokens * 0.2)
-    );
-    for (const artifact of artifacts) {
-      const label = artifact.title || "Unnamed artifact";
-      pushMessage({
+    if (
+      pushMessage(summaryMessages, {
         role: "assistant",
-        content: `[Artifact: ${label}] ${artifact.content}`,
+        content: `[Topic summary: ${primaryTopic.label}] ${primaryTopic.summary.trim()}`,
         type: "message",
-      });
-      if (artifact.topic_id) {
-        includedTopics.add(artifact.topic_id);
-      }
+      })
+    ) {
+      summaryCount += 1;
     }
   }
 
-  // Include summaries from secondary topics
+  const primaryMessages = await loadTopicMessages(supabase, conversationId, primaryTopic.id);
+
   const secondaryTopics = (routerDecision.secondaryTopicIds || [])
     .map((id) => topicMap.get(id))
     .filter((topic): topic is TopicRow => Boolean(topic));
 
-  if (secondaryTopics.length) {
-    const secondaryMessages = await loadSecondaryTopicMessages(
-      supabase,
-      conversationId,
-      secondaryTopics.map((topic) => topic.id)
-    );
+  const secondaryTailText = secondaryTopics.length
+    ? await buildSecondaryTailSnippets(supabase, conversationId, secondaryTopics.map((topic) => topic.id))
+    : {};
 
-    for (const topic of secondaryTopics) {
-      includedTopics.add(topic.id);
-      if (topic.summary?.trim()) {
-        pushMessage({
-          role: "assistant",
-          content: `[Reference summary: ${topic.label}] ${topic.summary.trim()}`,
-          type: "message",
-        });
-      }
-
-      const tailMessages = secondaryMessages
-        .filter((msg) => msg.topic_id === topic.id)
-        .slice(-SECONDARY_TOPIC_TAIL);
-
-      tailMessages.forEach((msg) =>
-        pushMessage({
-          role: msg.role as "user" | "assistant",
-          content: `[Earlier ${topic.label}] ${sanitizeMessageContent(msg)}`,
-          type: "message",
-        })
-      );
+  for (const topic of secondaryTopics) {
+    includedTopics.add(topic.id);
+    const summaryParts: string[] = [];
+    if (topic.summary?.trim()) {
+      summaryParts.push(topic.summary.trim());
+    }
+    if (secondaryTailText[topic.id]) {
+      summaryParts.push(`Recent notes: ${secondaryTailText[topic.id]}`);
+    }
+    if (!summaryParts.length) {
+      continue;
+    }
+    if (
+      pushMessage(summaryMessages, {
+        role: "assistant",
+        content: `[Reference summary: ${topic.label}] ${summaryParts.join(" | ")}`,
+        type: "message",
+      })
+    ) {
+      summaryCount += 1;
     }
   }
 
-  if (!contextMessages.length) {
-    const fallbackMessages = await loadFallbackMessages(supabase, conversationId);
-    return { messages: fallbackMessages, source: "fallback", includedTopicIds: Array.from(includedTopics) };
+  if (routerDecision.artifactsToLoad.length && tokenBudgetRemaining > 0) {
+    const artifactBudget = Math.min(Math.floor(maxContextTokens * 0.2), tokenBudgetRemaining);
+    const artifacts = await loadArtifactsByIds(
+      supabase,
+      routerDecision.artifactsToLoad,
+      artifactBudget
+    );
+    for (const artifact of artifacts) {
+      const label = artifact.title || "Unnamed artifact";
+      if (
+        pushMessage(artifactMessages, {
+          role: "assistant",
+          content: `[Artifact: ${label}] ${artifact.content}`,
+          type: "message",
+        })
+      ) {
+        artifactCount += 1;
+        if (artifact.topic_id) {
+          includedTopics.add(artifact.topic_id);
+        }
+      }
+    }
+  }
+
+  if (tokenBudgetRemaining > 0) {
+    const { trimmed, tokensUsed } = trimMessagesToBudget(primaryMessages, tokenBudgetRemaining);
+    tokenBudgetRemaining = Math.max(tokenBudgetRemaining - tokensUsed, 0);
+    trimmed.forEach((msg) => conversationMessages.push(toContextMessage(msg)));
+  }
+
+  const combinedMessages = [...summaryMessages, ...artifactMessages, ...conversationMessages];
+
+  if (!combinedMessages.length) {
+    const fallbackMessages = await loadFallbackMessages(supabase, conversationId, maxContextTokens);
+    return {
+      messages: fallbackMessages,
+      source: "fallback",
+      includedTopicIds: Array.from(includedTopics),
+      summaryCount,
+      artifactCount,
+    };
   }
 
   return {
-    messages: contextMessages,
+    messages: combinedMessages,
     source: "topic",
     includedTopicIds: Array.from(includedTopics),
+    summaryCount,
+    artifactCount,
   };
 }
 
@@ -167,21 +209,51 @@ async function loadTopicMessages(
   return Array.isArray(data) ? data : [];
 }
 
-async function loadSecondaryTopicMessages(
+async function buildSecondaryTailSnippets(
   supabase: SupabaseClient<Database>,
   conversationId: string,
   topicIds: string[]
-): Promise<MessageRow[]> {
+): Promise<Record<string, string>> {
   if (!topicIds.length) {
-    return [];
+    return {};
   }
   const { data } = await supabase
     .from("messages")
-    .select("id, role, content, metadata, topic_id, created_at")
+    .select("role, content, metadata, topic_id, created_at")
     .eq("conversation_id", conversationId)
     .in("topic_id", topicIds)
     .order("created_at", { ascending: true });
-  return Array.isArray(data) ? data : [];
+
+  const rows: MessageRow[] = Array.isArray(data) ? (data as MessageRow[]) : [];
+  if (!rows.length) {
+    return {};
+  }
+
+  const grouped = new Map<string, MessageRow[]>();
+  for (const msg of rows) {
+    if (!msg.topic_id) continue;
+    if (!grouped.has(msg.topic_id)) {
+      grouped.set(msg.topic_id, []);
+    }
+    grouped.get(msg.topic_id)!.push(msg);
+  }
+
+  const snippets: Record<string, string> = {};
+  for (const [topicId, messages] of grouped.entries()) {
+    const tail = messages.slice(-SECONDARY_TOPIC_TAIL).map((msg) => {
+      const label = msg.role === "assistant" ? "Assistant" : "User";
+      const snippet = sanitizeTopicMessageContent(msg)
+        .replace(/\s+/g, " ")
+        .trim()
+        .slice(0, 140);
+      return snippet ? `${label}: ${snippet}` : "";
+    });
+    const summary = tail.filter(Boolean).join(" | ");
+    if (summary) {
+      snippets[topicId] = summary;
+    }
+  }
+  return snippets;
 }
 
 async function loadArtifactsByIds(
@@ -189,13 +261,10 @@ async function loadArtifactsByIds(
   ids: string[],
   tokenBudget: number
 ): Promise<ArtifactRow[]> {
-  if (!ids.length) {
+  if (!ids.length || tokenBudget <= 0) {
     return [];
   }
-  const { data } = await supabase
-    .from("artifacts")
-    .select("*")
-    .in("id", ids);
+  const { data } = await supabase.from("artifacts").select("*").in("id", ids);
   const artifacts = Array.isArray(data) ? (data as ArtifactRow[]) : [];
   if (!artifacts.length) {
     return [];
@@ -216,7 +285,8 @@ async function loadArtifactsByIds(
 
 async function loadFallbackMessages(
   supabase: SupabaseClient<Database>,
-  conversationId: string
+  conversationId: string,
+  maxContextTokens: number
 ): Promise<ContextMessage[]> {
   const FALLBACK_LIMIT = 400;
 
@@ -231,61 +301,63 @@ async function loadFallbackMessages(
     return [];
   }
 
-  const sanitized = data.map((msg) => toContextMessage(msg));
-  return trimContextMessages(sanitized, FALLBACK_TOKEN_CAP);
+  const sanitized = data.map((msg) => toContextMessage(msg as MessageRow));
+  return trimContextMessages(
+    sanitized,
+    Math.min(FALLBACK_TOKEN_CAP, maxContextTokens)
+  ).trimmed;
 }
 
-function trimMessagesToBudget(messages: MessageRow[], tokenCap: number): MessageRow[] {
-  if (!messages.length) return [];
+function trimMessagesToBudget(
+  messages: MessageRow[],
+  tokenCap: number
+): { trimmed: MessageRow[]; tokensUsed: number } {
+  if (!messages.length || tokenCap <= 0) {
+    return { trimmed: [], tokensUsed: 0 };
+  }
   let remaining = tokenCap;
   const trimmed: MessageRow[] = [];
+  let consumed = 0;
   for (let i = messages.length - 1; i >= 0; i--) {
     const msg = messages[i];
-    const tokens = estimateTokens(sanitizeMessageContent(msg));
-    if (tokens > remaining) break;
+    const tokens = estimateTokens(sanitizeTopicMessageContent(msg));
+    if (tokens > remaining) {
+      break;
+    }
     trimmed.push(msg);
     remaining -= tokens;
+    consumed += tokens;
   }
-  return trimmed.reverse();
+  return { trimmed: trimmed.reverse(), tokensUsed: consumed };
 }
 
-function trimContextMessages(messages: ContextMessage[], tokenCap: number): ContextMessage[] {
+function trimContextMessages(
+  messages: ContextMessage[],
+  tokenCap: number
+): { trimmed: ContextMessage[]; tokensUsed: number } {
+  if (!messages.length || tokenCap <= 0) {
+    return { trimmed: [], tokensUsed: 0 };
+  }
   let remaining = tokenCap;
   const trimmed: ContextMessage[] = [];
+  let consumed = 0;
   for (let i = messages.length - 1; i >= 0; i--) {
     const msg = messages[i];
     const tokens = estimateTokens(msg.content);
-    if (tokens > remaining) break;
+    if (tokens > remaining) {
+      break;
+    }
     trimmed.push(msg);
     remaining -= tokens;
+    consumed += tokens;
   }
-  return trimmed.reverse();
+  return { trimmed: trimmed.reverse(), tokensUsed: consumed };
 }
 
 function toContextMessage(msg: MessageRow): ContextMessage {
   return {
     role: (msg.role === "assistant" ? "assistant" : "user") as ContextMessage["role"],
-    content: sanitizeMessageContent(msg),
+    content: sanitizeTopicMessageContent(msg),
     type: "message",
   };
-}
-
-function sanitizeMessageContent(msg: MessageRow): string {
-  let content = msg.content ?? "";
-  if (msg.role === "user") {
-    const metadata = msg.metadata as Record<string, unknown> | null | undefined;
-    if (metadata && Array.isArray((metadata as { files?: unknown[] }).files)) {
-      const attachmentPattern = /\n\nAttachment: [^\n]+ \([^)]+\)(?:\n|$)/g;
-      content = content.replace(attachmentPattern, "").trim();
-      if (content && !content.includes("[Files attached]")) {
-        content = `${content} [Files attached]`;
-      }
-    }
-  }
-  return content;
-}
-
-function estimateTokens(text: string): number {
-  if (!text) return 0;
-  return Math.ceil(text.length / 4) + 4;
 }

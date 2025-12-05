@@ -35,11 +35,15 @@ import {
   loadPermanentInstructions,
   type PermanentInstructionCacheItem,
 } from "@/lib/permanentInstructions";
-import { decideRoutingForMessage, createFallbackTopicDecision } from "@/lib/router/decideRoutingForMessage";
+import {
+  decideRoutingForMessage,
+  createFallbackTopicDecision,
+} from "@/lib/router/decideRoutingForMessage";
 import type { RouterDecision } from "@/lib/router/types";
 import { buildContextForMainModel } from "@/lib/context/buildContextForMainModel";
 import { maybeExtractArtifactsFromMessage } from "@/lib/artifacts/maybeExtractArtifactsFromMessage";
 import type { PermanentInstructionToWrite } from "@/lib/llm-router";
+import { updateTopicSnapshot } from "@/lib/topics/updateTopicSnapshot";
 
 // Utility: convert a data URL (base64) to a Buffer
 function dataUrlToBuffer(dataUrl: string): Buffer {
@@ -853,7 +857,11 @@ export async function POST(request: NextRequest) {
       `[topic-router] Decision action=${resolvedTopicDecision.topicAction} primary=${resolvedTopicDecision.primaryTopicId ?? "none"} secondary=${resolvedTopicDecision.secondaryTopicIds.length} artifacts=${resolvedTopicDecision.artifactsToLoad.length}`
     );
 
-    if (userMessageRow && resolvedTopicDecision.primaryTopicId && userMessageRow.topic_id !== resolvedTopicDecision.primaryTopicId) {
+    if (
+      userMessageRow &&
+      resolvedTopicDecision.primaryTopicId &&
+      userMessageRow.topic_id !== resolvedTopicDecision.primaryTopicId
+    ) {
       try {
         await supabaseAny
           .from("messages")
@@ -862,6 +870,19 @@ export async function POST(request: NextRequest) {
         userMessageRow = { ...userMessageRow, topic_id: resolvedTopicDecision.primaryTopicId };
       } catch (topicUpdateErr) {
         console.error("[topic-router] Failed to tag user message topic:", topicUpdateErr);
+      }
+    }
+
+    if (userMessageRow?.topic_id) {
+      try {
+        await updateTopicSnapshot({
+          supabase: supabaseAny,
+          conversationId,
+          topicId: userMessageRow.topic_id,
+          latestMessage: userMessageRow,
+        });
+      } catch (snapshotErr) {
+        console.error("[topic-router] Failed to refresh topic snapshot:", snapshotErr);
       }
     }
 
@@ -917,13 +938,17 @@ export async function POST(request: NextRequest) {
       messages: historyMessages,
       source: contextSource,
       includedTopicIds,
+      summaryCount,
+      artifactCount: artifactMessagesCount,
     } = await buildContextForMainModel({
       supabase: supabaseAny,
       conversationId,
       routerDecision: resolvedTopicDecision,
     });
     console.log(
-      `[context-builder] ${contextSource} mode - loaded ${historyMessages.length} messages (topics: ${includedTopicIds.length ? includedTopicIds.join(", ") : "none"}, artifacts: ${resolvedTopicDecision.artifactsToLoad.length})`
+      `[context-builder] ${contextSource} mode - loaded ${historyMessages.length} messages (summaries: ${summaryCount}, artifacts: ${artifactMessagesCount}, topics: ${
+        includedTopicIds.length ? includedTopicIds.join(", ") : "none"
+      })`
     );
 
     // Smart web search decision based on router (replaces hardcoded heuristics)
@@ -1427,6 +1452,8 @@ export async function POST(request: NextRequest) {
     let firstTokenAtMs: number | null = null;
     const liveSearchDomainSet = new Set<string>();
     const liveSearchDomainList: string[] = [];
+    let assistantMessageRow: MessageRow | null = null;
+    let assistantInsertPromise: Promise<MessageRow | null> | null = null;
 
     const readableStream = new ReadableStream({
       async start(controller) {
@@ -1475,6 +1502,47 @@ export async function POST(request: NextRequest) {
         };
         let doneSent = false;
 
+        const ensureAssistantPlaceholder = (initialContent: string) => {
+          if (assistantInsertPromise) {
+            return;
+          }
+          assistantInsertPromise = (async () => {
+            try {
+              const { data, error } = await supabaseAny
+                .from("messages")
+                .insert({
+                  user_id: userId,
+                  conversation_id: conversationId,
+                  role: "assistant",
+                  content: initialContent,
+                  metadata: { streaming: true },
+                  topic_id: resolvedTopicDecision.primaryTopicId ?? null,
+                })
+                .select()
+                .single();
+              if (error || !data) {
+                console.error("[assistant-stream] Failed to insert placeholder assistant message:", error);
+                return null;
+              }
+              console.log(
+                `[assistant-stream] Inserted placeholder assistant message ${data.id} (topic: ${
+                  data.topic_id ?? "none"
+                })`
+              );
+              return data as MessageRow;
+            } catch (insertErr) {
+              console.error("[assistant-stream] Insert error:", insertErr);
+              return null;
+            }
+          })();
+
+          assistantInsertPromise.then((row) => {
+            if (row) {
+              assistantMessageRow = row;
+            }
+          });
+        };
+
         try {
           for await (const event of responseStream) {
             const chunkMetadata =
@@ -1487,6 +1555,9 @@ export async function POST(request: NextRequest) {
             if (event.type === "response.output_text.delta" && event.delta) {
               const token = event.delta;
               assistantContent += token;
+              if (!assistantInsertPromise) {
+                ensureAssistantPlaceholder(assistantContent);
+              }
               enqueueJson({ token });
               if (!firstTokenAtMs) {
                 firstTokenAtMs = Date.now();
@@ -1657,8 +1728,41 @@ export async function POST(request: NextRequest) {
               metadataPayload.searchedSiteLabel;
           }
 
-          const { data: assistantMessageRow, error: assistantError } =
-            await supabaseAny
+          const resolveAssistantRow = async (): Promise<MessageRow | null> => {
+            if (assistantMessageRow) {
+              return assistantMessageRow;
+            }
+            if (assistantInsertPromise) {
+              assistantMessageRow = await assistantInsertPromise;
+              return assistantMessageRow;
+            }
+            return null;
+          };
+
+          let persistedAssistantRow = await resolveAssistantRow();
+
+          if (persistedAssistantRow) {
+            const { data: updatedRow, error: updateErr } = await supabaseAny
+              .from("messages")
+              .update({
+                content: assistantContent,
+                openai_response_id: finalResponse.id || null,
+                metadata: metadataPayload,
+              })
+              .eq("id", persistedAssistantRow.id)
+              .select()
+              .single();
+
+            if (updateErr || !updatedRow) {
+              console.error("[assistant-stream] Failed to finalize assistant message:", updateErr);
+            } else {
+              assistantMessageRow = updatedRow as MessageRow;
+              persistedAssistantRow = assistantMessageRow;
+            }
+          }
+
+          if (!persistedAssistantRow) {
+            const { data: insertedRow, error: assistantError } = await supabaseAny
               .from("messages")
               .insert({
                 user_id: userId,
@@ -1672,11 +1776,17 @@ export async function POST(request: NextRequest) {
               .select()
               .single();
 
-          if (assistantError || !assistantMessageRow) {
-            console.error(
-              "Failed to save assistant message:",
-              assistantError
-            );
+            if (assistantError || !insertedRow) {
+              console.error("Failed to save assistant message:", assistantError);
+            } else {
+              assistantMessageRow = insertedRow as MessageRow;
+              persistedAssistantRow = assistantMessageRow;
+            }
+          }
+
+          const assistantRowForMeta = persistedAssistantRow;
+
+          if (!assistantRowForMeta) {
             enqueueJson({
               meta: {
                 assistantMessageRowId: `error-${Date.now()}`,
@@ -1689,13 +1799,11 @@ export async function POST(request: NextRequest) {
               },
             });
           } else {
-            // Router-based memory writing
-            // The router has already analyzed the user's prompt and decided what to save
             try {
               const memoriesToWrite = (modelConfig as any).memoriesToWrite || [];
               if (personalizationSettings.allowSavingMemory && memoriesToWrite.length > 0) {
                 console.log(`[router-memory] Writing ${memoriesToWrite.length} memories from router decision`);
-                
+
                 for (const memory of memoriesToWrite) {
                   await writeMemory({
                     type: memory.type,
@@ -1708,11 +1816,10 @@ export async function POST(request: NextRequest) {
                 }
               }
 
-              // Router-based memory deletion
               const memoriesToDelete = (modelConfig as any).memoriesToDelete || [];
               if (memoriesToDelete.length > 0) {
                 console.log(`[router-memory] Deleting ${memoriesToDelete.length} memories from router decision`);
-                
+
                 for (const memDel of memoriesToDelete) {
                   try {
                     await deleteMemory(memDel.id, userId);
@@ -1724,26 +1831,39 @@ export async function POST(request: NextRequest) {
               }
             } catch (memError) {
               console.error("[router-memory] Failed to write/delete memories from router:", memError);
-              // Don't fail the request if memory operations fail
             }
 
             enqueueJson({
               meta: {
-                assistantMessageRowId: assistantMessageRow.id,
+                assistantMessageRowId: assistantRowForMeta.id,
                 userMessageRowId: userMessageRow?.id,
                 model: modelConfig.model,
                 reasoningEffort,
                 resolvedFamily: modelConfig.resolvedFamily,
                 speedModeUsed: speedMode,
                 metadata:
-                  (assistantMessageRow.metadata as AssistantMessageMetadata | null) ??
+                  (assistantRowForMeta.metadata as AssistantMessageMetadata | null) ??
                   metadataPayload,
               },
             });
+
+            if (assistantRowForMeta.topic_id) {
+              try {
+                await updateTopicSnapshot({
+                  supabase: supabaseAny,
+                  conversationId,
+                  topicId: assistantRowForMeta.topic_id,
+                  latestMessage: assistantRowForMeta,
+                });
+              } catch (snapshotErr) {
+                console.error("[topic-router] Failed to refresh topic snapshot for assistant:", snapshotErr);
+              }
+            }
+
             try {
               await maybeExtractArtifactsFromMessage({
                 supabase: supabaseAny,
-                message: assistantMessageRow as MessageRow,
+                message: assistantRowForMeta,
               });
             } catch (artifactError) {
               console.error("[artifacts] Extraction failed:", artifactError);
