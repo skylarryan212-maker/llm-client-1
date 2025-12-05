@@ -286,7 +286,9 @@ Rules:
 4. ALWAYS select artifacts that materially help answer the message (reuse existing specs or schemas rather than re-creating them).
 5. Use secondaryTopicIds when information from another topic will clearly be referenced.
 6. Never invent IDs—only choose from the provided metadata.
-7. Keep labels concise (<= 8 words) and descriptions 1–3 sentences.`;
+7. Name topics in ≤5 title-case words that describe the subject (“Hair Styling Routine”, “Dry Finish Spray Tips”) rather than repeating the literal question text. Subtopics should be equally short and reflect the narrower scope.
+8. Always include or update the topic description when the user reframes the objective. Descriptions should be 1–2 sentences explaining the goal.
+9. Only request new parent/subtopic IDs when users truly shift focus; otherwise reuse the current topic.`; 
 
 function safeJsonParse(text: string): unknown {
   if (!text) return null;
@@ -321,8 +323,9 @@ async function ensureTopicAssignment({
     (!working.primaryTopicId && !fallback.primaryTopicId);
 
   if (needsNewTopic) {
-    const label =
+    const rawLabel =
       working.newTopicLabel?.trim() || buildAutoTopicLabel(userMessage) || "Pending topic";
+    const label = formatTopicLabel(rawLabel);
     const description =
       working.newTopicDescription?.trim() || buildAutoTopicDescription(userMessage);
     const parentId = working.newParentTopicId ?? null;
@@ -356,18 +359,88 @@ async function ensureTopicAssignment({
     working.primaryTopicId = fallback.primaryTopicId;
   }
 
+  if (working.primaryTopicId) {
+    const metaUpdates: Partial<ConversationTopic> = {};
+    if (working.newTopicLabel?.trim()) {
+      metaUpdates.label = formatTopicLabel(working.newTopicLabel);
+    }
+    if (working.newTopicDescription?.trim()) {
+      metaUpdates.description = working.newTopicDescription.trim().slice(0, 500);
+    }
+    if (Object.keys(metaUpdates).length) {
+      metaUpdates.updated_at = new Date().toISOString();
+      try {
+        await (supabase as SupabaseClient<any>)
+          .from("conversation_topics")
+          .update(metaUpdates)
+          .eq("id", working.primaryTopicId);
+        console.log(
+          `[topic-router] Updated topic ${working.primaryTopicId} metadata (label: ${
+            metaUpdates.label ? `"${metaUpdates.label}"` : "unchanged"
+          }, description: ${metaUpdates.description ? "updated" : "unchanged"})`
+        );
+      } catch (updateErr) {
+        console.error("[topic-router] Failed to update topic metadata:", updateErr);
+      }
+    }
+  }
+
   return working;
+}
+
+const LABEL_STOP_WORDS = new Set([
+  "hey",
+  "hi",
+  "hello",
+  "please",
+  "can",
+  "could",
+  "should",
+  "would",
+  "you",
+  "your",
+  "me",
+  "my",
+  "the",
+  "and",
+  "about",
+  "for",
+  "with",
+  "what",
+  "how",
+  "need",
+  "want",
+  "idea",
+  "help",
+]);
+
+function formatTopicLabel(raw: string): string {
+  if (!raw) {
+    return "Pending Topic";
+  }
+  const words = raw
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .split(/\s+/)
+    .filter(Boolean);
+  const filtered = words.filter((word) => !LABEL_STOP_WORDS.has(word));
+  const source = (filtered.length ? filtered : words).slice(0, 5);
+  const label = source
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ")
+    .trim();
+  return label || "Pending Topic";
 }
 
 function buildAutoTopicLabel(message: string): string {
   const clean = message.replace(/\s+/g, " ").trim();
-  if (!clean) return "Pending topic";
-  const words = clean.split(" ").slice(0, 6).join(" ");
-  return words.length > 2 ? words.replace(/[^a-z0-9 ]/gi, "").trim() || "Pending topic" : "Pending topic";
+  if (!clean) return "Pending Topic";
+  return formatTopicLabel(clean);
 }
 
 function buildAutoTopicDescription(message: string): string | null {
   const clean = message.replace(/\s+/g, " ").trim();
   if (!clean) return null;
-  return clean.slice(0, 280);
+  const sentence = clean.slice(0, 280);
+  return sentence.endsWith(".") ? sentence : `${sentence}.`;
 }
