@@ -338,7 +338,7 @@ async function ensureTopicAssignment({
       parent_topic_id: parentId,
     };
 
-    const { data: inserted, error } = await supabase
+    const { data: inserted, error } = await (supabase as SupabaseClient<any>)
       .from("conversation_topics")
       .insert([topicInsert])
       .select()
