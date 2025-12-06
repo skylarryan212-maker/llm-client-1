@@ -52,21 +52,11 @@ export async function decideRoutingForMessage(
   try {
     const OpenAI = (await import("openai")).default;
     const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-    const response = await openai.responses.create({
-      model: TOPIC_ROUTER_MODEL,
-      input: [
-        { role: "system", type: "message", content: TOPIC_ROUTER_SYSTEM_PROMPT },
-        { role: "user", type: "message", content: routerPrompt },
-      ],
-      reasoning: { effort: "low" },
-    });
-
-    const outputText = Array.isArray(response.output_text) ? response.output_text.join("\n") : "";
-    const parsed = safeJsonParse(outputText);
+    const parsed = await callRouterWithSchema(openai, routerPrompt);
     const resolvedDecision = await ensureTopicAssignment({
       supabase,
       conversationId,
-      decision: validateRouterDecision(parsed),
+      decision: parsed,
       userMessage,
     });
 
@@ -92,24 +82,6 @@ export async function decideRoutingForMessage(
     console.error("[topic-router] Routing failed:", error);
     throw error;
   }
-}
-
-function validateRouterDecision(input: unknown): RouterDecision {
-  const parsed = routerDecisionSchema.safeParse(input);
-  if (!parsed.success) {
-    throw new Error("[topic-router] Router returned invalid JSON");
-  }
-  const value = parsed.data;
-  return {
-    topicAction: value.topicAction,
-    primaryTopicId: value.primaryTopicId ?? null,
-    secondaryTopicIds: value.secondaryTopicIds ?? [],
-    newTopicLabel: value.newTopicLabel,
-    newTopicDescription: value.newTopicDescription,
-    newParentTopicId: value.newParentTopicId ?? null,
-    newTopicSummary: value.newTopicSummary,
-    artifactsToLoad: value.artifactsToLoad ?? [],
-  };
 }
 
 async function loadRouterContextPayload(
@@ -268,20 +240,6 @@ Rules:
 8. Always include or update the topic description when the user reframes the objective. Descriptions should be 1–2 sentences explaining the goal, and newTopicSummary must be a concise synopsis (no transcripts).
 9. Only request new parent/subtopic IDs when users truly shift focus; otherwise reuse the current topic.`;
 
-function safeJsonParse(text: string): unknown {
-  if (!text) return null;
-  const firstBrace = text.indexOf("{");
-  const lastBrace = text.lastIndexOf("}");
-  if (firstBrace === -1 || lastBrace === -1 || lastBrace <= firstBrace) {
-    return null;
-  }
-  try {
-    return JSON.parse(text.slice(firstBrace, lastBrace + 1));
-  } catch {
-    return null;
-  }
-}
-
 async function ensureTopicAssignment({
   supabase,
   conversationId,
@@ -425,4 +383,58 @@ function buildAutoTopicDescription(message: string): string | null {
   if (!clean) return null;
   const sentence = clean.slice(0, 280);
   return sentence.endsWith(".") ? sentence : `${sentence}.`;
+}
+async function callRouterWithSchema(openai: any, routerPrompt: string): Promise<RouterDecision> {
+  const schema = {
+    name: "router_decision",
+    schema: {
+      type: "object",
+      properties: {
+        topicAction: { type: "string", enum: ["continue_active", "new", "reopen_existing"] },
+        primaryTopicId: { type: ["string", "null"], format: "uuid" },
+        secondaryTopicIds: {
+          type: "array",
+          items: { type: "string", format: "uuid" },
+          default: [],
+        },
+        newTopicLabel: { type: "string" },
+        newTopicDescription: { type: "string" },
+        newParentTopicId: { type: ["string", "null"], format: "uuid" },
+        newTopicSummary: { type: "string" },
+        artifactsToLoad: {
+          type: "array",
+          items: { type: "string", format: "uuid" },
+          default: [],
+        },
+      },
+      required: ["topicAction", "secondaryTopicIds", "artifactsToLoad"],
+      additionalProperties: false,
+    },
+  };
+
+  let lastError: unknown = null;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const response = await openai.responses.create({
+        model: TOPIC_ROUTER_MODEL,
+        input: [
+          { role: "system", type: "message", content: TOPIC_ROUTER_SYSTEM_PROMPT },
+          { role: "user", type: "message", content: routerPrompt },
+        ],
+        response_format: { type: "json_schema", json_schema: schema },
+        reasoning: { effort: "low" },
+      });
+      const jsonText = Array.isArray(response.output_text) ? response.output_text.join("\n") : "";
+      const parsed = JSON.parse(jsonText);
+      const validated = routerDecisionSchema.safeParse(parsed);
+      if (!validated.success) {
+        throw new Error("[topic-router] Router output failed schema validation");
+      }
+      return validated.data;
+    } catch (error) {
+      lastError = error;
+      console.warn("[topic-router] Router attempt failed:", error);
+    }
+  }
+  throw lastError || new Error("[topic-router] Router failed after retries");
 }
