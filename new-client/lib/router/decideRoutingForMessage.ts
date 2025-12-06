@@ -233,12 +233,14 @@ Rules:
 1. Continue the latest topic when the message clearly follows the same thread.
 2. Reopen an older topic when the user references its subject directly.
 3. Create a new topic when the message clearly starts a distinct project, incident, or task. You may optionally set newParentTopicId to nest under an existing topic.
-4. ALWAYS select artifacts that materially help answer the message (reuse existing specs or schemas rather than re-creating them).
-5. Use secondaryTopicIds when information from another topic will clearly be referenced.
-6. Never invent IDs—only choose from the provided metadata.
-7. Name topics in ≤5 title-case words that describe the subject (“Hair Styling Routine”, “Dry Finish Spray Tips”) rather than repeating the literal question text. Subtopics should be equally short and reflect the narrower scope.
-8. Always include or update the topic description when the user reframes the objective. Descriptions should be 1–2 sentences explaining the goal, and newTopicSummary must be a concise synopsis (no transcripts).
-9. Only request new parent/subtopic IDs when users truly shift focus; otherwise reuse the current topic.`;
+4. NEVER nest under generic or empty topics (“General chat”, single-word greetings, topics with <50 tokens). If the parent is vague or new, leave newParentTopicId null so the new topic stays top-level.
+5. Only create a subtopic when the parent topic already has meaningful content and the new request is a narrow branch of that same subject (e.g., “IFR vs VFR” under “Aviation”).
+6. ALWAYS select artifacts that materially help answer the message (reuse existing specs or schemas rather than re-creating them).
+7. Use secondaryTopicIds when information from another topic will clearly be referenced.
+8. Never invent IDs—only choose from the provided metadata.
+9. Name topics in ≤5 title-case words that describe the subject (“Hair Styling Routine”, “Dry Finish Spray Tips”) rather than repeating the literal question text. Subtopics should be equally short and reflect the narrower scope.
+10. Always include or update the topic description when the user reframes the objective. Descriptions should be 1–2 sentences explaining the goal, and newTopicSummary must be a concise synopsis (no transcripts).
+11. Only request new parent/subtopic IDs when users truly shift focus and the parent topic is clearly defined; otherwise keep the topic top-level.`;
 
 async function ensureTopicAssignment({
   supabase,
