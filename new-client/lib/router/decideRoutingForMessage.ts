@@ -413,7 +413,16 @@ async function callRouterWithSchema(openai: any, routerPrompt: string): Promise<
           default: [],
         },
       },
-      required: ["topicAction"],
+      required: [
+        "topicAction",
+        "primaryTopicId",
+        "secondaryTopicIds",
+        "newTopicLabel",
+        "newTopicDescription",
+        "newParentTopicId",
+        "newTopicSummary",
+        "artifactsToLoad",
+      ],
       additionalProperties: false,
     },
   };
