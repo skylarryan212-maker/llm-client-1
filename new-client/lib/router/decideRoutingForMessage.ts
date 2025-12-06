@@ -18,6 +18,9 @@ interface DecideRoutingParams {
   supabase: SupabaseClient<Database>;
   conversationId: string;
   userMessage: string;
+  options?: {
+    forceNewTopic?: boolean;
+  };
 }
 
 interface RouterContextPayload {
@@ -40,6 +43,7 @@ const routerDecisionSchema = z.object({
   newTopicLabel: z.string().min(1).max(240).optional(),
   newTopicDescription: z.string().min(1).max(500).optional(),
   newParentTopicId: z.union([z.string().uuid(), z.null()]).optional(),
+  newTopicSummary: z.string().min(1).max(500).optional(),
   artifactsToLoad: z.array(z.string().uuid()).optional().default([]),
 });
 
@@ -53,7 +57,7 @@ export function createFallbackTopicDecision(activeTopicId?: string | null): Rout
 export async function decideRoutingForMessage(
   params: DecideRoutingParams
 ): Promise<RouterDecision> {
-  const { supabase, conversationId, userMessage } = params;
+  const { supabase, conversationId, userMessage, options } = params;
   const payload = await loadRouterContextPayload(supabase, conversationId, userMessage);
   const fallback = createFallbackTopicDecision(
     payload.recentMessages.find((msg) => msg.topic_id)?.topic_id ?? null
@@ -64,7 +68,7 @@ export async function decideRoutingForMessage(
     return fallback;
   }
 
-  const routerPrompt = buildRouterPrompt(payload, userMessage);
+  const routerPrompt = buildRouterPrompt(payload, userMessage, Boolean(options?.forceNewTopic));
 
   try {
     const OpenAI = (await import("openai")).default;
@@ -86,6 +90,8 @@ export async function decideRoutingForMessage(
       decision: validateRouterDecision(parsed, fallback),
       fallback,
       userMessage,
+      topics: payload.topics,
+      forceNewTopic: Boolean(options?.forceNewTopic),
     });
 
     // Sanity-check against actual topics/artifacts
@@ -133,6 +139,7 @@ function validateRouterDecision(input: unknown, fallback: RouterDecision): Route
     newTopicLabel: value.newTopicLabel,
     newTopicDescription: value.newTopicDescription,
     newParentTopicId: value.newParentTopicId ?? null,
+    newTopicSummary: value.newTopicSummary,
     artifactsToLoad: value.artifactsToLoad ?? [],
   };
 }
@@ -207,7 +214,7 @@ function buildKeywordList(message: string): string[] {
     .slice(0, 8);
 }
 
-function buildRouterPrompt(payload: RouterContextPayload, userMessage: string): string {
+function buildRouterPrompt(payload: RouterContextPayload, userMessage: string, forceNewTopic: boolean): string {
   const recentSection =
     payload.recentMessages.length > 0
       ? payload.recentMessages
@@ -245,6 +252,10 @@ function buildRouterPrompt(payload: RouterContextPayload, userMessage: string): 
           .join("\n")
       : "No artifacts found.";
 
+  const forceHint = forceNewTopic
+    ? "\nUser explicitly requested a brand-new topic. You MUST create a new topic/subtopic."
+    : "";
+
   return [
     "You are the topic router. Review the new user message and metadata below.",
     "Recent conversation snippets:",
@@ -259,7 +270,7 @@ function buildRouterPrompt(payload: RouterContextPayload, userMessage: string): 
     "User message:",
     userMessage,
     "",
-    "Decide which topic/subtopic this belongs to, whether to create or reopen topics, and which artifacts to preload.",
+    `Decide which topic/subtopic this belongs to, whether to create or reopen topics, and which artifacts to preload.${forceHint}`,
   ].join("\n");
 }
 
@@ -278,6 +289,7 @@ Outputs must obey this JSON schema (no markdown, no commentary):
   "newTopicLabel": "string?",
   "newTopicDescription": "string?",
   "newParentTopicId": "uuid|null?",
+  "newTopicSummary": "string?",
   "artifactsToLoad": ["artifact-id"]
 }
 
@@ -289,8 +301,8 @@ Rules:
 5. Use secondaryTopicIds when information from another topic will clearly be referenced.
 6. Never invent IDs—only choose from the provided metadata.
 7. Name topics in ≤5 title-case words that describe the subject (“Hair Styling Routine”, “Dry Finish Spray Tips”) rather than repeating the literal question text. Subtopics should be equally short and reflect the narrower scope.
-8. Always include or update the topic description when the user reframes the objective. Descriptions should be 1–2 sentences explaining the goal.
-9. Only request new parent/subtopic IDs when users truly shift focus; otherwise reuse the current topic.`; 
+8. Always include or update the topic description when the user reframes the objective. Descriptions should be 1–2 sentences explaining the goal, and newTopicSummary must be a concise synopsis (no transcripts).
+9. Only request new parent/subtopic IDs when users truly shift focus; otherwise reuse the current topic.`;
 
 function safeJsonParse(text: string): unknown {
   if (!text) return null;
@@ -312,14 +324,22 @@ async function ensureTopicAssignment({
   decision,
   fallback,
   userMessage,
+  topics,
+  forceNewTopic,
 }: {
   supabase: SupabaseClient<Database>;
   conversationId: string;
   decision: RouterDecision;
   fallback: RouterDecision;
   userMessage: string;
+  topics: ConversationTopic[];
+  forceNewTopic: boolean;
 }): Promise<RouterDecision> {
   const working = { ...decision };
+  if (forceNewTopic && working.topicAction !== "new") {
+    working.topicAction = "new";
+    working.primaryTopicId = null;
+  }
   const needsNewTopic =
     working.topicAction === "new" ||
     (!working.primaryTopicId && !fallback.primaryTopicId);
@@ -332,29 +352,38 @@ async function ensureTopicAssignment({
       working.newTopicDescription?.trim() || buildAutoTopicDescription(userMessage);
     const parentId = working.newParentTopicId ?? null;
 
-    const topicInsert: ConversationTopicInsert = {
-      conversation_id: conversationId,
-      label: label.slice(0, 120),
-      description,
-      parent_topic_id: parentId,
-    };
-
-    const { data: inserted, error } = await (supabase as SupabaseClient<any>)
-      .from("conversation_topics")
-      .insert([topicInsert])
-      .select()
-      .single();
-
-    if (error || !inserted) {
-      console.error("[topic-router] Failed to insert topic, falling back:", error);
-      working.primaryTopicId = fallback.primaryTopicId ?? null;
+    const existingTopic = topics.find(
+      (topic) => normalizeLabel(topic.label) === normalizeLabel(label)
+    );
+    if (existingTopic) {
+      working.primaryTopicId = existingTopic.id;
+      working.topicAction = "continue_active";
     } else {
-      working.primaryTopicId = inserted.id;
-      console.log(
-        `[topic-router] Created topic ${inserted.id} label="${inserted.label}" parent=${
-          inserted.parent_topic_id ?? "none"
-        }`
-      );
+      const topicInsert: ConversationTopicInsert = {
+        conversation_id: conversationId,
+        label: label.slice(0, 120),
+        description,
+        parent_topic_id: parentId,
+        summary: working.newTopicSummary?.trim() || description || null,
+      };
+
+      const { data: inserted, error } = await (supabase as SupabaseClient<any>)
+        .from("conversation_topics")
+        .insert([topicInsert])
+        .select()
+        .single();
+
+      if (error || !inserted) {
+        console.error("[topic-router] Failed to insert topic, falling back:", error);
+        working.primaryTopicId = fallback.primaryTopicId ?? null;
+      } else {
+        working.primaryTopicId = inserted.id;
+        console.log(
+          `[topic-router] Created topic ${inserted.id} label="${inserted.label}" parent=${
+            inserted.parent_topic_id ?? "none"
+          }`
+        );
+      }
     }
     return working;
   }
@@ -371,6 +400,9 @@ async function ensureTopicAssignment({
     if (working.newTopicDescription?.trim()) {
       metaUpdates.description = working.newTopicDescription.trim().slice(0, 500);
     }
+     if (working.newTopicSummary?.trim()) {
+       metaUpdates.summary = working.newTopicSummary.trim().slice(0, 500);
+     }
     if (Object.keys(metaUpdates).length) {
       metaUpdates.updated_at = new Date().toISOString();
       try {
@@ -396,6 +428,12 @@ const LABEL_STOP_WORDS = new Set([
   "hey",
   "hi",
   "hello",
+  "i",
+  "im",
+  "i'm",
+  "i’d",
+  "need",
+  "please",
   "please",
   "can",
   "could",
@@ -434,6 +472,10 @@ function formatTopicLabel(raw: string): string {
     .join(" ")
     .trim();
   return label || "Pending Topic";
+}
+
+function normalizeLabel(label: string): string {
+  return label.trim().toLowerCase().replace(/\s+/g, " ");
 }
 
 function buildAutoTopicLabel(message: string): string {

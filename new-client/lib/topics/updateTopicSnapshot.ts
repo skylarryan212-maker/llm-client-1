@@ -13,8 +13,8 @@ interface UpdateTopicSnapshotParams {
   latestMessage?: MessageRow | null;
 }
 
-const SUMMARY_TAIL_LIMIT = 8;
-const SUMMARY_MAX_LENGTH = 900;
+const SUMMARY_TAIL_LIMIT = 6;
+const SUMMARY_MAX_LENGTH = 480;
 
 export async function updateTopicSnapshot({
   supabase,
@@ -51,16 +51,25 @@ export async function updateTopicSnapshot({
     ? (tailMessages as MessageRow[])
     : [];
   const tail = tailRows.slice().reverse();
-  const summaryParts = tail
-    .map((msg) => {
-      const roleLabel = msg.role === "assistant" ? "Assistant" : "User";
-      const snippet = sanitizeTopicMessageContent(msg as MessageRow)
-        .replace(/\s+/g, " ")
-        .trim()
-        .slice(0, 220);
-      return snippet ? `${roleLabel}: ${snippet}` : "";
-    })
-    .filter(Boolean);
+  const latestUser = [...tail].reverse().find((msg) => msg.role === "user");
+  const latestAssistant = [...tail].reverse().find((msg) => msg.role === "assistant");
+  const previousAssistant = tail
+    .filter((msg) => msg.role === "assistant" && msg !== latestAssistant)
+    .pop();
+
+  const pickSnippet = (msg?: MessageRow) => {
+    if (!msg) return "";
+    return sanitizeTopicMessageContent(msg)
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 160);
+  };
+
+  const summaryParts = [
+    latestUser ? `User: ${pickSnippet(latestUser)}` : "",
+    latestAssistant ? `Assistant: ${pickSnippet(latestAssistant)}` : "",
+    previousAssistant ? `Assistant (earlier): ${pickSnippet(previousAssistant)}` : "",
+  ].filter(Boolean);
 
   const summary = summaryParts.join(" | ").slice(0, SUMMARY_MAX_LENGTH);
   const tokenDelta = latestMessage

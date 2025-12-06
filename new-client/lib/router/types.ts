@@ -5,5 +5,6 @@ export type RouterDecision = {
   newTopicLabel?: string;
   newTopicDescription?: string;
   newParentTopicId?: string | null;
+  newTopicSummary?: string;
   artifactsToLoad: string[];
 };

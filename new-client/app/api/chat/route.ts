@@ -838,12 +838,18 @@ export async function POST(request: NextRequest) {
       console.error("[permanent-instructions] Failed to preload instructions:", permInitErr);
     }
 
+    const forceNewTopic =
+      /\bnew topic\b/i.test(message) ||
+      /\bseparate topic\b/i.test(message) ||
+      /\bdifferent topic\b/i.test(message) ||
+      /\bbrand[- ]new topic\b/i.test(message);
     let topicRoutingDecision: RouterDecision | null = null;
     try {
       topicRoutingDecision = await decideRoutingForMessage({
         supabase: supabaseAny,
         conversationId,
         userMessage: message,
+        options: { forceNewTopic },
       });
     } catch (topicErr) {
       console.error("[topic-router] Failed to route message:", topicErr);
