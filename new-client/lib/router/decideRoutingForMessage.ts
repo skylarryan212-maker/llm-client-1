@@ -427,7 +427,13 @@ async function callRouterWithSchema(openai: any, routerPrompt: string): Promise<
           { role: "system", type: "message", content: TOPIC_ROUTER_SYSTEM_PROMPT },
           { role: "user", type: "message", content: routerPrompt },
         ],
-        text: { format: schema },
+        text: {
+          format: {
+            type: "json_schema",
+            name: "router_decision",
+            json_schema: schema,
+          },
+        },
         reasoning: { effort: "low" },
       });
       const textOutput =
