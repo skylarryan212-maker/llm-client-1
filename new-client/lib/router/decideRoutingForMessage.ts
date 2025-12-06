@@ -436,8 +436,9 @@ async function callRouterWithSchema(openai: any, routerPrompt: string): Promise<
         },
         reasoning: { effort: "low" },
       });
-      const jsonText = Array.isArray(response.output_text) ? response.output_text.join("\n") : "";
-      const parsed = JSON.parse(jsonText);
+      const textOutput =
+        response?.output?.find((item: any) => item.type === "message")?.content?.[0]?.text ?? "";
+      const parsed = JSON.parse(textOutput);
       const validated = routerDecisionSchema.safeParse(parsed);
       if (!validated.success) {
         throw new Error("[topic-router] Router output failed schema validation");
