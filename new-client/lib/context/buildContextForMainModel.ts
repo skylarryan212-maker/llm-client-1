@@ -29,7 +29,7 @@ export interface BuildContextResult {
   artifactCount: number;
 }
 
-const DEFAULT_MAX_TOKENS = 400_000;
+const DEFAULT_MAX_TOKENS = 350_000;
 const FALLBACK_TOKEN_CAP = 200_000;
 const SECONDARY_TOPIC_TAIL = 3;
 const PRIMARY_TOPIC_FULL_THRESHOLD = 280_000;
