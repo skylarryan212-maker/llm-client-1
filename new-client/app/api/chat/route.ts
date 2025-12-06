@@ -35,10 +35,7 @@ import {
   loadPermanentInstructions,
   type PermanentInstructionCacheItem,
 } from "@/lib/permanentInstructions";
-import {
-  decideRoutingForMessage,
-  createFallbackTopicDecision,
-} from "@/lib/router/decideRoutingForMessage";
+import { decideRoutingForMessage } from "@/lib/router/decideRoutingForMessage";
 import type { RouterDecision } from "@/lib/router/types";
 import { buildContextForMainModel } from "@/lib/context/buildContextForMainModel";
 import { maybeExtractArtifactsFromMessage } from "@/lib/artifacts/maybeExtractArtifactsFromMessage";
@@ -760,9 +757,6 @@ export async function POST(request: NextRequest) {
 
     // Last assistant message used for router cache comparisons and metadata
     const lastAssistantMessage = recentMessages?.findLast((m: MessageRow) => m.role === "assistant");
-    const lastTopicIdFromHistory =
-      recentMessages?.findLast((m: MessageRow) => Boolean(m.topic_id))?.topic_id ?? null;
-
     // Optionally insert the user message unless the client indicates it's already persisted (e.g., first send via server action, or retry)
     let userMessageRow: MessageRow | null = null;
     let permanentInstructionState: { instructions: PermanentInstructionCacheItem[]; metadata: ConversationRow["metadata"] } | null = null;
@@ -838,27 +832,20 @@ export async function POST(request: NextRequest) {
       console.error("[permanent-instructions] Failed to preload instructions:", permInitErr);
     }
 
-    const forceNewTopic =
-      /\bnew topic\b/i.test(message) ||
-      /\bseparate topic\b/i.test(message) ||
-      /\bdifferent topic\b/i.test(message) ||
-      /\bbrand[- ]new topic\b/i.test(message);
-    let topicRoutingDecision: RouterDecision | null = null;
+    let resolvedTopicDecision: RouterDecision;
     try {
-      topicRoutingDecision = await decideRoutingForMessage({
+      resolvedTopicDecision = await decideRoutingForMessage({
         supabase: supabaseAny,
         conversationId,
         userMessage: message,
-        options: { forceNewTopic },
       });
     } catch (topicErr) {
       console.error("[topic-router] Failed to route message:", topicErr);
+      return NextResponse.json(
+        { error: "Failed to route conversation topic" },
+        { status: 500 }
+      );
     }
-    if (!topicRoutingDecision) {
-      console.log("[topic-router] No structured decision returned, using fallback topic assignment");
-    }
-    const resolvedTopicDecision =
-      topicRoutingDecision ?? createFallbackTopicDecision(lastTopicIdFromHistory);
     console.log(
       `[topic-router] Decision action=${resolvedTopicDecision.topicAction} primary=${resolvedTopicDecision.primaryTopicId ?? "none"} secondary=${resolvedTopicDecision.secondaryTopicIds.length} artifacts=${resolvedTopicDecision.artifactsToLoad.length}`
     );
@@ -883,7 +870,6 @@ export async function POST(request: NextRequest) {
       try {
         await updateTopicSnapshot({
           supabase: supabaseAny,
-          conversationId,
           topicId: userMessageRow.topic_id,
           latestMessage: userMessageRow,
         });
@@ -1891,7 +1877,6 @@ export async function POST(request: NextRequest) {
               try {
                 await updateTopicSnapshot({
                   supabase: supabaseAny,
-                  conversationId,
                   topicId: assistantRowForMeta.topic_id,
                   latestMessage: assistantRowForMeta,
                 });

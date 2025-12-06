@@ -18,9 +18,6 @@ interface DecideRoutingParams {
   supabase: SupabaseClient<Database>;
   conversationId: string;
   userMessage: string;
-  options?: {
-    forceNewTopic?: boolean;
-  };
 }
 
 interface RouterContextPayload {
@@ -28,13 +25,6 @@ interface RouterContextPayload {
   artifacts: Artifact[];
   recentMessages: Pick<Message, "id" | "role" | "content" | "created_at" | "topic_id">[];
 }
-
-const routerDecisionDefaults: RouterDecision = {
-  topicAction: "continue_active",
-  primaryTopicId: null,
-  secondaryTopicIds: [],
-  artifactsToLoad: [],
-};
 
 const routerDecisionSchema = z.object({
   topicAction: z.enum(["continue_active", "new", "reopen_existing"]),
@@ -47,28 +37,17 @@ const routerDecisionSchema = z.object({
   artifactsToLoad: z.array(z.string().uuid()).optional().default([]),
 });
 
-export function createFallbackTopicDecision(activeTopicId?: string | null): RouterDecision {
-  return {
-    ...routerDecisionDefaults,
-    primaryTopicId: activeTopicId ?? null,
-  };
-}
-
 export async function decideRoutingForMessage(
   params: DecideRoutingParams
 ): Promise<RouterDecision> {
-  const { supabase, conversationId, userMessage, options } = params;
+  const { supabase, conversationId, userMessage } = params;
   const payload = await loadRouterContextPayload(supabase, conversationId, userMessage);
-  const fallback = createFallbackTopicDecision(
-    payload.recentMessages.find((msg) => msg.topic_id)?.topic_id ?? null
-  );
 
   if (!process.env.OPENAI_API_KEY) {
-    console.warn("[topic-router] OPENAI_API_KEY missing, falling back to defaults");
-    return fallback;
+    throw new Error("[topic-router] OPENAI_API_KEY missing");
   }
 
-  const routerPrompt = buildRouterPrompt(payload, userMessage, Boolean(options?.forceNewTopic));
+  const routerPrompt = buildRouterPrompt(payload, userMessage);
 
   try {
     const OpenAI = (await import("openai")).default;
@@ -84,14 +63,11 @@ export async function decideRoutingForMessage(
 
     const outputText = Array.isArray(response.output_text) ? response.output_text.join("\n") : "";
     const parsed = safeJsonParse(outputText);
-    let resolvedDecision = await ensureTopicAssignment({
+    const resolvedDecision = await ensureTopicAssignment({
       supabase,
       conversationId,
-      decision: validateRouterDecision(parsed, fallback),
-      fallback,
+      decision: validateRouterDecision(parsed),
       userMessage,
-      topics: payload.topics,
-      forceNewTopic: Boolean(options?.forceNewTopic),
     });
 
     // Sanity-check against actual topics/artifacts
@@ -100,16 +76,7 @@ export async function decideRoutingForMessage(
       topicIds.add(resolvedDecision.primaryTopicId);
     }
     if (resolvedDecision.primaryTopicId && !topicIds.has(resolvedDecision.primaryTopicId)) {
-      // Router referenced unknown topic; treat as fallback/auto topic
-      resolvedDecision = await ensureTopicAssignment({
-        supabase,
-        conversationId,
-        decision: { ...resolvedDecision, primaryTopicId: null },
-        fallback,
-        userMessage,
-        topics: payload.topics,
-        forceNewTopic: Boolean(options?.forceNewTopic),
-      });
+      throw new Error("[topic-router] Router referenced unknown topic id");
     }
     resolvedDecision.secondaryTopicIds = resolvedDecision.secondaryTopicIds.filter((id) =>
       topicIds.has(id)
@@ -120,21 +87,17 @@ export async function decideRoutingForMessage(
       artifactIds.has(id)
     );
 
-    if (!resolvedDecision.primaryTopicId) {
-      resolvedDecision.primaryTopicId = fallback.primaryTopicId;
-    }
-
     return resolvedDecision;
   } catch (error) {
-    console.error("[topic-router] Routing failed, using fallback:", error);
-    return fallback;
+    console.error("[topic-router] Routing failed:", error);
+    throw error;
   }
 }
 
-function validateRouterDecision(input: unknown, fallback: RouterDecision): RouterDecision {
+function validateRouterDecision(input: unknown): RouterDecision {
   const parsed = routerDecisionSchema.safeParse(input);
   if (!parsed.success) {
-    return { ...fallback };
+    throw new Error("[topic-router] Router returned invalid JSON");
   }
   const value = parsed.data;
   return {
@@ -219,7 +182,7 @@ function buildKeywordList(message: string): string[] {
     .slice(0, 8);
 }
 
-function buildRouterPrompt(payload: RouterContextPayload, userMessage: string, forceNewTopic: boolean): string {
+function buildRouterPrompt(payload: RouterContextPayload, userMessage: string): string {
   const recentSection =
     payload.recentMessages.length > 0
       ? payload.recentMessages
@@ -257,10 +220,6 @@ function buildRouterPrompt(payload: RouterContextPayload, userMessage: string, f
           .join("\n")
       : "No artifacts found.";
 
-  const forceHint = forceNewTopic
-    ? "\nUser explicitly requested a brand-new topic. You MUST create a new topic/subtopic."
-    : "";
-
   return [
     "You are the topic router. Review the new user message and metadata below.",
     "Recent conversation snippets:",
@@ -275,7 +234,7 @@ function buildRouterPrompt(payload: RouterContextPayload, userMessage: string, f
     "User message:",
     userMessage,
     "",
-    `Decide which topic/subtopic this belongs to, whether to create or reopen topics, and which artifacts to preload.${forceHint}`,
+    "Decide which topic/subtopic this belongs to, whether to create or reopen topics, and which artifacts to preload.",
   ].join("\n");
 }
 
@@ -327,27 +286,17 @@ async function ensureTopicAssignment({
   supabase,
   conversationId,
   decision,
-  fallback,
   userMessage,
-  topics,
-  forceNewTopic,
 }: {
   supabase: SupabaseClient<Database>;
   conversationId: string;
   decision: RouterDecision;
-  fallback: RouterDecision;
   userMessage: string;
-  topics: ConversationTopic[];
-  forceNewTopic: boolean;
 }): Promise<RouterDecision> {
   const working = { ...decision };
-  if (forceNewTopic && working.topicAction !== "new") {
-    working.topicAction = "new";
-    working.primaryTopicId = null;
-  }
   const needsNewTopic =
     working.topicAction === "new" ||
-    (!working.primaryTopicId && !fallback.primaryTopicId);
+    (!working.primaryTopicId);
 
   if (needsNewTopic) {
     const rawLabel =
@@ -357,44 +306,30 @@ async function ensureTopicAssignment({
       working.newTopicDescription?.trim() || buildAutoTopicDescription(userMessage);
     const parentId = working.newParentTopicId ?? null;
 
-    const existingTopic = topics.find(
-      (topic) => normalizeLabel(topic.label) === normalizeLabel(label)
-    );
-    if (existingTopic) {
-      working.primaryTopicId = existingTopic.id;
-      working.topicAction = "continue_active";
-    } else {
-      const topicInsert: ConversationTopicInsert = {
-        conversation_id: conversationId,
-        label: label.slice(0, 120),
-        description,
-        parent_topic_id: parentId,
-        summary: working.newTopicSummary?.trim() || description || null,
-      };
+    const topicInsert: ConversationTopicInsert = {
+      conversation_id: conversationId,
+      label: label.slice(0, 120),
+      description,
+      parent_topic_id: parentId,
+      summary: working.newTopicSummary?.trim() || description || null,
+    };
 
-      const { data: inserted, error } = await (supabase as SupabaseClient<any>)
-        .from("conversation_topics")
-        .insert([topicInsert])
-        .select()
-        .single();
+    const { data: inserted, error } = await (supabase as SupabaseClient<any>)
+      .from("conversation_topics")
+      .insert([topicInsert])
+      .select()
+      .single();
 
-      if (error || !inserted) {
-        console.error("[topic-router] Failed to insert topic, falling back:", error);
-        working.primaryTopicId = fallback.primaryTopicId ?? null;
-      } else {
-        working.primaryTopicId = inserted.id;
-        console.log(
-          `[topic-router] Created topic ${inserted.id} label="${inserted.label}" parent=${
-            inserted.parent_topic_id ?? "none"
-          }`
-        );
-      }
+    if (error || !inserted) {
+      throw new Error("[topic-router] Failed to insert topic");
     }
+    working.primaryTopicId = inserted.id;
+    console.log(
+      `[topic-router] Created topic ${inserted.id} label="${inserted.label}" parent=${
+        inserted.parent_topic_id ?? "none"
+      }`
+    );
     return working;
-  }
-
-  if (!working.primaryTopicId && fallback.primaryTopicId) {
-    working.primaryTopicId = fallback.primaryTopicId;
   }
 
   if (working.primaryTopicId) {
@@ -477,10 +412,6 @@ function formatTopicLabel(raw: string): string {
     .join(" ")
     .trim();
   return label || "Pending Topic";
-}
-
-function normalizeLabel(label: string): string {
-  return label.trim().toLowerCase().replace(/\s+/g, " ");
 }
 
 function buildAutoTopicLabel(message: string): string {
