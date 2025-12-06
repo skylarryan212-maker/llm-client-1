@@ -104,6 +104,8 @@ export async function decideRoutingForMessage(
         decision: { ...resolvedDecision, primaryTopicId: null },
         fallback,
         userMessage,
+        topics: payload.topics,
+        forceNewTopic: Boolean(options?.forceNewTopic),
       });
     }
     resolvedDecision.secondaryTopicIds = resolvedDecision.secondaryTopicIds.filter((id) =>
