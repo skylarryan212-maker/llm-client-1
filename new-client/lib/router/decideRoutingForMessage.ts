@@ -1,6 +1,12 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { z } from "zod";
-import type { Database, ConversationTopic, Artifact, Message } from "@/lib/supabase/types";
+import type {
+  Database,
+  ConversationTopic,
+  ConversationTopicInsert,
+  Artifact,
+  Message,
+} from "@/lib/supabase/types";
 import type { RouterDecision } from "@/lib/router/types";
 
 const TOPIC_ROUTER_MODEL = process.env.TOPIC_ROUTER_MODEL_ID ?? "gpt-5-nano-2025-08-07";
@@ -325,14 +331,16 @@ async function ensureTopicAssignment({
       working.newTopicDescription?.trim() || buildAutoTopicDescription(userMessage);
     const parentId = working.newParentTopicId ?? null;
 
+    const topicInsert: ConversationTopicInsert = {
+      conversation_id: conversationId,
+      label: label.slice(0, 120),
+      description,
+      parent_topic_id: parentId,
+    };
+
     const { data: inserted, error } = await supabase
       .from("conversation_topics")
-      .insert({
-        conversation_id: conversationId,
-        label: label.slice(0, 120),
-        description,
-        parent_topic_id: parentId,
-      })
+      .insert([topicInsert])
       .select()
       .single();
 
