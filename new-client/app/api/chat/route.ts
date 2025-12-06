@@ -1,7 +1,7 @@
-export const runtime = "nodejs";
-export const maxDuration = 60; // Allow up to 60 seconds for file processing
+export const runtime = "edge";
 
 import { NextRequest, NextResponse } from "next/server";
+import { Buffer } from "buffer";
 import { supabaseServer } from "@/lib/supabase/server";
 import { getCurrentUserIdServer } from "@/lib/supabase/user";
 import { getModelAndReasoningConfigWithLLM } from "@/lib/modelConfig";
@@ -51,6 +51,13 @@ function dataUrlToBuffer(dataUrl: string): Buffer {
   }
   const base64 = dataUrl.slice(commaIndex + 1);
   return Buffer.from(base64, "base64");
+}
+
+async function sha256Hex(input: string): Promise<string> {
+  const data = new TextEncoder().encode(input);
+  const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
 const MEMORY_TYPE_KEYWORDS: Record<string, string[]> = {
@@ -123,6 +130,17 @@ function augmentMemoryStrategyWithHeuristics(
 type MessageRow = Database["public"]["Tables"]["messages"]["Row"];
 type ConversationRow = Database["public"]["Tables"]["conversations"]["Row"];
 type OpenAIClient = any;
+
+let cachedOpenAIConstructor: { new (...args: any[]): OpenAIClient } | null = null;
+async function getOpenAIConstructor(): Promise<{ new (...args: any[]): OpenAIClient }> {
+  if (cachedOpenAIConstructor) {
+    return cachedOpenAIConstructor;
+  }
+  const mod: any = await import("openai");
+  const ctor = mod.default || mod.OpenAI || mod;
+  cachedOpenAIConstructor = ctor;
+  return ctor;
+}
 
 interface ChatRequestBody {
   conversationId: string;
@@ -907,9 +925,8 @@ export async function POST(request: NextRequest) {
           routerUsage.outputTokens
         );
 
-        const { randomUUID } = require("crypto");
         await supabaseAny.from("user_api_usage").insert({
-          id: randomUUID(),
+          id: crypto.randomUUID(),
           user_id: userId,
           conversation_id: conversationId,
           model: routerUsage.model,
@@ -1118,6 +1135,7 @@ export async function POST(request: NextRequest) {
   let totalFileUploadSize = 0;
   // Try to reuse an existing vector store from recent messages
   let vectorStoreId: string | undefined;
+  let vectorStoreOpenAI: OpenAIClient | null = null;
   try {
     const priorVectorIds: string[] = [];
     for (const msg of (recentMessages || [])) {
@@ -1155,18 +1173,22 @@ export async function POST(request: NextRequest) {
             const file = new File([blob], att.name || "file", { type: att.mime || "application/octet-stream" });
             
             // Upload to OpenAI vector store directly (like legacy)
-            const { OpenAI } = require("openai");
-            const tempOpenAI = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+            if (!vectorStoreOpenAI) {
+              const OpenAIConstructor = await getOpenAIConstructor();
+              vectorStoreOpenAI = new OpenAIConstructor({
+                apiKey: process.env.OPENAI_API_KEY,
+              });
+            }
             // Ensure vector store
             if (!vectorStoreId) {
-              const vs = await tempOpenAI.vectorStores.create({
+              const vs = await vectorStoreOpenAI.vectorStores.create({
                 name: `conversation-${conversationId}`,
                 metadata: { conversation_id: conversationId },
               });
               vectorStoreId = vs.id;
               console.log(`Created vector store ${vectorStoreId}`);
             }
-            await tempOpenAI.vectorStores.files.uploadAndPoll(vectorStoreId!, file);
+            await vectorStoreOpenAI.vectorStores.files.uploadAndPoll(vectorStoreId!, file);
             openaiFileIds.push(att.name || 'file');
             totalFileUploadSize += fileSize;
             console.log(`Uploaded to vector store: ${att.name} (${fileSize} bytes)`);
@@ -1358,8 +1380,7 @@ export async function POST(request: NextRequest) {
       );
     }
     try {
-      const OpenAIModule = require("openai");
-      const OpenAIClass = OpenAIModule.default || OpenAIModule;
+      const OpenAIClass = await getOpenAIConstructor();
       openai = new OpenAIClass({
         apiKey: process.env.OPENAI_API_KEY,
       });
@@ -1417,8 +1438,7 @@ export async function POST(request: NextRequest) {
       const rawPromptKey = `${conversationId}:${resolvedTopicDecision.primaryTopicId || "none"}`;
       let promptCacheKey = rawPromptKey;
       if (rawPromptKey.length > 64) {
-        const { createHash } = require("crypto");
-        promptCacheKey = createHash("sha256").update(rawPromptKey).digest("hex").slice(0, 64);
+        promptCacheKey = (await sha256Hex(rawPromptKey)).slice(0, 64);
       }
       const extendedCacheModels = new Set([
         "gpt-5.1",
@@ -1695,9 +1715,8 @@ export async function POST(request: NextRequest) {
           // Log usage to database
           if (inputTokens > 0 || outputTokens > 0) {
             try {
-              const { randomUUID } = require("crypto");
               const insertData = {
-                id: randomUUID(),
+                id: crypto.randomUUID(),
                 user_id: userId,
                 conversation_id: conversationId,
                 model: modelConfig.model,
@@ -1907,7 +1926,7 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    return new NextResponse(readableStream, {
+    return new Response(readableStream, {
       headers: {
         "Content-Type": "application/x-ndjson",
         "Cache-Control": "no-cache",
@@ -1937,7 +1956,7 @@ export async function POST(request: NextRequest) {
         }
       },
     });
-    return new NextResponse(readableStream, {
+    return new Response(readableStream, {
       headers: {
         "Content-Type": "application/x-ndjson",
         "Cache-Control": "no-cache",
