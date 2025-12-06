@@ -391,27 +391,30 @@ function buildAutoTopicDescription(message: string): string | null {
 }
 async function callRouterWithSchema(openai: any, routerPrompt: string): Promise<RouterDecision> {
   const schema = {
-    type: "object",
-    properties: {
-      topicAction: { type: "string", enum: ["continue_active", "new", "reopen_existing"] },
-      primaryTopicId: { type: ["string", "null"], format: "uuid" },
-      secondaryTopicIds: {
-        type: "array",
-        items: { type: "string", format: "uuid" },
-        default: [],
+    name: "router_decision",
+    schema: {
+      type: "object",
+      properties: {
+        topicAction: { type: "string", enum: ["continue_active", "new", "reopen_existing"] },
+        primaryTopicId: { type: ["string", "null"], format: "uuid" },
+        secondaryTopicIds: {
+          type: "array",
+          items: { type: "string", format: "uuid" },
+          default: [],
+        },
+        newTopicLabel: { type: "string" },
+        newTopicDescription: { type: "string" },
+        newParentTopicId: { type: ["string", "null"], format: "uuid" },
+        newTopicSummary: { type: "string" },
+        artifactsToLoad: {
+          type: "array",
+          items: { type: "string", format: "uuid" },
+          default: [],
+        },
       },
-      newTopicLabel: { type: "string" },
-      newTopicDescription: { type: "string" },
-      newParentTopicId: { type: ["string", "null"], format: "uuid" },
-      newTopicSummary: { type: "string" },
-      artifactsToLoad: {
-        type: "array",
-        items: { type: "string", format: "uuid" },
-        default: [],
-      },
+      required: ["topicAction"],
+      additionalProperties: false,
     },
-    required: ["topicAction"],
-    additionalProperties: false,
   };
 
   let lastError: unknown = null;
@@ -423,13 +426,7 @@ async function callRouterWithSchema(openai: any, routerPrompt: string): Promise<
           { role: "system", type: "message", content: TOPIC_ROUTER_SYSTEM_PROMPT },
           { role: "user", type: "message", content: routerPrompt },
         ],
-        text: {
-          format: {
-            type: "json_schema",
-            name: "router_decision",
-            schema,
-          },
-        },
+        text: { format: schema },
         reasoning: { effort: "low" },
       });
       const textOutput =
