@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { z } from "zod";
 import type { Database, ConversationTopic, Artifact, Message } from "@/lib/supabase/types";
 import type { RouterDecision } from "@/lib/router/types";
 
@@ -24,6 +25,16 @@ const routerDecisionDefaults: RouterDecision = {
   secondaryTopicIds: [],
   artifactsToLoad: [],
 };
+
+const routerDecisionSchema = z.object({
+  topicAction: z.enum(["continue_active", "new", "reopen_existing"]),
+  primaryTopicId: z.union([z.string().uuid(), z.null()]).optional(),
+  secondaryTopicIds: z.array(z.string().uuid()).optional().default([]),
+  newTopicLabel: z.string().min(1).max(240).optional(),
+  newTopicDescription: z.string().min(1).max(500).optional(),
+  newParentTopicId: z.union([z.string().uuid(), z.null()]).optional(),
+  artifactsToLoad: z.array(z.string().uuid()).optional().default([]),
+});
 
 export function createFallbackTopicDecision(activeTopicId?: string | null): RouterDecision {
   return {
@@ -103,32 +114,19 @@ export async function decideRoutingForMessage(
 }
 
 function validateRouterDecision(input: unknown, fallback: RouterDecision): RouterDecision {
-  if (!input || typeof input !== "object") {
+  const parsed = routerDecisionSchema.safeParse(input);
+  if (!parsed.success) {
     return { ...fallback };
   }
-  const value = input as Partial<RouterDecision>;
-  if (
-    value.topicAction !== "continue_active" &&
-    value.topicAction !== "new" &&
-    value.topicAction !== "reopen_existing"
-  ) {
-    return { ...fallback };
-  }
-
+  const value = parsed.data;
   return {
     topicAction: value.topicAction,
-    primaryTopicId: typeof value.primaryTopicId === "string" ? value.primaryTopicId : null,
-    secondaryTopicIds: Array.isArray(value.secondaryTopicIds)
-      ? value.secondaryTopicIds.filter((id): id is string => typeof id === "string")
-      : [],
-    newTopicLabel: typeof value.newTopicLabel === "string" ? value.newTopicLabel : undefined,
-    newTopicDescription:
-      typeof value.newTopicDescription === "string" ? value.newTopicDescription : undefined,
-    newParentTopicId:
-      typeof value.newParentTopicId === "string" ? value.newParentTopicId : null,
-    artifactsToLoad: Array.isArray(value.artifactsToLoad)
-      ? value.artifactsToLoad.filter((id): id is string => typeof id === "string")
-      : [],
+    primaryTopicId: value.primaryTopicId ?? null,
+    secondaryTopicIds: value.secondaryTopicIds ?? [],
+    newTopicLabel: value.newTopicLabel,
+    newTopicDescription: value.newTopicDescription,
+    newParentTopicId: value.newParentTopicId ?? null,
+    artifactsToLoad: value.artifactsToLoad ?? [],
   };
 }
 
@@ -165,39 +163,33 @@ async function loadCandidateArtifacts(
   userMessage: string
 ): Promise<Artifact[]> {
   const keywords = buildKeywordList(userMessage);
-  const { data } = await supabase
+  let query = supabase
     .from("artifacts")
-    .select("*")
+    .select("id, conversation_id, topic_id, type, title, summary, created_at")
     .eq("conversation_id", conversationId)
     .order("created_at", { ascending: false })
-    .limit(30);
+    .limit(40);
 
+  if (keywords.length) {
+    const clauses = keywords.flatMap((kw) => [
+      `title.ilike.%${kw}%`,
+      `summary.ilike.%${kw}%`,
+    ]);
+    if (clauses.length) {
+      query = query.or(clauses.join(","));
+    }
+  }
+
+  const { data } = await query;
   const artifacts = Array.isArray(data) ? (data as Artifact[]) : [];
   if (!artifacts.length) {
     return [];
   }
-  if (!keywords.length) {
-    return artifacts.slice(0, MAX_ARTIFACTS);
-  }
 
-  const filtered = artifacts.filter((artifact) => {
-    const haystack = `${artifact.title} ${artifact.summary ?? ""}`.toLowerCase();
-    return keywords.some((kw) => haystack.includes(kw));
-  });
-
-  if (filtered.length >= MAX_ARTIFACTS) {
-    return filtered.slice(0, MAX_ARTIFACTS);
+  if (artifacts.length <= MAX_ARTIFACTS) {
+    return artifacts;
   }
-
-  const seen = new Set(filtered.map((artifact) => artifact.id));
-  for (const artifact of artifacts) {
-    if (seen.size >= MAX_ARTIFACTS) break;
-    if (!seen.has(artifact.id)) {
-      filtered.push(artifact);
-      seen.add(artifact.id);
-    }
-  }
-  return filtered;
+  return artifacts.slice(0, MAX_ARTIFACTS);
 }
 
 function buildKeywordList(message: string): string[] {
@@ -227,7 +219,10 @@ function buildRouterPrompt(payload: RouterContextPayload, userMessage: string): 
               ? ` (child of ${topic.parent_topic_id})`
               : "";
             const desc = topic.description?.replace(/\s+/g, " ").slice(0, 200) ?? "No description yet.";
-            return `- [${topic.id}] ${topic.label}${parent}: ${desc}`;
+            const updated = topic.updated_at ? ` updated ${topic.updated_at}` : "";
+            const summary =
+              topic.summary?.replace(/\s+/g, " ").slice(0, 180) ?? "No summary yet.";
+            return `- [${topic.id}] ${topic.label}${parent}${updated}: ${desc} | Summary: ${summary}`;
           })
           .join("\n")
       : "No topics exist yet.";
@@ -330,7 +325,7 @@ async function ensureTopicAssignment({
       working.newTopicDescription?.trim() || buildAutoTopicDescription(userMessage);
     const parentId = working.newParentTopicId ?? null;
 
-    const { data: inserted, error } = await (supabase as SupabaseClient<any>)
+    const { data: inserted, error } = await supabase
       .from("conversation_topics")
       .insert({
         conversation_id: conversationId,
@@ -370,10 +365,7 @@ async function ensureTopicAssignment({
     if (Object.keys(metaUpdates).length) {
       metaUpdates.updated_at = new Date().toISOString();
       try {
-        await (supabase as SupabaseClient<any>)
-          .from("conversation_topics")
-          .update(metaUpdates)
-          .eq("id", working.primaryTopicId);
+        await supabase.from("conversation_topics").update(metaUpdates).eq("id", working.primaryTopicId);
         console.log(
           `[topic-router] Updated topic ${working.primaryTopicId} metadata (label: ${
             metaUpdates.label ? `"${metaUpdates.label}"` : "unchanged"

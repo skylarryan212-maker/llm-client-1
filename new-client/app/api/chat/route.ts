@@ -935,8 +935,7 @@ export async function POST(request: NextRequest) {
     }
 
     const {
-      prefixMessages,
-      historyMessages,
+      messages: contextMessages,
       source: contextSource,
       includedTopicIds,
       summaryCount,
@@ -947,7 +946,7 @@ export async function POST(request: NextRequest) {
       routerDecision: resolvedTopicDecision,
     });
     console.log(
-      `[context-builder] ${contextSource} mode - prefix ${prefixMessages.length} msgs, history ${historyMessages.length} msgs (summaries: ${summaryCount}, artifacts: ${artifactMessagesCount}, topics: ${
+      `[context-builder] ${contextSource} mode - context ${contextMessages.length} msgs (summaries: ${summaryCount}, artifacts: ${artifactMessagesCount}, topics: ${
         includedTopicIds.length ? includedTopicIds.join(", ") : "none"
       })`
     );
@@ -1343,9 +1342,8 @@ export async function POST(request: NextRequest) {
       } catch {}
     }
 
-    const cachedConversationPrefix = [...prefixMessages, ...historyMessages];
     const messagesForAPI = [
-      ...cachedConversationPrefix,
+      ...contextMessages,
       {
         role: "user" as const,
         content: userContentParts,

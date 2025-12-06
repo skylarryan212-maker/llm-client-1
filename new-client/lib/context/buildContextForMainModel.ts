@@ -22,17 +22,18 @@ export interface BuildContextParams {
 }
 
 export interface BuildContextResult {
-  prefixMessages: ContextMessage[];
-  historyMessages: ContextMessage[];
+  messages: ContextMessage[];
   source: "topic" | "fallback";
   includedTopicIds: string[];
   summaryCount: number;
   artifactCount: number;
 }
 
-const DEFAULT_MAX_TOKENS = 350_000;
+const DEFAULT_MAX_TOKENS = 400_000;
 const FALLBACK_TOKEN_CAP = 200_000;
 const SECONDARY_TOPIC_TAIL = 3;
+const PRIMARY_TOPIC_FULL_THRESHOLD = 280_000;
+const PRIMARY_TOPIC_RECENT_TARGET = 200_000;
 
 export async function buildContextForMainModel({
   supabase,
@@ -43,8 +44,7 @@ export async function buildContextForMainModel({
   if (!routerDecision.primaryTopicId) {
     const fallbackMessages = await loadFallbackMessages(supabase, conversationId, maxContextTokens);
     return {
-      prefixMessages: [],
-      historyMessages: fallbackMessages,
+      messages: fallbackMessages,
       source: "fallback",
       includedTopicIds: [],
       summaryCount: 0,
@@ -60,8 +60,7 @@ export async function buildContextForMainModel({
   if (topicError || !Array.isArray(topics)) {
     const fallbackMessages = await loadFallbackMessages(supabase, conversationId, maxContextTokens);
     return {
-      prefixMessages: [],
-      historyMessages: fallbackMessages,
+      messages: fallbackMessages,
       source: "fallback",
       includedTopicIds: [],
       summaryCount: 0,
@@ -75,8 +74,7 @@ export async function buildContextForMainModel({
   if (!primaryTopic) {
     const fallbackMessages = await loadFallbackMessages(supabase, conversationId, maxContextTokens);
     return {
-      prefixMessages: [],
-      historyMessages: fallbackMessages,
+      messages: fallbackMessages,
       source: "fallback",
       includedTopicIds: [],
       summaryCount: 0,
@@ -172,18 +170,21 @@ export async function buildContextForMainModel({
   }
 
   if (tokenBudgetRemaining > 0) {
-    const { trimmed, tokensUsed } = trimMessagesToBudget(primaryMessages, tokenBudgetRemaining);
+    const totalPrimaryTokens = estimateTopicMessagesTokens(primaryMessages);
+    const allowFullTopic = totalPrimaryTokens <= PRIMARY_TOPIC_FULL_THRESHOLD;
+    const topicBudget = allowFullTopic
+      ? tokenBudgetRemaining
+      : Math.min(PRIMARY_TOPIC_RECENT_TARGET, tokenBudgetRemaining);
+    const { trimmed, tokensUsed } = trimMessagesToBudget(primaryMessages, topicBudget);
     tokenBudgetRemaining = Math.max(tokenBudgetRemaining - tokensUsed, 0);
     trimmed.forEach((msg) => conversationMessages.push(toContextMessage(msg)));
   }
 
   const combinedMessages = [...summaryMessages, ...artifactMessages, ...conversationMessages];
-
   if (!combinedMessages.length) {
     const fallbackMessages = await loadFallbackMessages(supabase, conversationId, maxContextTokens);
     return {
-      prefixMessages: [],
-      historyMessages: fallbackMessages,
+      messages: fallbackMessages,
       source: "fallback",
       includedTopicIds: Array.from(includedTopics),
       summaryCount,
@@ -191,11 +192,14 @@ export async function buildContextForMainModel({
     };
   }
 
-  if (!summaryMessages.length && !artifactMessages.length && !conversationMessages.length) {
+  const finalMessages = trimContextMessages(
+    combinedMessages,
+    Math.min(maxContextTokens, DEFAULT_MAX_TOKENS)
+  ).trimmed;
+  if (!finalMessages.length) {
     const fallbackMessages = await loadFallbackMessages(supabase, conversationId, maxContextTokens);
     return {
-      prefixMessages: [],
-      historyMessages: fallbackMessages,
+      messages: fallbackMessages,
       source: "fallback",
       includedTopicIds: Array.from(includedTopics),
       summaryCount,
@@ -204,8 +208,7 @@ export async function buildContextForMainModel({
   }
 
   return {
-    prefixMessages: [...summaryMessages, ...artifactMessages],
-    historyMessages: conversationMessages,
+    messages: finalMessages,
     source: "topic",
     includedTopicIds: Array.from(includedTopics),
     summaryCount,
@@ -324,6 +327,12 @@ async function loadFallbackMessages(
     sanitized,
     Math.min(FALLBACK_TOKEN_CAP, maxContextTokens)
   ).trimmed;
+}
+
+function estimateTopicMessagesTokens(messages: MessageRow[]): number {
+  return messages.reduce((total, message) => {
+    return total + estimateTokens(sanitizeTopicMessageContent(message));
+  }, 0);
 }
 
 function trimMessagesToBudget(
