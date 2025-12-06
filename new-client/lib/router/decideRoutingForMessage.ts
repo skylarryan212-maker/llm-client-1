@@ -165,21 +165,25 @@ function buildRouterPrompt(payload: RouterContextPayload, userMessage: string): 
           .join("\n")
       : "No prior messages.";
 
-  const topicSection =
-    payload.topics.length > 0
-      ? payload.topics
-          .map((topic) => {
-            const parent = topic.parent_topic_id
-              ? ` (child of ${topic.parent_topic_id})`
+const topicSection =
+  payload.topics.length > 0
+    ? payload.topics
+        .map((topic) => {
+          const parent = topic.parent_topic_id
+            ? ` (child of ${topic.parent_topic_id})`
+            : "";
+          const desc = topic.description?.replace(/\s+/g, " ").slice(0, 200) ?? "No description yet.";
+          const updated = topic.updated_at ? ` updated ${topic.updated_at}` : "";
+          const summary =
+            topic.summary?.replace(/\s+/g, " ").slice(0, 180) ?? "No summary yet.";
+          const tokenInfo =
+            typeof topic.token_estimate === "number"
+              ? ` tokens=${topic.token_estimate}`
               : "";
-            const desc = topic.description?.replace(/\s+/g, " ").slice(0, 200) ?? "No description yet.";
-            const updated = topic.updated_at ? ` updated ${topic.updated_at}` : "";
-            const summary =
-              topic.summary?.replace(/\s+/g, " ").slice(0, 180) ?? "No summary yet.";
-            return `- [${topic.id}] ${topic.label}${parent}${updated}: ${desc} | Summary: ${summary}`;
-          })
-          .join("\n")
-      : "No topics exist yet.";
+          return `- [${topic.id}] ${topic.label}${parent}${tokenInfo}${updated}: ${desc} | Summary: ${summary}`;
+        })
+        .join("\n")
+    : "No topics exist yet.";
 
   const artifactSection =
     payload.artifacts.length > 0
@@ -233,12 +237,13 @@ Rules:
 1. Continue the latest topic when the message clearly follows the same thread.
 2. Reopen an older topic when the user references its subject directly.
 3. Create a new topic when the message clearly starts a distinct project, incident, or task. You may optionally set newParentTopicId to nest under an existing topic.
-4. ALWAYS select artifacts that materially help answer the message (reuse existing specs or schemas rather than re-creating them).
-5. Use secondaryTopicIds when information from another topic will clearly be referenced.
-6. Never invent IDs—only choose from the provided metadata.
-7. Name topics in ≤5 title-case words that describe the subject (“Hair Styling Routine”, “Dry Finish Spray Tips”) rather than repeating the literal question text. Subtopics should be equally short and reflect the narrower scope.
-8. Always include or update the topic description when the user reframes the objective. Descriptions should be 1–2 sentences explaining the goal, and newTopicSummary must be a concise synopsis (no transcripts).
-9. Only request new parent/subtopic IDs when users truly shift focus; otherwise reuse the current topic.`;
+4. NEVER nest under generic or empty topics (e.g., “General chat”, “Hi there”, topics with <50 tokens). If the parent topic has little content or doesn’t clearly describe the user’s request, leave newParentTopicId null so the topic is top-level.
+5. Only assign newParentTopicId when the new topic is a clear, narrow branch of an existing, well-defined topic (e.g., “IFR vs VFR” under “Aviation Basics”).
+6. ALWAYS select artifacts that materially help answer the message (reuse existing specs or schemas rather than re-creating them).
+7. Use secondaryTopicIds when information from another topic will clearly be referenced.
+8. Never invent IDs—only choose from the provided metadata.
+9. Name topics in ≤5 title-case words that describe the subject (“Hair Styling Routine”, “Dry Finish Spray Tips”) rather than repeating the literal question text. Subtopics should be equally short and reflect the narrower scope.
+10. Always include or update the topic description when the user reframes the objective. Descriptions should be 1–2 sentences explaining the goal, and newTopicSummary must be a concise synopsis (no transcripts).`;
 
 async function ensureTopicAssignment({
   supabase,
