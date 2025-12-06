@@ -440,20 +440,26 @@ async function callRouterWithSchema(openai: any, routerPrompt: string): Promise<
       });
       const textOutput =
         response?.output?.find((item: any) => item.type === "message")?.content?.[0]?.text ?? "";
-      const parsed = JSON.parse(textOutput);
-      const validated = routerDecisionSchema.safeParse(parsed);
-      if (!validated.success) {
+      let validatedData: z.infer<typeof routerDecisionSchema>;
+      try {
+        const cleaned = textOutput.trim();
+        console.warn("[topic-router] RAW OUTPUT:", cleaned);
+        const parsed = JSON.parse(cleaned);
+        validatedData = routerDecisionSchema.parse(parsed);
+      } catch (err) {
+        console.error("[topic-router] SCHEMA ERROR:", err);
+        console.error("[topic-router] RAW OUTPUT THAT FAILED:", textOutput);
         throw new Error("[topic-router] Router output failed schema validation");
       }
       return {
-        topicAction: validated.data.topicAction,
-        primaryTopicId: validated.data.primaryTopicId ?? null,
-        secondaryTopicIds: validated.data.secondaryTopicIds ?? [],
-        newTopicLabel: validated.data.newTopicLabel,
-        newTopicDescription: validated.data.newTopicDescription,
-        newParentTopicId: validated.data.newParentTopicId ?? null,
-        newTopicSummary: validated.data.newTopicSummary,
-        artifactsToLoad: validated.data.artifactsToLoad ?? [],
+        topicAction: validatedData.topicAction,
+        primaryTopicId: validatedData.primaryTopicId ?? null,
+        secondaryTopicIds: validatedData.secondaryTopicIds ?? [],
+        newTopicLabel: validatedData.newTopicLabel,
+        newTopicDescription: validatedData.newTopicDescription,
+        newParentTopicId: validatedData.newParentTopicId ?? null,
+        newTopicSummary: validatedData.newTopicSummary,
+        artifactsToLoad: validatedData.artifactsToLoad ?? [],
       };
     } catch (error) {
       lastError = error;
