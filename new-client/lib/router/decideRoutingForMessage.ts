@@ -392,6 +392,7 @@ function buildAutoTopicDescription(message: string): string | null {
 async function callRouterWithSchema(openai: any, routerPrompt: string): Promise<RouterDecision> {
   const schema = {
     name: "router_decision",
+    format: "json_schema",
     schema: {
       type: "object",
       properties: {
