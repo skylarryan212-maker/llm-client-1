@@ -26,16 +26,30 @@ interface RouterContextPayload {
   recentMessages: Pick<Message, "id" | "role" | "content" | "created_at" | "topic_id">[];
 }
 
-const routerDecisionSchema = z.object({
-  topicAction: z.enum(["continue_active", "new", "reopen_existing"]),
+const baseRouterFields = {
   primaryTopicId: z.union([z.string().uuid(), z.null()]).optional(),
   secondaryTopicIds: z.array(z.string().uuid()).optional().default([]),
-  newTopicLabel: z.string().min(1).max(240).optional(),
-  newTopicDescription: z.string().min(1).max(500).optional(),
   newParentTopicId: z.union([z.string().uuid(), z.null()]).optional(),
-  newTopicSummary: z.string().min(1).max(500).optional(),
   artifactsToLoad: z.array(z.string().uuid()).optional().default([]),
+};
+
+const newTopicPayload = z.object({
+  topicAction: z.literal("new"),
+  ...baseRouterFields,
+  newTopicLabel: z.string().min(1).max(240),
+  newTopicDescription: z.string().min(1).max(500),
+  newTopicSummary: z.string().min(1).max(500),
 });
+
+const existingTopicPayload = z.object({
+  topicAction: z.enum(["continue_active", "reopen_existing"]),
+  ...baseRouterFields,
+  newTopicLabel: z.string().max(240).optional().default(""),
+  newTopicDescription: z.string().max(500).optional().default(""),
+  newTopicSummary: z.string().max(500).optional().default(""),
+});
+
+const routerDecisionSchema = z.union([newTopicPayload, existingTopicPayload]);
 
 export async function decideRoutingForMessage(
   params: DecideRoutingParams
