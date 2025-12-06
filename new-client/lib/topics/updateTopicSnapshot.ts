@@ -53,22 +53,18 @@ export async function updateTopicSnapshot({
   const tail = tailRows.slice().reverse();
   const latestUser = [...tail].reverse().find((msg) => msg.role === "user");
   const latestAssistant = [...tail].reverse().find((msg) => msg.role === "assistant");
-  const previousAssistant = tail
-    .filter((msg) => msg.role === "assistant" && msg !== latestAssistant)
-    .pop();
 
   const pickSnippet = (msg?: MessageRow) => {
     if (!msg) return "";
     return sanitizeTopicMessageContent(msg)
       .replace(/\s+/g, " ")
       .trim()
-      .slice(0, 160);
+      .slice(0, 120);
   };
 
   const summaryParts = [
     latestUser ? `User: ${pickSnippet(latestUser)}` : "",
     latestAssistant ? `Assistant: ${pickSnippet(latestAssistant)}` : "",
-    previousAssistant ? `Assistant (earlier): ${pickSnippet(previousAssistant)}` : "",
   ].filter(Boolean);
 
   const summary = summaryParts.join(" | ").slice(0, SUMMARY_MAX_LENGTH);

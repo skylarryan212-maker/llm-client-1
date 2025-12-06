@@ -96,6 +96,9 @@ export async function decideRoutingForMessage(
 
     // Sanity-check against actual topics/artifacts
     const topicIds = new Set(payload.topics.map((topic) => topic.id));
+    if (resolvedDecision.primaryTopicId) {
+      topicIds.add(resolvedDecision.primaryTopicId);
+    }
     if (resolvedDecision.primaryTopicId && !topicIds.has(resolvedDecision.primaryTopicId)) {
       // Router referenced unknown topic; treat as fallback/auto topic
       resolvedDecision = await ensureTopicAssignment({
