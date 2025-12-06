@@ -244,17 +244,26 @@ Outputs must obey this JSON schema (no markdown, no commentary):
 }
 
 Rules:
-1. Continue the latest topic when the message clearly follows the same thread.
-2. Reopen an older topic when the user references its subject directly.
-3. Create a new topic when the message clearly starts a distinct project, incident, or task. You may optionally set newParentTopicId to nest under an existing topic.
-4. NEVER nest under generic or empty topics (“General chat”, single-word greetings, topics with <50 tokens). If the parent is vague or new, leave newParentTopicId null so the new topic stays top-level.
-5. Only create a subtopic when the parent topic already has meaningful content and the new request is a narrow branch of that same subject (e.g., “IFR vs VFR” under “Aviation”).
-6. ALWAYS select artifacts that materially help answer the message (reuse existing specs or schemas rather than re-creating them).
-7. Use secondaryTopicIds when information from another topic will clearly be referenced.
-8. Never invent IDs—only choose from the provided metadata.
-9. Name topics in ≤5 title-case words that describe the subject (“Hair Styling Routine”, “Dry Finish Spray Tips”) rather than repeating the literal question text. Subtopics should be equally short and reflect the narrower scope.
-10. Always include or update the topic description when the user reframes the objective. Descriptions should be 1–2 sentences explaining the goal, and newTopicSummary must be a concise synopsis (no transcripts).
-11. Only request new parent/subtopic IDs when users truly shift focus and the parent topic is clearly defined; otherwise keep the topic top-level.`;
+1. Topic continuation vs new topic:
+   - Use semantic comprehension of the entire conversation to decide whether the latest user message is a follow-up or a new project. Do not rely on superficial keyword overlap.
+   - If the user clearly refers back to earlier assistant content (e.g., "what were the API key table values again?", "remind me what you said about X", "what was that schema you wrote before?", "those values you mentioned earlier", "explain that part again/in more detail"), treat it as continuation unless they explicitly request a new, unrelated project.
+   - Prefer "continue_active" for these referential follow-ups so the main model retains the existing topic history. Only choose "new" when the user genuinely switches subjects or explicitly says they want a new topic/thread.
+2. Topic hierarchy:
+   - NEVER nest under generic or empty topics ("General chat", single-word greetings, topics with <50 tokens). If the parent is vague or brand new, leave newParentTopicId null so the topic stays top-level.
+   - Only create a subtopic when the parent already holds meaningful content and the new request is a narrow branch of that subject (e.g., "IFR vs VFR" under "Aviation").
+3. Model-selection constraints:
+   - Treat the previous model on a topic as the minimum baseline whenever topicAction is "continue_active". Capability tiers from highest to lowest: gpt-5.1, gpt-5-mini, gpt-5-nano.
+   - You may keep the same tier, upgrade, or (only if the new message is extremely simple/low-stakes and does not depend on detailed continuity) downgrade by two tiers (e.g., gpt-5.1 → gpt-5-nano). One-tier downgrades on continuing topics (gpt-5.1 → gpt-5-mini or gpt-5-mini → gpt-5-nano) are forbidden. If you find yourself considering a one-tier drop, override that instinct and stay at the previous tier.
+4. Artifacts and cross-topic references:
+   - ALWAYS select artifacts that materially help answer the message (reuse existing specs or schemas rather than re-creating them).
+   - Use secondaryTopicIds when information from another topic will clearly be referenced.
+5. Topic naming and summaries:
+   - Name topics in ≤5 title-case words that describe the subject ("Hair Styling Routine", "Dry Finish Spray Tips") rather than repeating the literal question text. Subtopics should be equally short and reflect the narrower scope.
+   - Always include or update the topic description when the user reframes the objective. Descriptions should be 1–2 sentences explaining the goal, and newTopicSummary must be a concise synopsis (no transcripts).
+6. Parent/subtopic creation:
+   - Only request new parent/subtopic IDs when the user truly shifts focus and the parent topic is clearly defined; otherwise keep the topic top-level.
+7. No invented IDs:
+   - Never invent topic or artifact IDs. Only choose from the provided metadata.`;
 
 async function ensureTopicAssignment({
   supabase,
