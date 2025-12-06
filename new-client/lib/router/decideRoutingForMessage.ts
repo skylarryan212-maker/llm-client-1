@@ -430,7 +430,16 @@ async function callRouterWithSchema(openai: any, routerPrompt: string): Promise<
       if (!validated.success) {
         throw new Error("[topic-router] Router output failed schema validation");
       }
-      return validated.data;
+      return {
+        topicAction: validated.data.topicAction,
+        primaryTopicId: validated.data.primaryTopicId ?? null,
+        secondaryTopicIds: validated.data.secondaryTopicIds ?? [],
+        newTopicLabel: validated.data.newTopicLabel,
+        newTopicDescription: validated.data.newTopicDescription,
+        newParentTopicId: validated.data.newParentTopicId ?? null,
+        newTopicSummary: validated.data.newTopicSummary,
+        artifactsToLoad: validated.data.artifactsToLoad ?? [],
+      };
     } catch (error) {
       lastError = error;
       console.warn("[topic-router] Router attempt failed:", error);
