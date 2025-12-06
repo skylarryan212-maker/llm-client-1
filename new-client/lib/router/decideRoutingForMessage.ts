@@ -4,6 +4,7 @@ import type {
   Database,
   ConversationTopic,
   ConversationTopicInsert,
+  ConversationTopicUpdate,
   Artifact,
   Message,
 } from "@/lib/supabase/types";
@@ -373,7 +374,10 @@ async function ensureTopicAssignment({
     if (Object.keys(metaUpdates).length) {
       metaUpdates.updated_at = new Date().toISOString();
       try {
-        await supabase.from("conversation_topics").update(metaUpdates).eq("id", working.primaryTopicId);
+        await (supabase as SupabaseClient<any>)
+          .from("conversation_topics")
+          .update(metaUpdates as ConversationTopicUpdate)
+          .eq("id", working.primaryTopicId);
         console.log(
           `[topic-router] Updated topic ${working.primaryTopicId} metadata (label: ${
             metaUpdates.label ? `"${metaUpdates.label}"` : "unchanged"
