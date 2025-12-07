@@ -41,6 +41,7 @@ import { buildContextForMainModel } from "@/lib/context/buildContextForMainModel
 import { maybeExtractArtifactsFromMessage } from "@/lib/artifacts/maybeExtractArtifactsFromMessage";
 import type { PermanentInstructionToWrite } from "@/lib/llm-router";
 import { updateTopicSnapshot } from "@/lib/topics/updateTopicSnapshot";
+import { refreshTopicMetadata } from "@/lib/topics/refreshTopicMetadata";
 
 // Utility: convert a data URL (base64) to a Buffer
 function dataUrlToBuffer(dataUrl: string): Buffer {
@@ -1901,6 +1902,16 @@ export async function POST(request: NextRequest) {
                 });
               } catch (snapshotErr) {
                 console.error("[topic-router] Failed to refresh topic snapshot for assistant:", snapshotErr);
+              }
+              try {
+                await refreshTopicMetadata({
+                  supabase: supabaseAny,
+                  openai,
+                  topicId: assistantRowForMeta.topic_id,
+                  conversationId,
+                });
+              } catch (metaErr) {
+                console.error("[topic-router] Failed to refresh topic metadata summary:", metaErr);
               }
             }
 

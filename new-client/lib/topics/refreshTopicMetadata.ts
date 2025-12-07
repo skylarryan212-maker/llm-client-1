@@ -1,0 +1,125 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
+import type { Database } from "@/lib/supabase/types";
+
+type MessageRow = Database["public"]["Tables"]["messages"]["Row"];
+type TopicRow = Database["public"]["Tables"]["conversation_topics"]["Row"];
+
+interface RefreshTopicMetadataParams {
+  supabase: SupabaseClient<Database>;
+  openai: any;
+  topicId: string;
+  conversationId: string;
+  model?: string;
+}
+
+function buildUserPayload(topic: TopicRow, messages: MessageRow[]) {
+  return {
+    label: topic.label,
+    priorDescription: topic.description ?? "",
+    priorSummary: topic.summary ?? "",
+    messages: messages.map((m) => ({
+      role: m.role,
+      created_at: m.created_at,
+      content: (m.content || "").slice(0, 2000),
+    })),
+  };
+}
+
+function parseJsonObject(text: string): { description?: string; summary?: string } | null {
+  if (!text) return null;
+  const cleaned = text.replace(/```json|```/g, "").trim();
+  try {
+    const parsed = JSON.parse(cleaned);
+    if (parsed && typeof parsed === "object") {
+      return parsed as { description?: string; summary?: string };
+    }
+  } catch (err) {
+    console.warn("[topic-refresh] Failed to parse JSON output:", err, cleaned);
+  }
+  return null;
+}
+
+export async function refreshTopicMetadata({
+  supabase,
+  openai,
+  topicId,
+  conversationId,
+  model = "gpt-5.1-mini",
+}: RefreshTopicMetadataParams): Promise<void> {
+  if (!topicId) return;
+
+  const { data: topicRow, error: topicErr } = await supabase
+    .from("conversation_topics")
+    .select("id, label, description, summary")
+    .eq("id", topicId)
+    .maybeSingle();
+
+  if (topicErr || !topicRow) {
+    console.warn("[topic-refresh] Topic fetch failed:", topicErr);
+    return;
+  }
+
+  const { data: messages, error: msgErr } = await supabase
+    .from("messages")
+    .select("id, role, content, created_at")
+    .eq("conversation_id", conversationId)
+    .eq("topic_id", topicId)
+    .order("created_at", { ascending: true })
+    .limit(40);
+
+  if (msgErr) {
+    console.warn("[topic-refresh] Message fetch failed:", msgErr);
+    return;
+  }
+
+  const systemPrompt =
+    "You are updating metadata for a conversation topic. Keep the label stable. " +
+    "Given prior description/summary and the ordered messages for this topic, produce a refreshed description (1-2 sentences) " +
+    "and a rolling summary (concise but retaining earlier meaning). Do not invent details. " +
+    "Output JSON with keys: description, summary.";
+
+  const userPayload = buildUserPayload(topicRow as TopicRow, (messages ?? []) as MessageRow[]);
+
+  let responseText = "";
+  try {
+    const completion = await openai.responses.create({
+      model,
+      input: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: JSON.stringify(userPayload) },
+      ],
+      temperature: 0,
+      max_output_tokens: 400,
+    });
+    responseText = completion.output_text || "";
+  } catch (err) {
+    console.error("[topic-refresh] LLM call failed:", err);
+    return;
+  }
+
+  const parsed = parseJsonObject(responseText);
+  if (!parsed) {
+    return;
+  }
+
+  const updates: Partial<TopicRow> = {};
+  if (parsed.description && parsed.description.trim()) {
+    updates.description = parsed.description.trim().slice(0, 500);
+  }
+  if (parsed.summary && parsed.summary.trim()) {
+    updates.summary = parsed.summary.trim().slice(0, 1500);
+  }
+  if (!Object.keys(updates).length) {
+    return;
+  }
+  updates.updated_at = new Date().toISOString();
+
+  const { error: updateErr } = await (supabase as SupabaseClient<any>)
+    .from("conversation_topics")
+    .update(updates)
+    .eq("id", topicId);
+
+  if (updateErr) {
+    console.error("[topic-refresh] Failed to update topic metadata:", updateErr);
+  }
+}
