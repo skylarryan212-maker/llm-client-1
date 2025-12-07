@@ -13,7 +13,7 @@ export const imageOcrExtractor: Extractor = async (buffer, name, _mime, ctx) => 
     };
   }
 
-  const cacheKey = sha256(buffer);
+  const cacheKey = await sha256(buffer);
   if (ocrCache.has(cacheKey)) {
     const cached = ocrCache.get(cacheKey)!;
     return {

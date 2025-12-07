@@ -1,5 +1,3 @@
-import { createHash } from "crypto";
-
 export function bufferToString(buffer: Buffer, maxBytes?: number): string {
   if (typeof maxBytes === "number" && maxBytes >= 0) {
     return buffer.subarray(0, maxBytes).toString("utf-8");
@@ -18,8 +16,15 @@ export function sanitizeEntryPath(path: string): string {
   return cleaned.startsWith("/") ? cleaned.slice(1) : cleaned;
 }
 
-export function sha256(buffer: Buffer): string {
-  return createHash("sha256").update(buffer).digest("hex");
+export async function sha256(buffer: Buffer): Promise<string> {
+  const hashBuffer = await crypto.subtle.digest("SHA-256", buffer);
+  const bytes = new Uint8Array(hashBuffer);
+  let hex = "";
+  for (let i = 0; i < bytes.length; i++) {
+    const b = bytes[i].toString(16);
+    hex += b.length === 1 ? "0" + b : b;
+  }
+  return hex;
 }
 
 export function isLikelyText(buffer: Buffer): boolean {
