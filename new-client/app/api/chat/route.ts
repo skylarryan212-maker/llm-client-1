@@ -1486,6 +1486,16 @@ export async function POST(request: NextRequest) {
       if (typeof useFlex !== 'undefined' && useFlex) {
         streamOptions.service_tier = "flex";
       }
+      // Emit model info immediately so the UI can show effort badges before first token
+      enqueueJson({
+        model_info: {
+          model: modelConfig.model,
+          resolvedFamily: modelConfig.resolvedFamily,
+          speedModeUsed: speedMode,
+          reasoningEffort,
+        },
+      });
+
       responseStream = await openai.responses.stream(streamOptions);
       console.log("OpenAI stream started for model:", modelConfig.model, useFlex ? "(flex)" : "(standard)");
     } catch (streamErr) {
@@ -1562,7 +1572,7 @@ export async function POST(request: NextRequest) {
                   conversation_id: conversationId,
                   role: "assistant",
                   content: initialContent,
-                  metadata: { streaming: true },
+                  metadata: { streaming: true, reasoningEffort },
                   topic_id: resolvedTopicDecision.primaryTopicId ?? null,
                 })
                 .select()
