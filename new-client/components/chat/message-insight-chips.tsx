@@ -34,15 +34,18 @@ export function MessageInsightChips({ metadata }: MessageInsightChipsProps) {
   }
 
   const reasoningEffort = typed.reasoningEffort || typed.thinking?.effort;
-  const thoughtLabel =
+  const explicitThought =
     typeof typed.thoughtDurationLabel === "string" && typed.thoughtDurationLabel.trim()
-      ? typed.thoughtDurationLabel
-      : reasoningEffort === "high"
-      ? "Thinking longer"
+      ? typed.thoughtDurationLabel.trim()
+      : null;
+  const fallbackThought =
+    reasoningEffort === "high"
+      ? "Thinking for longer"
       : reasoningEffort === "medium"
       ? "Thinking a bit longer"
       : null;
-  // Show badge whenever reasoning effort is medium/high
+  const thoughtLabel = explicitThought || fallbackThought;
+  // Show badge whenever reasoning effort is medium/high so users see the “thinking for longer” state
   if (thoughtLabel && (reasoningEffort === "medium" || reasoningEffort === "high")) {
     chips.push(<StatusBubble key="thought" label={thoughtLabel} />);
   }
