@@ -240,7 +240,7 @@ Outputs must obey this JSON schema (no markdown, no commentary):
   "newTopicDescription": "string?",
   "newParentTopicId": "uuid|null?",
   "newTopicSummary": "string?",
-  "artifactsToLoad": ["artifact-id"]
+ "artifactsToLoad": ["artifact-id"]
 }
 
 Rules:
@@ -248,6 +248,7 @@ Rules:
    - Use semantic comprehension of the entire conversation to decide whether the latest user message is a follow-up or a new project. Do not rely on superficial keyword overlap.
    - If the user clearly refers back to earlier assistant content (e.g., "what were the API key table values again?", "remind me what you said about X", "what was that schema you wrote before?", "those values you mentioned earlier", "explain that part again/in more detail"), treat it as continuation unless they explicitly request a new, unrelated project.
    - Prefer "continue_active" for these referential follow-ups so the main model retains the existing topic history. Only choose "new" when the user genuinely switches subjects or explicitly says they want a new topic/thread.
+   - If the user explicitly names or clearly points to a different existing topic than the active one (e.g., "back to PF schema", "return to the API keys topic"), select that matching topic and use "reopen_existing" rather than continuing the current thread. Only stay "continue_active" if the new message best aligns with the currently active topic.
 2. Topic hierarchy:
    - NEVER nest under generic or empty topics ("General chat", single-word greetings, topics with <50 tokens). If the parent is vague or brand new, leave newParentTopicId null so the topic stays top-level.
    - You may create unlimited subtopics under a top-level topic that has meaningful content, but DO NOT create a subtopic under another subtopic. Subtopics must be direct children of a top-level topic only (e.g., "IFR vs VFR" under "Aviation" is allowed; "Deep dive" under "IFR vs VFR" is not).
