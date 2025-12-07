@@ -250,7 +250,7 @@ Rules:
    - Prefer "continue_active" for these referential follow-ups so the main model retains the existing topic history. Only choose "new" when the user genuinely switches subjects or explicitly says they want a new topic/thread.
 2. Topic hierarchy:
    - NEVER nest under generic or empty topics ("General chat", single-word greetings, topics with <50 tokens). If the parent is vague or brand new, leave newParentTopicId null so the topic stays top-level.
-   - Only create a subtopic when the parent already holds meaningful content and the new request is a narrow branch of that subject (e.g., "IFR vs VFR" under "Aviation").
+   - You may create unlimited subtopics under a top-level topic that has meaningful content, but DO NOT create a subtopic under another subtopic. Subtopics must be direct children of a top-level topic only (e.g., "IFR vs VFR" under "Aviation" is allowed; "Deep dive" under "IFR vs VFR" is not).
 3. Model-selection constraints:
    - Treat the previous model on a topic as the minimum baseline whenever topicAction is "continue_active". Capability tiers from highest to lowest: gpt-5.1, gpt-5-mini, gpt-5-nano.
    - You may keep the same tier, upgrade, or (only if the new message is extremely simple/low-stakes and does not depend on detailed continuity) downgrade by two tiers (e.g., gpt-5.1 → gpt-5-nano). One-tier downgrades on continuing topics (gpt-5.1 → gpt-5-mini or gpt-5-mini → gpt-5-nano) are forbidden. If you find yourself considering a one-tier drop, override that instinct and stay at the previous tier.
