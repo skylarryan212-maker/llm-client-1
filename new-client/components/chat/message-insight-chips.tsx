@@ -33,9 +33,16 @@ export function MessageInsightChips({ metadata }: MessageInsightChipsProps) {
     );
   }
 
-  const thoughtLabel = typeof typed.thoughtDurationLabel === "string" ? typed.thoughtDurationLabel : null;
   const reasoningEffort = typed.reasoningEffort || typed.thinking?.effort;
-  // Only show thought label if reasoning effort is medium or high
+  const thoughtLabel =
+    typeof typed.thoughtDurationLabel === "string" && typed.thoughtDurationLabel.trim()
+      ? typed.thoughtDurationLabel
+      : reasoningEffort === "high"
+      ? "Thinking longer"
+      : reasoningEffort === "medium"
+      ? "Thinking a bit longer"
+      : null;
+  // Show badge whenever reasoning effort is medium/high
   if (thoughtLabel && (reasoningEffort === "medium" || reasoningEffort === "high")) {
     chips.push(<StatusBubble key="thought" label={thoughtLabel} />);
   }
