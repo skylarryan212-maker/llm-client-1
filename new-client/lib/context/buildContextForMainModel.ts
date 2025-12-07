@@ -180,7 +180,9 @@ export async function buildContextForMainModel({
     trimmed.forEach((msg) => conversationMessages.push(toContextMessage(msg)));
   }
 
-  const combinedMessages = [...summaryMessages, ...artifactMessages, ...conversationMessages];
+  // Place the chronological conversation messages first to keep the prefix as stable as possible
+  // for prompt caching. Summaries/artifacts are appended after to avoid shifting the leading tokens.
+  const combinedMessages = [...conversationMessages, ...summaryMessages, ...artifactMessages];
   if (!combinedMessages.length) {
     const fallbackMessages = await loadFallbackMessages(supabase, conversationId, maxContextTokens);
     return {
