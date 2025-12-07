@@ -16,17 +16,6 @@ export function sanitizeEntryPath(path: string): string {
   return cleaned.startsWith("/") ? cleaned.slice(1) : cleaned;
 }
 
-export async function sha256(buffer: Buffer): Promise<string> {
-  const hashBuffer = await crypto.subtle.digest("SHA-256", buffer);
-  const bytes = new Uint8Array(hashBuffer);
-  let hex = "";
-  for (let i = 0; i < bytes.length; i++) {
-    const b = bytes[i].toString(16);
-    hex += b.length === 1 ? "0" + b : b;
-  }
-  return hex;
-}
-
 export function isLikelyText(buffer: Buffer): boolean {
   const sample = buffer.subarray(0, Math.min(buffer.length, 4096));
   const nonPrintable = sample.filter((b) => b === 0 || b === 255).length;
