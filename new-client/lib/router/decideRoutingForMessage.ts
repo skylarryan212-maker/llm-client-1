@@ -282,6 +282,13 @@ async function ensureTopicAssignment({
     working.topicAction === "new" ||
     (!working.primaryTopicId);
 
+  // Never carry parent IDs forward on non-new actions and guard against self-parenting
+  if (working.topicAction !== "new") {
+    working.newParentTopicId = null;
+  } else if (working.newParentTopicId && working.newParentTopicId === working.primaryTopicId) {
+    working.newParentTopicId = null;
+  }
+
   if (needsNewTopic) {
     const rawLabel =
       working.newTopicLabel?.trim() || buildAutoTopicLabel(userMessage) || "Pending topic";
@@ -316,7 +323,7 @@ async function ensureTopicAssignment({
     return working;
   }
 
-  if (working.primaryTopicId) {
+  if (working.primaryTopicId && working.topicAction === "reopen_existing") {
     const metaUpdates: Partial<ConversationTopic> = {};
     if (working.newTopicLabel?.trim()) {
       metaUpdates.label = formatTopicLabel(working.newTopicLabel);
@@ -324,9 +331,9 @@ async function ensureTopicAssignment({
     if (working.newTopicDescription?.trim()) {
       metaUpdates.description = working.newTopicDescription.trim().slice(0, 500);
     }
-     if (working.newTopicSummary?.trim()) {
-       metaUpdates.summary = working.newTopicSummary.trim().slice(0, 500);
-     }
+    if (working.newTopicSummary?.trim()) {
+      metaUpdates.summary = working.newTopicSummary.trim().slice(0, 500);
+    }
     if (Object.keys(metaUpdates).length) {
       metaUpdates.updated_at = new Date().toISOString();
       try {
