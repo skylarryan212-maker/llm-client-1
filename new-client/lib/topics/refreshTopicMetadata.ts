@@ -88,7 +88,6 @@ export async function refreshTopicMetadata({
         { role: "system", content: systemPrompt },
         { role: "user", content: JSON.stringify(userPayload) },
       ],
-      temperature: 0,
       max_output_tokens: 400,
     });
     responseText = completion.output_text || "";
