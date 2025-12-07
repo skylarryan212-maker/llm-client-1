@@ -1,4 +1,5 @@
-export const runtime = "edge";
+// Use the Node.js runtime to maximize the initial-response window for image-heavy requests
+export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
 import { Buffer } from "buffer";
@@ -1137,6 +1138,7 @@ export async function POST(request: NextRequest) {
   // Try to reuse an existing vector store from recent messages
   let vectorStoreId: string | undefined;
   let vectorStoreOpenAI: OpenAIClient | null = null;
+  const deferredAttachmentTasks: Promise<void>[] = []; // Run after stream starts to avoid delaying initial response
   try {
     const priorVectorIds: string[] = [];
     for (const msg of (recentMessages || [])) {
@@ -1167,34 +1169,43 @@ export async function POST(request: NextRequest) {
         const shouldUpload = !isImage || fileSize > 100 * 1024;
         // Upload to OpenAI for file_search when not a small image
         if (shouldUpload) {
-          try {
-            // Convert Buffer to Uint8Array for Blob compatibility
-            const uint8Array = new Uint8Array(buffer);
-            const blob = new Blob([uint8Array], { type: att.mime || "application/octet-stream" });
-            const file = new File([blob], att.name || "file", { type: att.mime || "application/octet-stream" });
-            
-            // Upload to OpenAI vector store directly (like legacy)
-            if (!vectorStoreOpenAI) {
-              const OpenAIConstructor = await getOpenAIConstructor();
-              vectorStoreOpenAI = new OpenAIConstructor({
-                apiKey: process.env.OPENAI_API_KEY,
-              });
+          const uploadTask = async () => {
+            try {
+              // Convert Buffer to Uint8Array for Blob compatibility
+              const uint8Array = new Uint8Array(buffer);
+              const blob = new Blob([uint8Array], { type: att.mime || "application/octet-stream" });
+              const file = new File([blob], att.name || "file", { type: att.mime || "application/octet-stream" });
+
+              // Upload to OpenAI vector store directly (like legacy)
+              if (!vectorStoreOpenAI) {
+                const OpenAIConstructor = await getOpenAIConstructor();
+                vectorStoreOpenAI = new OpenAIConstructor({
+                  apiKey: process.env.OPENAI_API_KEY,
+                });
+              }
+              // Ensure vector store
+              if (!vectorStoreId) {
+                const vs = await vectorStoreOpenAI.vectorStores.create({
+                  name: `conversation-${conversationId}`,
+                  metadata: { conversation_id: conversationId },
+                });
+                vectorStoreId = vs.id;
+                console.log(`Created vector store ${vectorStoreId}`);
+              }
+              await vectorStoreOpenAI.vectorStores.files.uploadAndPoll(vectorStoreId!, file);
+              openaiFileIds.push(att.name || 'file');
+              totalFileUploadSize += fileSize;
+              console.log(`Uploaded to vector store: ${att.name} (${fileSize} bytes)`);
+            } catch (uploadErr) {
+              console.error(`Failed to upload ${att.name} to OpenAI:`, uploadErr);
             }
-            // Ensure vector store
-            if (!vectorStoreId) {
-              const vs = await vectorStoreOpenAI.vectorStores.create({
-                name: `conversation-${conversationId}`,
-                metadata: { conversation_id: conversationId },
-              });
-              vectorStoreId = vs.id;
-              console.log(`Created vector store ${vectorStoreId}`);
-            }
-            await vectorStoreOpenAI.vectorStores.files.uploadAndPoll(vectorStoreId!, file);
-            openaiFileIds.push(att.name || 'file');
-            totalFileUploadSize += fileSize;
-            console.log(`Uploaded to vector store: ${att.name} (${fileSize} bytes)`);
-          } catch (uploadErr) {
-            console.error(`Failed to upload ${att.name} to OpenAI:`, uploadErr);
+          };
+
+          // For image uploads, defer to background to avoid delaying initial stream start
+          if (isImage) {
+            deferredAttachmentTasks.push(uploadTask());
+          } else {
+            await uploadTask();
           }
         }
       } catch (sizeErr) {
@@ -1268,6 +1279,33 @@ export async function POST(request: NextRequest) {
     const extractionResults = await Promise.all(
       body.attachments.map(async att => {
         if (!att?.dataUrl) return null;
+        const isImage = typeof att.mime === "string" && att.mime.startsWith("image/");
+
+        if (isImage) {
+          // Vision models can read the image directly; defer heavy OCR to background so we can start streaming faster
+          deferredAttachmentTasks.push(
+            (async () => {
+              try {
+                const buffer = dataUrlToBuffer(att.dataUrl);
+                const extraction = await dispatchExtract(
+                  buffer,
+                  att.name ?? "attachment",
+                  att.mime ?? null,
+                  { userId, conversationId },
+                );
+                console.log(
+                  `[chatApi] Deferred extraction for ${att.name}: ${
+                    extraction.preview ? extraction.preview.length + " chars" : "null"
+                  }`
+                );
+              } catch (deferredErr) {
+                console.warn(`[chatApi] Deferred image extraction failed for ${att.name}:`, deferredErr);
+              }
+            })()
+          );
+          return null;
+        }
+
         console.log(`[chatApi] Extracting content from: ${att.name} (${att.mime})`);
         const buffer = dataUrlToBuffer(att.dataUrl);
         const extraction = await dispatchExtract(
@@ -1486,8 +1524,57 @@ export async function POST(request: NextRequest) {
       if (typeof useFlex !== 'undefined' && useFlex) {
         streamOptions.service_tier = "flex";
       }
-      responseStream = await openai.responses.stream(streamOptions);
-      console.log("OpenAI stream started for model:", modelConfig.model, useFlex ? "(flex)" : "(standard)");
+      const streamStartTimeoutMs = 20_000;
+      const streamStartPromise = (async () => {
+        responseStream = await openai.responses.stream(streamOptions);
+        return "started" as const;
+      })();
+
+      const streamStartResult = await Promise.race([
+        streamStartPromise,
+        new Promise<"timeout">((resolve) =>
+          setTimeout(() => resolve("timeout"), streamStartTimeoutMs)
+        ),
+      ]);
+
+      if (streamStartResult === "timeout" || !responseStream) {
+        console.warn(
+          `[chatApi] OpenAI stream did not start within ${streamStartTimeoutMs}ms; returning graceful fallback`
+        );
+        const fallbackMessage =
+          "The model is taking unusually long to respond to this request (for example, when processing large or complex images). Please try again or simplify the request.";
+        const fallbackStream = new ReadableStream({
+          start(controller) {
+            const encoder = new TextEncoder();
+            const enqueueJson = (payload: Record<string, unknown>) => {
+              controller.enqueue(encoder.encode(`${JSON.stringify(payload)}\n`));
+            };
+            enqueueJson({
+              model_info: {
+                model: modelConfig.model,
+                resolvedFamily: modelConfig.resolvedFamily,
+                speedModeUsed: speedMode,
+                reasoningEffort,
+              },
+            });
+            enqueueJson({ token: fallbackMessage });
+            enqueueJson({ done: true });
+            controller.close();
+          },
+        });
+        return new Response(fallbackStream, {
+          headers: {
+            "Content-Type": "application/x-ndjson",
+            "Cache-Control": "no-cache",
+          },
+        });
+      }
+
+      console.log(
+        "OpenAI stream started for model:",
+        modelConfig.model,
+        useFlex ? "(flex)" : "(standard)"
+      );
     } catch (streamErr) {
       console.error("Failed to start OpenAI stream:", streamErr);
       // ...existing code...
@@ -1508,6 +1595,15 @@ export async function POST(request: NextRequest) {
         const enqueueJson = (payload: Record<string, unknown>) => {
           controller.enqueue(encoder.encode(`${JSON.stringify(payload)}\n`));
         };
+        if (deferredAttachmentTasks.length) {
+          // Kick off deferred uploads/OCR without blocking the stream
+          void Promise.allSettled(deferredAttachmentTasks).then((results) => {
+            const failures = results.filter((r) => r.status === "rejected");
+            if (failures.length) {
+              console.warn(`[chatApi] ${failures.length} deferred attachment tasks failed`);
+            }
+          });
+        }
         // Emit model info immediately so the UI can show effort badges before first token
         enqueueJson({
           model_info: {
