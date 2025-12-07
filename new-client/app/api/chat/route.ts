@@ -1909,7 +1909,6 @@ export async function POST(request: NextRequest) {
                   openai,
                   topicId: assistantRowForMeta.topic_id,
                   conversationId,
-                  model: modelConfig.model,
                 });
               } catch (metaErr) {
                 console.error("[topic-router] Failed to refresh topic metadata summary:", metaErr);
