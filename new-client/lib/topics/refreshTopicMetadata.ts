@@ -44,7 +44,7 @@ export async function refreshTopicMetadata({
   openai,
   topicId,
   conversationId,
-  model = "gpt-5.1-mini",
+  model = "gpt-5-nano-2025-08-07",
 }: RefreshTopicMetadataParams): Promise<void> {
   if (!topicId) return;
 
