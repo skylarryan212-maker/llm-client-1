@@ -11,6 +11,7 @@ import type {
 import type { RouterDecision } from "@/lib/router/types";
 
 const TOPIC_ROUTER_MODEL = process.env.TOPIC_ROUTER_MODEL_ID ?? "gpt-5-nano-2025-08-07";
+const ALLOWED_ROUTER_MODELS = new Set(["gpt-5-nano-2025-08-07", "gpt-5-mini-2025-05-28"]);
 const MAX_RECENT_MESSAGES = 10;
 const MAX_ARTIFACTS = 10;
 
@@ -59,6 +60,12 @@ export async function decideRoutingForMessage(
 
   if (!process.env.OPENAI_API_KEY) {
     throw new Error("[topic-router] OPENAI_API_KEY missing");
+  }
+
+  if (!ALLOWED_ROUTER_MODELS.has(TOPIC_ROUTER_MODEL)) {
+    console.warn(
+      `[topic-router] Router model ${TOPIC_ROUTER_MODEL} is not nano/mini; defaulting to gpt-5-nano-2025-08-07 for latency control`
+    );
   }
 
   const routerPrompt = buildRouterPrompt(payload, userMessage);
@@ -455,7 +462,9 @@ async function callRouterWithSchema(openai: any, routerPrompt: string): Promise<
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const response = await openai.responses.create({
-        model: TOPIC_ROUTER_MODEL,
+        model: ALLOWED_ROUTER_MODELS.has(TOPIC_ROUTER_MODEL)
+          ? TOPIC_ROUTER_MODEL
+          : "gpt-5-nano-2025-08-07",
         input: [
           { role: "system", type: "message", content: TOPIC_ROUTER_SYSTEM_PROMPT },
           { role: "user", type: "message", content: routerPrompt },
@@ -468,6 +477,7 @@ async function callRouterWithSchema(openai: any, routerPrompt: string): Promise<
           },
         },
         reasoning: { effort: "low" },
+        max_output_tokens: 400,
       });
       const textOutput =
         response?.output?.find((item: any) => item.type === "message")?.content?.[0]?.text ?? "";
