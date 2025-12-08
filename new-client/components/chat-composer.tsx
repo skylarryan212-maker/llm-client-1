@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Mic, ArrowUp } from "lucide-react";
 import { AttachmentMenuButton } from "@/components/chat/attachment-menu";
+import { uploadFilesAndGetUrls } from "@/lib/uploads";
 
 type UploadedFragment = {
   id: string;
