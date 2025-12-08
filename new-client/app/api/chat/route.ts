@@ -974,6 +974,20 @@ function augmentMemoryStrategyWithHeuristics(
   };
 }
 
+function dedupeFunctionCallMessages(msgs: any[]): any[] {
+  if (!Array.isArray(msgs) || !msgs.length) return [];
+  const seen = new Set<string>();
+  const result: any[] = [];
+  for (const m of msgs) {
+    const id = (m as any)?.id || (m as any)?.call_id || (m as any)?.reasoning_id;
+    const key = typeof id === "string" ? id : JSON.stringify(m);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(m);
+  }
+  return result;
+}
+
 type MessageRow = Database["public"]["Tables"]["messages"]["Row"];
 type ConversationRow = Database["public"]["Tables"]["conversations"]["Row"];
 type OpenAIClient = any;
@@ -1930,7 +1944,7 @@ export async function POST(request: NextRequest) {
       permanentInstructionState?.instructions ?? [];
     const availableMemoryTypes = (modelConfig as any).availableMemoryTypes as string[] | undefined;
     let relevantMemories: MemoryItem[] = [];
-    const functionCallMessages: any[] = [];
+    let functionCallMessages: any[] = [];
 
 
     // Inline file include: allow users to embed <<file:relative/path>> tokens which will be replaced by file content.
@@ -2246,6 +2260,7 @@ export async function POST(request: NextRequest) {
         );
         if (fnMsgs.length) {
           functionCallMessages.push(...fnMsgs);
+          functionCallMessages = dedupeFunctionCallMessages(functionCallMessages);
         }
       } catch (prefetchErr) {
         console.error("[tools] Prefetch tool loop failed:", prefetchErr);
@@ -2301,6 +2316,7 @@ export async function POST(request: NextRequest) {
         );
         if (writeFnMsgs.length) {
           functionCallMessages.push(...writeFnMsgs);
+          functionCallMessages = dedupeFunctionCallMessages(functionCallMessages);
         }
       } catch (writeErr) {
         console.error("[tools] Write tool loop failed:", writeErr);
@@ -2358,6 +2374,7 @@ export async function POST(request: NextRequest) {
       } catch {}
     }
 
+    const dedupedFunctionMessages = dedupeFunctionCallMessages(functionCallMessages);
     const messagesForAPI = [
       ...contextMessages,
       {
@@ -2365,7 +2382,7 @@ export async function POST(request: NextRequest) {
         content: userContentParts,
         type: "message",
       },
-      ...functionCallMessages,
+      ...dedupedFunctionMessages,
     ];
 
     // Use generic Tool to avoid strict preview-only type union on WebSearchTool in SDK types
