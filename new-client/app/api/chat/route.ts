@@ -1,4 +1,4 @@
-﻿// Use the Node.js runtime to maximize the initial-response window for image-heavy requests
+// Use the Node.js runtime to maximize the initial-response window for image-heavy requests
 export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
@@ -240,7 +240,7 @@ function buildPermanentInstructionSummaryForRouter(
   const lines = instructions.slice(0, limit).map((inst) => {
     const summaryContent = inst.content.replace(/\s+/g, " ").trim();
     const titleText = inst.title ? inst.title.replace(/\s+/g, " ").trim() : null;
-    const label = titleText ? `${titleText} ΓÇô ${summaryContent}` : summaryContent;
+    const label = titleText ? `${titleText} – ${summaryContent}` : summaryContent;
     const scopeLabel = inst.scope === "conversation" ? "conversation" : "user";
     return `- [${inst.id} | ${scopeLabel}] ${label}`;
   });
@@ -1002,7 +1002,7 @@ export async function POST(request: NextRequest) {
       }
     } else {
       // Nickname removal or specific name revocation
-      const userWantsNicknameRemoved = /stop\s+call(?:ing)?\s+me|don['ΓÇÖ]t\s+call\s+me|do\s+not\s+call\s+me|forget\s+.*call\s+me/i.test(
+      const userWantsNicknameRemoved = /stop\s+call(?:ing)?\s+me|don['’]t\s+call\s+me|do\s+not\s+call\s+me|forget\s+.*call\s+me/i.test(
         lowerMsg
       );
       const nameMatch = lowerMsg.match(/call\s+me\s+([a-z0-9 .,'\"-]+)/i);
