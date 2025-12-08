@@ -2244,7 +2244,8 @@ export async function POST(request: NextRequest) {
       functionCallMessages = (toolMessages || []).filter(
         (msg: any) =>
           msg?.type === "function_call_output" ||
-          msg?.type === "function_call"
+          msg?.type === "function_call" ||
+          msg?.type === "reasoning"
       );
       console.log(`[perf] pre-tool loop ms=${Date.now() - tPreToolsStart}`);
     } catch (preToolErr) {
