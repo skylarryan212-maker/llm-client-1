@@ -66,7 +66,7 @@ export default async function ConversationPage({
         activeConversationId={conversationId}
         messages={messages}
         searchParams={resolvedSearchParams}
-        projectId={conversation.project_id ?? undefined}
+        projectId={conversation?.project_id ?? undefined}
       />
     </main>
   );
