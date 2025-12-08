@@ -289,7 +289,8 @@ Rules:
    - Name topics in 3–5 title-case words that describe the subject ("Hair Styling Routine", "Dry Finish Spray Tips") rather than repeating the literal question text. Subtopics should be equally short and reflect the narrower scope.
    - Keep outputs ultra-short: newTopicLabel ≤ 60 chars; newTopicDescription ≤ 120 chars (single sentence); newTopicSummary ≤ 160 chars (single-sentence synopsis, no transcript). Shorten further if unsure.
 6. Parent/subtopic creation:
-   - Only request new parent/subtopic IDs when the user truly shifts focus and the parent topic is clearly defined; otherwise keep the topic top-level.7. No invented IDs:
+   - Only request new parent/subtopic IDs when the user truly shifts focus and the parent topic is clearly defined; otherwise keep the topic top-level.
+7. No invented IDs:
    - Never invent topic or artifact IDs. Only choose from the provided metadata.`;
 
 async function ensureTopicAssignment({
@@ -528,6 +529,12 @@ async function callRouterWithSchema(openai: any, routerPrompt: string): Promise<
   }
   throw lastError || new Error("[topic-router] Router failed after retries");
 }
+
+
+
+
+
+
 
 
 
