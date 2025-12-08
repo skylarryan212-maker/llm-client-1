@@ -34,10 +34,10 @@ export interface PermanentInstructionToDelete {
 export interface LLMRouterDecision {
   model: Exclude<ModelFamily, "auto">;
   effort: ReasoningEffort;
-  memoriesToWrite: MemoryToWrite[];  // Memories to save based on user's prompt
-  memoriesToDelete: MemoryToDelete[];  // Memories to delete based on user's request
-  permanentInstructionsToWrite: PermanentInstructionToWrite[];
-  permanentInstructionsToDelete: PermanentInstructionToDelete[];
+  memoriesToWrite: MemoryToWrite[];  // (disabled; will always be empty)
+  memoriesToDelete: MemoryToDelete[];  // (disabled; will always be empty)
+  permanentInstructionsToWrite: PermanentInstructionToWrite[]; // (disabled; will always be empty)
+  permanentInstructionsToDelete: PermanentInstructionToDelete[]; // (disabled; will always be empty)
   routedBy: "llm";
 }
 
@@ -45,9 +45,9 @@ export interface RouterContext {
   userModelPreference?: ModelFamily;
   speedMode?: "auto" | "instant" | "thinking";
   usagePercentage?: number;
-  availableMemoryTypes?: string[];  // Dynamic memory categories user has created
-  permanentInstructionSummary?: string;
-  permanentInstructions?: PermanentInstructionToWrite[]; // Full list with IDs/content/scope
+  availableMemoryTypes?: string[];  // ignored for memory routing (main model handles memory)
+  permanentInstructionSummary?: string; // ignored
+  permanentInstructions?: PermanentInstructionToWrite[]; // ignored
 }
 
 const ROUTER_MODEL_ID = "gpt-5-nano-2025-08-07";
@@ -124,28 +124,9 @@ export async function routeWithLLM(
     if (context?.usagePercentage && context.usagePercentage >= 80) {
       contextNote += `\nUser is at ${context.usagePercentage.toFixed(0)}% usage - prefer smaller models (nano/mini) to save costs.`;
     }
-    if (context?.availableMemoryTypes && context.availableMemoryTypes.length > 0) {
-      contextNote += `\n\nAvailable memory types for this user: ${context.availableMemoryTypes.join(", ")}. Reuse whichever one best matches any new fact you want to store; only invent a new type name when none of these categories fit, and avoid creating near-duplicate names. If the user shares information that does not match the existing categories (e.g., only "romantic_interests" exists but they talk about their job), you MUST create a new descriptive type instead of forcing it into the existing one.`;
-    } else {
-      contextNote += `\n\nNo memory types available yet (user hasn't saved any memories).`;
-    }
-    if (context?.permanentInstructionSummary) {
-      contextNote += `\n\n${context.permanentInstructionSummary}`;
-    }
-    if (context?.permanentInstructions && context.permanentInstructions.length > 0) {
-      const lines = context.permanentInstructions
-        .map((inst) => {
-          const scope = inst.scope ?? "user";
-          const title = inst.title ? `${inst.title}: ` : "";
-          const content = inst.content || "";
-          const id = (inst as any).id ? ` [${(inst as any).id}]` : "";
-          return `- (${scope}${id}) ${title}${content}`;
-        })
-        .join("\n");
-      contextNote += `\n\nPermanent instructions with IDs (use these IDs if you need to delete one):\n${lines}`;
-    }
+  // Memory/permanent-instruction routing is handled by the main chat model; suppress here.
 
-    const routerPrompt = `${contextNote ? `${contextNote}\n\n` : ""}Analyze this prompt and recommend model + effort + memory strategy:\n\n${promptText}`;
+  const routerPrompt = `${contextNote ? `${contextNote}\n\n` : ""}Analyze this prompt and recommend model + effort only (no memory actions):\n\n${promptText}`;
 
     console.log("[llm-router] Starting LLM routing call");
     const startTime = Date.now();
@@ -204,58 +185,11 @@ export async function routeWithLLM(
       return null;
     }
 
-    // Validate and default memoriesToWrite
-    if (!parsed.memoriesToWrite || !Array.isArray(parsed.memoriesToWrite)) {
-      parsed.memoriesToWrite = [];
-    } else {
-      // Normalize legacy shapes (e.g., { type, value }) before validation
-      parsed.memoriesToWrite = parsed.memoriesToWrite
-        .map((mem: any) => {
-          if (!mem || typeof mem !== "object") return mem;
-          // Promote "value" to content if present
-          if (!mem.content && typeof mem.value === "string") {
-            mem.content = mem.value;
-          }
-          // Synthesize a title from content if missing
-          if (!mem.title && typeof mem.content === "string") {
-            mem.title = mem.content.slice(0, 80);
-          }
-          return mem;
-        })
-        .filter(
-          (mem: any) => mem && typeof mem === "object" && mem.type && mem.title && mem.content
-        );
-    }
-
-    // Validate and default memoriesToDelete
-    if (!parsed.memoriesToDelete || !Array.isArray(parsed.memoriesToDelete)) {
-      parsed.memoriesToDelete = [];
-    } else {
-      // Validate each deletion has required fields
-      parsed.memoriesToDelete = parsed.memoriesToDelete.filter((mem: any) => 
-        mem && typeof mem === 'object' && mem.id && mem.reason
-      );
-    }
-
-    if (!parsed.permanentInstructionsToWrite || !Array.isArray(parsed.permanentInstructionsToWrite)) {
-      parsed.permanentInstructionsToWrite = [];
-    } else {
-      parsed.permanentInstructionsToWrite = parsed.permanentInstructionsToWrite.filter(
-        (inst: any) =>
-          inst &&
-          typeof inst === "object" &&
-          typeof inst.content === "string" &&
-          inst.content.trim().length > 0
-      );
-    }
-
-    if (!parsed.permanentInstructionsToDelete || !Array.isArray(parsed.permanentInstructionsToDelete)) {
-      parsed.permanentInstructionsToDelete = [];
-    } else {
-      parsed.permanentInstructionsToDelete = parsed.permanentInstructionsToDelete.filter(
-        (inst: any) => inst && typeof inst === "object" && typeof inst.id === "string" && inst.id.trim().length > 0
-      );
-    }
+    // Disable all memory/permanent-instruction directives; main chat model handles memory via tools.
+    parsed.memoriesToWrite = [];
+    parsed.memoriesToDelete = [];
+    parsed.permanentInstructionsToWrite = [];
+    parsed.permanentInstructionsToDelete = [];
 
     // Block GPT 5 Pro
     if (parsed.model === "gpt-5-pro-2025-10-06") {
@@ -272,10 +206,10 @@ export async function routeWithLLM(
     return {
       model: parsed.model as Exclude<ModelFamily, "auto">,
       effort: parsed.effort as ReasoningEffort,
-      memoriesToWrite: parsed.memoriesToWrite as MemoryToWrite[],
-      memoriesToDelete: parsed.memoriesToDelete as MemoryToDelete[],
-      permanentInstructionsToWrite: parsed.permanentInstructionsToWrite as PermanentInstructionToWrite[],
-      permanentInstructionsToDelete: parsed.permanentInstructionsToDelete as PermanentInstructionToDelete[],
+      memoriesToWrite: [],
+      memoriesToDelete: [],
+      permanentInstructionsToWrite: [],
+      permanentInstructionsToDelete: [],
       routedBy: "llm",
     };
   } catch (error) {
