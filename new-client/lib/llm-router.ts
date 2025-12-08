@@ -78,7 +78,7 @@ const ROUTER_SYSTEM_PROMPT = `You are a routing assistant that analyzes user pro
   Keep your instructions focused on selecting the model and reasoning effort; do not mention web search or memory strategy in this prompt.
 
   **Structured output requirement**
-  Every response must be valid JSON that matches the RouterDecision schema (topicAction, primaryTopicId, secondaryTopicIds, optional newTopic* fields, newParentTopicId, artifactsToLoad). Do not emit prose or explanations—return only the JSON payload.
+  Every response must be valid JSON that matches the LLMRouterDecision schema (model, effort, memoriesToWrite, memoriesToDelete, permanentInstructionsToWrite, permanentInstructionsToDelete, routedBy). Do not emit prose or explanations—return only the JSON payload so downstream code can parse it reliably.
 `;
 
 /**
