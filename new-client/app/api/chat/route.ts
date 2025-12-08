@@ -418,7 +418,7 @@ async function runFunctionToolLoop(options: {
       // No streaming in this loop; it is intended for prefetch/setup steps
       stream: false,
       metadata,
-      parallel_tool_calls: false,
+      parallel_tool_calls: true,
     });
 
     const outputs: any[] = Array.isArray(response.output) ? response.output : [];
