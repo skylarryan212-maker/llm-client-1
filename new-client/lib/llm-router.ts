@@ -81,8 +81,8 @@ const ROUTER_SYSTEM_PROMPT = `You are a routing assistant that analyzes user pro
   Every response must be valid JSON that matches the LLMRouterDecision schema (model, effort, memoriesToWrite, memoriesToDelete, permanentInstructionsToWrite, permanentInstructionsToDelete, routedBy). Do not emit prose or explanations—return only the JSON payload so downstream code can parse it reliably.
 
   **Memory shape (STRICT)**
-  - Each memory object MUST include: `type`, `title`, and `content`.
-  - NEVER use a `value` field. If you would have used `value`, instead set `content` and also provide a short `title`.
+  - Each memory object MUST include: type, title, and content.
+  - NEVER use a value field. If you would have used value, instead set content and also provide a short title.
   - Example:
     "memoriesToWrite": [
       {
