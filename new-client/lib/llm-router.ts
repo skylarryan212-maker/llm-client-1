@@ -79,6 +79,18 @@ const ROUTER_SYSTEM_PROMPT = `You are a routing assistant that analyzes user pro
 
   **Structured output requirement**
   Every response must be valid JSON that matches the LLMRouterDecision schema (model, effort, memoriesToWrite, memoriesToDelete, permanentInstructionsToWrite, permanentInstructionsToDelete, routedBy). Do not emit prose or explanations—return only the JSON payload so downstream code can parse it reliably.
+
+  **Memory shape (STRICT)**
+  - Each memory object MUST include: `type`, `title`, and `content`.
+  - NEVER use a `value` field. If you would have used `value`, instead set `content` and also provide a short `title`.
+  - Example:
+    "memoriesToWrite": [
+      {
+        "type": "identity",
+        "title": "User's name is Skylar",
+        "content": "User's name is Skylar; address them as Skylar."
+      }
+    ]
 `;
 
 /**
@@ -196,10 +208,23 @@ export async function routeWithLLM(
     if (!parsed.memoriesToWrite || !Array.isArray(parsed.memoriesToWrite)) {
       parsed.memoriesToWrite = [];
     } else {
-      // Validate each memory has required fields
-      parsed.memoriesToWrite = parsed.memoriesToWrite.filter((mem: any) => 
-        mem && typeof mem === 'object' && mem.type && mem.title && mem.content
-      );
+      // Normalize legacy shapes (e.g., { type, value }) before validation
+      parsed.memoriesToWrite = parsed.memoriesToWrite
+        .map((mem: any) => {
+          if (!mem || typeof mem !== "object") return mem;
+          // Promote "value" to content if present
+          if (!mem.content && typeof mem.value === "string") {
+            mem.content = mem.value;
+          }
+          // Synthesize a title from content if missing
+          if (!mem.title && typeof mem.content === "string") {
+            mem.title = mem.content.slice(0, 80);
+          }
+          return mem;
+        })
+        .filter(
+          (mem: any) => mem && typeof mem === "object" && mem.type && mem.title && mem.content
+        );
     }
 
     // Validate and default memoriesToDelete
