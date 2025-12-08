@@ -76,6 +76,10 @@ const ROUTER_SYSTEM_PROMPT = `You are a routing assistant that analyzes user pro
   - Creative writing or multi-section output -> gpt-5.1 + medium/high
 
   Keep your instructions focused on selecting the model and reasoning effort; do not mention web search or memory strategy in this prompt.
+
+  **Structured output requirement**
+  Every response must be valid JSON that matches the RouterDecision schema (topicAction, primaryTopicId, secondaryTopicIds, optional newTopic* fields, newParentTopicId, artifactsToLoad). Do not emit prose or explanations—return only the JSON payload.
+`;
 `;
 
 /**
