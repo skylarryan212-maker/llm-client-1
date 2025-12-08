@@ -1163,6 +1163,9 @@ export default function ChatPageShell({
                     thoughtDurationLabel: messageMetadata.thoughtDurationLabel,
                     thinking: messageMetadata.thinking,
                   };
+                  if (parsed.model_info.reasoningEffort === "medium" || parsed.model_info.reasoningEffort === "high") {
+                    showThinkingIndicator(parsed.model_info.reasoningEffort as ReasoningEffort);
+                  }
                   messageMetadata = updatedMetadata;
                   updateMessage(chatId, currentMessageId, {
                     metadata: messageMetadata,
@@ -1499,18 +1502,21 @@ export default function ChatPageShell({
                 const currentMessageId =
                   responseTimingRef.current.assistantMessageId ?? assistantMessageId;
                 if (messageMetadata) {
-                  const updatedMetadata: AssistantMessageMetadata = {
-                    ...messageMetadata,
-                    modelUsed: parsed.model_info.model,
-                    resolvedFamily: parsed.model_info.resolvedFamily,
-                    speedModeUsed: parsed.model_info.speedModeUsed,
-                    reasoningEffort: parsed.model_info.reasoningEffort,
-                  };
-                  messageMetadata = updatedMetadata;
-                  updateMessage(selectedChatId, currentMessageId, {
-                    metadata: messageMetadata,
-                  });
+                const updatedMetadata: AssistantMessageMetadata = {
+                  ...messageMetadata,
+                  modelUsed: parsed.model_info.model,
+                  resolvedFamily: parsed.model_info.resolvedFamily,
+                  speedModeUsed: parsed.model_info.speedModeUsed,
+                  reasoningEffort: parsed.model_info.reasoningEffort,
+                };
+                if (parsed.model_info.reasoningEffort === "medium" || parsed.model_info.reasoningEffort === "high") {
+                  showThinkingIndicator(parsed.model_info.reasoningEffort as ReasoningEffort);
                 }
+                messageMetadata = updatedMetadata;
+                updateMessage(selectedChatId, currentMessageId, {
+                  metadata: messageMetadata,
+                });
+              }
               } else if (parsed.meta) {
                 const fallbackMeta: AssistantMessageMetadata = {
                   modelUsed: parsed.meta.model,
