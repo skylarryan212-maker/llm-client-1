@@ -34,10 +34,11 @@ export interface PermanentInstructionToDelete {
 export interface LLMRouterDecision {
   model: Exclude<ModelFamily, "auto">;
   effort: ReasoningEffort;
-  memoriesToWrite: MemoryToWrite[];  // (disabled; will always be empty)
-  memoriesToDelete: MemoryToDelete[];  // (disabled; will always be empty)
-  permanentInstructionsToWrite: PermanentInstructionToWrite[]; // (disabled; will always be empty)
-  permanentInstructionsToDelete: PermanentInstructionToDelete[]; // (disabled; will always be empty)
+  memoryTypesToLoad?: string[];
+  memoriesToWrite: MemoryToWrite[];
+  memoriesToDelete: MemoryToDelete[];
+  permanentInstructionsToWrite: PermanentInstructionToWrite[];
+  permanentInstructionsToDelete: PermanentInstructionToDelete[];
   routedBy: "llm";
 }
 
@@ -51,13 +52,14 @@ export interface RouterContext {
 }
 
 const ROUTER_MODEL_ID = "gpt-5-nano-2025-08-07";
-const ROUTER_SYSTEM_PROMPT = `You are a lightweight routing assistant. Your ONLY job: choose the model and reasoning effort.
+const ROUTER_SYSTEM_PROMPT = `You are a lightweight routing assistant. Your primary job: choose the model and reasoning effort. Additionally, select which memory categories to load and any memory/permanent-instruction writes/deletes when warranted.
 
 - Default to the smallest model that answers reliably; escalate only when clearly necessary (stakes, complexity, length).
 - Valid models: gpt-5-nano, gpt-5-mini, gpt-5.1.
 - Valid efforts: none|low|medium|high (none is only valid for gpt-5.1).
-- Do NOT propose memory writes/deletes or permanent instructions; leave them empty.
-- Output only JSON with keys: model, effort, routedBy. No other keys.`;
+- For memoryTypesToLoad, pick only the minimal set of categories needed from the provided list.
+- memory/permanent writes/deletes should be rare and only when the user clearly provides durable info or revokes it.
+- Output JSON with keys: model, effort, routedBy, memoryTypesToLoad, memoriesToWrite, memoriesToDelete, permanentInstructionsToWrite, permanentInstructionsToDelete.`;
 
 /**
  * Calls GPT 5 Nano to decide model and reasoning effort
@@ -87,12 +89,15 @@ export async function routeWithLLM(
     } else if (context?.speedMode === "thinking") {
       contextNote += `\nUser selected THINKING mode - prefer "medium" or "high" effort.`;
     }
-    if (context?.usagePercentage && context.usagePercentage >= 80) {
-      contextNote += `\nUser is at ${context.usagePercentage.toFixed(0)}% usage - prefer smaller models (nano/mini) to save costs.`;
-    }
-  // Memory/permanent-instruction routing is handled by the main chat model; suppress here.
+  if (context?.usagePercentage && context.usagePercentage >= 80) {
+    contextNote += `\nUser is at ${context.usagePercentage.toFixed(0)}% usage - prefer smaller models (nano/mini) to save costs.`;
+  }
+  const memoryTypeHint =
+    context?.availableMemoryTypes && context.availableMemoryTypes.length
+      ? `\nAvailable memory categories: ${context.availableMemoryTypes.join(", ")}. Choose only the categories you need in memoryTypesToLoad.`
+      : "";
 
-  const routerPrompt = `${contextNote ? `${contextNote}\n\n` : ""}Analyze this prompt and recommend model + effort only (no memory actions):\n\n${promptText}`;
+  const routerPrompt = `${contextNote ? `${contextNote}\n\n` : ""}Analyze this prompt and recommend model + effort. Also choose minimal memoryTypesToLoad and any memory/permanent write/delete actions if clearly warranted.${memoryTypeHint}\n\nPrompt:\n${promptText}`;
 
     console.log("[llm-router] Starting LLM routing call");
     const startTime = Date.now();
@@ -114,6 +119,61 @@ export async function routeWithLLM(
             properties: {
               model: { type: "string", enum: ["gpt-5-nano", "gpt-5-mini", "gpt-5.1"] },
               effort: { type: "string", enum: ["none", "low", "medium", "high"] },
+              memoryTypesToLoad: {
+                type: "array",
+                items: { type: "string" },
+                description: "Minimal set of memory categories to load for this turn",
+              },
+              memoriesToWrite: {
+                type: "array",
+                items: {
+                  type: "object",
+                  additionalProperties: false,
+                  properties: {
+                    type: { type: "string" },
+                    title: { type: "string" },
+                    content: { type: "string" },
+                  },
+                  required: ["type", "title", "content"],
+                },
+              },
+              memoriesToDelete: {
+                type: "array",
+                items: {
+                  type: "object",
+                  additionalProperties: false,
+                  properties: {
+                    id: { type: "string" },
+                    reason: { type: "string" },
+                  },
+                  required: ["id"],
+                },
+              },
+              permanentInstructionsToWrite: {
+                type: "array",
+                items: {
+                  type: "object",
+                  additionalProperties: false,
+                  properties: {
+                    scope: { type: "string", enum: ["user", "conversation"] },
+                    title: { type: "string" },
+                    content: { type: "string" },
+                  },
+                  required: ["content"],
+                },
+              },
+              permanentInstructionsToDelete: {
+                type: "array",
+                items: {
+                  type: "object",
+                  additionalProperties: false,
+                  properties: {
+                    id: { type: "string" },
+                    reason: { type: "string" },
+                  },
+                  required: ["id"],
+                },
+              },
               routedBy: { type: "string" },
             },
             required: ["model", "effort", "routedBy"],
@@ -174,12 +234,6 @@ export async function routeWithLLM(
       return null;
     }
 
-    // Disable all memory/permanent-instruction directives; main chat model handles memory via tools.
-    parsed.memoriesToWrite = [];
-    parsed.memoriesToDelete = [];
-    parsed.permanentInstructionsToWrite = [];
-    parsed.permanentInstructionsToDelete = [];
-
     // Block GPT 5 Pro
     if (parsed.model === "gpt-5-pro-2025-10-06") {
       console.warn("[llm-router] Router tried to select GPT 5 Pro, defaulting to 5.1");
@@ -195,10 +249,15 @@ export async function routeWithLLM(
     return {
       model: parsed.model as Exclude<ModelFamily, "auto">,
       effort: parsed.effort as ReasoningEffort,
-      memoriesToWrite: [],
-      memoriesToDelete: [],
-      permanentInstructionsToWrite: [],
-      permanentInstructionsToDelete: [],
+      memoryTypesToLoad: Array.isArray(parsed.memoryTypesToLoad) ? parsed.memoryTypesToLoad : [],
+      memoriesToWrite: Array.isArray(parsed.memoriesToWrite) ? parsed.memoriesToWrite : [],
+      memoriesToDelete: Array.isArray(parsed.memoriesToDelete) ? parsed.memoriesToDelete : [],
+      permanentInstructionsToWrite: Array.isArray(parsed.permanentInstructionsToWrite)
+        ? parsed.permanentInstructionsToWrite
+        : [],
+      permanentInstructionsToDelete: Array.isArray(parsed.permanentInstructionsToDelete)
+        ? parsed.permanentInstructionsToDelete
+        : [],
       routedBy: typeof parsed.routedBy === "string" ? parsed.routedBy : "llm",
     };
   } catch (error) {

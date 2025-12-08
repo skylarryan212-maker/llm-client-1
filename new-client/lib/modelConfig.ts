@@ -398,7 +398,11 @@ export async function getModelAndReasoningConfigWithLLM(
           `[modelConfig] LLM router decided: ${decision.model} with ${decision.effort} effort (memory directives disabled)`
         );
         const config = buildConfigFromRouterDecision(decision, speedMode, promptText);
-        config.availableMemoryTypes = availableMemoryTypes;
+        const selectedTypes =
+          Array.isArray((decision as any).memoryTypesToLoad) && (decision as any).memoryTypesToLoad.length
+            ? (decision as any).memoryTypesToLoad
+            : availableMemoryTypes;
+        config.availableMemoryTypes = selectedTypes;
         return config;
       }
 
