@@ -9,18 +9,6 @@
 import type { ModelFamily, ReasoningEffort } from "./modelConfig";
 import type { MemoryType } from "./memory";
 
-export type WebSearchStrategy =
-  | "never"        // No search needed (greetings, meta questions, offline tasks)
-  | "optional"     // Model can choose (might need fresh data)
-  | "required";    // Must search (explicit requests, current events, prices)
-
-export interface MemoryStrategy {
-  types: string[] | "all";      // Which memory types to load
-  useSemanticSearch: boolean;   // Whether to use vector search
-  query?: string;               // Optimized query for semantic search
-  limit: number;                // Max memories to load
-}
-
 export interface MemoryToWrite {
   type: string;      // Dynamic category name
   title: string;     // Brief title
@@ -46,8 +34,6 @@ export interface PermanentInstructionToDelete {
 export interface LLMRouterDecision {
   model: Exclude<ModelFamily, "auto">;
   effort: ReasoningEffort;
-  webSearchStrategy: WebSearchStrategy;
-  memoryStrategy: MemoryStrategy;
   memoriesToWrite: MemoryToWrite[];  // Memories to save based on user's prompt
   memoriesToDelete: MemoryToDelete[];  // Memories to delete based on user's request
   permanentInstructionsToWrite: PermanentInstructionToWrite[];
@@ -202,13 +188,6 @@ Respond with ONLY a valid JSON object (no markdown, no explanation, no additiona
 {
   "model": "gpt-5-nano" | "gpt-5-mini" | "gpt-5.1",
   "effort": "none" | "low" | "medium" | "high",
-  "webSearchStrategy": "never" | "optional" | "required",
-  "memoryStrategy": {
-    "types": ["type1", "type2"] | "all",
-    "useSemanticSearch": boolean,
-    "query": "optional search query",  // omit this field if not using semantic search
-    "limit": number
-  },
   "memoriesToWrite": [
     {"type": "category_name", "title": "brief title", "content": "memory content"}
   ],  // empty array if nothing to save
@@ -327,8 +306,6 @@ export async function routeWithLLM(
       "gpt-5.1",
     ];
     const validEfforts: ReasoningEffort[] = ["none", "low", "medium", "high"];
-    const validWebSearch: WebSearchStrategy[] = ["never", "optional", "required"];
-
     if (!validModels.includes(parsed.model)) {
       console.error(`[llm-router] Invalid model: ${parsed.model}`);
       return null;
@@ -337,28 +314,6 @@ export async function routeWithLLM(
     if (!validEfforts.includes(parsed.effort)) {
       console.error(`[llm-router] Invalid effort: ${parsed.effort}`);
       return null;
-    }
-
-    // Default to "optional" if webSearchStrategy is missing or invalid
-    if (!parsed.webSearchStrategy || !validWebSearch.includes(parsed.webSearchStrategy)) {
-      console.warn(`[llm-router] Invalid or missing webSearchStrategy: ${parsed.webSearchStrategy}, defaulting to "optional"`);
-      parsed.webSearchStrategy = "optional";
-    }
-
-    // Validate and default memory strategy
-    if (!parsed.memoryStrategy || typeof parsed.memoryStrategy !== 'object') {
-      console.warn('[llm-router] Missing memoryStrategy, using default');
-      parsed.memoryStrategy = { types: "all", useSemanticSearch: false, limit: 20 };
-    } else {
-      if (!parsed.memoryStrategy.types) {
-        parsed.memoryStrategy.types = "all";
-      }
-      if (typeof parsed.memoryStrategy.useSemanticSearch !== 'boolean') {
-        parsed.memoryStrategy.useSemanticSearch = false;
-      }
-      if (typeof parsed.memoryStrategy.limit !== 'number' || parsed.memoryStrategy.limit < 0) {
-        parsed.memoryStrategy.limit = 20;
-      }
     }
 
     // Validate and default memoriesToWrite
@@ -416,8 +371,6 @@ export async function routeWithLLM(
     return {
       model: parsed.model as Exclude<ModelFamily, "auto">,
       effort: parsed.effort as ReasoningEffort,
-      webSearchStrategy: parsed.webSearchStrategy as WebSearchStrategy,
-      memoryStrategy: parsed.memoryStrategy as MemoryStrategy,
       memoriesToWrite: parsed.memoriesToWrite as MemoryToWrite[],
       memoriesToDelete: parsed.memoriesToDelete as MemoryToDelete[],
       permanentInstructionsToWrite: parsed.permanentInstructionsToWrite as PermanentInstructionToWrite[],

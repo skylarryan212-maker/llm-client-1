@@ -1050,11 +1050,11 @@ export async function POST(request: NextRequest) {
     let relevantMemories: MemoryItem[] = [];
     try {
       if (personalizationSettings.referenceSavedMemories) {
-        // Get memory strategy from router (default to loading identity if not provided)
-        let memoryStrategy: MemoryStrategy = (modelConfig as any).memoryStrategy || {
+        // Base memory strategy defaults to identity lookup.
+        let memoryStrategy: MemoryStrategy = {
           types: ["identity"],
           useSemanticSearch: false,
-          limit: 10
+          limit: 10,
         };
 
         const { strategy: augmentedStrategy, addedTypes } =

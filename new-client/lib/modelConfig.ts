@@ -1,11 +1,9 @@
 import type {
-  MemoryStrategy,
   MemoryToDelete,
   MemoryToWrite,
   PermanentInstructionToDelete,
   PermanentInstructionToWrite,
   LLMRouterDecision,
-  WebSearchStrategy,
 } from "./llm-router";
 
 export type SpeedMode = "auto" | "instant" | "thinking";
@@ -24,8 +22,6 @@ export interface ModelConfig {
     effort: ReasoningEffort;
   };
   routedBy?: "llm" | "code" | "code-fallback" | "cache";
-  webSearchStrategy?: WebSearchStrategy;
-  memoryStrategy?: MemoryStrategy;
   memoriesToWrite?: MemoryToWrite[];
   memoriesToDelete?: MemoryToDelete[];
   availableMemoryTypes?: string[];
@@ -248,8 +244,6 @@ function buildConfigFromRouterDecision(
     reusePermanentInstructions?: boolean;
   }
 ): ModelConfig & {
-  webSearchStrategy: WebSearchStrategy;
-  memoryStrategy: MemoryStrategy;
   memoriesToWrite: MemoryToWrite[];
   memoriesToDelete: MemoryToDelete[];
   permanentInstructionsToWrite: PermanentInstructionToWrite[];
@@ -288,8 +282,6 @@ function buildConfigFromRouterDecision(
     resolvedFamily: decision.model,
     reasoning: finalEffort ? { effort: finalEffort } : undefined,
     routedBy: options?.routedBy ?? "llm",
-    webSearchStrategy: decision.webSearchStrategy,
-    memoryStrategy: decision.memoryStrategy,
     memoriesToWrite,
     memoriesToDelete,
     permanentInstructionsToWrite,
@@ -403,9 +395,7 @@ export async function getModelAndReasoningConfigWithLLM(
 
       if (decision) {
         console.log(
-          `[modelConfig] LLM router decided: ${decision.model} with ${decision.effort} effort, webSearch: ${decision.webSearchStrategy}, memoryStrategy: ${JSON.stringify(
-            decision.memoryStrategy
-          )}, memoriesToWrite: ${decision.memoriesToWrite.length}`
+          `[modelConfig] LLM router decided: ${decision.model} with ${decision.effort} effort, memoriesToWrite: ${decision.memoriesToWrite.length}`
         );
         const config = buildConfigFromRouterDecision(decision, speedMode, promptText);
         config.availableMemoryTypes = availableMemoryTypes;
