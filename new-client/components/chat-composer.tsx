@@ -5,13 +5,16 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Mic, ArrowUp } from "lucide-react";
 import { AttachmentMenuButton } from "@/components/chat/attachment-menu";
+import { uploadFilesAndGetUrls } from "@/lib/uploads";
 
 type UploadedFragment = {
   id: string;
   name: string;
-  dataUrl: string;
+  dataUrl?: string;
+  url?: string;
   mime?: string;
   size?: number;
+  file?: File;
 };
 
 type ChatComposerProps = {
@@ -31,6 +34,7 @@ export function ChatComposer({
 }: ChatComposerProps) {
   const [value, setValue] = useState("");
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [attachments, setAttachments] = useState<UploadedFragment[]>([]);
   const trimmedValue = value.trim();
@@ -303,10 +307,50 @@ export function ChatComposer({
     setRecordingError(null);
   }, [isRecording, isTranscribing, stopRecording]);
 
-  const effectiveSubmit = (text: string) => {
+  const uploadPendingAttachments = useCallback(async () => {
+    if (!attachments.length) return attachments;
+
+    const pending = attachments.filter((a) => !a.url && a.file);
+    if (!pending.length) return attachments;
+
+    try {
+      setIsUploading(true);
+      const uploaded = await uploadFilesAndGetUrls(pending.map((a) => a.file!));
+
+      let uploadIndex = 0;
+      const merged = attachments.map((att) => {
+        if (!att.url && att.file) {
+          const uploadedInfo = uploaded[uploadIndex++];
+          if (uploadedInfo) {
+            return {
+              ...att,
+              url: uploadedInfo.url,
+              mime: uploadedInfo.mime ?? att.mime,
+            };
+          }
+        }
+        return att;
+      });
+      setAttachments(merged);
+      return merged;
+    } catch (error) {
+      console.error("Attachment upload failed", error);
+      return attachments;
+    } finally {
+      setIsUploading(false);
+    }
+  }, [attachments]);
+
+  const effectiveSubmit = async (text: string) => {
     const trimmed = text.trim();
-    if (!trimmed) return;
-    if (onSubmit) onSubmit(trimmed, attachments);
+    if (!trimmed || isUploading) return;
+
+    const attachmentsWithUrls = await uploadPendingAttachments();
+    const attachmentsToSend = attachmentsWithUrls?.map((att) =>
+      att.url ? { ...att, dataUrl: undefined } : att
+    );
+
+    if (onSubmit) onSubmit(trimmed, attachmentsToSend);
     else if (onSendMessage) onSendMessage(trimmed);
     setValue("");
     setAttachments([]);
@@ -315,13 +359,13 @@ export function ChatComposer({
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      effectiveSubmit(value);
+      void effectiveSubmit(value);
     }
   };
 
   const handleFormSubmit = (e: FormEvent) => {
     e.preventDefault();
-    effectiveSubmit(value);
+    void effectiveSubmit(value);
   };
 
   const handleOpenFilePicker = () => {
@@ -334,7 +378,7 @@ export function ChatComposer({
     if (!files || files.length === 0) return;
     try {
       // Convert files to base64 data URLs (like legacy client)
-      const fileReads = Array.from(files).map(file => {
+      const fileReads = Array.from(files).map((file) => {
         return new Promise<UploadedFragment>((resolve, reject) => {
           const reader = new FileReader();
           reader.onload = () => {
@@ -344,13 +388,14 @@ export function ChatComposer({
               dataUrl: reader.result as string,
               mime: file.type || undefined,
               size: file.size,
+              file,
             });
           };
           reader.onerror = () => reject(reader.error);
           reader.readAsDataURL(file);
         });
       });
-      
+
       const newItems = await Promise.all(fileReads);
       setAttachments((prev) => [...prev, ...newItems]);
       
@@ -471,7 +516,7 @@ export function ChatComposer({
               <button
                 type="button"
                 onClick={startRecording}
-                disabled={micDisabled}
+                disabled={micDisabled || isUploading}
                 aria-label="Start dictation"
                 className={`flex h-9 w-9 items-center justify-center rounded-full transition ${
                   micDisabled
@@ -496,10 +541,17 @@ export function ChatComposer({
                 ) : trimmedValue ? (
                   <button
                     type="submit"
-                    className="accent-send-button flex h-10 w-10 items-center justify-center rounded-full shadow-lg transition"
+                    disabled={isUploading}
+                    className="accent-send-button flex h-10 w-10 items-center justify-center rounded-full shadow-lg transition disabled:opacity-50"
                     aria-label="Send message"
                   >
-                    <ArrowUp className="h-5 w-5" />
+                    {isUploading ? (
+                      <span className="inline-flex h-5 w-5 items-center justify-center">
+                        <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                      </span>
+                    ) : (
+                      <ArrowUp className="h-5 w-5" />
+                    )}
                   </button>
                 ) : (
                   <button

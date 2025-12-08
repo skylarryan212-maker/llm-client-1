@@ -24,7 +24,9 @@ function ensureDomPolyfills() {
   if (typeof globalThis.DOMMatrix === "undefined") {
     // Minimal stub just so pdfjs dist can instantiate matrices.
     class DOMMatrixStub {
-      constructor(_init?: any) {}
+      constructor(_init?: any) {
+        void _init;
+      }
       multiplySelf() {
         return this;
       }
@@ -42,7 +44,9 @@ function ensureDomPolyfills() {
   }
   if (typeof globalThis.Path2D === "undefined") {
     (globalThis as any).Path2D = class {
-      constructor(_path?: string | Path2D) {}
+      constructor(_path?: string | Path2D) {
+        void _path;
+      }
     };
   }
 }

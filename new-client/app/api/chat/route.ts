@@ -55,6 +55,19 @@ function dataUrlToBuffer(dataUrl: string): Buffer {
   return Buffer.from(base64, "base64");
 }
 
+async function attachmentToBuffer(att: { dataUrl?: string; url?: string; name?: string }) {
+  if (att.dataUrl) return dataUrlToBuffer(att.dataUrl);
+  if (att.url) {
+    const res = await fetch(att.url);
+    if (!res.ok) {
+      throw new Error(`Failed to fetch attachment from URL (${res.status})`);
+    }
+    const arrayBuffer = await res.arrayBuffer();
+    return Buffer.from(arrayBuffer);
+  }
+  return null;
+}
+
 async function sha256Hex(input: string): Promise<string> {
   const data = new TextEncoder().encode(input);
   const hashBuffer = await crypto.subtle.digest("SHA-256", data);
@@ -153,7 +166,7 @@ interface ChatRequestBody {
   reasoningEffortOverride?: ReasoningEffort;
   forceWebSearch?: boolean;
   skipUserInsert?: boolean;
-  attachments?: Array<{ name?: string; mime?: string; dataUrl: string }>;
+  attachments?: Array<{ name?: string; mime?: string; dataUrl?: string; url?: string }>;
   location?: { lat: number; lng: number; city: string };
 }
 
@@ -788,7 +801,7 @@ export async function POST(request: NextRequest) {
           role: "user",
           content: message,
           metadata: attachments && attachments.length
-            ? { files: attachments.map(a => ({ name: a.name, mimeType: a.mime, dataUrl: a.dataUrl })) }
+            ? { files: attachments.map(a => ({ name: a.name, mimeType: a.mime, url: a.url ?? a.dataUrl })) }
             : {},
         })
         .select()
@@ -815,7 +828,7 @@ export async function POST(request: NextRequest) {
       if (!latestErr && latestUser) {
         const nextMeta = {
           ...(latestUser.metadata || {}),
-          files: attachments.map(a => ({ name: a.name, mimeType: a.mime, dataUrl: a.dataUrl })),
+          files: attachments.map(a => ({ name: a.name, mimeType: a.mime, url: a.url ?? a.dataUrl })),
         } as Record<string, unknown>;
         const { error: updateErr } = await supabaseAny
           .from("messages")
@@ -1120,7 +1133,7 @@ export async function POST(request: NextRequest) {
   const expandedMessage = await expandInlineFileTokens(message);
   const attachmentLines = Array.isArray(body.attachments)
     ? body.attachments
-        .map((a) => (a?.dataUrl ? `Attachment: ${a.name ?? 'file'} (${a.mime || 'unknown type'})` : ""))
+        .map((a) => (a?.dataUrl || a?.url ? `Attachment: ${a.name ?? 'file'} (${a.mime || 'unknown type'})` : ""))
         .filter((line) => line.length > 0)
     : [] as string[];
   let expandedMessageWithAttachments = expandedMessage;
@@ -1153,11 +1166,11 @@ export async function POST(request: NextRequest) {
     console.log(`[chatApi] Processing ${body.attachments.length} attachments`);
     // First pass: collect and upload any non-image files and large images for file_search (PDFs, docs, etc.)
     for (const att of body.attachments) {
-      if (!att?.dataUrl) continue;
-      
-      // Calculate file size from base64 dataUrl
+      if (!att?.dataUrl && !att?.url) continue;
+
       try {
-        const buffer = dataUrlToBuffer(att.dataUrl);
+        const buffer = await attachmentToBuffer(att);
+        if (!buffer) continue;
         const fileSize = buffer.length;
         const isImage = typeof att.mime === 'string' && att.mime.startsWith('image/');
         const shouldUpload = !isImage || fileSize > 100 * 1024;
@@ -1272,15 +1285,19 @@ export async function POST(request: NextRequest) {
     
     const extractionResults = await Promise.all(
       body.attachments.map(async att => {
-        if (!att?.dataUrl) return null;
+        if (!att?.dataUrl && !att?.url) return null;
         const isImage = typeof att.mime === "string" && att.mime.startsWith("image/");
+        const buffer = await attachmentToBuffer(att).catch((err) => {
+          console.warn(`[chatApi] Failed to load buffer for ${att.name}:`, err);
+          return null;
+        });
+        if (!buffer) return null;
 
         if (isImage) {
           // Vision models can read the image directly; defer heavy OCR to background so we can start streaming faster
           deferredAttachmentTasks.push(
             (async () => {
               try {
-                const buffer = dataUrlToBuffer(att.dataUrl);
                 const extraction = await dispatchExtract(
                   buffer,
                   att.name ?? "attachment",
@@ -1301,7 +1318,6 @@ export async function POST(request: NextRequest) {
         }
 
         console.log(`[chatApi] Extracting content from: ${att.name} (${att.mime})`);
-        const buffer = dataUrlToBuffer(att.dataUrl);
         const extraction = await dispatchExtract(
           buffer,
           att.name ?? "attachment",
@@ -1364,8 +1380,9 @@ export async function POST(request: NextRequest) {
     if (Array.isArray(body.attachments)) {
       for (const att of body.attachments) {
         const isImage = typeof att?.mime === "string" && att.mime.startsWith("image/");
-        if (isImage && att?.dataUrl) {
-          userContentParts.push({ type: "input_image", image_url: att.dataUrl });
+        const imageUrl = att?.dataUrl || att?.url;
+        if (isImage && imageUrl) {
+          userContentParts.push({ type: "input_image", image_url: imageUrl });
         }
       }
     }
@@ -1375,13 +1392,14 @@ export async function POST(request: NextRequest) {
         const recentUserMessages = (recentMessages || []).filter((m: any) => m.role === "user");
         const latestUser = recentUserMessages[recentUserMessages.length - 1];
         const meta = latestUser ? (latestUser.metadata as Record<string, any> | null) : null;
-        const priorFiles: Array<{ name?: string; mimeType?: string; dataUrl?: string }> = Array.isArray(meta?.files)
+        const priorFiles: Array<{ name?: string; mimeType?: string; dataUrl?: string; url?: string }> = Array.isArray(meta?.files)
           ? meta!.files
           : [];
         let added = 0;
         for (const f of priorFiles) {
-          if (typeof f?.mimeType === "string" && f.mimeType.startsWith("image/") && typeof f?.dataUrl === "string") {
-            userContentParts.push({ type: "input_image", image_url: f.dataUrl });
+          const priorImageUrl = typeof f?.dataUrl === "string" ? f.dataUrl : typeof f?.url === "string" ? f.url : null;
+          if (typeof f?.mimeType === "string" && f.mimeType.startsWith("image/") && priorImageUrl) {
+            userContentParts.push({ type: "input_image", image_url: priorImageUrl });
             added++;
             if (added >= 3) break; // cap to avoid excessive payload
           }
