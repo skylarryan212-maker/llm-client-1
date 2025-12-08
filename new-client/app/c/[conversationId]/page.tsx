@@ -30,20 +30,26 @@ export default async function ConversationPage({
 
   const conversation = await getConversationById(conversationId);
 
-  if (!conversation) {
-    redirect('/');
-  }
+  const messagesData = conversation
+    ? await getMessagesForConversation(conversationId)
+    : [];
 
-  const messagesData = await getMessagesForConversation(conversationId);
-
-  const conversations = [
-    {
-      id: conversation.id,
-      title: conversation.title ?? "Untitled chat",
-      timestamp: conversation.created_at ?? new Date().toISOString(),
-      projectId: conversation.project_id ?? undefined,
-    },
-  ];
+  const conversations = conversation
+    ? [
+        {
+          id: conversation.id,
+          title: conversation.title ?? "Untitled chat",
+          timestamp: conversation.created_at ?? new Date().toISOString(),
+          projectId: conversation.project_id ?? undefined,
+        },
+      ]
+    : [
+        {
+          id: conversationId,
+          title: "New chat",
+          timestamp: new Date().toISOString(),
+        },
+      ];
 
   const messages = messagesData.map((message: MessageRow) => ({
     id: message.id,
