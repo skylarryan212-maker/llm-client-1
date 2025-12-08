@@ -992,6 +992,13 @@ type MessageRow = Database["public"]["Tables"]["messages"]["Row"];
 type ConversationRow = Database["public"]["Tables"]["conversations"]["Row"];
 type OpenAIClient = any;
 
+// Lightweight per-process cache for recent prefetch/write tool outputs
+// keyed by conversationId + message hash; TTL keeps it short-lived.
+const prefetchCache = new Map<
+  string,
+  { messageHash: string; functionMessages: any[]; expiresAt: number }
+>();
+
 let cachedOpenAIConstructor: { new (...args: any[]): OpenAIClient } | null = null;
 async function getOpenAIConstructor(): Promise<{ new (...args: any[]): OpenAIClient }> {
   if (cachedOpenAIConstructor) {
@@ -1949,6 +1956,7 @@ export async function POST(request: NextRequest) {
     const availableMemoryTypes = (modelConfig as any).availableMemoryTypes as string[] | undefined;
     let relevantMemories: MemoryItem[] = [];
     let functionCallMessages: any[] = [];
+    const CACHE_TTL_MS = 2 * 60 * 1000;
 
 
     // Inline file include: allow users to embed <<file:relative/path>> tokens which will be replaced by file content.
@@ -2213,126 +2221,146 @@ export async function POST(request: NextRequest) {
 
     openai = await ensureOpenAIClient();
 
-    // Prefetch memories/permanent instructions via tools (no user-visible output)
-    const tPrefetchStart = Date.now();
-    if (personalizationSettings.referenceSavedMemories) {
-      try {
-        const handlers = {
-          ...buildMemoryToolHandlers({
-            userId,
-            conversationId,
-            messageText: expandedMessageWithAttachments,
-            personalizationSettings,
-            availableMemoryTypes: availableMemoryTypes || [],
-          }),
-          ...buildPermanentInstructionToolHandlers({
-            userId,
-            conversationId,
-            supabase: supabaseAny,
-            conversation,
-          }),
-        };
+    const messageHashForCache = await sha256Hex(expandedMessageWithAttachments || "");
+    const cacheKey = conversationId;
+    const cached = prefetchCache.get(cacheKey);
+    const cacheValid =
+      cached &&
+      cached.messageHash === messageHashForCache &&
+      cached.expiresAt > Date.now() &&
+      Array.isArray(cached.functionMessages);
 
-        const prefetchMessages = [
-          ...contextMessages,
-          {
-            role: "user" as const,
-            content: [{ type: "input_text", text: expandedMessageWithAttachments }],
-            type: "message",
-          },
-        ];
+    if (cacheValid) {
+      functionCallMessages = dedupeFunctionCallMessages(cached!.functionMessages);
+      console.log("[perf] cache hit for tool outputs");
+    } else {
+      const tPrefetchStart = Date.now();
+      const tWriteStart = Date.now();
 
-        const prefetchInstructions =
-          "Before responding to the user, call the available tools (get_memories, get_permanent_instructions) to fetch only what you need. Do not answer the user in this step.";
+      const prefetchPromise = personalizationSettings.referenceSavedMemories
+        ? (async () => {
+            try {
+              const handlers = {
+                ...buildMemoryToolHandlers({
+                  userId,
+                  conversationId,
+                  messageText: expandedMessageWithAttachments,
+                  personalizationSettings,
+                  availableMemoryTypes: availableMemoryTypes || [],
+                }),
+                ...buildPermanentInstructionToolHandlers({
+                  userId,
+                  conversationId,
+                  supabase: supabaseAny,
+                  conversation,
+                }),
+              };
 
-        const prefetchResult = await runFunctionToolLoop({
-          openai,
-          model: modelConfig.model,
-          instructions: prefetchInstructions,
-          messages: prefetchMessages,
-          tools: memoryToolDefinitions,
-          metadata: { user_id: userId, conversation_id: conversationId },
-          handlers,
-        });
+              const prefetchMessages = [
+                ...contextMessages,
+                {
+                  role: "user" as const,
+                  content: [{ type: "input_text", text: expandedMessageWithAttachments }],
+                  type: "message",
+                },
+              ];
 
-        const fnMsgs = (prefetchResult.messages || []).filter(
-          (m: any) =>
-            m &&
-            typeof m === "object" &&
-            (m.type === "function_call" ||
-              m.type === "function_call_output" ||
-              m.type === "reasoning")
-        );
-        if (fnMsgs.length) {
-          functionCallMessages.push(...fnMsgs);
-          functionCallMessages = dedupeFunctionCallMessages(functionCallMessages);
-        }
-      } catch (prefetchErr) {
-        console.error("[tools] Prefetch tool loop failed:", prefetchErr);
-      }
-    }
-    if (personalizationSettings.referenceSavedMemories) {
-      console.log(`[perf] prefetch tools ms=${Date.now() - tPrefetchStart}`);
-    }
+              const prefetchInstructions =
+                "Before responding to the user, call the available tools (get_memories, get_permanent_instructions) to fetch only what you need. Do not answer the user in this step.";
 
-    // Optional write phase (before streaming) if memory saving is allowed
-    const tWriteStart = Date.now();
-    if (personalizationSettings.allowSavingMemory) {
-      try {
-        const writeHandlers = {
-          ...buildMemoryToolHandlers({
-            userId,
-            conversationId,
-            messageText: expandedMessageWithAttachments,
-            personalizationSettings,
-            availableMemoryTypes: availableMemoryTypes || [],
-          }),
-          ...buildPermanentInstructionToolHandlers({
-            userId,
-            conversationId,
-            supabase: supabaseAny,
-            conversation,
-          }),
-        };
-        const writeMessages = [
-          ...contextMessages,
-          {
-            role: "user" as const,
-            content: [{ type: "input_text", text: expandedMessageWithAttachments }],
-            type: "message",
-          },
-          ...functionCallMessages,
-        ];
-        const writeInstructions =
-          "If this message contains durable facts, names, preferences, or instructions worth saving, call write_memory or write_permanent_instruction. Do not answer the user in this step.";
+              const prefetchResult = await runFunctionToolLoop({
+                openai,
+                model: modelConfig.model,
+                instructions: prefetchInstructions,
+                messages: prefetchMessages,
+                tools: memoryToolDefinitions,
+                metadata: { user_id: userId, conversation_id: conversationId },
+                handlers,
+              });
 
-        const writeResult = await runFunctionToolLoop({
-          openai,
-          model: modelConfig.model,
-          instructions: writeInstructions,
-          messages: writeMessages,
-          tools: memoryToolDefinitions,
-          metadata: { user_id: userId, conversation_id: conversationId },
-          handlers: writeHandlers,
-        });
-        const writeFnMsgs = (writeResult.messages || []).filter(
-          (m: any) =>
-            m &&
-            typeof m === "object" &&
-            (m.type === "function_call" ||
-              m.type === "function_call_output" ||
-              m.type === "reasoning")
-        );
-        if (writeFnMsgs.length) {
-          functionCallMessages.push(...writeFnMsgs);
-          functionCallMessages = dedupeFunctionCallMessages(functionCallMessages);
-        }
-      } catch (writeErr) {
-        console.error("[tools] Write tool loop failed:", writeErr);
-      }
-    }
-    if (personalizationSettings.allowSavingMemory) {
-      console.log(`[perf] write tools ms=${Date.now() - tWriteStart}`);
+              const fnMsgs = (prefetchResult.messages || []).filter(
+                (m: any) =>
+                  m &&
+                  typeof m === "object" &&
+                  (m.type === "function_call" ||
+                    m.type === "function_call_output" ||
+                    m.type === "reasoning")
+              );
+              if (fnMsgs.length) {
+                functionCallMessages.push(...fnMsgs);
+              }
+            } catch (prefetchErr) {
+              console.error("[tools] Prefetch tool loop failed:", prefetchErr);
+            } finally {
+              console.log(`[perf] prefetch tools ms=${Date.now() - tPrefetchStart}`);
+            }
+          })()
+        : Promise.resolve();
+
+      const writePromise = personalizationSettings.allowSavingMemory
+        ? (async () => {
+            try {
+              const writeHandlers = {
+                ...buildMemoryToolHandlers({
+                  userId,
+                  conversationId,
+                  messageText: expandedMessageWithAttachments,
+                  personalizationSettings,
+                  availableMemoryTypes: availableMemoryTypes || [],
+                }),
+                ...buildPermanentInstructionToolHandlers({
+                  userId,
+                  conversationId,
+                  supabase: supabaseAny,
+                  conversation,
+                }),
+              };
+              const writeMessages = [
+                ...contextMessages,
+                {
+                  role: "user" as const,
+                  content: [{ type: "input_text", text: expandedMessageWithAttachments }],
+                  type: "message",
+                },
+              ];
+              const writeInstructions =
+                "If this message contains durable facts, names, preferences, or instructions worth saving, call write_memory or write_permanent_instruction. Do not answer the user in this step.";
+
+              const writeResult = await runFunctionToolLoop({
+                openai,
+                model: modelConfig.model,
+                instructions: writeInstructions,
+                messages: writeMessages,
+                tools: memoryToolDefinitions,
+                metadata: { user_id: userId, conversation_id: conversationId },
+                handlers: writeHandlers,
+              });
+              const writeFnMsgs = (writeResult.messages || []).filter(
+                (m: any) =>
+                  m &&
+                  typeof m === "object" &&
+                  (m.type === "function_call" ||
+                    m.type === "function_call_output" ||
+                    m.type === "reasoning")
+              );
+              if (writeFnMsgs.length) {
+                functionCallMessages.push(...writeFnMsgs);
+              }
+            } catch (writeErr) {
+              console.error("[tools] Write tool loop failed:", writeErr);
+            } finally {
+              console.log(`[perf] write tools ms=${Date.now() - tWriteStart}`);
+            }
+          })()
+        : Promise.resolve();
+
+      await Promise.all([prefetchPromise, writePromise]);
+      functionCallMessages = dedupeFunctionCallMessages(functionCallMessages);
+      prefetchCache.set(cacheKey, {
+        messageHash: messageHashForCache,
+        functionMessages: functionCallMessages,
+        expiresAt: Date.now() + CACHE_TTL_MS,
+      });
     }
 
     // Build instructions from system prompts with personalization (no preloaded memories)
