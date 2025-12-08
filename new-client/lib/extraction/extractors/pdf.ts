@@ -20,12 +20,39 @@ async function loadPdfJs() {
   }
   return pdfjsLibPromise;
 }
+function ensureDomPolyfills() {
+  if (typeof globalThis.DOMMatrix === "undefined") {
+    // Minimal stub just so pdfjs dist can instantiate matrices.
+    class DOMMatrixStub {
+      constructor(_init?: any) {}
+      multiplySelf() {
+        return this;
+      }
+    }
+    (globalThis as any).DOMMatrix = DOMMatrixStub;
+  }
+  if (typeof globalThis.ImageData === "undefined") {
+    (globalThis as any).ImageData = class {
+      constructor(public width: number, public height: number) {
+        this.width = width;
+        this.height = height;
+      }
+      data = new Uint8ClampedArray(0);
+    };
+  }
+  if (typeof globalThis.Path2D === "undefined") {
+    (globalThis as any).Path2D = class {
+      constructor(_path?: string | Path2D) {}
+    };
+  }
+}
 import { PDF_MAX_PAGES } from "../config";
 import type { Extractor } from "../types";
 import { truncateUtf8 } from "../utils/text";
 
 export const pdfExtractor: Extractor = async (buffer, _name, _mime, ctx) => {
   try {
+    ensureDomPolyfills();
     const pdfjsLib = await loadPdfJs();
     const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(buffer), useWorker: false });
     const pdf = await loadingTask.promise;
