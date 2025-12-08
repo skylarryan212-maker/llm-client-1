@@ -1930,7 +1930,7 @@ export async function POST(request: NextRequest) {
       permanentInstructionState?.instructions ?? [];
     const availableMemoryTypes = (modelConfig as any).availableMemoryTypes as string[] | undefined;
     let relevantMemories: MemoryItem[] = [];
-    const functionCallOutputs: any[] = [];
+    const functionCallMessages: any[] = [];
 
 
     // Inline file include: allow users to embed <<file:relative/path>> tokens which will be replaced by file content.
@@ -2236,11 +2236,14 @@ export async function POST(request: NextRequest) {
           handlers,
         });
 
-        const outputs = (prefetchResult.messages || []).filter(
-          (m: any) => m && typeof m === "object" && m.type === "function_call_output"
+        const fnMsgs = (prefetchResult.messages || []).filter(
+          (m: any) =>
+            m &&
+            typeof m === "object" &&
+            (m.type === "function_call" || m.type === "function_call_output")
         );
-        if (outputs.length) {
-          functionCallOutputs.push(...outputs);
+        if (fnMsgs.length) {
+          functionCallMessages.push(...fnMsgs);
         }
       } catch (prefetchErr) {
         console.error("[tools] Prefetch tool loop failed:", prefetchErr);
@@ -2272,7 +2275,7 @@ export async function POST(request: NextRequest) {
             content: [{ type: "input_text", text: expandedMessageWithAttachments }],
             type: "message",
           },
-          ...functionCallOutputs,
+          ...functionCallMessages,
         ];
         const writeInstructions =
           "If this message contains durable facts, names, preferences, or instructions worth saving, call write_memory or write_permanent_instruction. Do not answer the user in this step.";
@@ -2286,11 +2289,14 @@ export async function POST(request: NextRequest) {
           metadata: { user_id: userId, conversation_id: conversationId },
           handlers: writeHandlers,
         });
-        const writeOutputs = (writeResult.messages || []).filter(
-          (m: any) => m && typeof m === "object" && m.type === "function_call_output"
+        const writeFnMsgs = (writeResult.messages || []).filter(
+          (m: any) =>
+            m &&
+            typeof m === "object" &&
+            (m.type === "function_call" || m.type === "function_call_output")
         );
-        if (writeOutputs.length) {
-          functionCallOutputs.push(...writeOutputs);
+        if (writeFnMsgs.length) {
+          functionCallMessages.push(...writeFnMsgs);
         }
       } catch (writeErr) {
         console.error("[tools] Write tool loop failed:", writeErr);
@@ -2355,7 +2361,7 @@ export async function POST(request: NextRequest) {
         content: userContentParts,
         type: "message",
       },
-      ...functionCallOutputs,
+      ...functionCallMessages,
     ];
 
     // Use generic Tool to avoid strict preview-only type union on WebSearchTool in SDK types
