@@ -1,4 +1,4 @@
-// Use the Node.js runtime to maximize the initial-response window for image-heavy requests
+﻿// Use the Node.js runtime to maximize the initial-response window for image-heavy requests
 export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
@@ -13,7 +13,6 @@ import type {
 } from "@/lib/modelConfig";
 import { normalizeModelFamily, normalizeSpeedMode } from "@/lib/modelConfig";
 import type { Database } from "@/lib/supabase/types";
-import type { RouterDecision } from "@/lib/router/types";
 import type { AssistantMessageMetadata } from "@/lib/chatTypes";
 import {
   buildAssistantMetadataPayload,
@@ -37,844 +36,13 @@ import {
   loadPermanentInstructions,
   type PermanentInstructionCacheItem,
 } from "@/lib/permanentInstructions";
+import { decideRoutingForMessage } from "@/lib/router/decideRoutingForMessage";
+import type { RouterDecision } from "@/lib/router/types";
 import { buildContextForMainModel } from "@/lib/context/buildContextForMainModel";
 import { maybeExtractArtifactsFromMessage } from "@/lib/artifacts/maybeExtractArtifactsFromMessage";
 import type { PermanentInstructionToWrite } from "@/lib/llm-router";
 import { updateTopicSnapshot } from "@/lib/topics/updateTopicSnapshot";
 import { refreshTopicMetadata } from "@/lib/topics/refreshTopicMetadata";
-import { z } from "zod";
-
-type FunctionToolCall = {
-  name: string;
-  call_id: string;
-  arguments: string;
-};
-
-type FunctionCallOutputMessage = {
-  type: "function_call_output";
-  call_id: string;
-  output: string;
-};
-
-type FunctionToolHandler = (args: any) => Promise<any>;
-
-type MemoryToolContext = {
-  userId: string;
-  conversationId: string;
-  messageText: string;
-  personalizationSettings: PersonalizationMemorySettings;
-  availableMemoryTypes: string[];
-};
-
-type PermanentInstructionToolContext = {
-  userId: string;
-  conversationId: string;
-  supabase: any;
-  conversation: ConversationRow;
-};
-
-type ConversationTopicRow =
-  Database["public"]["Tables"]["conversation_topics"]["Row"];
-type ConversationTopicInsert =
-  Database["public"]["Tables"]["conversation_topics"]["Insert"];
-type ArtifactRow = Database["public"]["Tables"]["artifacts"]["Row"];
-
-/**
- * Function tool definitions for memory/permanent instruction reads.
- * These are not yet wired into the main flow; handlers are provided for future use.
- */
-const memoryToolDefinitions: Tool[] = [
-  {
-    type: "function",
-    name: "get_memories",
-    description:
-      "Fetch a small set of relevant user memories. Use this to personalize responses; do not fetch more than needed.",
-    strict: false,
-    parameters: {
-      type: "object",
-      additionalProperties: false,
-      properties: {
-        types: {
-          type: "array",
-          description: "Specific memory types to retrieve (optional).",
-          items: { type: "string" },
-        },
-        limit: {
-          type: "number",
-          description: "Maximum number of memories to return (default 10, max 20).",
-        },
-      },
-      required: ["types", "limit"],
-    },
-  },
-  {
-    type: "function",
-    name: "write_memory",
-    description: "Persist an important user memory (identity, preference, constraint, etc.).",
-    strict: false,
-    parameters: {
-      type: "object",
-      additionalProperties: false,
-      properties: {
-        type: {
-          type: "string",
-          description: "Memory category (e.g., identity, preference, constraint, workflow, project, instruction, other).",
-        },
-        title: {
-          type: "string",
-          description: "Short title summarizing the memory.",
-        },
-        content: {
-          type: "string",
-          description: "Full memory content to store.",
-        },
-      },
-      required: ["type", "title", "content"],
-    },
-  },
-  {
-    type: "function",
-    name: "delete_memory",
-    description: "Delete an existing memory by id.",
-    strict: false,
-    parameters: {
-      type: "object",
-      additionalProperties: false,
-      properties: {
-        id: {
-          type: "string",
-          description: "Memory id to delete.",
-        },
-      },
-      required: ["id"],
-    },
-  },
-  {
-    type: "function",
-    name: "get_permanent_instructions",
-    description:
-      "Fetch permanent instructions for this user/conversation. Use to understand always-on directives.",
-    strict: false,
-    parameters: {
-      type: "object",
-      additionalProperties: false,
-      properties: {
-        scope: {
-          type: "string",
-          enum: ["user", "conversation", "all"],
-          description: "Which scope to fetch. Defaults to 'all'.",
-        },
-        limit: {
-          type: "number",
-          description: "Maximum number of instructions to return (default 10, max 20).",
-        },
-      },
-      required: ["scope", "limit"],
-    },
-  },
-  {
-    type: "function",
-    name: "write_permanent_instruction",
-    description: "Create a permanent instruction (user or conversation scoped).",
-    strict: false,
-    parameters: {
-      type: "object",
-      additionalProperties: false,
-      properties: {
-        scope: {
-          type: "string",
-          enum: ["user", "conversation"],
-          description: "Scope of the instruction (default user).",
-        },
-        title: {
-          type: "string",
-          description: "Optional title for the instruction.",
-        },
-        content: {
-          type: "string",
-          description: "Instruction text to always follow.",
-        },
-      },
-      required: ["content"],
-    },
-  },
-  {
-    type: "function",
-    name: "delete_permanent_instruction",
-    description: "Delete a permanent instruction by id.",
-    strict: false,
-    parameters: {
-      type: "object",
-      additionalProperties: false,
-      properties: {
-        id: {
-          type: "string",
-          description: "Instruction id to delete.",
-        },
-      },
-      required: ["id"],
-    },
-  },
-];
-
-const topicToolDefinition: Tool = {
-  type: "function",
-  name: "propose_topic_decision",
-  description:
-    "Route the user message to a topic. Choose whether to continue the active topic, reopen an existing topic, or create a new one.",
-  strict: true,
-  parameters: {
-    type: "object",
-    additionalProperties: false,
-    properties: {
-      topicAction: {
-        type: "string",
-        enum: ["continue_active", "new", "reopen_existing"],
-        description:
-          "How to route this message: continue the active topic, reopen a prior one, or start a new topic.",
-      },
-      primaryTopicId: {
-        type: ["string", "null"],
-        description: "The primary topic id (if continuing or reopening).",
-        format: "uuid",
-      },
-      secondaryTopicIds: {
-        type: "array",
-        items: { type: "string", format: "uuid" },
-        description: "Other topics referenced by this message.",
-      },
-      newTopicLabel: {
-        type: "string",
-        description: "Short title for a new or reopened topic.",
-      },
-      newTopicDescription: {
-        type: "string",
-        description: "One-sentence description for a new topic.",
-      },
-      newParentTopicId: {
-        type: ["string", "null"],
-        description: "Parent topic id when creating a subtopic (optional).",
-        format: "uuid",
-      },
-      newTopicSummary: {
-        type: "string",
-        description: "Short summary for the topic.",
-      },
-      artifactsToLoad: {
-        type: "array",
-        items: { type: "string", format: "uuid" },
-        description: "Artifact ids to preload for this turn.",
-      },
-    },
-    required: [
-      "topicAction",
-      "primaryTopicId",
-      "secondaryTopicIds",
-      "newTopicLabel",
-      "newTopicDescription",
-      "newParentTopicId",
-      "newTopicSummary",
-      "artifactsToLoad",
-    ],
-  },
-};
-
-function buildMemoryToolHandlers(ctx: MemoryToolContext): Record<string, FunctionToolHandler> {
-  return {
-    get_memories: async (args: { types?: string[]; limit?: number }) => {
-      const limit = Math.min(Math.max(args?.limit ?? 10, 1), 20);
-      const { messageText, personalizationSettings, availableMemoryTypes, userId, conversationId } = ctx;
-      let memoryStrategy: MemoryStrategy = {
-        types: args?.types && Array.isArray(args.types) && args.types.length ? args.types : ["identity"],
-        useSemanticSearch: false,
-        limit,
-      };
-      const { strategy } = augmentMemoryStrategyWithHeuristics(memoryStrategy, messageText, availableMemoryTypes || []);
-      const relevant = await getRelevantMemories(
-        { referenceSavedMemories: personalizationSettings.referenceSavedMemories, allowSavingMemory: personalizationSettings.allowSavingMemory },
-        strategy,
-        userId,
-        conversationId,
-        { availableMemoryTypes }
-      );
-      return {
-        memories: relevant.map((m) => ({
-          id: m.id,
-          type: m.type,
-          title: m.title,
-          content: m.content,
-        })),
-      };
-    },
-    write_memory: async (args: { type: string; title: string; content: string }) => {
-      if (!ctx.personalizationSettings.allowSavingMemory) {
-        return { error: "Memory saving is disabled by user settings." };
-      }
-      const result = await writeMemory({
-        type: args.type,
-        title: args.title,
-        content: args.content,
-        enabled: true,
-        conversationId: ctx.conversationId,
-      });
-      return { id: (result as any)?.id ?? null, type: args.type, title: args.title };
-    },
-    delete_memory: async (args: { id: string }) => {
-      await deleteMemory(args.id, ctx.userId);
-      return { deleted: args.id };
-    },
-  };
-}
-
-function buildPermanentInstructionToolHandlers(ctx: PermanentInstructionToolContext): Record<string, FunctionToolHandler> {
-  return {
-    get_permanent_instructions: async (args: { scope?: "user" | "conversation" | "all"; limit?: number }) => {
-      const limit = Math.min(Math.max(args?.limit ?? 10, 1), 20);
-      const loadResult = await loadPermanentInstructions({
-        supabase: ctx.supabase,
-        userId: ctx.userId,
-        conversationId: ctx.conversationId,
-        conversation: ctx.conversation,
-        forceRefresh: true,
-      });
-      const instructions = loadResult?.instructions || [];
-      const filtered =
-        args.scope && args.scope !== "all"
-          ? instructions.filter((inst) => (args.scope === "conversation" ? inst.scope === "conversation" : inst.scope !== "conversation"))
-          : instructions;
-      return {
-        permanentInstructions: filtered.slice(0, limit).map((inst) => ({
-          id: inst.id,
-          scope: inst.scope,
-          title: inst.title,
-          content: inst.content,
-        })),
-      };
-    },
-    write_permanent_instruction: async (args: { scope?: "user" | "conversation"; title?: string; content: string }) => {
-      const writes = [
-        {
-          scope: (args.scope === "conversation" ? "conversation" : "user") as "conversation" | "user",
-          title: args.title ?? null,
-          content: args.content,
-        },
-      ];
-      const changed = await applyPermanentInstructionMutations({
-        supabase: ctx.supabase,
-        userId: ctx.userId,
-        conversationId: ctx.conversationId,
-        writes,
-        deletes: [],
-      });
-      return { created: changed };
-    },
-    delete_permanent_instruction: async (args: { id: string }) => {
-      const changed = await applyPermanentInstructionMutations({
-        supabase: ctx.supabase,
-        userId: ctx.userId,
-        conversationId: ctx.conversationId,
-        writes: [],
-        deletes: [{ id: args.id }],
-      });
-      return { deleted: args.id, changed };
-    },
-  };
-}
-
-/**
- * Generic function-call loop (not yet wired into the main flow).
- * Given a model + tools + messages, it will:
- *  - invoke the model
- *  - execute any function calls using the provided handlers
- *  - append function_call_output messages
- *  - repeat until the model returns no function calls
- *
- * This is a scaffold for future tool-based memory/topic handling and is currently unused.
- */
-async function runFunctionToolLoop(options: {
-  openai: any;
-  model: string;
-  instructions: string;
-  messages: any[];
-  tools: Tool[];
-  metadata?: Record<string, unknown>;
-  handlers: Record<string, FunctionToolHandler>;
-}) {
-  const { openai, model, instructions, metadata, handlers } = options;
-  let messages = [...options.messages];
-  const tools = options.tools || [];
-
-  // Protect against accidental recursion
-  let safetyCounter = 0;
-  const maxLoops = 4;
-
-  while (safetyCounter < maxLoops) {
-    safetyCounter += 1;
-    const response = await openai.responses.create({
-      model,
-      instructions,
-      input: messages,
-      tools,
-      // No streaming in this loop; it is intended for prefetch/setup steps
-      stream: false,
-      metadata,
-      parallel_tool_calls: true,
-    });
-
-    const outputs: any[] = Array.isArray(response.output) ? response.output : [];
-    const functionCalls: FunctionToolCall[] = outputs
-      .filter((item: any) => item?.type === "function_call" && item?.name && item?.call_id)
-      .map((item: any) => ({
-        name: item.name,
-        call_id: item.call_id,
-        arguments: item.arguments || "{}",
-      }));
-
-    if (!functionCalls.length) {
-      return { response, messages };
-    }
-
-    const functionOutputs: FunctionCallOutputMessage[] = [];
-    for (const call of functionCalls) {
-      const handler = handlers[call.name];
-      try {
-        if (!handler) {
-          functionOutputs.push({
-            type: "function_call_output",
-            call_id: call.call_id,
-            output: JSON.stringify({ error: `Unhandled function: ${call.name}` }),
-          });
-          continue;
-        }
-        let parsedArgs: any = {};
-        try {
-          parsedArgs = call.arguments ? JSON.parse(call.arguments) : {};
-        } catch (parseErr) {
-          functionOutputs.push({
-            type: "function_call_output",
-            call_id: call.call_id,
-            output: JSON.stringify({ error: "Invalid JSON arguments", details: String(parseErr) }),
-          });
-          continue;
-        }
-        const result = await handler(parsedArgs);
-        functionOutputs.push({
-          type: "function_call_output",
-          call_id: call.call_id,
-          output: JSON.stringify(result ?? {}),
-        });
-      } catch (err: any) {
-        functionOutputs.push({
-          type: "function_call_output",
-          call_id: call.call_id,
-          output: JSON.stringify({ error: err?.message || String(err) }),
-        });
-      }
-    }
-
-    // Append the model's outputs and the function outputs, then continue the loop
-    messages = [...messages, ...outputs, ...functionOutputs];
-  }
-
-  // Safety fallback: return the last state if too many loops
-  return { response: null, messages, error: "Max function-call loop reached" };
-}
-
-type TopicRoutingContext = {
-  topics: ConversationTopicRow[];
-  artifacts: ArtifactRow[];
-  recentMessages: Pick<MessageRow, "id" | "role" | "content" | "created_at" | "topic_id">[];
-};
-
-const topicDecisionSchema = z
-  .object({
-    topicAction: z.enum(["continue_active", "new", "reopen_existing"]),
-    primaryTopicId: z.string().uuid().nullable(),
-    secondaryTopicIds: z.array(z.string().uuid()).default([]),
-    newTopicLabel: z.string().default(""),
-    newTopicDescription: z.string().default(""),
-    newParentTopicId: z.string().uuid().nullable().default(null),
-    newTopicSummary: z.string().default(""),
-    artifactsToLoad: z.array(z.string().uuid()).default([]),
-  })
-  .strict();
-
-function buildKeywordList(message: string): string[] {
-  return message
-    .toLowerCase()
-    .split(/[^a-z0-9]+/i)
-    .filter((token) => token.length >= 4 && token.length <= 32)
-    .slice(0, 8);
-}
-
-async function loadCandidateArtifacts(
-  supabase: any,
-  conversationId: string,
-  userMessage: string
-): Promise<ArtifactRow[]> {
-  const keywords = buildKeywordList(userMessage);
-  let query = supabase
-    .from("artifacts")
-    .select("id, conversation_id, topic_id, type, title, summary, created_at")
-    .eq("conversation_id", conversationId)
-    .order("created_at", { ascending: false })
-    .limit(40);
-
-  if (keywords.length) {
-    const clauses = keywords.flatMap((kw) => [
-      `title.ilike.%${kw}%`,
-      `summary.ilike.%${kw}%`,
-    ]);
-    if (clauses.length) {
-      query = query.or(clauses.join(","));
-    }
-  }
-
-  const { data } = await query;
-  const artifacts = Array.isArray(data) ? (data as ArtifactRow[]) : [];
-  if (!artifacts.length) {
-    return [];
-  }
-  return artifacts.length <= 10 ? artifacts : artifacts.slice(0, 10);
-}
-
-async function loadTopicRoutingContext(
-  supabase: any,
-  conversationId: string,
-  userMessage: string
-): Promise<TopicRoutingContext> {
-  const [{ data: topics }, { data: recent }, artifacts] = await Promise.all([
-    supabase
-      .from("conversation_topics")
-      .select("*")
-      .eq("conversation_id", conversationId)
-      .order("created_at", { ascending: true }),
-    supabase
-      .from("messages")
-      .select("id, role, content, created_at, topic_id")
-      .eq("conversation_id", conversationId)
-      .order("created_at", { ascending: false })
-      .limit(10),
-    loadCandidateArtifacts(supabase, conversationId, userMessage),
-  ]);
-
-  return {
-    topics: Array.isArray(topics) ? (topics as ConversationTopicRow[]) : [],
-    artifacts,
-    recentMessages: Array.isArray(recent)
-      ? (recent as TopicRoutingContext["recentMessages"]).reverse()
-      : [],
-  };
-}
-
-function buildTopicRouterPrompt(payload: TopicRoutingContext, userMessage: string): string {
-  const recentSection =
-    payload.recentMessages.length > 0
-      ? payload.recentMessages
-          .map((msg) => {
-            const preview = (msg.content || "").replace(/\s+/g, " ").slice(0, 240);
-            return `- ${msg.role} @ ${msg.created_at ?? "unknown"}${
-              msg.topic_id ? ` [topic:${msg.topic_id}]` : ""
-            }: ${preview}`;
-          })
-          .join("\n")
-      : "No prior messages.";
-
-  const topicSection =
-    payload.topics.length > 0
-      ? payload.topics
-          .map((topic) => {
-            const parent = topic.parent_topic_id
-              ? ` (child of ${topic.parent_topic_id})`
-              : "";
-            const desc =
-              topic.description?.replace(/\s+/g, " ").slice(0, 200) ?? "No description yet.";
-            const updated = topic.updated_at ? ` updated ${topic.updated_at}` : "";
-            const summary =
-              topic.summary?.replace(/\s+/g, " ").slice(0, 180) ?? "No summary yet.";
-            return `- [${topic.id}] ${topic.label}${parent}${updated}: ${desc} | Summary: ${summary}`;
-          })
-          .join("\n")
-      : "No topics exist yet.";
-
-  const artifactSection =
-    payload.artifacts.length > 0
-      ? payload.artifacts
-          .map((artifact) => {
-            const summary =
-              artifact.summary?.replace(/\s+/g, " ").slice(0, 180) ?? "No summary.";
-            const topic = artifact.topic_id ? ` (topic ${artifact.topic_id})` : "";
-            return `- [${artifact.id}] ${artifact.title}${topic} | ${artifact.type} | ${summary}`;
-          })
-          .join("\n")
-      : "No artifacts found.";
-
-  return [
-    "You are the topic router. Review the new user message and metadata below.",
-    "Recent conversation snippets:",
-    recentSection,
-    "",
-    "Existing topics/subtopics:",
-    topicSection,
-    "",
-    "Candidate artifacts:",
-    artifactSection,
-    "",
-    "User message:",
-    userMessage,
-    "",
-    "Decide which topic/subtopic this belongs to, whether to create or reopen topics, and which artifacts to preload.",
-  ].join("\n");
-}
-
-const TOPIC_ROUTER_SYSTEM_PROMPT = `You organize a single conversation into lightweight topics and subtopics.
-
-Definitions:
-- A topic captures a cohesive subject within the conversation (e.g., "Billing API refactor").
-- A subtopic is nested beneath one topic when a narrower thread emerges (e.g., "Billing API refactor -> data model").
-- Artifacts are named resources (schemas, specs, code) that can be reused later.
-
-Rules:
-1) Decide if this is a continuation of the active topic, a return to a prior topic, or a brand new topic. Prefer "continue_active" when the user clearly refers to earlier assistant content ("what were the values you mentioned", "that schema again", "continue with X"). Use "reopen_existing" when they name or clearly point to another existing topic. Use "new" only when the subject clearly changes or they explicitly request a new thread.
-2) Never invent IDs. Use only topic/artifact IDs shown in the provided context.
-3) Keep new topic labels short (3-5 title-case words) and descriptions/summaries one sentence.
-4) Subtopics may only have a top-level parent (no nesting under another subtopic). Leave newParentTopicId null if unsure or if the parent is vague.
-5) Include artifacts that materially help answer this message.
-6) Output only via the propose_topic_decision function call—no prose.`;
-
-function formatTopicLabel(raw: string): string {
-  if (!raw) {
-    return "Pending Topic";
-  }
-  const cleaned = raw
-    .toLowerCase()
-    .replace(/[^a-z0-9\\s]/g, " ")
-    .split(/\\s+/)
-    .filter(Boolean);
-  const stopWords = new Set([
-    "hey",
-    "hi",
-    "hello",
-    "i",
-    "im",
-    "i'm",
-    "id",
-    "need",
-    "please",
-    "can",
-    "could",
-    "should",
-    "would",
-    "you",
-    "your",
-    "me",
-    "my",
-    "the",
-    "and",
-    "about",
-    "for",
-    "with",
-    "what",
-    "how",
-    "want",
-    "idea",
-    "help",
-  ]);
-  const filtered = cleaned.filter((word) => !stopWords.has(word));
-  const source = (filtered.length ? filtered : cleaned).slice(0, 5);
-  const label = source
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(" ")
-    .trim();
-  return label || "Pending Topic";
-}
-
-function buildAutoTopicDescription(message: string): string | null {
-  const clean = message.replace(/\\s+/g, " ").trim();
-  if (!clean) return null;
-  const sentence = clean.slice(0, 280);
-  return sentence.endsWith(".") ? sentence : `${sentence}.`;
-}
-
-async function applyTopicDecision({
-  supabase,
-  conversationId,
-  context,
-  decision,
-  userMessage,
-}: {
-  supabase: any;
-  conversationId: string;
-  context: TopicRoutingContext;
-  decision: RouterDecision;
-  userMessage: string;
-}): Promise<RouterDecision> {
-  const topicIds = new Set(context.topics.map((t) => t.id));
-  const artifactIds = new Set(context.artifacts.map((a) => a.id));
-
-  const working: RouterDecision = {
-    topicAction: decision.topicAction,
-    primaryTopicId: decision.primaryTopicId ?? null,
-    secondaryTopicIds: Array.isArray(decision.secondaryTopicIds)
-      ? decision.secondaryTopicIds
-      : [],
-    newTopicLabel: decision.newTopicLabel ?? "",
-    newTopicDescription: decision.newTopicDescription ?? "",
-    newParentTopicId: decision.newParentTopicId ?? null,
-    newTopicSummary: decision.newTopicSummary ?? "",
-    artifactsToLoad: Array.isArray(decision.artifactsToLoad)
-      ? decision.artifactsToLoad
-      : [],
-  };
-
-  if (working.primaryTopicId && !topicIds.has(working.primaryTopicId)) {
-    working.primaryTopicId = null;
-  }
-  if (working.newParentTopicId && !topicIds.has(working.newParentTopicId)) {
-    working.newParentTopicId = null;
-  }
-
-  working.secondaryTopicIds = working.secondaryTopicIds.filter(
-    (id) => topicIds.has(id) && id !== working.primaryTopicId
-  );
-  working.artifactsToLoad = working.artifactsToLoad.filter((id) =>
-    artifactIds.has(id)
-  );
-
-  const needsNewTopic =
-    working.topicAction === "new" || !working.primaryTopicId;
-
-  if (!needsNewTopic) {
-    working.newParentTopicId = null;
-  } else if (
-    working.newParentTopicId &&
-    working.newParentTopicId === working.primaryTopicId
-  ) {
-    working.newParentTopicId = null;
-  }
-
-  if (needsNewTopic) {
-    const rawLabel =
-      working.newTopicLabel?.trim() || formatTopicLabel(userMessage);
-    const label = formatTopicLabel(rawLabel);
-    const description =
-      working.newTopicDescription?.trim() ||
-      buildAutoTopicDescription(userMessage) ||
-      null;
-    const parentId = working.newParentTopicId ?? null;
-
-    const topicInsert: ConversationTopicInsert = {
-      conversation_id: conversationId,
-      label: label.slice(0, 120),
-      description: description ?? null,
-      parent_topic_id: parentId,
-      summary: working.newTopicSummary?.trim() || description || null,
-    };
-
-    const { data: inserted, error } = await supabase
-      .from("conversation_topics")
-      .insert([topicInsert])
-      .select()
-      .single();
-
-    if (error || !inserted) {
-      throw new Error("[topic-router] Failed to insert topic");
-    }
-    working.primaryTopicId = inserted.id;
-    console.log(
-      `[topic-router] Created topic ${inserted.id} label="${inserted.label}" parent=${
-        inserted.parent_topic_id ?? "none"
-      }`
-    );
-    return working;
-  }
-
-  if (working.primaryTopicId && working.topicAction === "reopen_existing") {
-    const metaUpdates: Partial<ConversationTopicRow> = {};
-    if (working.newTopicLabel?.trim()) {
-      metaUpdates.label = formatTopicLabel(working.newTopicLabel);
-    }
-    if (working.newTopicDescription?.trim()) {
-      metaUpdates.description = working.newTopicDescription.trim().slice(0, 500);
-    }
-    if (working.newTopicSummary?.trim()) {
-      metaUpdates.summary = working.newTopicSummary.trim().slice(0, 500);
-    }
-    if (Object.keys(metaUpdates).length) {
-      metaUpdates.updated_at = new Date().toISOString();
-      try {
-        await supabase
-          .from("conversation_topics")
-          .update(metaUpdates)
-          .eq("id", working.primaryTopicId);
-        console.log(
-          `[topic-router] Updated topic ${working.primaryTopicId} metadata (label: ${
-            metaUpdates.label ? `"${metaUpdates.label}"` : "unchanged"
-          }, description: ${metaUpdates.description ? "updated" : "unchanged"})`
-        );
-      } catch (updateErr) {
-        console.error("[topic-router] Failed to update topic metadata:", updateErr);
-      }
-    }
-  }
-
-  return working;
-}
-
-async function resolveTopicDecisionWithTools({
-  openai,
-  model,
-  conversationId,
-  supabase,
-  userMessage,
-  userId,
-}: {
-  openai: any;
-  model: string;
-  conversationId: string;
-  supabase: any;
-  userMessage: string;
-  userId: string;
-}): Promise<{ decision: RouterDecision; context: TopicRoutingContext }> {
-  const context = await loadTopicRoutingContext(supabase, conversationId, userMessage);
-  const prompt = buildTopicRouterPrompt(context, userMessage);
-
-  const response = await openai.responses.create({
-    model,
-    instructions: TOPIC_ROUTER_SYSTEM_PROMPT,
-    input: [{ role: "user", type: "message", content: prompt }],
-    tools: [topicToolDefinition],
-    parallel_tool_calls: false,
-    tool_choice: { type: "function", name: "propose_topic_decision" },
-    metadata: { user_id: userId, conversation_id: conversationId },
-  });
-
-  const fnCall = (response.output || []).find(
-    (item: any) => item?.type === "function_call" && item.name === "propose_topic_decision"
-  ) as FunctionToolCall | undefined;
-  if (!fnCall) {
-    throw new Error("[topic-router] No function call returned");
-  }
-
-  let parsedArgs: RouterDecision;
-  try {
-    const args = fnCall.arguments ? JSON.parse(fnCall.arguments) : {};
-    parsedArgs = topicDecisionSchema.parse(args) as RouterDecision;
-  } catch (err) {
-    console.error("[topic-router] Failed to parse function call args:", err);
-    throw new Error("[topic-router] Invalid function call arguments");
-  }
-
-  const decision = await applyTopicDecision({
-    supabase,
-    conversationId,
-    context,
-    decision: parsedArgs,
-    userMessage,
-  });
-
-  return { decision, context };
-}
 
 // Utility: convert a data URL (base64) to a Buffer
 function dataUrlToBuffer(dataUrl: string): Buffer {
@@ -974,30 +142,9 @@ function augmentMemoryStrategyWithHeuristics(
   };
 }
 
-function dedupeFunctionCallMessages(msgs: any[]): any[] {
-  if (!Array.isArray(msgs) || !msgs.length) return [];
-  const seen = new Set<string>();
-  const result: any[] = [];
-  for (const m of msgs) {
-    const id = (m as any)?.id || (m as any)?.call_id || (m as any)?.reasoning_id;
-    const key = typeof id === "string" ? id : JSON.stringify(m);
-    if (seen.has(key)) continue;
-    seen.add(key);
-    result.push(m);
-  }
-  return result;
-}
-
 type MessageRow = Database["public"]["Tables"]["messages"]["Row"];
 type ConversationRow = Database["public"]["Tables"]["conversations"]["Row"];
 type OpenAIClient = any;
-
-// Lightweight per-process cache for recent prefetch/write tool outputs
-// keyed by conversationId + message hash; TTL keeps it short-lived.
-const prefetchCache = new Map<
-  string,
-  { messageHash: string; functionMessages: any[]; expiresAt: number }
->();
 
 let cachedOpenAIConstructor: { new (...args: any[]): OpenAIClient } | null = null;
 async function getOpenAIConstructor(): Promise<{ new (...args: any[]): OpenAIClient }> {
@@ -1039,9 +186,10 @@ const BASE_SYSTEM_PROMPT =
   "- `web_search`: Live internet search for current events, weather, news, prices, etc.\\n" +
   "- `file_search`: Semantic search through uploaded documents\\n\\n" +
   "**Memory Behavior:**\\n" +
-  "- Use tools to fetch only the memories or permanent instructions you need. Do NOT assume they are preloaded.\\n" +
-  "- When asked 'what do you know about me', call the memory/permanent-instruction tools to retrieve context, then answer.\\n" +
-  "- Do NOT claim you lack access; fetch via tools when needed.\\n\\n" +
+  "- User memories are preloaded in the 'Saved Memories' section below\\n" +
+  "- When asked 'what do you know about me', respond based on the memories listed in your instructions\\n" +
+  "- Do NOT say you need to search or list memories - just use what's already provided\\n" +
+  "- Memories are automatically saved based on what users tell you - no manual saving needed\\n\\n" +
   "**Web Search Rules:**\\n" +
   "- Use internal knowledge for timeless concepts, math, or historical context.\\n" +
   "- For questions about current events, market conditions, weather, schedules, releases, or other fast-changing facts, prefer calling `web_search` to gather fresh data.\\n" +
@@ -1092,7 +240,7 @@ function buildPermanentInstructionSummaryForRouter(
   const lines = instructions.slice(0, limit).map((inst) => {
     const summaryContent = inst.content.replace(/\s+/g, " ").trim();
     const titleText = inst.title ? inst.title.replace(/\s+/g, " ").trim() : null;
-    const label = titleText ? `${titleText} – ${summaryContent}` : summaryContent;
+    const label = titleText ? `${titleText} ΓÇô ${summaryContent}` : summaryContent;
     const scopeLabel = inst.scope === "conversation" ? "conversation" : "user";
     return `- [${inst.id} | ${scopeLabel}] ${label}`;
   });
@@ -1715,22 +863,67 @@ export async function POST(request: NextRequest) {
       console.error("[permanent-instructions] Failed to preload instructions:", permInitErr);
     }
 
-    const tModelRouterStart = Date.now();
-    // Get model config using LLM-based routing (with code-based fallback)
-    const modelConfig = await getModelAndReasoningConfigWithLLM(
-      modelFamily,
-      speedMode,
-      message,
-      reasoningEffortHint,
-      usagePercentage,
-      userId,
-      conversationId,
-      {
-        permanentInstructionSummary: permanentInstructionSummaryForRouter,
-        permanentInstructions:
-          (permanentInstructionState?.instructions as unknown as PermanentInstructionToWrite[] | undefined),
-      }
+    let resolvedTopicDecision: RouterDecision;
+    try {
+      resolvedTopicDecision = await decideRoutingForMessage({
+        supabase: supabaseAny,
+        conversationId,
+        userMessage: message,
+      });
+    } catch (topicErr) {
+      console.error("[topic-router] Failed to route message:", topicErr);
+      return NextResponse.json(
+        { error: "Failed to route conversation topic" },
+        { status: 500 }
+      );
+    }
+    console.log(
+      `[topic-router] Decision action=${resolvedTopicDecision.topicAction} primary=${resolvedTopicDecision.primaryTopicId ?? "none"} secondary=${resolvedTopicDecision.secondaryTopicIds.length} artifacts=${resolvedTopicDecision.artifactsToLoad.length}`
     );
+
+    if (
+      userMessageRow &&
+      resolvedTopicDecision.primaryTopicId &&
+      userMessageRow.topic_id !== resolvedTopicDecision.primaryTopicId
+    ) {
+      try {
+        await supabaseAny
+          .from("messages")
+          .update({ topic_id: resolvedTopicDecision.primaryTopicId })
+          .eq("id", userMessageRow.id);
+        userMessageRow = { ...userMessageRow, topic_id: resolvedTopicDecision.primaryTopicId };
+      } catch (topicUpdateErr) {
+        console.error("[topic-router] Failed to tag user message topic:", topicUpdateErr);
+      }
+    }
+
+    if (userMessageRow?.topic_id) {
+      try {
+        await updateTopicSnapshot({
+          supabase: supabaseAny,
+          topicId: userMessageRow.topic_id,
+          latestMessage: userMessageRow,
+        });
+      } catch (snapshotErr) {
+        console.error("[topic-router] Failed to refresh topic snapshot:", snapshotErr);
+      }
+    }
+
+    // Get model config using LLM-based routing (with code-based fallback)
+      const modelConfig = await getModelAndReasoningConfigWithLLM(
+        modelFamily,
+        speedMode,
+        message,
+        reasoningEffortHint,
+        usagePercentage,
+        userId,
+        conversationId,
+        {
+          permanentInstructionSummary: permanentInstructionSummaryForRouter,
+          permanentInstructions:
+            (permanentInstructionState?.instructions as unknown as PermanentInstructionToWrite[] | undefined),
+        }
+      );
     const reasoningEffort = modelConfig.reasoning?.effort ?? "none";
 
     // Log router usage if LLM routing was used
@@ -1762,50 +955,28 @@ export async function POST(request: NextRequest) {
         console.error("[router-usage] Failed to log router usage:", routerUsageErr);
       }
     }
-    // Ignore any memory/permanent-instruction directives from the router model;
-    // the main chat model now owns these responsibilities via function tools.
-    (modelConfig as any).memoriesToWrite = [];
-    (modelConfig as any).memoriesToDelete = [];
-    (modelConfig as any).permanentInstructionsToWrite = [];
-    (modelConfig as any).permanentInstructionsToDelete = [];
-    console.log(`[perf] model routing ms=${Date.now() - tModelRouterStart}`);
 
-    // Lazily initialize OpenAI client once for topic tools and main stream
-    let openai: OpenAIClient | null = null;
-    const ensureOpenAIClient = async (): Promise<OpenAIClient> => {
-      if (openai) return openai;
-      if (!process.env.OPENAI_API_KEY) {
-        throw new Error("OPENAI_API_KEY is not set in environment");
-      }
-      const OpenAIClass = await getOpenAIConstructor();
-      openai = new OpenAIClass({
-        apiKey: process.env.OPENAI_API_KEY,
-      });
-      console.log("OpenAI client initialized successfully");
-      return openai;
-    };
-
-    // Topic decision will be resolved via main model tools before context build; start with fallback.
-    let resolvedTopicDecision: RouterDecision = {
-      topicAction: "continue_active",
-      primaryTopicId:
-        (recentMessages || [])
-          .map((msg: MessageRow) => msg.topic_id)
-          .filter((id: string | null): id is string => Boolean(id))
-          .pop() ?? null,
-      secondaryTopicIds: [],
-      newTopicLabel: "",
-      newTopicDescription: "",
-      newParentTopicId: null,
-      newTopicSummary: "",
-      artifactsToLoad: [],
-    };
-
-    // Pre-topic tagging removed; topic will be finalized after streaming tool outputs are applied.
+    const {
+      messages: contextMessages,
+      source: contextSource,
+      includedTopicIds,
+      summaryCount,
+      artifactCount: artifactMessagesCount,
+    } = await buildContextForMainModel({
+      supabase: supabaseAny,
+      conversationId,
+      routerDecision: resolvedTopicDecision,
+    });
+    console.log(
+      `[context-builder] ${contextSource} mode - context ${contextMessages.length} msgs (summaries: ${summaryCount}, artifacts: ${artifactMessagesCount}, topics: ${
+        includedTopicIds.length ? includedTopicIds.join(", ") : "none"
+      })`
+    );
 
     const allowWebSearch = true;
     const requireWebSearch = forceWebSearch;
 
+    // Load personalization settings and relevant memories using router's memory strategy
     const personalizationSettings = loadPersonalizationSettings();
     const permanentInstructionWrites = (modelConfig as any).permanentInstructionsToWrite || [];
     let permanentInstructionDeletes = (modelConfig as any).permanentInstructionsToDelete || [];
@@ -1831,7 +1002,7 @@ export async function POST(request: NextRequest) {
       }
     } else {
       // Nickname removal or specific name revocation
-      const userWantsNicknameRemoved = /stop\s+call(?:ing)?\s+me|don['’]t\s+call\s+me|do\s+not\s+call\s+me|forget\s+.*call\s+me/i.test(
+      const userWantsNicknameRemoved = /stop\s+call(?:ing)?\s+me|don['ΓÇÖ]t\s+call\s+me|do\s+not\s+call\s+me|forget\s+.*call\s+me/i.test(
         lowerMsg
       );
       const nameMatch = lowerMsg.match(/call\s+me\s+([a-z0-9 .,'\"-]+)/i);
@@ -1886,12 +1057,43 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    let permanentInstructions: PermanentInstructionCacheItem[] =
+    const permanentInstructions: PermanentInstructionCacheItem[] =
       permanentInstructionState?.instructions ?? [];
     const availableMemoryTypes = (modelConfig as any).availableMemoryTypes as string[] | undefined;
     let relevantMemories: MemoryItem[] = [];
-    let functionCallMessages: any[] = [];
-    const CACHE_TTL_MS = 2 * 60 * 1000;
+    try {
+      if (personalizationSettings.referenceSavedMemories) {
+        // Base memory strategy defaults to identity lookup.
+        let memoryStrategy: MemoryStrategy = {
+          types: ["identity"],
+          useSemanticSearch: false,
+          limit: 10,
+        };
+
+        const { strategy: augmentedStrategy, addedTypes } =
+          augmentMemoryStrategyWithHeuristics(
+            memoryStrategy,
+            message,
+            availableMemoryTypes || []
+          );
+        memoryStrategy = augmentedStrategy;
+        if (addedTypes.length) {
+          console.log(`[memory] Heuristic-added memory types: ${addedTypes.join(", ")}`);
+        }
+
+        console.log(`[memory] Using strategy:`, JSON.stringify(memoryStrategy));
+        relevantMemories = await getRelevantMemories(
+          { referenceSavedMemories: true, allowSavingMemory: personalizationSettings.allowSavingMemory },
+          memoryStrategy,
+          userId, // Pass userId for server-side memory fetch
+          conversationId,
+          { availableMemoryTypes }
+        );
+        console.log(`[memory] Loaded ${relevantMemories.length} relevant memories`);
+      }
+    } catch (error) {
+      console.error("[memory] Failed to load memories:", error);
+    }
 
 
     // Inline file include: allow users to embed <<file:relative/path>> tokens which will be replaced by file content.
@@ -2154,147 +1356,11 @@ export async function POST(request: NextRequest) {
   console.log(`[chatApi] Final message length: ${expandedMessageWithAttachments.length} chars`);
   console.log(`[chatApi] Vector store ID: ${vectorStoreId || 'none'}`);
 
-    // Run one tool-first pass with the main model to resolve topic/memory/permanent instructions before streaming.
-    try {
-      const tPreToolsStart = Date.now();
-      const clientForTools = await ensureOpenAIClient();
-      const memHandlers = buildMemoryToolHandlers({
-        userId,
-        conversationId,
-        messageText: expandedMessageWithAttachments,
-        personalizationSettings,
-        availableMemoryTypes: availableMemoryTypes || [],
-      });
-      const baseGetMemories = memHandlers.get_memories;
-      memHandlers.get_memories = async (args) => {
-        const result = await baseGetMemories(args as any);
-        if ((result as any)?.memories) {
-          relevantMemories = (result as any).memories as MemoryItem[];
-        }
-        return result;
-      };
-      const permHandlers = buildPermanentInstructionToolHandlers({
-        userId,
-        conversationId,
-        supabase: supabaseAny,
-        conversation,
-      });
-      const baseWritePerm = permHandlers.write_permanent_instruction;
-      const baseDeletePerm = permHandlers.delete_permanent_instruction;
-      permHandlers.write_permanent_instruction = async (args) => {
-        const result = await baseWritePerm(args as any);
-        permanentInstructionsChanged = true;
-        return result;
-      };
-      permHandlers.delete_permanent_instruction = async (args) => {
-        const result = await baseDeletePerm(args as any);
-        permanentInstructionsChanged = true;
-        return result;
-      };
-      const toolHandlers: Record<string, FunctionToolHandler> = {
-        ...memHandlers,
-        ...permHandlers,
-        propose_topic_decision: async (args: RouterDecision) => {
-          const parsedDecision = topicDecisionSchema.parse(args) as RouterDecision;
-          const context = await loadTopicRoutingContext(
-            supabaseAny,
-            conversationId,
-            expandedMessageWithAttachments
-          );
-          const appliedDecision = await applyTopicDecision({
-            supabase: supabaseAny,
-            conversationId,
-            context,
-            decision: parsedDecision,
-            userMessage: expandedMessageWithAttachments,
-          });
-          resolvedTopicDecision = appliedDecision;
-          if (
-            userMessageRow &&
-            appliedDecision.primaryTopicId &&
-            userMessageRow.topic_id !== appliedDecision.primaryTopicId
-          ) {
-            try {
-              await supabaseAny
-                .from("messages")
-                .update({ topic_id: appliedDecision.primaryTopicId })
-                .eq("id", userMessageRow.id);
-              userMessageRow = { ...userMessageRow, topic_id: appliedDecision.primaryTopicId };
-            } catch (retagErr) {
-              console.error("[topic-router] Failed to retag user message topic (pre-tool):", retagErr);
-            }
-          }
-          return appliedDecision;
-        },
-      };
-      const preToolMessages = [
-        { role: "user" as const, type: "message" as const, content: expandedMessageWithAttachments },
-      ];
-      const preToolTools: Tool[] = [topicToolDefinition, ...memoryToolDefinitions];
-      const { messages: toolMessages } = await runFunctionToolLoop({
-        openai: clientForTools,
-        model: modelConfig.model,
-        instructions:
-          "Before drafting a reply, call tools to route this message to a topic and load or write only the memories and permanent instructions you truly need. Do not provide the final user-facing answer in this step.",
-        messages: preToolMessages,
-        tools: preToolTools,
-        metadata: { user_id: userId, conversation_id: conversationId },
-        handlers: toolHandlers,
-      });
-      functionCallMessages = (toolMessages || []).filter(
-        (msg: any) =>
-          msg?.type === "function_call_output" ||
-          msg?.type === "function_call" ||
-          msg?.type === "reasoning"
-      );
-      console.log(`[perf] pre-tool loop ms=${Date.now() - tPreToolsStart}`);
-    } catch (preToolErr) {
-      console.error("[tools] pre-tool loop failed:", preToolErr);
-    }
-
-    // Reload permanent instructions if any tool wrote/removed them
-    if (permanentInstructionsChanged || !permanentInstructionState) {
-      try {
-        const loadResult = await loadPermanentInstructions({
-          supabase: supabaseAny,
-          userId,
-          conversationId,
-          conversation,
-          forceRefresh: true,
-        });
-        permanentInstructionState = loadResult;
-        permanentInstructions = permanentInstructionState?.instructions ?? [];
-      } catch (permReloadErr) {
-        console.error("[permanent-instructions] Failed to refresh instructions (post tools):", permReloadErr);
-      }
-    }
-
-    const tContextStart = Date.now();
-    const {
-      messages: contextMessages,
-      source: contextSource,
-      includedTopicIds,
-      summaryCount,
-      artifactCount: artifactMessagesCount,
-    } = await buildContextForMainModel({
-      supabase: supabaseAny,
-      conversationId,
-      routerDecision: resolvedTopicDecision,
-    });
-    console.log(`[perf] context build ms=${Date.now() - tContextStart}`);
-    console.log(
-      `[context-builder] ${contextSource} mode - context ${contextMessages.length} msgs (summaries: ${summaryCount}, artifacts: ${artifactMessagesCount}, topics: ${
-        includedTopicIds.length ? includedTopicIds.join(", ") : "none"
-      })`
-    );
-
-    openai = await ensureOpenAIClient();
-
-    // Build instructions from system prompts with personalization (preloaded from tool results)
+  // Build instructions from system prompts with personalization and memories
     const baseSystemInstructions = [
       BASE_SYSTEM_PROMPT,
       "You can inline-read files when the user includes tokens like <<file:relative/path/to/file>> in their prompt. Replace those tokens with the file content and use it in your reasoning.",
-      ...(location ? [`User's location: ${location.city} (${location.lat.toFixed(4)}, ${location.lng.toFixed(4)}). Use this for location-specific queries like weather, local events, or \"near me\" searches.`] : []),
+      ...(location ? [`User's location: ${location.city} (${location.lat.toFixed(4)}, ${location.lng.toFixed(4)}). Use this for location-specific queries like weather, local events, or "near me" searches.`] : []),
       ...(forceWebSearch ? [FORCE_WEB_SEARCH_PROMPT] : []),
       ...(allowWebSearch && requireWebSearch && !forceWebSearch ? [EXPLICIT_WEB_SEARCH_PROMPT] : []),
     ].join("\n\n");
@@ -2341,16 +1407,48 @@ export async function POST(request: NextRequest) {
       } catch {}
     }
 
-    const dedupedFunctionMessages = dedupeFunctionCallMessages(functionCallMessages);
-  const messagesForAPI = [
+    const messagesForAPI = [
       ...contextMessages,
       {
         role: "user" as const,
         content: userContentParts,
         type: "message",
       },
-      ...dedupedFunctionMessages,
     ];
+
+    // Initialize OpenAI client - use dynamic import to avoid hard dependency at build time
+    let openai: OpenAIClient;
+    
+    // Debug: Check if API key is set
+    if (!process.env.OPENAI_API_KEY) {
+      console.error("OPENAI_API_KEY is not set in environment");
+      return NextResponse.json(
+        {
+          error: "OpenAI API key not configured",
+          details: "OPENAI_API_KEY environment variable is missing",
+        },
+        { status: 500 }
+      );
+    }
+    try {
+      const OpenAIClass = await getOpenAIConstructor();
+      openai = new OpenAIClass({
+        apiKey: process.env.OPENAI_API_KEY,
+      });
+      console.log("OpenAI client initialized successfully");
+    } catch (importError) {
+      console.error(
+        "OpenAI SDK not installed. Please run: npm install openai",
+        importError
+      );
+      return NextResponse.json(
+        {
+          error:
+            "OpenAI SDK not configured. Please install the openai package and set OPENAI_API_KEY.",
+        },
+        { status: 500 }
+      );
+    }
 
     // Use generic Tool to avoid strict preview-only type union on WebSearchTool in SDK types
     const webSearchTool: Tool = { type: "web_search" as any };
@@ -2360,7 +1458,7 @@ export async function POST(request: NextRequest) {
     // No need for save_memory tool - router decides what to save based on user prompts
     
     const toolsForRequest: any[] = [];
-
+    
     if (allowWebSearch) {
       toolsForRequest.push(webSearchTool);
     }
@@ -2427,7 +1525,7 @@ export async function POST(request: NextRequest) {
         streamOptions.metadata.project_id = projectId;
       }
       if (toolsForRequest.length) {
-        streamOptions.tools = [...toolsForRequest];
+        streamOptions.tools = toolsForRequest;
       }
       if (toolChoice) {
         streamOptions.tool_choice = toolChoice;
@@ -2438,10 +1536,9 @@ export async function POST(request: NextRequest) {
       if (typeof useFlex !== 'undefined' && useFlex) {
         streamOptions.service_tier = "flex";
       }
-      const clientForStream = openai ?? (await ensureOpenAIClient());
       const streamStartTimeoutMs = 20_000;
       const streamStartPromise = (async () => {
-        responseStream = await clientForStream.responses.stream(streamOptions);
+        responseStream = await openai.responses.stream(streamOptions);
         return "started" as const;
       })();
 
@@ -2503,11 +1600,6 @@ export async function POST(request: NextRequest) {
     const liveSearchDomainList: string[] = [];
     let assistantMessageRow: MessageRow | null = null;
     let assistantInsertPromise: Promise<MessageRow | null> | null = null;
-    const streamedFunctionCalls: Array<{ id?: string; call_id?: string; name?: string; arguments?: string }> = [];
-    const functionCallBuffer: Record<
-      string,
-      { id?: string; call_id?: string; name?: string; arguments: string }
-    > = {};
 
     const readableStream = new ReadableStream({
       async start(controller) {
@@ -2624,52 +1716,7 @@ export async function POST(request: NextRequest) {
             if (chunkMetadata) {
               noteDomainsFromMetadataChunk(chunkMetadata);
             }
-            if (
-              event.type === "response.output_item.added" &&
-              (event as any).item?.type === "function_call"
-            ) {
-              const item = (event as any).item as any;
-              functionCallBuffer[item.id || item.call_id || crypto.randomUUID()] = {
-                id: item.id,
-                call_id: item.call_id,
-                name: item.name,
-                arguments: item.arguments || "",
-              };
-            } else if (event.type === "response.function_call_arguments.delta") {
-              const itemId = (event as any).item_id as string | undefined;
-              const delta = (event as any).delta as string | undefined;
-              if (itemId && typeof delta === "string") {
-                if (!functionCallBuffer[itemId]) {
-                  functionCallBuffer[itemId] = { arguments: "" };
-                }
-                functionCallBuffer[itemId].arguments += delta;
-              }
-            } else if (event.type === "response.function_call_arguments.done") {
-              const item = (event as any).item as any;
-              const id = item?.id || item?.call_id;
-              const existing = id ? functionCallBuffer[id] : null;
-              if (id) {
-                functionCallBuffer[id] = {
-                  id: item?.id,
-                  call_id: item?.call_id,
-                  name: item?.name,
-                  arguments: item?.arguments || existing?.arguments || "",
-                };
-              }
-            } else if (
-              event.type === "response.output_item.done" &&
-              (event as any).item?.type === "function_call"
-            ) {
-              const item = (event as any).item as any;
-              const key = item.id || item.call_id || crypto.randomUUID();
-              const buffered = functionCallBuffer[key] || {};
-              streamedFunctionCalls.push({
-                id: item.id ?? buffered.id,
-                call_id: item.call_id ?? buffered.call_id,
-                name: item.name ?? buffered.name,
-                arguments: item.arguments ?? buffered.arguments ?? "",
-              });
-            } else if (event.type === "response.output_text.delta" && event.delta) {
+            if (event.type === "response.output_text.delta" && event.delta) {
               const token = event.delta;
               assistantContent += token;
               if (!assistantInsertPromise) {
@@ -2744,114 +1791,6 @@ export async function POST(request: NextRequest) {
           const finalResponse = await responseStream.finalResponse();
           if (finalResponse.output_text) {
             assistantContent = finalResponse.output_text;
-          }
-          if (streamedFunctionCalls.length) {
-            console.log(`[tools] streamed function calls captured=${streamedFunctionCalls.length}`);
-          }
-
-          // Apply any topic decisions emitted via streamed tool calls
-          const streamedTopicCall = streamedFunctionCalls.find(
-            (c) => c.name === "propose_topic_decision"
-          );
-          if (streamedTopicCall) {
-            try {
-              const args = streamedTopicCall.arguments ? JSON.parse(streamedTopicCall.arguments) : {};
-              const parsedDecision = topicDecisionSchema.parse(args) as RouterDecision;
-              const context = await loadTopicRoutingContext(
-                supabaseAny,
-                conversationId,
-                expandedMessageWithAttachments
-              );
-              const appliedDecision = await applyTopicDecision({
-                supabase: supabaseAny,
-                conversationId,
-                context,
-                decision: parsedDecision,
-                userMessage: expandedMessageWithAttachments,
-              });
-              if (
-                appliedDecision &&
-                appliedDecision.primaryTopicId &&
-                appliedDecision.primaryTopicId !== resolvedTopicDecision.primaryTopicId
-              ) {
-                resolvedTopicDecision = appliedDecision;
-                // Update user message topic if needed
-                if (
-                  userMessageRow &&
-                  userMessageRow.topic_id !== resolvedTopicDecision.primaryTopicId
-                ) {
-                  try {
-                    await supabaseAny
-                      .from("messages")
-                      .update({ topic_id: resolvedTopicDecision.primaryTopicId })
-                      .eq("id", userMessageRow.id);
-                    userMessageRow = { ...userMessageRow, topic_id: resolvedTopicDecision.primaryTopicId };
-                  } catch (topicUpdateErr) {
-                    console.error("[topic-router] Failed to retag user message topic (streamed):", topicUpdateErr);
-                  }
-                }
-              }
-            } catch (streamTopicErr) {
-              console.error("[topic-router] Failed to apply streamed topic decision:", streamTopicErr);
-            }
-          }
-
-          // Apply memory/permanent-instruction writes/deletes emitted via streamed tool calls
-          if (streamedFunctionCalls.length) {
-            try {
-              const memHandlers = buildMemoryToolHandlers({
-                userId,
-                conversationId,
-                messageText: expandedMessageWithAttachments,
-                personalizationSettings,
-                availableMemoryTypes: availableMemoryTypes || [],
-              });
-              const permHandlers = buildPermanentInstructionToolHandlers({
-                userId,
-                conversationId,
-                supabase: supabaseAny,
-                conversation,
-              });
-
-              for (const call of streamedFunctionCalls) {
-                const name = call.name;
-                if (!name) continue;
-                let parsedArgs: any = {};
-                try {
-                  parsedArgs = call.arguments ? JSON.parse(call.arguments) : {};
-                } catch (err) {
-                  console.error(`[tools] Failed to parse args for ${name}:`, err);
-                  continue;
-                }
-
-                if (name === "write_memory" || name === "delete_memory" || name === "get_memories") {
-                  const handler = (memHandlers as any)[name];
-                  if (!handler) continue;
-                  if (name === "write_memory" && !personalizationSettings.allowSavingMemory) {
-                    continue;
-                  }
-                  try {
-                    await handler(parsedArgs);
-                  } catch (memErr) {
-                    console.error(`[tools] Memory handler failed for ${name}:`, memErr);
-                  }
-                } else if (
-                  name === "write_permanent_instruction" ||
-                  name === "delete_permanent_instruction" ||
-                  name === "get_permanent_instructions"
-                ) {
-                  const handler = (permHandlers as any)[name];
-                  if (!handler) continue;
-                  try {
-                    await handler(parsedArgs);
-                  } catch (permErr) {
-                    console.error(`[tools] Permanent instruction handler failed for ${name}:`, permErr);
-                  }
-                }
-              }
-            } catch (applyErr) {
-              console.error("[tools] Failed applying streamed memory/permanent calls:", applyErr);
-            }
           }
 
           // Extract usage information for cost tracking
@@ -3023,6 +1962,40 @@ export async function POST(request: NextRequest) {
               },
             });
           } else {
+            try {
+              const memoriesToWrite = (modelConfig as any).memoriesToWrite || [];
+              if (personalizationSettings.allowSavingMemory && memoriesToWrite.length > 0) {
+                console.log(`[router-memory] Writing ${memoriesToWrite.length} memories from router decision`);
+
+                for (const memory of memoriesToWrite) {
+                  await writeMemory({
+                    type: memory.type,
+                    title: memory.title,
+                    content: memory.content,
+                    enabled: true,
+                    conversationId,
+                  });
+                  console.log(`[router-memory] Wrote memory: ${memory.title} (type: ${memory.type})`);
+                }
+              }
+
+              const memoriesToDelete = (modelConfig as any).memoriesToDelete || [];
+              if (memoriesToDelete.length > 0) {
+                console.log(`[router-memory] Deleting ${memoriesToDelete.length} memories from router decision`);
+
+                for (const memDel of memoriesToDelete) {
+                  try {
+                    await deleteMemory(memDel.id, userId);
+                    console.log(`[router-memory] Deleted memory: ${memDel.id} (reason: ${memDel.reason})`);
+                  } catch (delErr) {
+                    console.error(`[router-memory] Failed to delete memory ${memDel.id}:`, delErr);
+                  }
+                }
+              }
+            } catch (memError) {
+              console.error("[router-memory] Failed to write/delete memories from router:", memError);
+            }
+
             enqueueJson({
               meta: {
                 assistantMessageRowId: assistantRowForMeta.id,
@@ -3048,10 +2021,9 @@ export async function POST(request: NextRequest) {
                 console.error("[topic-router] Failed to refresh topic snapshot for assistant:", snapshotErr);
               }
               try {
-                const openaiForMeta = openai ?? (await ensureOpenAIClient());
                 await refreshTopicMetadata({
                   supabase: supabaseAny,
-                  openai: openaiForMeta,
+                  openai,
                   topicId: assistantRowForMeta.topic_id,
                   conversationId,
                 });
