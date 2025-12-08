@@ -745,8 +745,6 @@ export async function POST(request: NextRequest) {
 
     const supabase = await supabaseServer();
     const supabaseAny = supabase as any;
-    const isVeryShortMessage =
-      message.trim().length <= 12 && (!attachments || attachments.length === 0);
 
     // Validate conversation exists and belongs to current user
     const { data: conversationData, error: convError } = await supabaseAny
@@ -866,36 +864,18 @@ export async function POST(request: NextRequest) {
     }
 
     let resolvedTopicDecision: RouterDecision;
-    if (isVeryShortMessage) {
-      const lastTopicId =
-        (recentMessages || [])
-          .map((msg: any) => msg.topic_id)
-          .filter((id: string | null): id is string => Boolean(id))
-          .pop() ?? null;
-      resolvedTopicDecision = {
-        topicAction: "continue_active",
-        primaryTopicId: lastTopicId,
-        secondaryTopicIds: [],
-        newTopicLabel: "",
-        newTopicDescription: "",
-        newParentTopicId: null,
-        newTopicSummary: "",
-        artifactsToLoad: [],
-      };
-    } else {
-      try {
-        resolvedTopicDecision = await decideRoutingForMessage({
-          supabase: supabaseAny,
-          conversationId,
-          userMessage: message,
-        });
-      } catch (topicErr) {
-        console.error("[topic-router] Failed to route message:", topicErr);
-        return NextResponse.json(
-          { error: "Failed to route conversation topic" },
-          { status: 500 }
-        );
-      }
+    try {
+      resolvedTopicDecision = await decideRoutingForMessage({
+        supabase: supabaseAny,
+        conversationId,
+        userMessage: message,
+      });
+    } catch (topicErr) {
+      console.error("[topic-router] Failed to route message:", topicErr);
+      return NextResponse.json(
+        { error: "Failed to route conversation topic" },
+        { status: 500 }
+      );
     }
     console.log(
       `[topic-router] Decision action=${resolvedTopicDecision.topicAction} primary=${resolvedTopicDecision.primaryTopicId ?? "none"} secondary=${resolvedTopicDecision.secondaryTopicIds.length} artifacts=${resolvedTopicDecision.artifactsToLoad.length}`
@@ -930,28 +910,20 @@ export async function POST(request: NextRequest) {
     }
 
     // Get model config using LLM-based routing (with code-based fallback)
-      const modelConfig = isVeryShortMessage
-        ? {
-            model: "gpt-5-nano-2025-08-07",
-            resolvedFamily: "gpt-5-nano",
-            reasoning: { effort: "low" as ReasoningEffort },
-            routedBy: "code",
-            availableMemoryTypes: [],
-          }
-        : await getModelAndReasoningConfigWithLLM(
-            modelFamily,
-            speedMode,
-            message,
-            reasoningEffortHint,
-            usagePercentage,
-            userId,
-            conversationId,
-            {
-              permanentInstructionSummary: permanentInstructionSummaryForRouter,
-              permanentInstructions:
-                (permanentInstructionState?.instructions as unknown as PermanentInstructionToWrite[] | undefined),
-            }
-          );
+      const modelConfig = await getModelAndReasoningConfigWithLLM(
+        modelFamily,
+        speedMode,
+        message,
+        reasoningEffortHint,
+        usagePercentage,
+        userId,
+        conversationId,
+        {
+          permanentInstructionSummary: permanentInstructionSummaryForRouter,
+          permanentInstructions:
+            (permanentInstructionState?.instructions as unknown as PermanentInstructionToWrite[] | undefined),
+        }
+      );
     const reasoningEffort = modelConfig.reasoning?.effort ?? "none";
 
     // Log router usage if LLM routing was used
@@ -1903,7 +1875,7 @@ export async function POST(request: NextRequest) {
               userRequestedFamily: modelFamily,
               userRequestedSpeedMode: speedMode,
               userRequestedReasoningEffort: reasoningEffortHint,
-              routedBy: (modelConfig.routedBy ?? "code") as "code" | "llm" | "code-fallback" | "cache",
+              routedBy: modelConfig.routedBy, // Track routing method
             },
             content: assistantContent,
             thinkingDurationMs,
