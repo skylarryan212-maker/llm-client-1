@@ -1785,40 +1785,21 @@ export async function POST(request: NextRequest) {
       return openai;
     };
 
-    // Topic routing via main chat model + tool call
-    let resolvedTopicDecision: RouterDecision;
-    try {
-      const client = await ensureOpenAIClient();
-      const topicResult = await resolveTopicDecisionWithTools({
-        openai: client,
-        model: modelConfig.model,
-        conversationId,
-        supabase: supabaseAny,
-        userMessage: message,
-        userId,
-      });
-      resolvedTopicDecision = topicResult.decision;
-      console.log(
-        `[topic-router] Decision action=${resolvedTopicDecision.topicAction} primary=${resolvedTopicDecision.primaryTopicId ?? "none"} secondary=${resolvedTopicDecision.secondaryTopicIds.length} artifacts=${resolvedTopicDecision.artifactsToLoad.length}`
-      );
-    } catch (topicErr) {
-      console.error("[topic-router] Failed to route message via tools:", topicErr);
-      const lastTopicId =
+    // Topic decision will be handled via streamed tool calls; start with a fallback.
+    let resolvedTopicDecision: RouterDecision = {
+      topicAction: "continue_active",
+      primaryTopicId:
         (recentMessages || [])
           .map((msg: MessageRow) => msg.topic_id)
           .filter((id: string | null): id is string => Boolean(id))
-          .pop() ?? null;
-      resolvedTopicDecision = {
-        topicAction: "continue_active",
-        primaryTopicId: lastTopicId,
-        secondaryTopicIds: [],
-        newTopicLabel: "",
-        newTopicDescription: "",
-        newParentTopicId: null,
-        newTopicSummary: "",
-        artifactsToLoad: [],
-      };
-    }
+          .pop() ?? null,
+      secondaryTopicIds: [],
+      newTopicLabel: "",
+      newTopicDescription: "",
+      newParentTopicId: null,
+      newTopicSummary: "",
+      artifactsToLoad: [],
+    };
 
     if (
       userMessageRow &&
