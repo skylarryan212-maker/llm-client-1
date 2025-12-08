@@ -1,13 +1,9 @@
 // app/page.tsx
-import dynamic from "next/dynamic";
+"use client";
 
-// Disable SSR for the shell on the root page to avoid hydration mismatches when
-// client-only state (e.g., media queries, localStorage-backed flags) diverges.
-const ChatPageShell = dynamic(() => import("@/components/chat/chat-page-shell"), {
-  ssr: false,
-});
+import ChatPageShell from "@/components/chat/chat-page-shell";
 
-export default async function HomePage() {
+export default function HomePage() {
   return (
     <main className="h-[100dvh] max-h-[100dvh] overflow-hidden bg-background">
       <ChatPageShell
