@@ -671,7 +671,7 @@ export default function ChatPageShell({
     }
   }, [currentChat, selectedChatId]);
 
-  type UploadedFragment = { id: string; name: string; dataUrl: string; mime?: string };
+  type UploadedFragment = { id: string; name: string; dataUrl?: string; url?: string; mime?: string };
 
   const streamGuestResponse = async (
     assistantId: string,
@@ -785,7 +785,15 @@ export default function ChatPageShell({
       role: "user",
       content: message,
       timestamp: now,
-      metadata: attachments && attachments.length ? { files: attachments.map(a => ({ name: a.name, mimeType: a.mime, dataUrl: a.dataUrl })) } : undefined,
+      metadata: attachments && attachments.length
+        ? {
+            files: attachments.map(a => ({
+              name: a.name,
+              mimeType: a.mime,
+              url: a.url ?? a.dataUrl,
+            })),
+          }
+        : undefined,
     };
 
     if (isGuest) {
@@ -840,6 +848,7 @@ export default function ChatPageShell({
                     name: a.name,
                     mimeType: a.mime,
                     dataUrl: a.dataUrl,
+                    url: a.url,
                   })),
                 }
               : undefined,
@@ -886,6 +895,7 @@ export default function ChatPageShell({
                     name: a.name,
                     mimeType: a.mime,
                     dataUrl: a.dataUrl,
+                    url: a.url,
                   })),
                 }
               : undefined,

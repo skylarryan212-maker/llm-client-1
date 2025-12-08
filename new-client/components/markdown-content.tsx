@@ -36,7 +36,7 @@ export function MarkdownContent({ content }: MarkdownContentProps) {
   }
 
   return (
-    <div className="prose prose-invert max-w-none prose-p:leading-relaxed prose-pre:p-0 prose-pre:bg-transparent w-full break-words overflow-x-visible">
+    <div className="prose prose-invert max-w-none prose-p:leading-relaxed prose-pre:p-0 prose-pre:bg-transparent w-full break-words overflow-x-hidden max-w-full">
       <ReactMarkdown
         remarkPlugins={[remarkGfm, remarkMath]}
         rehypePlugins={[rehypeKatex, rehypeRaw]}
@@ -142,7 +142,7 @@ export function MarkdownContent({ content }: MarkdownContentProps) {
           if (!inline && language) {
             // Code block with syntax highlighting
             return (
-              <div className="my-4 rounded-lg border border-border bg-[#1e1e1e]">
+              <div className="my-4 rounded-lg border border-border bg-[#1e1e1e] max-w-full overflow-hidden">
                 <div className="flex items-center justify-between border-b border-border/50 bg-[#252526] px-4 py-2 rounded-t-lg">
                   <span className="text-xs font-mono text-muted-foreground">{language}</span>
                   <Button
@@ -164,7 +164,7 @@ export function MarkdownContent({ content }: MarkdownContentProps) {
                     )}
                   </Button>
                 </div>
-                <div className="overflow-x-auto rounded-b-lg">
+                <div className="overflow-x-auto rounded-b-lg max-w-full touch-pan-x">
                   <SyntaxHighlighter
                     language={language}
                     style={vscDarkPlus}
