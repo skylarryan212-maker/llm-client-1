@@ -87,28 +87,6 @@ const LONG_PROMPT_THRESHOLD = 360;
 const MEDIUM_PROMPT_THRESHOLD = 640;
 const HIGH_PROMPT_THRESHOLD = 900;
 
-const ACKNOWLEDGEMENT_PATTERNS = [
-  /^thanks?\b/,
-  /^thank you\b/,
-  /^thx\b/,
-  /^ok\b/,
-  /^okay\b/,
-  /^cool\b/,
-  /^awesome\b/,
-  /^sounds good\b/,
-  /^looks good\b/,
-  /^great\b/,
-  /^perfect\b/,
-  /^nice\b/,
-  /^got it\b/,
-  /^understood\b/,
-  /^makes sense\b/,
-  /^appreciate\b/,
-  /^cheers\b/,
-  /^lol\b/,
-  /^haha\b/,
-];
-
 interface RouterRequestOptions {
   permanentInstructionSummary?: string;
   permanentInstructions?: PermanentInstructionToWrite[];

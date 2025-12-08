@@ -775,8 +775,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Last assistant message used for router cache comparisons and metadata
-    const lastAssistantMessage = recentMessages?.findLast((m: MessageRow) => m.role === "assistant");
     // Optionally insert the user message unless the client indicates it's already persisted (e.g., first send via server action, or retry)
     let userMessageRow: MessageRow | null = null;
     let permanentInstructionState: { instructions: PermanentInstructionCacheItem[]; metadata: ConversationRow["metadata"] } | null = null;
