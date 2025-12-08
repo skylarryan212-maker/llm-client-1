@@ -1850,16 +1850,16 @@ export async function POST(request: NextRequest) {
 
     const tContextStart = Date.now();
     const {
-      messages: contextMessages,
-      source: contextSource,
-      includedTopicIds,
-      summaryCount,
-      artifactCount: artifactMessagesCount,
-    } = await buildContextForMainModel({
-      supabase: supabaseAny,
-      conversationId,
-      routerDecision: resolvedTopicDecision,
-    });
+        messages: contextMessages,
+        source: contextSource,
+        includedTopicIds,
+        summaryCount,
+        artifactCount: artifactMessagesCount,
+      } = await buildContextForMainModel({
+        supabase: supabaseAny,
+        conversationId,
+        routerDecision: resolvedTopicDecision,
+      });
     console.log(`[perf] context build ms=${Date.now() - tContextStart}`);
     console.log(
       `[context-builder] ${contextSource} mode - context ${contextMessages.length} msgs (summaries: ${summaryCount}, artifacts: ${artifactMessagesCount}, topics: ${
@@ -2825,6 +2825,53 @@ export async function POST(request: NextRequest) {
           }
           if (streamedFunctionCalls.length) {
             console.log(`[tools] streamed function calls captured=${streamedFunctionCalls.length}`);
+          }
+
+          // Apply any topic decisions emitted via streamed tool calls
+          const streamedTopicCall = streamedFunctionCalls.find(
+            (c) => c.name === "propose_topic_decision"
+          );
+          if (streamedTopicCall) {
+            try {
+              const args = streamedTopicCall.arguments ? JSON.parse(streamedTopicCall.arguments) : {};
+              const parsedDecision = topicDecisionSchema.parse(args) as RouterDecision;
+              const context = await loadTopicRoutingContext(
+                supabaseAny,
+                conversationId,
+                expandedMessageWithAttachments
+              );
+              const appliedDecision = await applyTopicDecision({
+                supabase: supabaseAny,
+                conversationId,
+                context,
+                decision: parsedDecision,
+                userMessage: expandedMessageWithAttachments,
+              });
+              if (
+                appliedDecision &&
+                appliedDecision.primaryTopicId &&
+                appliedDecision.primaryTopicId !== resolvedTopicDecision.primaryTopicId
+              ) {
+                resolvedTopicDecision = appliedDecision;
+                // Update user message topic if needed
+                if (
+                  userMessageRow &&
+                  userMessageRow.topic_id !== resolvedTopicDecision.primaryTopicId
+                ) {
+                  try {
+                    await supabaseAny
+                      .from("messages")
+                      .update({ topic_id: resolvedTopicDecision.primaryTopicId })
+                      .eq("id", userMessageRow.id);
+                    userMessageRow = { ...userMessageRow, topic_id: resolvedTopicDecision.primaryTopicId };
+                  } catch (topicUpdateErr) {
+                    console.error("[topic-router] Failed to retag user message topic (streamed):", topicUpdateErr);
+                  }
+                }
+              }
+            } catch (streamTopicErr) {
+              console.error("[topic-router] Failed to apply streamed topic decision:", streamTopicErr);
+            }
           }
 
           // Extract usage information for cost tracking
