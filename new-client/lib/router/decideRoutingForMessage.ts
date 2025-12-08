@@ -1,4 +1,4 @@
-import type { SupabaseClient } from "@supabase/supabase-js";
+﻿import type { SupabaseClient } from "@supabase/supabase-js";
 import { z } from "zod";
 import type {
   Database,
@@ -254,8 +254,8 @@ function buildRouterPrompt(payload: RouterContextPayload, userMessage: string): 
 const TOPIC_ROUTER_SYSTEM_PROMPT = `You organize a single conversation into lightweight topics and subtopics.
 
 Definitions:
-- A topic captures a cohesive subject within the conversation (e.g., “Billing API refactor”).
-- A subtopic is nested beneath one topic when a narrower thread emerges (e.g., “Billing API refactor -> data model”).
+- A topic captures a cohesive subject within the conversation (e.g., â€œBilling API refactorâ€).
+- A subtopic is nested beneath one topic when a narrower thread emerges (e.g., â€œBilling API refactor -> data modelâ€).
 - Artifacts are named resources (schemas, specs, code) that can be reused later.
 
 Outputs must obey this JSON schema (no markdown, no commentary):
@@ -281,16 +281,15 @@ Rules:
    - You may create unlimited subtopics under a top-level topic that has meaningful content, but DO NOT create a subtopic under another subtopic. Subtopics must be direct children of a top-level topic only (e.g., "IFR vs VFR" under "Aviation" is allowed; "Deep dive" under "IFR vs VFR" is not).
 3. Model-selection constraints:
    - Treat the previous model on a topic as the minimum baseline whenever topicAction is "continue_active". Capability tiers from highest to lowest: gpt-5.1, gpt-5-mini, gpt-5-nano.
-   - You may keep the same tier, upgrade, or (only if the new message is extremely simple/low-stakes and does not depend on detailed continuity) downgrade by two tiers (e.g., gpt-5.1 → gpt-5-nano). One-tier downgrades on continuing topics (gpt-5.1 → gpt-5-mini or gpt-5-mini → gpt-5-nano) are forbidden. If you find yourself considering a one-tier drop, override that instinct and stay at the previous tier.
+   - You may keep the same tier, upgrade, or (only if the new message is extremely simple/low-stakes and does not depend on detailed continuity) downgrade by two tiers (e.g., gpt-5.1 â†’ gpt-5-nano). One-tier downgrades on continuing topics (gpt-5.1 â†’ gpt-5-mini or gpt-5-mini â†’ gpt-5-nano) are forbidden. If you find yourself considering a one-tier drop, override that instinct and stay at the previous tier.
 4. Artifacts and cross-topic references:
    - ALWAYS select artifacts that materially help answer the message (reuse existing specs or schemas rather than re-creating them).
    - Use secondaryTopicIds when information from another topic will clearly be referenced.
 5. Topic naming and summaries:
-   - Name topics in ≤5 title-case words that describe the subject ("Hair Styling Routine", "Dry Finish Spray Tips") rather than repeating the literal question text. Subtopics should be equally short and reflect the narrower scope.
-   - Always include or update the topic description when the user reframes the objective. Descriptions should be 1–2 sentences explaining the goal, and newTopicSummary must be a concise synopsis (no transcripts).
+   - Name topics in 3–5 title-case words that describe the subject ("Hair Styling Routine", "Dry Finish Spray Tips") rather than repeating the literal question text. Subtopics should be equally short and reflect the narrower scope.
+   - Keep outputs ultra-short: newTopicLabel ≤ 60 chars; newTopicDescription ≤ 120 chars (single sentence); newTopicSummary ≤ 160 chars (single-sentence synopsis, no transcript). Shorten further if unsure.
 6. Parent/subtopic creation:
-   - Only request new parent/subtopic IDs when the user truly shifts focus and the parent topic is clearly defined; otherwise keep the topic top-level.
-7. No invented IDs:
+   - Only request new parent/subtopic IDs when the user truly shifts focus and the parent topic is clearly defined; otherwise keep the topic top-level.7. No invented IDs:
    - Never invent topic or artifact IDs. Only choose from the provided metadata.`;
 
 async function ensureTopicAssignment({
@@ -389,7 +388,7 @@ const LABEL_STOP_WORDS = new Set([
   "i",
   "im",
   "i'm",
-  "i’d",
+  "iâ€™d",
   "need",
   "please",
   "please",
@@ -529,3 +528,13 @@ async function callRouterWithSchema(openai: any, routerPrompt: string): Promise<
   }
   throw lastError || new Error("[topic-router] Router failed after retries");
 }
+
+
+
+
+
+
+
+
+
+
