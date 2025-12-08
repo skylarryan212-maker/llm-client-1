@@ -146,7 +146,7 @@ export async function routeWithLLM(
                     id: { type: "string" },
                     reason: { type: "string" },
                   },
-                  required: ["id"],
+                  required: ["id", "reason"],
                 },
               },
               permanentInstructionsToWrite: {
@@ -159,7 +159,7 @@ export async function routeWithLLM(
                     title: { type: "string" },
                     content: { type: "string" },
                   },
-                  required: ["content"],
+                  required: ["scope", "title", "content"],
                 },
               },
               permanentInstructionsToDelete: {
@@ -171,7 +171,7 @@ export async function routeWithLLM(
                     id: { type: "string" },
                     reason: { type: "string" },
                   },
-                  required: ["id"],
+                  required: ["id", "reason"],
                 },
               },
               routedBy: { type: "string" },
