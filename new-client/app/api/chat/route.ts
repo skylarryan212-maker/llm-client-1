@@ -1708,6 +1708,7 @@ export async function POST(request: NextRequest) {
       console.error("[permanent-instructions] Failed to preload instructions:", permInitErr);
     }
 
+    const tModelRouterStart = Date.now();
     // Get model config using LLM-based routing (with code-based fallback)
     const modelConfig = await getModelAndReasoningConfigWithLLM(
       modelFamily,
@@ -1760,6 +1761,7 @@ export async function POST(request: NextRequest) {
     (modelConfig as any).memoriesToDelete = [];
     (modelConfig as any).permanentInstructionsToWrite = [];
     (modelConfig as any).permanentInstructionsToDelete = [];
+    console.log(`[perf] model routing ms=${Date.now() - tModelRouterStart}`);
 
     // Lazily initialize OpenAI client once for topic tools and main stream
     let openai: OpenAIClient | null = null;
@@ -1839,6 +1841,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    const tContextStart = Date.now();
     const {
       messages: contextMessages,
       source: contextSource,
@@ -1850,6 +1853,7 @@ export async function POST(request: NextRequest) {
       conversationId,
       routerDecision: resolvedTopicDecision,
     });
+    console.log(`[perf] context build ms=${Date.now() - tContextStart}`);
     console.log(
       `[context-builder] ${contextSource} mode - context ${contextMessages.length} msgs (summaries: ${summaryCount}, artifacts: ${artifactMessagesCount}, topics: ${
         includedTopicIds.length ? includedTopicIds.join(", ") : "none"
@@ -2210,6 +2214,7 @@ export async function POST(request: NextRequest) {
     openai = await ensureOpenAIClient();
 
     // Prefetch memories/permanent instructions via tools (no user-visible output)
+    const tPrefetchStart = Date.now();
     if (personalizationSettings.referenceSavedMemories) {
       try {
         const handlers = {
@@ -2266,8 +2271,12 @@ export async function POST(request: NextRequest) {
         console.error("[tools] Prefetch tool loop failed:", prefetchErr);
       }
     }
+    if (personalizationSettings.referenceSavedMemories) {
+      console.log(`[perf] prefetch tools ms=${Date.now() - tPrefetchStart}`);
+    }
 
     // Optional write phase (before streaming) if memory saving is allowed
+    const tWriteStart = Date.now();
     if (personalizationSettings.allowSavingMemory) {
       try {
         const writeHandlers = {
@@ -2321,6 +2330,9 @@ export async function POST(request: NextRequest) {
       } catch (writeErr) {
         console.error("[tools] Write tool loop failed:", writeErr);
       }
+    }
+    if (personalizationSettings.allowSavingMemory) {
+      console.log(`[perf] write tools ms=${Date.now() - tWriteStart}`);
     }
 
     // Build instructions from system prompts with personalization (no preloaded memories)
