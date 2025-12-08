@@ -1063,25 +1063,18 @@ export async function POST(request: NextRequest) {
     let relevantMemories: MemoryItem[] = [];
     try {
       if (personalizationSettings.referenceSavedMemories) {
-        // Base memory strategy defaults to identity lookup.
-        let memoryStrategy: MemoryStrategy = {
-          types: ["identity"],
+        // Use router-provided memory types (when available) instead of heuristics.
+        const memoryTypes =
+          Array.isArray(availableMemoryTypes) && availableMemoryTypes.length
+            ? availableMemoryTypes
+            : ["identity"];
+        const memoryStrategy: MemoryStrategy = {
+          types: memoryTypes,
           useSemanticSearch: false,
           limit: 10,
         };
 
-        const { strategy: augmentedStrategy, addedTypes } =
-          augmentMemoryStrategyWithHeuristics(
-            memoryStrategy,
-            message,
-            availableMemoryTypes || []
-          );
-        memoryStrategy = augmentedStrategy;
-        if (addedTypes.length) {
-          console.log(`[memory] Heuristic-added memory types: ${addedTypes.join(", ")}`);
-        }
-
-        console.log(`[memory] Using strategy:`, JSON.stringify(memoryStrategy));
+        console.log(`[memory] Using router-provided memory types:`, JSON.stringify(memoryStrategy));
         relevantMemories = await getRelevantMemories(
           { referenceSavedMemories: true, allowSavingMemory: personalizationSettings.allowSavingMemory },
           memoryStrategy,
