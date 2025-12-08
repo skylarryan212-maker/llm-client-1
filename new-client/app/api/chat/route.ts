@@ -960,12 +960,8 @@ export async function POST(request: NextRequest) {
       })`
     );
 
-    // Smart web search decision based on router (replaces hardcoded heuristics)
-    const webSearchStrategy = (modelConfig as any).webSearchStrategy || "optional";
-    const allowWebSearch = forceWebSearch || webSearchStrategy !== "never";
-    const requireWebSearch = forceWebSearch || webSearchStrategy === "required";
-    
-    console.log(`[web-search-strategy] Router decision: ${webSearchStrategy} (allow: ${allowWebSearch}, require: ${requireWebSearch})`);
+    const allowWebSearch = true;
+    const requireWebSearch = forceWebSearch;
 
     // Load personalization settings and relevant memories using router's memory strategy
     const personalizationSettings = loadPersonalizationSettings();
