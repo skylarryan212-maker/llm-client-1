@@ -80,7 +80,6 @@ const ROUTER_SYSTEM_PROMPT = `You are a routing assistant that analyzes user pro
   **Structured output requirement**
   Every response must be valid JSON that matches the RouterDecision schema (topicAction, primaryTopicId, secondaryTopicIds, optional newTopic* fields, newParentTopicId, artifactsToLoad). Do not emit prose or explanations—return only the JSON payload.
 `;
-`;
 
 /**
  * Calls GPT 5 Nano to decide model and reasoning effort
