@@ -2221,147 +2221,7 @@ export async function POST(request: NextRequest) {
 
     openai = await ensureOpenAIClient();
 
-    const messageHashForCache = await sha256Hex(expandedMessageWithAttachments || "");
-    const cacheKey = conversationId;
-    const cached = prefetchCache.get(cacheKey);
-    const cacheValid =
-      cached &&
-      cached.messageHash === messageHashForCache &&
-      cached.expiresAt > Date.now() &&
-      Array.isArray(cached.functionMessages);
-
-    if (cacheValid) {
-      functionCallMessages = dedupeFunctionCallMessages(cached!.functionMessages);
-      console.log("[perf] cache hit for tool outputs");
-    } else {
-      const tPrefetchStart = Date.now();
-      const tWriteStart = Date.now();
-
-      const prefetchPromise = personalizationSettings.referenceSavedMemories
-        ? (async () => {
-            try {
-              const handlers = {
-                ...buildMemoryToolHandlers({
-                  userId,
-                  conversationId,
-                  messageText: expandedMessageWithAttachments,
-                  personalizationSettings,
-                  availableMemoryTypes: availableMemoryTypes || [],
-                }),
-                ...buildPermanentInstructionToolHandlers({
-                  userId,
-                  conversationId,
-                  supabase: supabaseAny,
-                  conversation,
-                }),
-              };
-
-              const prefetchMessages = [
-                ...contextMessages,
-                {
-                  role: "user" as const,
-                  content: [{ type: "input_text", text: expandedMessageWithAttachments }],
-                  type: "message",
-                },
-              ];
-
-              const prefetchInstructions =
-                "Before responding to the user, call the available tools (get_memories, get_permanent_instructions) to fetch only what you need. Do not answer the user in this step.";
-
-              const prefetchResult = await runFunctionToolLoop({
-                openai,
-                model: modelConfig.model,
-                instructions: prefetchInstructions,
-                messages: prefetchMessages,
-                tools: memoryToolDefinitions,
-                metadata: { user_id: userId, conversation_id: conversationId },
-                handlers,
-              });
-
-              const fnMsgs = (prefetchResult.messages || []).filter(
-                (m: any) =>
-                  m &&
-                  typeof m === "object" &&
-                  (m.type === "function_call" ||
-                    m.type === "function_call_output" ||
-                    m.type === "reasoning")
-              );
-              if (fnMsgs.length) {
-                functionCallMessages.push(...fnMsgs);
-              }
-            } catch (prefetchErr) {
-              console.error("[tools] Prefetch tool loop failed:", prefetchErr);
-            } finally {
-              console.log(`[perf] prefetch tools ms=${Date.now() - tPrefetchStart}`);
-            }
-          })()
-        : Promise.resolve();
-
-      const writePromise = personalizationSettings.allowSavingMemory
-        ? (async () => {
-            try {
-              const writeHandlers = {
-                ...buildMemoryToolHandlers({
-                  userId,
-                  conversationId,
-                  messageText: expandedMessageWithAttachments,
-                  personalizationSettings,
-                  availableMemoryTypes: availableMemoryTypes || [],
-                }),
-                ...buildPermanentInstructionToolHandlers({
-                  userId,
-                  conversationId,
-                  supabase: supabaseAny,
-                  conversation,
-                }),
-              };
-              const writeMessages = [
-                ...contextMessages,
-                {
-                  role: "user" as const,
-                  content: [{ type: "input_text", text: expandedMessageWithAttachments }],
-                  type: "message",
-                },
-              ];
-              const writeInstructions =
-                "If this message contains durable facts, names, preferences, or instructions worth saving, call write_memory or write_permanent_instruction. Do not answer the user in this step.";
-
-              const writeResult = await runFunctionToolLoop({
-                openai,
-                model: modelConfig.model,
-                instructions: writeInstructions,
-                messages: writeMessages,
-                tools: memoryToolDefinitions,
-                metadata: { user_id: userId, conversation_id: conversationId },
-                handlers: writeHandlers,
-              });
-              const writeFnMsgs = (writeResult.messages || []).filter(
-                (m: any) =>
-                  m &&
-                  typeof m === "object" &&
-                  (m.type === "function_call" ||
-                    m.type === "function_call_output" ||
-                    m.type === "reasoning")
-              );
-              if (writeFnMsgs.length) {
-                functionCallMessages.push(...writeFnMsgs);
-              }
-            } catch (writeErr) {
-              console.error("[tools] Write tool loop failed:", writeErr);
-            } finally {
-              console.log(`[perf] write tools ms=${Date.now() - tWriteStart}`);
-            }
-          })()
-        : Promise.resolve();
-
-      await Promise.all([prefetchPromise, writePromise]);
-      functionCallMessages = dedupeFunctionCallMessages(functionCallMessages);
-      prefetchCache.set(cacheKey, {
-        messageHash: messageHashForCache,
-        functionMessages: functionCallMessages,
-        expiresAt: Date.now() + CACHE_TTL_MS,
-      });
-    }
+    // Prefetch/write loops removed; the main stream now owns tool calls.
 
     // Build instructions from system prompts with personalization (no preloaded memories)
     const baseSystemInstructions = [
@@ -2432,14 +2292,17 @@ export async function POST(request: NextRequest) {
     // Memory management is now handled by the router model
     // No need for save_memory tool - router decides what to save based on user prompts
     
-    const toolsForRequest: any[] = [];
-    
-    if (allowWebSearch) {
-      toolsForRequest.push(webSearchTool);
-    }
-    if (vectorStoreId) {
-      toolsForRequest.push(fileSearchTool as Tool);
-    }
+  const toolsForRequest: any[] = [];
+
+  if (allowWebSearch) {
+    toolsForRequest.push(webSearchTool);
+  }
+  if (vectorStoreId) {
+    toolsForRequest.push(fileSearchTool as Tool);
+  }
+  // Allow topic + memory/permanent-instruction tools in the main stream
+  toolsForRequest.push(topicToolDefinition);
+  toolsForRequest.push(...memoryToolDefinitions);
     const toolChoice: ToolChoiceOptions | undefined = allowWebSearch
       ? requireWebSearch
         ? "required"
@@ -2871,6 +2734,64 @@ export async function POST(request: NextRequest) {
               }
             } catch (streamTopicErr) {
               console.error("[topic-router] Failed to apply streamed topic decision:", streamTopicErr);
+            }
+          }
+
+          // Apply memory/permanent-instruction writes/deletes emitted via streamed tool calls
+          if (streamedFunctionCalls.length) {
+            try {
+              const memHandlers = buildMemoryToolHandlers({
+                userId,
+                conversationId,
+                messageText: expandedMessageWithAttachments,
+                personalizationSettings,
+                availableMemoryTypes: availableMemoryTypes || [],
+              });
+              const permHandlers = buildPermanentInstructionToolHandlers({
+                userId,
+                conversationId,
+                supabase: supabaseAny,
+                conversation,
+              });
+
+              for (const call of streamedFunctionCalls) {
+                const name = call.name;
+                if (!name) continue;
+                let parsedArgs: any = {};
+                try {
+                  parsedArgs = call.arguments ? JSON.parse(call.arguments) : {};
+                } catch (err) {
+                  console.error(`[tools] Failed to parse args for ${name}:`, err);
+                  continue;
+                }
+
+                if (name === "write_memory" || name === "delete_memory" || name === "get_memories") {
+                  const handler = (memHandlers as any)[name];
+                  if (!handler) continue;
+                  if (name === "write_memory" && !personalizationSettings.allowSavingMemory) {
+                    continue;
+                  }
+                  try {
+                    await handler(parsedArgs);
+                  } catch (memErr) {
+                    console.error(`[tools] Memory handler failed for ${name}:`, memErr);
+                  }
+                } else if (
+                  name === "write_permanent_instruction" ||
+                  name === "delete_permanent_instruction" ||
+                  name === "get_permanent_instructions"
+                ) {
+                  const handler = (permHandlers as any)[name];
+                  if (!handler) continue;
+                  try {
+                    await handler(parsedArgs);
+                  } catch (permErr) {
+                    console.error(`[tools] Permanent instruction handler failed for ${name}:`, permErr);
+                  }
+                }
+              }
+            } catch (applyErr) {
+              console.error("[tools] Failed applying streamed memory/permanent calls:", applyErr);
             }
           }
 
