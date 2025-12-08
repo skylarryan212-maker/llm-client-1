@@ -2415,7 +2415,7 @@ export async function POST(request: NextRequest) {
     }
 
     const dedupedFunctionMessages = dedupeFunctionCallMessages(functionCallMessages);
-    const messagesForAPI = [
+  const messagesForAPI = [
       ...contextMessages,
       {
         role: "user" as const,
@@ -2581,6 +2581,11 @@ export async function POST(request: NextRequest) {
     const liveSearchDomainList: string[] = [];
     let assistantMessageRow: MessageRow | null = null;
     let assistantInsertPromise: Promise<MessageRow | null> | null = null;
+    const streamedFunctionCalls: Array<{ id?: string; call_id?: string; name?: string; arguments?: string }> = [];
+    const functionCallBuffer: Record<
+      string,
+      { id?: string; call_id?: string; name?: string; arguments: string }
+    > = {};
 
     const readableStream = new ReadableStream({
       async start(controller) {
@@ -2697,7 +2702,52 @@ export async function POST(request: NextRequest) {
             if (chunkMetadata) {
               noteDomainsFromMetadataChunk(chunkMetadata);
             }
-            if (event.type === "response.output_text.delta" && event.delta) {
+            if (
+              event.type === "response.output_item.added" &&
+              (event as any).item?.type === "function_call"
+            ) {
+              const item = (event as any).item as any;
+              functionCallBuffer[item.id || item.call_id || crypto.randomUUID()] = {
+                id: item.id,
+                call_id: item.call_id,
+                name: item.name,
+                arguments: item.arguments || "",
+              };
+            } else if (event.type === "response.function_call_arguments.delta") {
+              const itemId = (event as any).item_id as string | undefined;
+              const delta = (event as any).delta as string | undefined;
+              if (itemId && typeof delta === "string") {
+                if (!functionCallBuffer[itemId]) {
+                  functionCallBuffer[itemId] = { arguments: "" };
+                }
+                functionCallBuffer[itemId].arguments += delta;
+              }
+            } else if (event.type === "response.function_call_arguments.done") {
+              const item = (event as any).item as any;
+              const id = item?.id || item?.call_id;
+              const existing = id ? functionCallBuffer[id] : null;
+              if (id) {
+                functionCallBuffer[id] = {
+                  id: item?.id,
+                  call_id: item?.call_id,
+                  name: item?.name,
+                  arguments: item?.arguments || existing?.arguments || "",
+                };
+              }
+            } else if (
+              event.type === "response.output_item.done" &&
+              (event as any).item?.type === "function_call"
+            ) {
+              const item = (event as any).item as any;
+              const key = item.id || item.call_id || crypto.randomUUID();
+              const buffered = functionCallBuffer[key] || {};
+              streamedFunctionCalls.push({
+                id: item.id ?? buffered.id,
+                call_id: item.call_id ?? buffered.call_id,
+                name: item.name ?? buffered.name,
+                arguments: item.arguments ?? buffered.arguments ?? "",
+              });
+            } else if (event.type === "response.output_text.delta" && event.delta) {
               const token = event.delta;
               assistantContent += token;
               if (!assistantInsertPromise) {
@@ -2772,6 +2822,9 @@ export async function POST(request: NextRequest) {
           const finalResponse = await responseStream.finalResponse();
           if (finalResponse.output_text) {
             assistantContent = finalResponse.output_text;
+          }
+          if (streamedFunctionCalls.length) {
+            console.log(`[tools] streamed function calls captured=${streamedFunctionCalls.length}`);
           }
 
           // Extract usage information for cost tracking
