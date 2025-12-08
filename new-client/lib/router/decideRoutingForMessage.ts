@@ -100,8 +100,28 @@ export async function decideRoutingForMessage(
 
     return resolvedDecision;
   } catch (error) {
-    console.error("[topic-router] Routing failed:", error);
-    throw error;
+    console.error("[topic-router] Routing failed, using fallback:", error);
+    const lastTopicId =
+      payload.recentMessages
+        .map((msg) => msg.topic_id)
+        .filter((id): id is string => Boolean(id))
+        .pop() ?? null;
+    const fallbackDecision: RouterDecision = {
+      topicAction: "continue_active",
+      primaryTopicId: lastTopicId,
+      secondaryTopicIds: [],
+      newTopicLabel: "",
+      newTopicDescription: "",
+      newParentTopicId: null,
+      newTopicSummary: "",
+      artifactsToLoad: [],
+    };
+    return await ensureTopicAssignment({
+      supabase,
+      conversationId,
+      decision: fallbackDecision,
+      userMessage,
+    });
   }
 }
 
