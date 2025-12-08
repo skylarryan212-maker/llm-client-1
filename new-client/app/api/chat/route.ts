@@ -2240,7 +2240,9 @@ export async function POST(request: NextRequest) {
           (m: any) =>
             m &&
             typeof m === "object" &&
-            (m.type === "function_call" || m.type === "function_call_output")
+            (m.type === "function_call" ||
+              m.type === "function_call_output" ||
+              m.type === "reasoning")
         );
         if (fnMsgs.length) {
           functionCallMessages.push(...fnMsgs);
@@ -2293,7 +2295,9 @@ export async function POST(request: NextRequest) {
           (m: any) =>
             m &&
             typeof m === "object" &&
-            (m.type === "function_call" || m.type === "function_call_output")
+            (m.type === "function_call" ||
+              m.type === "function_call_output" ||
+              m.type === "reasoning")
         );
         if (writeFnMsgs.length) {
           functionCallMessages.push(...writeFnMsgs);
