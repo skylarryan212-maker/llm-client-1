@@ -176,7 +176,7 @@ export async function routeWithLLM(
               },
               routedBy: { type: "string" },
             },
-            required: ["model", "effort", "routedBy"],
+            required: ["model", "effort", "routedBy", "memoryTypesToLoad"],
           },
         },
       },
