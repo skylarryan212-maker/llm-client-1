@@ -89,7 +89,7 @@ const memoryToolDefinitions: Tool[] = [
     name: "get_memories",
     description:
       "Fetch a small set of relevant user memories. Use this to personalize responses; do not fetch more than needed.",
-    strict: true,
+    strict: false,
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -111,7 +111,7 @@ const memoryToolDefinitions: Tool[] = [
     type: "function",
     name: "write_memory",
     description: "Persist an important user memory (identity, preference, constraint, etc.).",
-    strict: true,
+    strict: false,
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -136,7 +136,7 @@ const memoryToolDefinitions: Tool[] = [
     type: "function",
     name: "delete_memory",
     description: "Delete an existing memory by id.",
-    strict: true,
+    strict: false,
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -154,7 +154,7 @@ const memoryToolDefinitions: Tool[] = [
     name: "get_permanent_instructions",
     description:
       "Fetch permanent instructions for this user/conversation. Use to understand always-on directives.",
-    strict: true,
+    strict: false,
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -176,7 +176,7 @@ const memoryToolDefinitions: Tool[] = [
     type: "function",
     name: "write_permanent_instruction",
     description: "Create a permanent instruction (user or conversation scoped).",
-    strict: true,
+    strict: false,
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -202,7 +202,7 @@ const memoryToolDefinitions: Tool[] = [
     type: "function",
     name: "delete_permanent_instruction",
     description: "Delete a permanent instruction by id.",
-    strict: true,
+    strict: false,
     parameters: {
       type: "object",
       additionalProperties: false,
@@ -1740,6 +1740,12 @@ export async function POST(request: NextRequest) {
         console.error("[router-usage] Failed to log router usage:", routerUsageErr);
       }
     }
+    // Ignore any memory/permanent-instruction directives from the router model;
+    // the main chat model now owns these responsibilities via function tools.
+    (modelConfig as any).memoriesToWrite = [];
+    (modelConfig as any).memoriesToDelete = [];
+    (modelConfig as any).permanentInstructionsToWrite = [];
+    (modelConfig as any).permanentInstructionsToDelete = [];
 
     // Lazily initialize OpenAI client once for topic tools and main stream
     let openai: OpenAIClient | null = null;
