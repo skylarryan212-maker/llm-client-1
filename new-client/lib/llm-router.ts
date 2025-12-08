@@ -116,7 +116,7 @@ export async function routeWithLLM(
               effort: { type: "string", enum: ["none", "low", "medium", "high"] },
               routedBy: { type: "string" },
             },
-            required: ["model", "effort"],
+            required: ["model", "effort", "routedBy"],
           },
         },
       },
