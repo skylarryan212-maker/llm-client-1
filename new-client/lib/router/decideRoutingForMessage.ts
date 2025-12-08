@@ -497,7 +497,6 @@ async function callRouterWithSchema(openai: any, routerPrompt: string): Promise<
           },
         },
         reasoning: { effort: "low" },
-        max_output_tokens: 400,
       });
       const textOutput =
         response?.output?.find((item: any) => item.type === "message")?.content?.[0]?.text ?? "";
