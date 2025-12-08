@@ -51,47 +51,13 @@ export interface RouterContext {
 }
 
 const ROUTER_MODEL_ID = "gpt-5-nano-2025-08-07";
-const ROUTER_SYSTEM_PROMPT = `You are a routing assistant that analyzes user prompts and recommends the optimal AI model and reasoning effort.
+const ROUTER_SYSTEM_PROMPT = `You are a lightweight routing assistant. Your ONLY job: choose the model and reasoning effort.
 
-  **Reliability-first selection**
-  Evaluate how reliable the response must be. Default to the smallest model that can answer the prompt with high confidence. Only escalate when you can clearly explain what could go wrong if the smaller model handled it (e.g., high-stakes financial/legal advice, production code deploys, safety-critical instructions, or extremely long/nuanced tasks). State the concrete risk that forced you to pick a larger model. If you cannot name a specific risk, choose a smaller model.
-
-  **Available Models:**
-  1. **gpt-5-nano** - Fastest, cheapest, handles everyday requests, multi-step reasoning, and concise code when stakes are low.
-  2. **gpt-5-mini** - Balanced; use when you need extra reliability or nuance beyond Nano's comfort zone.
-  3. **gpt-5.1** - Most capable; reserve for very high stakes, long-form, or correctness-sensitive tasks.
-
-  **Reasoning Effort Levels:**
-  - **none**: Instant responses (GPT-5.1 only)
-  - **low**: Minimal reasoning
-  - **medium**: Moderate reasoning
-  - **high**: Deep reasoning for complex problems
-
-  **Routing Guidelines:**
-  - Short greetings -> nano + low
-  - Simple factual questions -> nano or mini + low
-  - Clarifications/references -> mini + low
-  - Summaries, explanations, analysis -> mini + low/medium
-  - Long or complex prompts -> gpt-5.1 + medium/high
-  - Creative writing or multi-section output -> gpt-5.1 + medium/high
-
-  Keep your instructions focused on selecting the model and reasoning effort; do not mention web search or memory strategy in this prompt.
-
-  **Structured output requirement**
-  Every response must be valid JSON that matches the LLMRouterDecision schema (model, effort, memoriesToWrite, memoriesToDelete, permanentInstructionsToWrite, permanentInstructionsToDelete, routedBy). Do not emit prose or explanations—return only the JSON payload so downstream code can parse it reliably.
-
-  **Memory shape (STRICT)**
-  - Each memory object MUST include: type, title, and content.
-  - NEVER use a value field. If you would have used value, instead set content and also provide a short title.
-  - Example:
-    "memoriesToWrite": [
-      {
-        "type": "identity",
-        "title": "User's name is Skylar",
-        "content": "User's name is Skylar; address them as Skylar."
-      }
-    ]
-`;
+- Default to the smallest model that answers reliably; escalate only when clearly necessary (stakes, complexity, length).
+- Valid models: gpt-5-nano, gpt-5-mini, gpt-5.1.
+- Valid efforts: none|low|medium|high (none is only valid for gpt-5.1).
+- Do NOT propose memory writes/deletes or permanent instructions; leave them empty.
+- Output only JSON with keys: model, effort, routedBy. No other keys.`;
 
 /**
  * Calls GPT 5 Nano to decide model and reasoning effort
@@ -138,6 +104,22 @@ export async function routeWithLLM(
         { role: "user", content: routerPrompt, type: "message" },
       ],
       reasoning: { effort: "low" },
+      text: {
+        format: {
+          type: "json_schema",
+          name: "router_decision",
+          schema: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              model: { type: "string", enum: ["gpt-5-nano", "gpt-5-mini", "gpt-5.1"] },
+              effort: { type: "string", enum: ["none", "low", "medium", "high"] },
+              routedBy: { type: "string" },
+            },
+            required: ["model", "effort"],
+          },
+        },
+      },
     });
 
     const elapsed = Date.now() - startTime;
@@ -152,20 +134,27 @@ export async function routeWithLLM(
       };
     }
 
-    const content = response.output_text;
-    if (!content) {
-      console.error("[llm-router] No content in response");
+    const parsed = (() => {
+      try {
+        const outputs: any[] = Array.isArray((response as any).output)
+          ? ((response as any).output as any[])
+          : [];
+        const maybeMessage = outputs.find((item) => item && item.type === "message") as
+          | { content?: Array<{ text?: string }> }
+          | undefined;
+        const text =
+          (maybeMessage?.content && maybeMessage.content[0]?.text) ||
+          (response as any).output_text ||
+          "";
+        return text ? JSON.parse(text) : null;
+      } catch {
+        return null;
+      }
+    })();
+    if (!parsed) {
+      console.error("[llm-router] No parsed decision");
       return null;
     }
-
-    // Extract JSON from response (handle potential markdown wrapping)
-    let jsonText = content.trim();
-    const jsonMatch = jsonText.match(/\{[\s\S]*\}/);
-    if (jsonMatch) {
-      jsonText = jsonMatch[0];
-    }
-
-    const parsed = JSON.parse(jsonText);
     console.log("[llm-router] Parsed decision:", parsed);
 
     // Validate response
@@ -210,7 +199,7 @@ export async function routeWithLLM(
       memoriesToDelete: [],
       permanentInstructionsToWrite: [],
       permanentInstructionsToDelete: [],
-      routedBy: "llm",
+      routedBy: typeof parsed.routedBy === "string" ? parsed.routedBy : "llm",
     };
   } catch (error) {
     console.error("[llm-router] Error during LLM routing:", error);
