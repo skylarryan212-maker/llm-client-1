@@ -863,13 +863,31 @@ export async function POST(request: NextRequest) {
       console.error("[permanent-instructions] Failed to preload instructions:", permInitErr);
     }
 
+    // Launch topic router and model router in parallel to save latency.
+    const topicRouterPromise = decideRoutingForMessage({
+      supabase: supabaseAny,
+      conversationId,
+      userMessage: message,
+    });
+
+    const modelConfigPromise = getModelAndReasoningConfigWithLLM(
+      modelFamily,
+      speedMode,
+      message,
+      reasoningEffortHint,
+      usagePercentage,
+      userId,
+      conversationId,
+      {
+        permanentInstructionSummary: permanentInstructionSummaryForRouter,
+        permanentInstructions:
+          (permanentInstructionState?.instructions as unknown as PermanentInstructionToWrite[] | undefined),
+      }
+    );
+
     let resolvedTopicDecision: RouterDecision;
     try {
-      resolvedTopicDecision = await decideRoutingForMessage({
-        supabase: supabaseAny,
-        conversationId,
-        userMessage: message,
-      });
+      resolvedTopicDecision = await topicRouterPromise;
     } catch (topicErr) {
       console.error("[topic-router] Failed to route message:", topicErr);
       return NextResponse.json(
@@ -910,20 +928,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Get model config using LLM-based routing (with code-based fallback)
-      const modelConfig = await getModelAndReasoningConfigWithLLM(
-        modelFamily,
-        speedMode,
-        message,
-        reasoningEffortHint,
-        usagePercentage,
-        userId,
-        conversationId,
-        {
-          permanentInstructionSummary: permanentInstructionSummaryForRouter,
-          permanentInstructions:
-            (permanentInstructionState?.instructions as unknown as PermanentInstructionToWrite[] | undefined),
-        }
-      );
+      const modelConfig = await modelConfigPromise;
     const reasoningEffort = modelConfig.reasoning?.effort ?? "none";
 
     // Log router usage if LLM routing was used
