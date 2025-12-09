@@ -142,7 +142,10 @@ export function MarkdownContent({ content }: MarkdownContentProps) {
           if (!inline && language) {
             // Code block with syntax highlighting
             return (
-              <div className="my-4 rounded-lg border border-border bg-[#1e1e1e] max-w-full w-full overflow-hidden min-w-0">
+              <div
+                className="my-4 rounded-lg border border-border bg-[#1e1e1e] w-full overflow-hidden min-w-0"
+                style={{ maxWidth: 'min(100%, calc(100vw - 1.5rem))' }}
+              >
                 <div className="flex items-center justify-between border-b border-border/50 bg-[#252526] px-4 py-2 rounded-t-lg min-w-0">
                   <span className="text-xs font-mono text-muted-foreground">{language}</span>
                   <Button

@@ -280,7 +280,7 @@ export default function ProjectDetailPage() {
   };
 
   return (
-    <div className="flex h-screen overflow-hidden bg-background text-foreground dark">
+    <div className="flex min-h-screen bg-background text-foreground dark">
       <ChatSidebar
         isOpen={isSidebarOpen}
         onToggle={() => setIsSidebarOpen((open) => !open)}
@@ -373,16 +373,16 @@ export default function ProjectDetailPage() {
                         <div
                           key={chat.id}
                           onClick={() => handleProjectChatSelect(projectId ?? "", chat.id)}
-                          className="group/chat w-full bg-transparent px-3 py-3 cursor-pointer transition hover:bg-muted relative flex items-center"
+                          className="group/chat w-full bg-transparent px-3 py-3 cursor-pointer transition hover:bg-muted relative flex items-center min-w-0"
                         >
-                          <div className="flex-1">
+                          <div className="flex-1 min-w-0">
                             <div className="flex items-center justify-between gap-2">
                               <span className="text-sm font-semibold text-foreground">
                                 {chat.title || "Untitled chat"}
                               </span>
                             </div>
                             {preview && (
-                              <p className="text-xs text-muted-foreground truncate">
+                              <p className="text-xs text-muted-foreground truncate max-w-full">
                                 {preview}
                               </p>
                             )}

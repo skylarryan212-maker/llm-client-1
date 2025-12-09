@@ -84,7 +84,7 @@ export default function ProjectsPage() {
   }, [chats]);
 
   return (
-    <div className="flex h-screen overflow-hidden bg-background text-foreground dark">
+    <div className="flex min-h-screen bg-background text-foreground dark">
       <ChatSidebar
         isOpen={isSidebarOpen}
         onToggle={() => setIsSidebarOpen((open) => !open)}

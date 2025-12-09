@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import { MoreHorizontal, Edit3, Trash2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
@@ -14,17 +15,46 @@ export function ProjectContextMenu({
   onDelete
 }: ProjectContextMenuProps) {
   const [isOpen, setIsOpen] = useState(false)
-  const [menuPosition, setMenuPosition] = useState<'above' | 'below'>('below')
+  const [menuCoords, setMenuCoords] = useState<{
+    position: 'above' | 'below'
+    left: number
+    top: number
+  } | null>(null)
   const menuRef = useRef<HTMLDivElement>(null)
   const buttonRef = useRef<HTMLButtonElement>(null)
 
   useEffect(() => {
-    if (isOpen && buttonRef.current && menuRef.current) {
+    if (!isOpen) return
+
+    const reposition = () => {
+      if (!buttonRef.current || !menuRef.current) return
+
       const buttonRect = buttonRef.current.getBoundingClientRect()
-      const menuHeight = menuRef.current.offsetHeight
+      const menuEl = menuRef.current
+      const menuHeight = menuEl.offsetHeight
+      const menuWidth = menuEl.offsetWidth || 192
       const spaceBelow = window.innerHeight - buttonRect.bottom
-      
-      setMenuPosition(spaceBelow < menuHeight + 10 ? 'above' : 'below')
+
+      const position: 'above' | 'below' = spaceBelow < menuHeight + 10 ? 'above' : 'below'
+      let left = Math.round(buttonRect.right - menuWidth)
+      left = Math.min(Math.max(left, 8), Math.max(window.innerWidth - menuWidth - 8, 8))
+
+      const top =
+        position === 'above'
+          ? Math.round(buttonRect.top - menuHeight - 8)
+          : Math.round(buttonRect.bottom + 8)
+
+      setMenuCoords({ position, left, top })
+    }
+
+    const raf = requestAnimationFrame(reposition)
+    window.addEventListener('resize', reposition)
+    window.addEventListener('scroll', reposition, true)
+
+    return () => {
+      cancelAnimationFrame(raf)
+      window.removeEventListener('resize', reposition)
+      window.removeEventListener('scroll', reposition, true)
     }
   }, [isOpen])
 
@@ -51,7 +81,7 @@ export function ProjectContextMenu({
         ref={buttonRef}
         variant="ghost"
         size="icon"
-        className="h-7 w-7 opacity-0 group-hover:opacity-100 group-hover/chat:opacity-100 transition-opacity duration-200"
+        className="h-7 w-7 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:group-hover/chat:opacity-100 transition-opacity duration-200"
         onClick={(e: React.MouseEvent<HTMLButtonElement>) => {
           e.preventDefault()
           e.stopPropagation()
@@ -61,37 +91,46 @@ export function ProjectContextMenu({
         <MoreHorizontal className="h-4 w-4" />
       </Button>
 
-      {isOpen && (
-        <div
-          ref={menuRef}
-          className={`absolute right-0 ${menuPosition === 'above' ? 'bottom-full mb-1' : 'top-full mt-1'} z-50 w-48 rounded-lg border border-border bg-popover p-1 shadow-lg`}
-        >
-          <button
-            onClick={(e) => {
-              e.preventDefault()
-              e.stopPropagation()
-              onRename?.()
-              setIsOpen(false)
+      {isOpen &&
+        createPortal(
+          <div
+            ref={menuRef}
+            style={{
+              position: 'fixed',
+              left: menuCoords ? `${menuCoords.left}px` : '-9999px',
+              top: menuCoords ? `${menuCoords.top}px` : '-9999px',
+              visibility: menuCoords ? 'visible' : 'hidden',
+              minWidth: 192,
             }}
-            className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-popover-foreground hover:bg-accent"
+            className={`z-[200] rounded-lg border border-border bg-popover p-1 shadow-lg`}
           >
-            <Edit3 className="h-4 w-4" />
-            Rename project
-          </button>
-          <button
-            onClick={(e) => {
-              e.preventDefault()
-              e.stopPropagation()
-              onDelete?.()
-              setIsOpen(false)
-            }}
-            className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-destructive hover:bg-accent"
-          >
-            <Trash2 className="h-4 w-4" />
-            Delete project
-          </button>
-        </div>
-      )}
+            <button
+              onClick={(e) => {
+                e.preventDefault()
+                e.stopPropagation()
+                onRename?.()
+                setIsOpen(false)
+              }}
+              className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-popover-foreground hover:bg-accent"
+            >
+              <Edit3 className="h-4 w-4" />
+              Rename project
+            </button>
+            <button
+              onClick={(e) => {
+                e.preventDefault()
+                e.stopPropagation()
+                onDelete?.()
+                setIsOpen(false)
+              }}
+              className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-destructive hover:bg-accent"
+            >
+              <Trash2 className="h-4 w-4" />
+              Delete project
+            </button>
+          </div>,
+          document.body
+        )}
     </div>
   )
 }

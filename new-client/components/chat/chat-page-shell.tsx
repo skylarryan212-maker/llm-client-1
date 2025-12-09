@@ -179,6 +179,7 @@ export default function ChatPageShell({
   const [composerLiftPx, setComposerLiftPx] = useState(0);
   const [showOtherModels, setShowOtherModels] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
+  const [messagesWithFirstToken, setMessagesWithFirstToken] = useState<Set<string>>(new Set());
   const [thinkingStatus, setThinkingStatus] = useState<{ variant: "thinking" | "extended"; label: string } | null>(null);
   // Force re-render while thinking so a live duration chip can update
   const [, setThinkingTick] = useState(0);
@@ -226,13 +227,6 @@ export default function ChatPageShell({
     );
   }, []);
 
-  const markConversationAsAutoStreamed = useCallback((conversationId: string) => {
-    autoStreamedConversations.current.add(conversationId);
-    if (typeof window !== "undefined") {
-      sessionStorage.setItem(getAutoStreamKey(conversationId), "1");
-    }
-  }, []);
-
   const clearConversationAutoStreamed = useCallback((conversationId: string) => {
     autoStreamedConversations.current.delete(conversationId);
     if (typeof window !== "undefined") {
@@ -257,6 +251,10 @@ export default function ChatPageShell({
     }
   }
   conversationRenderKeyRef.current = currentConversationKey;
+
+  useEffect(() => {
+    setMessagesWithFirstToken(new Set());
+  }, [activeConversationId]);
 
   const isConversationAutoStreamed = useCallback(
     (conversationId: string) => {
@@ -350,6 +348,11 @@ export default function ChatPageShell({
       timing.firstToken = now;
       timing.start = null; // Clear start so we never calculate again
       hideThinkingIndicator();
+      setMessagesWithFirstToken((prev) => {
+        const next = new Set(prev);
+        next.add(messageId);
+        return next;
+      });
       const seconds = elapsedMs / 1000;
       const label = formatThoughtDurationLabel(seconds);
       const thinkingInfo: ThinkingTimingInfo = {
@@ -1355,6 +1358,7 @@ export default function ChatPageShell({
     currentModel,
     handleStatusEvent,
     hideThinkingIndicator,
+    resetThinkingIndicator,
     recordFirstTokenTiming,
     finalizeStreamingState,
     showThinkingIndicator,
@@ -1370,6 +1374,24 @@ export default function ChatPageShell({
     setIsStreaming(false);
     resetThinkingIndicator();
   }, [resetThinkingIndicator]);
+
+  const buildAttachmentsFromMetadata = useCallback(
+    (metadata?: Record<string, unknown> | null): UploadedFragment[] => {
+      if (!metadata || typeof metadata !== "object") return [];
+      const files = Array.isArray((metadata as any).files) ? (metadata as any).files : [];
+
+      return files
+        .map((file: any, idx: number) => ({
+          id: file?.id || `initial-file-${idx}`,
+          name: file?.name || file?.url || `Attachment ${idx + 1}`,
+          dataUrl: file?.dataUrl,
+          url: file?.url,
+          mime: file?.mimeType || file?.mime,
+        }))
+        .filter((file: UploadedFragment) => Boolean(file.name));
+    },
+    []
+  );
 
   // Check if we need to auto-start streaming for a new chat with only a user message
   // This handles the case where a chat was created from the project page and redirected here
@@ -1387,16 +1409,19 @@ export default function ChatPageShell({
     if (initialMessages.length === 1 && initialMessages[0].role === "user") {
       const userMessage = initialMessages[0];
       console.log("[chatDebug] Detected new chat with only user message, triggering stream");
-      
+
       // Mark as auto-streamed before triggering
       autoStreamedConversations.current.add(activeConversationId);
-      
+
+      const initialAttachments = buildAttachmentsFromMetadata(userMessage.metadata);
+
       streamModelResponse(
         activeConversationId,
         projectId,
         userMessage.content,
         activeConversationId,
-        true // skipUserInsert since message is already in DB
+        true, // skipUserInsert since message is already in DB
+        initialAttachments.length ? initialAttachments : undefined
       ).catch((err: unknown) => {
         console.error("Failed to stream initial message:", err);
       });
@@ -1404,6 +1429,7 @@ export default function ChatPageShell({
   }, [
     activeConversationId,
     autoStreamHandled,
+    buildAttachmentsFromMetadata,
     clearConversationAutoStreamed,
     initialMessages,
     isConversationAutoStreamed,
@@ -2168,22 +2194,25 @@ export default function ChatPageShell({
                     const metadataIndicators =
                       Boolean(displayMetadata?.thoughtDurationLabel) ||
                       Boolean(displayMetadata?.searchedDomains?.length);
-                    
+
+                    const hasFirstToken = messagesWithFirstToken.has(message.id);
+
                     let shouldAnimateEntry = false;
                     const isNewestMessage = index === messages.length - 1;
                     const alreadyAnimated = animatedMessageIdsRef.current.has(message.id);
+                    const isFirstMessageInConversation = conversationChanged && index === 0;
 
                     if (message.role === "assistant") {
                       if (
-                        allowAssistantHistoryAnimation &&
-                        isNewestMessage &&
-                        !alreadyAnimated
+                        !alreadyAnimated &&
+                        (isFirstMessageInConversation ||
+                          (allowAssistantHistoryAnimation && isNewestMessage))
                       ) {
                         shouldAnimateEntry = true;
                         animatedMessageIdsRef.current.add(message.id);
                       }
                     } else {
-                      if (isNewestMessage && !alreadyAnimated) {
+                      if (!alreadyAnimated && (isFirstMessageInConversation || isNewestMessage)) {
                         shouldAnimateEntry = true;
                         animatedMessageIdsRef.current.add(message.id);
                       }
@@ -2215,6 +2244,7 @@ export default function ChatPageShell({
                           enableEntryAnimation={shouldAnimateEntry}
                           showInsightChips={false}
                           isStreaming={isStreamingMessage}
+                          suppressPreStreamAnimation={hasFirstToken}
                           onRetry={
                             message.role === "assistant"
                               ? (model) => handleRetryWithModel(model, message.id)

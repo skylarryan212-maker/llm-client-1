@@ -39,7 +39,6 @@ import {
 import { decideRoutingForMessage } from "@/lib/router/decideRoutingForMessage";
 import type { RouterDecision } from "@/lib/router/types";
 import { buildContextForMainModel } from "@/lib/context/buildContextForMainModel";
-import { maybeExtractArtifactsFromMessage } from "@/lib/artifacts/maybeExtractArtifactsFromMessage";
 import type { PermanentInstructionToWrite } from "@/lib/llm-router";
 import { updateTopicSnapshot } from "@/lib/topics/updateTopicSnapshot";
 import { refreshTopicMetadata } from "@/lib/topics/refreshTopicMetadata";
@@ -109,6 +108,7 @@ function detectRelevantMemoryTypes(prompt: string, availableTypes: string[]): st
   return Array.from(matches);
 }
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function augmentMemoryStrategyWithHeuristics(
   strategy: MemoryStrategy,
   prompt: string,
@@ -208,6 +208,7 @@ const BASE_SYSTEM_PROMPT =
   "- When the user provides attachment URLs (marked as 'Attachment: name -> url'), fetch and read those documents directly from the URL without asking the user to re-upload. Use their contents in your reasoning and summarize as requested.\\n" +
   "- If an attachment preview is marked as '[Preview truncated; full content searchable via file_search tool]', you can use the `file_search` tool to query specific information from the full document (e.g., 'find pricing section', 'extract all dates', 'summarize chapter 3').\\n" +
   "- If an attachment is an image, extract any visible text (OCR) and use it in your reasoning along with a description if helpful.\\n" +
+  "- If guidelines feel ambiguous or overly strict, use your best judgment to provide a helpful, age-appropriate answer rather than defaulting to refusal.\\n" +
   "- IMPORTANT: When a user asks to 'list my prompts' or 'show my messages', only list the TEXT they typed. Do NOT list file contents, document excerpts, or attachment names as if they were prompts. The marker '[Files attached]' indicates files were included but is not part of the prompt.";
 
 function loadPersonalizationSettings(): PersonalizationMemorySettings & { customInstructions?: string; baseStyle?: string } {
