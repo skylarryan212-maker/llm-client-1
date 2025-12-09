@@ -2192,6 +2192,8 @@ async function maybeGenerateArtifactsWithLLM({
     .limit(1);
   if (existing && existing.length) return;
 
+  console.log("[artifacts] Starting LLM artifact extraction");
+
   const response = await openai.responses.create({
     model: "gpt-5-nano-2025-08-07",
     input: [
@@ -2262,7 +2264,11 @@ async function maybeGenerateArtifactsWithLLM({
   }
   const artifacts: Array<{ type: string; title: string; content: string }> =
     Array.isArray(parsed?.artifacts) ? parsed.artifacts : [];
-  if (!artifacts.length) return;
+  if (!artifacts.length) {
+    console.log("[artifacts] No artifacts returned by LLM");
+    return;
+  }
+  console.log(`[artifacts] Parsed ${artifacts.length} candidate artifacts from LLM`);
 
   const inserts = artifacts.map((art) => {
     const content = String(art.content || "").trim();
