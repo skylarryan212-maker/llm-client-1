@@ -2254,6 +2254,7 @@ export default function ChatPageShell({
 
                     let shouldAnimateEntry = false;
                     const isNewestMessage = index === messages.length - 1;
+                    const isOnlyMessageInThread = messages.length === 1;
                     const alreadyAnimated = animatedMessageIdsRef.current.has(message.id);
                     const isFirstMessageInConversation = conversationChanged && index === 0;
 
@@ -2267,7 +2268,10 @@ export default function ChatPageShell({
                         animatedMessageIdsRef.current.add(message.id);
                       }
                     } else {
-                      if (!alreadyAnimated && (isFirstMessageInConversation || isNewestMessage)) {
+                      if (
+                        !alreadyAnimated &&
+                        (isFirstMessageInConversation || isNewestMessage || isOnlyMessageInThread)
+                      ) {
                         shouldAnimateEntry = true;
                         animatedMessageIdsRef.current.add(message.id);
                       }
