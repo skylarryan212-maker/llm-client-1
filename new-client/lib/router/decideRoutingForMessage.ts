@@ -213,12 +213,16 @@ async function loadCrossConversationTopics(
   }
 
   const { data: otherConversations } = await conversationQuery;
-  if (!Array.isArray(otherConversations) || !otherConversations.length) {
+  const conversationRows = (Array.isArray(otherConversations)
+    ? otherConversations
+    : []) as Array<Pick<Database["public"]["Tables"]["conversations"]["Row"], "id" | "title" | "project_id">>;
+
+  if (!conversationRows.length) {
     return [];
   }
 
   const conversationMap = new Map(
-    otherConversations.map((row) => [row.id, { title: row.title, project_id: row.project_id }])
+    conversationRows.map((row) => [row.id, { title: row.title, project_id: row.project_id }])
   );
   const conversationIds = Array.from(conversationMap.keys());
 
