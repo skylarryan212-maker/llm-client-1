@@ -240,7 +240,7 @@ export function ChatSidebar({
   const primaryButtonClass = isOpen
     ? "w-full justify-start px-2.5 h-9 gap-2 text-sidebar-foreground hover:bg-sidebar-accent sidebar-entry"
     : "w-12 h-10 p-0 justify-center gap-2 text-sidebar-foreground hover:bg-sidebar-accent sidebar-entry";
-  const listItemClass = "w-full text-left rounded-lg px-2.5 py-2 flex items-center gap-2 transition-colors sidebar-entry";
+  const listItemClass = "w-full justify-start px-2.5 py-2 gap-2 text-sidebar-foreground hover:bg-sidebar-accent sidebar-entry";
 
   return (
     <>
@@ -354,7 +354,7 @@ export function ChatSidebar({
                                   onProjectSelect?.(project.id)
                                   closeSidebarIfMobile()
                                 }}
-                                className={`group relative flex ${listItemClass} ${
+                                className={`group relative flex ${listItemClass} rounded-lg ${
                                   isProjectActive
                                     ? 'bg-zinc-800 text-white'
                                     : 'hover:bg-sidebar-accent'
@@ -431,11 +431,11 @@ export function ChatSidebar({
                                   {hasMoreChats && (
                                     <Link
                                       href={`/projects/${project.id}`}
-                                  className="block w-full rounded-lg pl-6 pr-2.5 py-1.5 text-sm text-muted-foreground hover:bg-sidebar-accent"
-                                  onClick={() => onProjectSelect?.(project.id)}
-                                >
-                                  See more…
-                                </Link>
+                                    className="block w-full rounded-lg pl-6 pr-2.5 py-1.5 text-sm text-muted-foreground hover:bg-sidebar-accent"
+                                    onClick={() => onProjectSelect?.(project.id)}
+                                  >
+                                    See more…
+                                  </Link>
                                   )}
                                 </div>
                               )}
@@ -515,14 +515,14 @@ export function ChatSidebar({
                             key={conv.id}
                             role="button"
                             tabIndex={0}
-                    onClick={() => {
-                      onChatSelect?.(conv.id)
-                      closeSidebarIfMobile()
-                    }}
+                            onClick={() => {
+                              onChatSelect?.(conv.id)
+                              closeSidebarIfMobile()
+                            }}
                             onKeyDown={(event) =>
                               handleListItemKeyDown(event, () => onChatSelect?.(conv.id))
                             }
-                            className={`group/chat ${listItemClass} ${
+                            className={`group/chat flex items-center ${listItemClass} rounded-lg ${
                               selectedChatId === conv.id && !isAgentsPage
                                 ? 'bg-zinc-800 text-white'
                                 : 'hover:bg-sidebar-accent'
