@@ -239,7 +239,7 @@ async function loadCrossConversationTopics(
   }
 
   const isConversationTopic = (topic: unknown): topic is ConversationTopic =>
-    Boolean(topic) &&
+    topic !== null &&
     typeof topic === "object" &&
     "id" in topic &&
     "conversation_id" in topic &&
