@@ -237,6 +237,10 @@ export function ChatSidebar({
     }
   }
 
+  const primaryButtonClass = isOpen
+    ? "w-full justify-start px-2.5 h-9 gap-2 text-sidebar-foreground hover:bg-sidebar-accent sidebar-entry"
+    : "w-12 h-10 p-0 justify-center gap-2 text-sidebar-foreground hover:bg-sidebar-accent sidebar-entry";
+
   return (
     <>
       {isOpen && (
@@ -282,7 +286,7 @@ export function ChatSidebar({
                 closeSidebarIfMobile()
               }}
               variant="ghost"
-                className={`${isOpen ? 'w-full justify-start px-2.5' : 'w-12 h-10 p-0 justify-center'} h-9 gap-2 text-sidebar-foreground hover:bg-sidebar-accent sidebar-entry`}
+                className={primaryButtonClass}
               title={!isOpen ? "New Chat" : undefined}
             >
               <Plus className="h-4 w-4 flex-shrink-0" />
@@ -292,11 +296,7 @@ export function ChatSidebar({
             <Link href="/agents" className="block">
               <Button 
                 variant="ghost" 
-                className={`${isOpen ? 'w-full justify-start' : 'w-10 h-10 p-0 justify-center'} gap-2 ${
-                  isAgentsPage 
-                    ? 'bg-zinc-800 text-white hover:bg-zinc-800/90' 
-                    : 'text-sidebar-foreground hover:bg-sidebar-accent'
-                }`}
+                className={`${primaryButtonClass} ${isAgentsPage ? 'bg-zinc-800 text-white hover:bg-zinc-800/90' : ''}`}
                 title={!isOpen ? "Agents" : undefined}
                 onClick={() => {
                   closeSidebarIfMobile()
@@ -325,7 +325,7 @@ export function ChatSidebar({
                       <div className="space-y-1">
                         <Button
                           variant="ghost"
-                            className="h-9 w-full justify-start gap-2 px-2.5 text-sidebar-foreground"
+                            className={primaryButtonClass}
                           onClick={() => {
                             onNewProject?.()
                             closeSidebarIfMobile()
