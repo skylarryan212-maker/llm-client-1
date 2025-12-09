@@ -938,17 +938,10 @@ export default function ChatPageShell({
         triggerAutoNaming(conversationId, message, conversation.title ?? undefined);
 
         // Navigate immediately so the new chat page shows thinking/streaming
-        const targetUrl = `/projects/${targetProjectId}/c/${newChatId}?autoStreamHandled=true`;
-        // Prevent duplicate auto-stream on landing effect
-        markConversationAsAutoStreamed(conversationId);
+        const targetUrl = `/projects/${targetProjectId}/c/${newChatId}`;
         if (typeof window !== "undefined" && !window.location.pathname.includes(`/c/${newChatId}`)) {
           router.push(targetUrl);
         }
-
-        // Kick off streaming in the background; the new page will pick up state even if we navigate
-        streamModelResponse(conversationId, targetProjectId, message, newChatId, true, attachments).catch(
-          (err) => console.error("Failed to stream new project conversation:", err)
-        );
       } else {
         const { conversationId, message: createdMessage, conversation } =
           await startGlobalConversationAction(message);
@@ -984,16 +977,9 @@ export default function ChatPageShell({
         triggerAutoNaming(conversationId, message, conversation.title ?? undefined);
 
         // Navigate immediately so the new chat page shows thinking/streaming
-        // Prevent duplicate auto-stream on landing effect
-        markConversationAsAutoStreamed(conversationId);
         if (typeof window !== "undefined" && !window.location.pathname.includes(`/c/${newChatId}`)) {
-          router.push(`/c/${newChatId}?autoStreamHandled=true`);
+          router.push(`/c/${newChatId}`);
         }
-
-        // Kick off streaming in the background; the new page will pick up state even if we navigate
-        streamModelResponse(conversationId, undefined, message, newChatId, true, attachments).catch(
-          (err) => console.error("Failed to stream new global conversation:", err)
-        );
       }
     } else {
       console.log("[chatDebug] Adding message to existing chat:", selectedChatId);
