@@ -5,9 +5,17 @@ import type { Database } from "@/lib/supabase/types";
 type ConversationRow = Database["public"]["Tables"]["conversations"]["Row"];
 type MessageRow = Database["public"]["Tables"]["messages"]["Row"];
 
+type AttachmentInput = {
+  name?: string;
+  mime?: string;
+  dataUrl?: string;
+  url?: string;
+};
+
 export async function createGlobalConversationWithFirstMessage(params: {
   title?: string | null;
   firstMessageContent: string;
+  attachments?: AttachmentInput[];
 }): Promise<{
   conversation: ConversationRow;
   message: MessageRow; // first user message
@@ -47,7 +55,17 @@ export async function createGlobalConversationWithFirstMessage(params: {
         conversation_id: conversation.id,
         role: "user",
         content: params.firstMessageContent,
-        metadata: {},
+        metadata:
+          params.attachments && params.attachments.length
+            ? {
+                files: params.attachments.map((file) => ({
+                  name: file.name,
+                  mimeType: file.mime,
+                  url: file.url ?? file.dataUrl,
+                  dataUrl: file.dataUrl,
+                })),
+              }
+            : {},
       },
     ])
     .select()
@@ -67,6 +85,7 @@ export async function createGlobalConversationWithFirstMessage(params: {
 export async function createProjectConversationWithFirstMessage(params: {
   projectId: string;
   firstMessageContent: string;
+  attachments?: AttachmentInput[];
 }): Promise<{
   conversation: ConversationRow;
   message: MessageRow; // first user message
@@ -106,7 +125,17 @@ export async function createProjectConversationWithFirstMessage(params: {
         conversation_id: conversation.id,
         role: "user",
         content: params.firstMessageContent,
-        metadata: {},
+        metadata:
+          params.attachments && params.attachments.length
+            ? {
+                files: params.attachments.map((file) => ({
+                  name: file.name,
+                  mimeType: file.mime,
+                  url: file.url ?? file.dataUrl,
+                  dataUrl: file.dataUrl,
+                })),
+              }
+            : {},
       },
     ])
     .select()

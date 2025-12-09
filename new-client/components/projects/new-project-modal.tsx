@@ -47,7 +47,7 @@ export function NewProjectModal({ isOpen, onClose, onCreate }: NewProjectModalPr
 
         <form className="space-y-4" onSubmit={handleSubmit}>
           <div className="space-y-2">
-            <label className="text-sm font-medium text-foreground" htmlFor="project-name">
+            <label className="sr-only" htmlFor="project-name">
               Project name
             </label>
             <div className="flex gap-3">

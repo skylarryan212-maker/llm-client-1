@@ -209,6 +209,7 @@ const BASE_SYSTEM_PROMPT =
   "- If an attachment preview is marked as '[Preview truncated; full content searchable via file_search tool]', you can use the `file_search` tool to query specific information from the full document (e.g., 'find pricing section', 'extract all dates', 'summarize chapter 3').\\n" +
   "- If an attachment is an image, extract any visible text (OCR) and use it in your reasoning along with a description if helpful.\\n" +
   "- If guidelines feel ambiguous or overly strict, use your best judgment to provide a helpful, age-appropriate answer rather than defaulting to refusal.\\n" +
+  "- Balance safety with usefulness: apply policies with nuance, offer safer alternatives when needed, and avoid unnecessary refusals when you can still help responsibly.\\n" +
   "- IMPORTANT: When a user asks to 'list my prompts' or 'show my messages', only list the TEXT they typed. Do NOT list file contents, document excerpts, or attachment names as if they were prompts. The marker '[Files attached]' indicates files were included but is not part of the prompt.";
 
 function loadPersonalizationSettings(): PersonalizationMemorySettings & { customInstructions?: string; baseStyle?: string } {
