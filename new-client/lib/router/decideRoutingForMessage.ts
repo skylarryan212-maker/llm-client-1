@@ -286,10 +286,13 @@ Rules:
    - ALWAYS select artifacts that materially help answer the message (reuse existing specs or schemas rather than re-creating them).
    - Use secondaryTopicIds when information from another topic will clearly be referenced.
 5. Topic naming and summaries:
-   - Name topics in 3–5 title-case words that describe the subject ("Hair Styling Routine", "Dry Finish Spray Tips") rather than repeating the literal question text. Subtopics should be equally short and reflect the narrower scope.
+   - Name topics in 3-5 title-case words that describe the subject ("Hair Styling Routine", "Dry Finish Spray Tips") rather than repeating the literal question text. Subtopics should be equally short and reflect the narrower scope.
    - Keep outputs ultra-short: newTopicLabel ≤ 60 chars; newTopicDescription ≤ 120 chars (single sentence); newTopicSummary ≤ 160 chars (single-sentence synopsis, no transcript). Shorten further if unsure.
 6. Parent/subtopic creation:
-   - Only request new parent/subtopic IDs when the user truly shifts focus and the parent topic is clearly defined; otherwise keep the topic top-level.
+   - When you create a new topic, you MAY set newParentTopicId to an existing top-level topic to create a subtopic if the message is clearly a narrower thread of that parent.
+   - Never set newParentTopicId on continue/reopen actions.
+   - Do NOT create subtopics of subtopics; newParentTopicId must point to a top-level topic.
+   - If no obvious parent exists, create a top-level topic (leave newParentTopicId null) rather than forcing a subtopic.
 7. No invented IDs:
    - Never invent topic or artifact IDs. Only choose from the provided metadata.`;
 
