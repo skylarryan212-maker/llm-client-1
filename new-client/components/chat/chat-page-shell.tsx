@@ -933,22 +933,20 @@ export default function ChatPageShell({
         setSelectedChatId(newChatId);
         setSelectedProjectId(targetProjectId);
         lastCreatedConversationIdRef.current = conversationId;
-        
-        // Mark this conversation as already auto-streamed to prevent duplicate in useEffect
-        console.log("[chatDebug] Marking conversation as auto-streamed:", conversationId);
-        markConversationAsAutoStreamed(conversationId);
-        
-        // Trigger auto-naming immediately (in parallel with streaming)
+
+        // Trigger auto-naming immediately (in parallel with navigation/stream)
         triggerAutoNaming(conversationId, message, conversation.title ?? undefined);
-        
-        // Stream the model response fully BEFORE navigation to preserve streaming state
-        await streamModelResponse(conversationId, targetProjectId, message, newChatId, true, attachments);
-        
-        // Navigate after streaming completes (only if not already there)
+
+        // Navigate immediately so the new chat page shows thinking/streaming
         const targetUrl = `/projects/${targetProjectId}/c/${newChatId}`;
         if (typeof window !== "undefined" && !window.location.pathname.includes(`/c/${newChatId}`)) {
-          router.push(`${targetUrl}?autoStreamHandled=true`);
+          router.push(targetUrl);
         }
+
+        // Kick off streaming in the background; the new page will pick up state even if we navigate
+        streamModelResponse(conversationId, targetProjectId, message, newChatId, true, attachments).catch(
+          (err) => console.error("Failed to stream new project conversation:", err)
+        );
       } else {
         const { conversationId, message: createdMessage, conversation } =
           await startGlobalConversationAction(message);
@@ -979,21 +977,19 @@ export default function ChatPageShell({
         setSelectedChatId(newChatId);
         setSelectedProjectId("");
         lastCreatedConversationIdRef.current = conversationId;
-        
-        // Mark this conversation as already auto-streamed to prevent duplicate in useEffect
-        console.log("[chatDebug] Marking conversation as auto-streamed:", conversationId);
-        markConversationAsAutoStreamed(conversationId);
-        
-        // Trigger auto-naming immediately (in parallel with streaming)
+
+        // Trigger auto-naming immediately (in parallel with navigation/stream)
         triggerAutoNaming(conversationId, message, conversation.title ?? undefined);
-        
-        // Stream the model response fully BEFORE navigation to preserve streaming state
-        await streamModelResponse(conversationId, undefined, message, newChatId, true, attachments);
-        
-        // Navigate after streaming completes (only if not already there)
+
+        // Navigate immediately so the new chat page shows thinking/streaming
         if (typeof window !== "undefined" && !window.location.pathname.includes(`/c/${newChatId}`)) {
-          router.push(`/c/${newChatId}?autoStreamHandled=true`);
+          router.push(`/c/${newChatId}`);
         }
+
+        // Kick off streaming in the background; the new page will pick up state even if we navigate
+        streamModelResponse(conversationId, undefined, message, newChatId, true, attachments).catch(
+          (err) => console.error("Failed to stream new global conversation:", err)
+        );
       }
     } else {
       console.log("[chatDebug] Adding message to existing chat:", selectedChatId);
