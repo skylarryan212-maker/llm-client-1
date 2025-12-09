@@ -1019,6 +1019,20 @@ export default function ChatPageShell({
     }
   };
 
+  const finalizeStreamingState = useCallback(
+    () => {
+      setIsStreaming(false);
+      hideThinkingIndicator();
+      setActiveIndicatorMessageId(null);
+      // Clear timing/pending data to avoid stale chips or stuck UI
+      responseTimingRef.current = { start: null, firstToken: null, assistantMessageId: null };
+      pendingThinkingInfoRef.current = null;
+      clearSearchIndicator();
+      clearFileReadingIndicator();
+    },
+    [clearFileReadingIndicator, clearSearchIndicator, hideThinkingIndicator]
+  );
+
   const streamModelResponse = useCallback(async (
     conversationId: string,
     projectId: string | undefined,
@@ -1356,20 +1370,6 @@ export default function ChatPageShell({
     setIsStreaming(false);
     resetThinkingIndicator();
   }, [resetThinkingIndicator]);
-
-  const finalizeStreamingState = useCallback(
-    () => {
-      setIsStreaming(false);
-      hideThinkingIndicator();
-      setActiveIndicatorMessageId(null);
-      // Clear timing/pending data to avoid stale chips or stuck UI
-      responseTimingRef.current = { start: null, firstToken: null, assistantMessageId: null };
-      pendingThinkingInfoRef.current = null;
-      clearSearchIndicator();
-      clearFileReadingIndicator();
-    },
-    [clearFileReadingIndicator, clearSearchIndicator, hideThinkingIndicator]
-  );
 
   // Check if we need to auto-start streaming for a new chat with only a user message
   // This handles the case where a chat was created from the project page and redirected here
