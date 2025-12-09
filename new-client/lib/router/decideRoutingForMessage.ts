@@ -238,12 +238,14 @@ async function loadCrossConversationTopics(
     return [];
   }
 
-  return topicRows.map((topic) => ({
-    ...topic,
-    is_cross_conversation: true,
-    conversation_title: conversationMap.get(topic.conversation_id)?.title ?? null,
-    project_id: conversationMap.get(topic.conversation_id)?.project_id ?? null,
-  }));
+  return topicRows
+    .filter((topic): topic is ConversationTopic => Boolean(topic) && typeof topic === "object")
+    .map((topic) => ({
+      ...topic,
+      is_cross_conversation: true,
+      conversation_title: conversationMap.get(topic.conversation_id)?.title ?? null,
+      project_id: conversationMap.get(topic.conversation_id)?.project_id ?? null,
+    }));
 }
 
 async function loadCandidateArtifacts(
