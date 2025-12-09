@@ -606,6 +606,13 @@ export default function ChatPageShell({
 
   const currentChat = chats.find((c) => c.id === selectedChatId);
   const messages = useMemo<StoredMessage[]>(() => currentChat?.messages ?? [], [currentChat]);
+  const lastUserMessageId = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      const candidate = messages[i];
+      if (candidate?.role === "user") return candidate.id;
+    }
+    return null;
+  }, [messages]);
 
   const scrollToBottom = useCallback(
     (behavior: ScrollBehavior = "smooth") => {
@@ -907,6 +914,7 @@ export default function ChatPageShell({
           await startProjectConversationAction({
             projectId: targetProjectId,
             firstMessageContent: message,
+            attachments,
           });
 
         const mappedMessage: StoredMessage = {
@@ -947,7 +955,7 @@ export default function ChatPageShell({
         }
       } else {
         const { conversationId, message: createdMessage, conversation } =
-          await startGlobalConversationAction(message);
+          await startGlobalConversationAction(message, attachments);
 
         const mappedMessage: StoredMessage = {
           id: createdMessage.id,
@@ -1812,6 +1820,53 @@ export default function ChatPageShell({
     });
   }, [projects, projectConversations]);
 
+  const runtimeIndicatorBubble = useMemo(() => {
+    if (!selectedChatId || !lastUserMessageId) return null;
+
+    const hasIndicator = Boolean(thinkingStatus || searchIndicator || fileReadingIndicator);
+    const lastHasContent = messages.length === 0 || Boolean(messages[messages.length - 1]?.content);
+    const allowRegardless = Boolean(searchIndicator || fileReadingIndicator);
+
+    if (!hasIndicator || (!lastHasContent && !allowRegardless)) {
+      return null;
+    }
+
+    const bubble = fileReadingIndicator ? (
+      <StatusBubble
+        label="Reading documents"
+        variant={fileReadingIndicator === "error" ? "error" : "reading"}
+      />
+    ) : searchIndicator ? (
+      <StatusBubble
+        label={searchIndicator.message}
+        variant={searchIndicator.variant === "error" ? "error" : "search"}
+        subtext={searchIndicator.subtext}
+      />
+    ) : thinkingStatus ? (
+      <StatusBubble
+        label={thinkingStatus.label}
+        variant={thinkingStatus.variant === "extended" ? "extended" : "default"}
+      />
+    ) : null;
+
+    if (!bubble) return null;
+
+    return (
+      <div className="px-4 sm:px-6 pb-2">
+        <div className="mx-auto w-full max-w-[min(720px,100%)] px-1.5 sm:px-0">
+          <div className="flex items-center justify-center min-h-[32px]">{bubble}</div>
+        </div>
+      </div>
+    );
+  }, [
+    fileReadingIndicator,
+    lastUserMessageId,
+    messages,
+    searchIndicator,
+    selectedChatId,
+    thinkingStatus,
+  ]);
+
   return (
     <div className="flex h-[100dvh] max-h-[100dvh] w-full bg-background text-foreground dark overflow-hidden overscroll-y-none">
       {/* Sidebar */}
@@ -2199,6 +2254,7 @@ export default function ChatPageShell({
 
                     let shouldAnimateEntry = false;
                     const isNewestMessage = index === messages.length - 1;
+                    const isOnlyMessageInThread = messages.length === 1;
                     const alreadyAnimated = animatedMessageIdsRef.current.has(message.id);
                     const isFirstMessageInConversation = conversationChanged && index === 0;
 
@@ -2212,49 +2268,60 @@ export default function ChatPageShell({
                         animatedMessageIdsRef.current.add(message.id);
                       }
                     } else {
-                      if (!alreadyAnimated && (isFirstMessageInConversation || isNewestMessage)) {
+                      if (
+                        !alreadyAnimated &&
+                        (isFirstMessageInConversation || isNewestMessage || isOnlyMessageInThread)
+                      ) {
                         shouldAnimateEntry = true;
                         animatedMessageIdsRef.current.add(message.id);
                       }
                     }
 
                     return (
-                  <div
-                    key={message.id}
-                        ref={(el) => {
-                          if (el) {
-                            messageRefs.current[message.id] = el;
-                          }
-                        }}
-                      >
-                        {message.role === "assistant" && (
-                        <div className="flex flex-col gap-2 pb-2 px-4 sm:px-6">
-                          <div className="mx-auto w-full max-w-[min(720px,100%)] px-1.5 sm:px-0" style={{ minHeight: metadataIndicators ? 'auto' : '0px' }}>
-                            <div className="flex flex-wrap items-center gap-1.5 pt-1">
-                              {metadataIndicators && <MessageInsightChips metadata={displayMetadata || undefined} />}
+                      <React.Fragment key={message.id}>
+                        <div
+                          ref={(el) => {
+                            if (el) {
+                              messageRefs.current[message.id] = el;
+                            }
+                          }}
+                        >
+                          {message.role === "assistant" && (
+                            <div className="flex flex-col gap-2 pb-2 px-4 sm:px-6">
+                              <div
+                                className="mx-auto w-full max-w-[min(720px,100%)] px-1.5 sm:px-0"
+                                style={{ minHeight: metadataIndicators ? 'auto' : '0px' }}
+                              >
+                                <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                                  {metadataIndicators && <MessageInsightChips metadata={displayMetadata || undefined} />}
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                          <div className="px-4 sm:px-6">
+                            <div className="mx-auto w-full max-w-[min(720px,100%)] px-1.5 sm:px-0">
+                              <ChatMessage
+                                {...message}
+                                messageId={message.id}
+                                enableEntryAnimation={shouldAnimateEntry}
+                                showInsightChips={false}
+                                isStreaming={isStreamingMessage}
+                                suppressPreStreamAnimation={hasFirstToken}
+                                onRetry={
+                                  message.role === "assistant"
+                                    ? (model) => handleRetryWithModel(model, message.id)
+                                    : undefined
+                                }
+                              />
                             </div>
                           </div>
                         </div>
-                      )}
-                      <div className="px-4 sm:px-6">
-                        <div className="mx-auto w-full max-w-[min(720px,100%)] px-1.5 sm:px-0">
-                        <ChatMessage
-                          {...message}
-                          messageId={message.id}
-                          enableEntryAnimation={shouldAnimateEntry}
-                          showInsightChips={false}
-                          isStreaming={isStreamingMessage}
-                          suppressPreStreamAnimation={hasFirstToken}
-                          onRetry={
-                            message.role === "assistant"
-                              ? (model) => handleRetryWithModel(model, message.id)
-                              : undefined
-                          }
-                        />
-                        </div>
-                      </div>
-                    </div>
-                  );
+                        {runtimeIndicatorBubble &&
+                          message.role === "user" &&
+                          message.id === lastUserMessageId &&
+                          runtimeIndicatorBubble}
+                      </React.Fragment>
+                    );
                 })}
                   {/* Bottom spacer for proper scrolling */}
                   <div aria-hidden="true" style={{ height: `${bottomSpacerPx}px` }} />
@@ -2263,43 +2330,6 @@ export default function ChatPageShell({
             </ScrollArea>
           )}
         </div>
-
-        {/* Runtime status indicators anchored just above the composer */}
-        {selectedChatId &&
-        (() => {
-          const hasIndicator = Boolean(thinkingStatus || searchIndicator || fileReadingIndicator);
-          const lastHasContent = messages.length === 0 || Boolean(messages[messages.length - 1]?.content);
-          const allowRegardless = Boolean(searchIndicator || fileReadingIndicator);
-          if (!hasIndicator || (!lastHasContent && !allowRegardless)) {
-            return null;
-          }
-          return (
-            <div className="px-4 sm:px-6 pb-2">
-              <div className="mx-auto w-full max-w-3xl">
-                <div className="flex items-center justify-center min-h-[32px]">
-                  {fileReadingIndicator ? (
-                    <StatusBubble
-                      label="Reading documents"
-                      variant={fileReadingIndicator === "error" ? "error" : "reading"}
-                    />
-                  ) : searchIndicator ? (
-                    <StatusBubble
-                      label={searchIndicator.message}
-                      variant={searchIndicator.variant === "error" ? "error" : "search"}
-                      subtext={searchIndicator.subtext}
-                    />
-                  ) : thinkingStatus ? (
-                    <StatusBubble
-                      label={thinkingStatus.label}
-                      variant={thinkingStatus.variant === "extended" ? "extended" : "default"}
-                    />
-                  ) : null}
-                </div>
-              </div>
-            </div>
-          );
-        })()}
-
         {/* Composer: full-width bar, centered pill like ChatGPT */}
         <div
           className="bg-background px-4 sm:px-6 lg:px-12 py-3 sm:py-4 relative sticky bottom-0 z-20 pb-[max(env(safe-area-inset-bottom),0px)] transition-transform duration-200 ease-out"

@@ -7,6 +7,12 @@ import { sanitizeTopicMessageContent } from "@/lib/topics/messageSanitizer";
 type MessageRow = Database["public"]["Tables"]["messages"]["Row"];
 type TopicRow = Database["public"]["Tables"]["conversation_topics"]["Row"];
 type ArtifactRow = Database["public"]["Tables"]["artifacts"]["Row"];
+type ConversationMeta = {
+  id: string;
+  title: string | null;
+  project_id: string | null;
+  project_name: string | null;
+};
 
 export type ContextMessage = {
   role: "user" | "assistant";
@@ -34,6 +40,7 @@ const FALLBACK_TOKEN_CAP = 200_000;
 const SECONDARY_TOPIC_TAIL = 3;
 const PRIMARY_TOPIC_FULL_THRESHOLD = 280_000;
 const PRIMARY_TOPIC_RECENT_TARGET = 200_000;
+const CROSS_CHAT_TOKEN_LIMIT = 200_000;
 
 export async function buildContextForMainModel({
   supabase,
@@ -41,36 +48,42 @@ export async function buildContextForMainModel({
   routerDecision,
   maxContextTokens = DEFAULT_MAX_TOKENS,
 }: BuildContextParams): Promise<BuildContextResult> {
-  if (!routerDecision.primaryTopicId) {
-    const fallbackMessages = await loadFallbackMessages(supabase, conversationId, maxContextTokens);
-    return {
-      messages: fallbackMessages,
-      source: "fallback",
-      includedTopicIds: [],
-      summaryCount: 0,
-      artifactCount: 0,
-    };
+  const requestedTopicIds = [
+    routerDecision.primaryTopicId,
+    ...(routerDecision.secondaryTopicIds || []),
+  ].filter(Boolean) as string[];
+
+  let topicRows: TopicRow[] = [];
+  if (requestedTopicIds.length) {
+    const { data: topics, error: topicError } = await supabase
+      .from("conversation_topics")
+      .select("*")
+      .in("id", requestedTopicIds);
+
+    if (!topicError && Array.isArray(topics)) {
+      topicRows = topics;
+    }
   }
 
-  const { data: topics, error: topicError } = await supabase
-    .from("conversation_topics")
-    .select("*")
-    .eq("conversation_id", conversationId);
-
-  if (topicError || !Array.isArray(topics)) {
-    const fallbackMessages = await loadFallbackMessages(supabase, conversationId, maxContextTokens);
-    return {
-      messages: fallbackMessages,
-      source: "fallback",
-      includedTopicIds: [],
-      summaryCount: 0,
-      artifactCount: 0,
-    };
-  }
-
-  const topicRows: TopicRow[] = topics ?? [];
   const topicMap = new Map<string, TopicRow>(topicRows.map((topic) => [topic.id, topic]));
-  const primaryTopic = topicMap.get(routerDecision.primaryTopicId);
+  let primaryTopic = routerDecision.primaryTopicId
+    ? topicMap.get(routerDecision.primaryTopicId)
+    : null;
+
+  if (!primaryTopic && routerDecision.primaryTopicId) {
+    // Fallback: attempt to fetch the primary topic directly if not returned above
+    const { data: fallbackTopic } = await supabase
+      .from("conversation_topics")
+      .select("*")
+      .eq("id", routerDecision.primaryTopicId)
+      .maybeSingle();
+    if (fallbackTopic) {
+      primaryTopic = fallbackTopic as TopicRow;
+      topicRows.push(primaryTopic);
+      topicMap.set(primaryTopic.id, primaryTopic);
+    }
+  }
+
   if (!primaryTopic) {
     const fallbackMessages = await loadFallbackMessages(supabase, conversationId, maxContextTokens);
     return {
@@ -78,6 +91,48 @@ export async function buildContextForMainModel({
       source: "fallback",
       includedTopicIds: [],
       summaryCount: 0,
+      artifactCount: 0,
+    };
+  }
+
+  const involvedConversationIds = new Set<string>([
+    conversationId,
+    primaryTopic.conversation_id,
+    ...topicRows.map((t) => t.conversation_id),
+  ]);
+
+  const conversationMeta = await loadConversationMetadata(supabase, Array.from(involvedConversationIds));
+
+  const blockedTopics: TopicRow[] = [];
+  if (
+    primaryTopic.conversation_id !== conversationId &&
+    typeof primaryTopic.token_estimate === "number" &&
+    primaryTopic.token_estimate > CROSS_CHAT_TOKEN_LIMIT
+  ) {
+    blockedTopics.push(primaryTopic);
+    primaryTopic = null;
+  }
+
+  let secondaryTopics = (routerDecision.secondaryTopicIds || [])
+    .map((id) => topicMap.get(id))
+    .filter((topic): topic is TopicRow => Boolean(topic));
+
+  secondaryTopics = secondaryTopics.filter((topic) => {
+    if (topic.conversation_id === conversationId) return true;
+    if (typeof topic.token_estimate !== "number") return true;
+    if (topic.token_estimate <= CROSS_CHAT_TOKEN_LIMIT) return true;
+    blockedTopics.push(topic);
+    return false;
+  });
+
+  if (!primaryTopic) {
+    const fallbackMessages = await loadFallbackMessages(supabase, conversationId, maxContextTokens);
+    const blockedNotices = buildBlockedTopicNotices(blockedTopics, conversationMeta, conversationId);
+    return {
+      messages: blockedNotices.length ? blockedNotices.concat(fallbackMessages) : fallbackMessages,
+      source: "fallback",
+      includedTopicIds: [],
+      summaryCount: blockedNotices.length,
       artifactCount: 0,
     };
   }
@@ -90,6 +145,13 @@ export async function buildContextForMainModel({
   let summaryCount = 0;
   let artifactCount = 0;
 
+  const blockedNotices = buildBlockedTopicNotices(blockedTopics, conversationMeta, conversationId);
+  for (const notice of blockedNotices) {
+    if (pushMessage(summaryMessages, notice)) {
+      summaryCount += 1;
+    }
+  }
+
   const pushMessage = (target: ContextMessage[], message: ContextMessage) => {
     const tokens = estimateTokens(message.content);
     if (tokens > tokenBudgetRemaining) {
@@ -100,11 +162,13 @@ export async function buildContextForMainModel({
     return true;
   };
 
+  const primaryOrigin = formatTopicOrigin(primaryTopic, conversationMeta, conversationId);
+
   if (primaryTopic.summary?.trim()) {
     if (
       pushMessage(summaryMessages, {
         role: "assistant",
-        content: `[Topic summary: ${primaryTopic.label}] ${primaryTopic.summary.trim()}`,
+        content: `[Topic summary: ${primaryTopic.label} from ${primaryOrigin}] ${primaryTopic.summary.trim()}`,
         type: "message",
       })
     ) {
@@ -112,19 +176,23 @@ export async function buildContextForMainModel({
     }
   }
 
-  const primaryMessages = await loadTopicMessages(supabase, conversationId, primaryTopic.id);
-
-  const secondaryTopics = (routerDecision.secondaryTopicIds || [])
-    .map((id) => topicMap.get(id))
-    .filter((topic): topic is TopicRow => Boolean(topic));
+  const primaryMessages = await loadTopicMessages(
+    supabase,
+    primaryTopic.conversation_id,
+    primaryTopic.id
+  );
 
   const secondaryTailText = secondaryTopics.length
-    ? await buildSecondaryTailSnippets(supabase, conversationId, secondaryTopics.map((topic) => topic.id))
+    ? await buildSecondaryTailSnippets(
+        supabase,
+        secondaryTopics.map((topic) => ({ topicId: topic.id, conversationId: topic.conversation_id }))
+      )
     : {};
 
   for (const topic of secondaryTopics) {
     includedTopics.add(topic.id);
     const summaryParts: string[] = [];
+    const originLabel = formatTopicOrigin(topic, conversationMeta, conversationId);
     if (topic.summary?.trim()) {
       summaryParts.push(topic.summary.trim());
     }
@@ -137,7 +205,7 @@ export async function buildContextForMainModel({
     if (
       pushMessage(summaryMessages, {
         role: "assistant",
-        content: `[Reference summary: ${topic.label}] ${summaryParts.join(" | ")}`,
+        content: `[Reference summary: ${topic.label} from ${originLabel}] ${summaryParts.join(" | ")}`,
         type: "message",
       })
     ) {
@@ -218,15 +286,96 @@ export async function buildContextForMainModel({
   };
 }
 
+async function loadConversationMetadata(
+  supabase: SupabaseClient<Database>,
+  conversationIds: string[]
+): Promise<Map<string, ConversationMeta>> {
+  if (!conversationIds.length) {
+    return new Map();
+  }
+
+  const { data: conversations } = await supabase
+    .from("conversations")
+    .select("id, title, project_id")
+    .in("id", conversationIds);
+
+  const conversationRows: ConversationMeta[] = Array.isArray(conversations)
+    ? (conversations as any[]).map((c) => ({
+        id: c.id,
+        title: c.title ?? null,
+        project_id: c.project_id ?? null,
+        project_name: null,
+      }))
+    : [];
+
+  const projectIds = Array.from(
+    new Set(conversationRows.map((c) => c.project_id).filter(Boolean))
+  );
+  const projectNameMap = new Map<string, string | null>();
+  if (projectIds.length) {
+    const { data: projects } = await supabase
+      .from("projects")
+      .select("id, name")
+      .in("id", projectIds);
+    if (Array.isArray(projects)) {
+      projects.forEach((p) => {
+        projectNameMap.set(p.id, p.name ?? null);
+      });
+    }
+  }
+
+  const metaMap = new Map<string, ConversationMeta>();
+  for (const convo of conversationRows) {
+    metaMap.set(convo.id, {
+      ...convo,
+      project_name: convo.project_id ? projectNameMap.get(convo.project_id) ?? null : null,
+    });
+  }
+  return metaMap;
+}
+
+function formatTopicOrigin(
+  topic: TopicRow,
+  conversationMeta: Map<string, ConversationMeta>,
+  activeConversationId: string
+): string {
+  if (topic.conversation_id === activeConversationId) {
+    return "this chat";
+  }
+  const meta = conversationMeta.get(topic.conversation_id);
+  const chatLabel = meta?.title || "another chat";
+  if (meta?.project_name) {
+    return `${chatLabel} in project ${meta.project_name}`;
+  }
+  return chatLabel;
+}
+
+function buildBlockedTopicNotices(
+  blockedTopics: TopicRow[],
+  conversationMeta: Map<string, ConversationMeta>,
+  activeConversationId: string
+): ContextMessage[] {
+  if (!blockedTopics.length) return [];
+  return blockedTopics.map((topic) => ({
+    role: "assistant",
+    type: "message",
+    content: `[Cross-chat notice] Skipped topic "${topic.label}" from ${formatTopicOrigin(
+      topic,
+      conversationMeta,
+      activeConversationId
+    )} because it exceeds the 200k-token cross-chat limit. Inform the user you could not load it.`,
+  }));
+}
+
 async function loadTopicMessages(
   supabase: SupabaseClient<Database>,
-  conversationId: string,
+  topicConversationId: string,
   topicId: string
 ): Promise<MessageRow[]> {
   const { data } = await supabase
     .from("messages")
     .select("id, role, content, metadata, topic_id, created_at")
-    .eq("conversation_id", conversationId)
+    .eq("conversation_id", topicConversationId)
     .eq("topic_id", topicId)
     .order("created_at", { ascending: true });
   return Array.isArray(data) ? data : [];
@@ -234,36 +383,27 @@ async function loadTopicMessages(
 
 async function buildSecondaryTailSnippets(
   supabase: SupabaseClient<Database>,
-  conversationId: string,
-  topicIds: string[]
+  topics: Array<{ topicId: string; conversationId: string }>
 ): Promise<Record<string, string>> {
-  if (!topicIds.length) {
+  if (!topics.length) {
     return {};
   }
-  const { data } = await supabase
-    .from("messages")
-    .select("role, content, metadata, topic_id, created_at")
-    .eq("conversation_id", conversationId)
-    .in("topic_id", topicIds)
-    .order("created_at", { ascending: true });
-
-  const rows: MessageRow[] = Array.isArray(data) ? (data as MessageRow[]) : [];
-  if (!rows.length) {
-    return {};
-  }
-
-  const grouped = new Map<string, MessageRow[]>();
-  for (const msg of rows) {
-    if (!msg.topic_id) continue;
-    if (!grouped.has(msg.topic_id)) {
-      grouped.set(msg.topic_id, []);
-    }
-    grouped.get(msg.topic_id)!.push(msg);
-  }
-
   const snippets: Record<string, string> = {};
-  for (const [topicId, messages] of grouped.entries()) {
-    const tail = messages.slice(-SECONDARY_TOPIC_TAIL).map((msg) => {
+
+  for (const topic of topics) {
+    const { data } = await supabase
+      .from("messages")
+      .select("role, content, metadata, topic_id, created_at")
+      .eq("conversation_id", topic.conversationId)
+      .eq("topic_id", topic.topicId)
+      .order("created_at", { ascending: true });
+
+    const rows: MessageRow[] = Array.isArray(data) ? (data as MessageRow[]) : [];
+    if (!rows.length) {
+      continue;
+    }
+
+    const tail = rows.slice(-SECONDARY_TOPIC_TAIL).map((msg) => {
       const label = msg.role === "assistant" ? "Assistant" : "User";
       const snippet = sanitizeTopicMessageContent(msg)
         .replace(/\s+/g, " ")
@@ -273,9 +413,10 @@ async function buildSecondaryTailSnippets(
     });
     const summary = tail.filter(Boolean).join(" | ");
     if (summary) {
-      snippets[topicId] = summary;
+      snippets[topic.topicId] = summary;
     }
   }
+
   return snippets;
 }
 

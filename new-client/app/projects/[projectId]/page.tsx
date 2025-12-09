@@ -186,7 +186,10 @@ export default function ProjectDetailPage() {
     router.push(`/projects/${projectIdValue}/c/${chatId}`);
   };
 
-  const handleProjectChatSubmit = async (message: string) => {
+  const handleProjectChatSubmit = async (
+    message: string,
+    attachments?: Array<{ name?: string; mime?: string; dataUrl?: string; url?: string }>
+  ) => {
     if (isGuest) {
       setGuestWarning("Sign in to start and save chats.");
       return;
@@ -196,6 +199,7 @@ export default function ProjectDetailPage() {
       await startProjectConversationAction({
         projectId,
         firstMessageContent: message,
+        attachments,
       });
 
     const chatId = createChat({
@@ -280,7 +284,7 @@ export default function ProjectDetailPage() {
   };
 
   return (
-    <div className="flex min-h-screen bg-background text-foreground dark">
+    <div className="flex h-screen overflow-hidden bg-background text-foreground dark">
       <ChatSidebar
         isOpen={isSidebarOpen}
         onToggle={() => setIsSidebarOpen((open) => !open)}
@@ -309,7 +313,7 @@ export default function ProjectDetailPage() {
         }}
       />
 
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-y-auto h-full">
         {isGuest && (
           <div className="px-4 py-2 bg-amber-900/40 text-amber-100 text-sm flex items-center justify-between">
             <span>Guest mode: chats and projects won&apos;t be saved. Sign in to keep your work.</span>
