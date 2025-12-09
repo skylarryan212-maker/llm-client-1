@@ -1097,9 +1097,7 @@ export default function ChatPageShell({
 
       if (!response.ok) {
         // Stop streaming state and indicators on error
-        resetThinkingIndicator();
-        setIsStreaming(false);
-        setActiveIndicatorMessageId(null);
+        finalizeStreamingState();
 
         // Check if it's a usage limit error
         if (response.status === 429) {
@@ -1128,6 +1126,7 @@ export default function ChatPageShell({
       const reader = response.body?.getReader();
       if (!reader) {
         console.error("No response body reader");
+        finalizeStreamingState();
         return;
       }
 
@@ -1332,10 +1331,7 @@ export default function ChatPageShell({
         streamAbortControllerRef.current = null;
       }
       inFlightRequests.current.delete(requestKey);
-      setIsStreaming(false);
-      resetThinkingIndicator();
-      // Clear active indicator so buttons appear after streaming completes
-      setActiveIndicatorMessageId(null);
+      finalizeStreamingState();
     }
   }, [
     addSearchDomain,
@@ -1346,7 +1342,7 @@ export default function ChatPageShell({
     handleStatusEvent,
     hideThinkingIndicator,
     recordFirstTokenTiming,
-    resetThinkingIndicator,
+    finalizeStreamingState,
     showThinkingIndicator,
     startResponseTiming,
     updateMessage,
@@ -1360,6 +1356,20 @@ export default function ChatPageShell({
     setIsStreaming(false);
     resetThinkingIndicator();
   }, [resetThinkingIndicator]);
+
+  const finalizeStreamingState = useCallback(
+    () => {
+      setIsStreaming(false);
+      hideThinkingIndicator();
+      setActiveIndicatorMessageId(null);
+      // Clear timing/pending data to avoid stale chips or stuck UI
+      responseTimingRef.current = { start: null, firstToken: null, assistantMessageId: null };
+      pendingThinkingInfoRef.current = null;
+      clearSearchIndicator();
+      clearFileReadingIndicator();
+    },
+    [clearFileReadingIndicator, clearSearchIndicator, hideThinkingIndicator]
+  );
 
   // Check if we need to auto-start streaming for a new chat with only a user message
   // This handles the case where a chat was created from the project page and redirected here
