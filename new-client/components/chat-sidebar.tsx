@@ -282,7 +282,7 @@ export function ChatSidebar({
                 closeSidebarIfMobile()
               }}
               variant="ghost"
-              className={`${isOpen ? 'w-full justify-start px-2.5' : 'w-10 h-10 p-0 justify-center'} h-9 gap-2 text-sidebar-foreground hover:bg-sidebar-accent sidebar-entry`}
+                className={`${isOpen ? 'w-full justify-start px-2.5' : 'w-12 h-10 p-0 justify-center'} h-9 gap-2 text-sidebar-foreground hover:bg-sidebar-accent sidebar-entry`}
               title={!isOpen ? "New Chat" : undefined}
             >
               <Plus className="h-4 w-4 flex-shrink-0" />
