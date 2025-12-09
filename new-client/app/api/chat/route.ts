@@ -2021,12 +2021,15 @@ export async function POST(request: NextRequest) {
               // Refresh topic metadata asynchronously to avoid blocking the stream completion
               (async () => {
                 try {
-                  await refreshTopicMetadata({
-                    supabase: supabaseAny,
-                    openai,
-                    topicId: assistantRowForMeta.topic_id,
-                    conversationId,
-                  });
+                  const topicId = assistantRowForMeta.topic_id;
+                  if (topicId) {
+                    await refreshTopicMetadata({
+                      supabase: supabaseAny,
+                      openai,
+                      topicId,
+                      conversationId,
+                    });
+                  }
                 } catch (metaErr) {
                   console.error("[topic-router] Failed to refresh topic metadata summary:", metaErr);
                 }
