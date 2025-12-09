@@ -2018,28 +2018,34 @@ export async function POST(request: NextRequest) {
               } catch (snapshotErr) {
                 console.error("[topic-router] Failed to refresh topic snapshot for assistant:", snapshotErr);
               }
-              try {
-                await refreshTopicMetadata({
-                  supabase: supabaseAny,
-                  openai,
-                  topicId: assistantRowForMeta.topic_id,
-                  conversationId,
-                });
-              } catch (metaErr) {
-                console.error("[topic-router] Failed to refresh topic metadata summary:", metaErr);
-              }
+              // Refresh topic metadata asynchronously to avoid blocking the stream completion
+              (async () => {
+                try {
+                  await refreshTopicMetadata({
+                    supabase: supabaseAny,
+                    openai,
+                    topicId: assistantRowForMeta.topic_id,
+                    conversationId,
+                  });
+                } catch (metaErr) {
+                  console.error("[topic-router] Failed to refresh topic metadata summary:", metaErr);
+                }
+              })();
             }
 
-            try {
-              const clientForArtifacts = openai;
-              await maybeGenerateArtifactsWithLLM({
-                supabase: supabaseAny,
-                openai: clientForArtifacts,
-                message: assistantRowForMeta,
-              });
-            } catch (artifactError) {
-              console.error("[artifacts] LLM extraction failed:", artifactError);
-            }
+            // Kick off artifact extraction in the background so UI is not blocked
+            (async () => {
+              try {
+                const clientForArtifacts = openai;
+                await maybeGenerateArtifactsWithLLM({
+                  supabase: supabaseAny,
+                  openai: clientForArtifacts,
+                  message: assistantRowForMeta,
+                });
+              } catch (artifactError) {
+                console.error("[artifacts] LLM extraction failed:", artifactError);
+              }
+            })();
           }
         } catch (error) {
           console.error("Stream error:", error);
