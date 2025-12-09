@@ -393,7 +393,7 @@ export function ChatSidebar({
                                       onKeyDown={(event) =>
                                         handleListItemKeyDown(event, () => onProjectChatSelect?.(project.id, chat.id))
                                       }
-                                      className={`group/chat flex w-full items-center rounded-lg pl-7 pr-2.5 py-1.5 text-left transition-colors sidebar-entry ${
+                                      className={`group/chat flex w-full items-center rounded-lg pl-6 pr-2.5 py-1.5 text-left transition-colors sidebar-entry ${
                                         selectedChatId === chat.id
                                           ? 'bg-zinc-800 text-white'
                                           : 'hover:bg-sidebar-accent'
@@ -431,11 +431,11 @@ export function ChatSidebar({
                                   {hasMoreChats && (
                                     <Link
                                       href={`/projects/${project.id}`}
-                                      className="block w-full rounded-lg pl-7 pr-2.5 py-1.5 text-sm text-muted-foreground hover:bg-sidebar-accent"
-                                      onClick={() => onProjectSelect?.(project.id)}
-                                    >
-                                      See more…
-                                    </Link>
+                                  className="block w-full rounded-lg pl-6 pr-2.5 py-1.5 text-sm text-muted-foreground hover:bg-sidebar-accent"
+                                  onClick={() => onProjectSelect?.(project.id)}
+                                >
+                                  See more…
+                                </Link>
                                   )}
                                 </div>
                               )}
