@@ -39,6 +39,17 @@ function parseJsonObject(text: string): { description?: string; summary?: string
   return null;
 }
 
+function withQueryTimeout<T>(builder: any, ms = 5000): Promise<T> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+
+  if (typeof builder?.abortSignal === "function") {
+    builder.abortSignal(controller.signal);
+  }
+
+  return (builder as Promise<T>).finally(() => clearTimeout(timer));
+}
+
 export async function refreshTopicMetadata({
   supabase,
   openai,
@@ -48,24 +59,44 @@ export async function refreshTopicMetadata({
 }: RefreshTopicMetadataParams): Promise<void> {
   if (!topicId) return;
 
-  const { data: topicRow, error: topicErr } = await supabase
-    .from("conversation_topics")
-    .select("id, label, description, summary")
-    .eq("id", topicId)
-    .maybeSingle();
+  let topicResult;
+  try {
+    topicResult = await withQueryTimeout(
+      supabase
+        .from("conversation_topics")
+        .select("id, label, description, summary")
+        .eq("id", topicId)
+        .maybeSingle(),
+    );
+  } catch (topicErr) {
+    console.warn("[topic-refresh] Topic fetch failed:", topicErr);
+    return;
+  }
+
+  const { data: topicRow, error: topicErr } = topicResult ?? {};
 
   if (topicErr || !topicRow) {
     console.warn("[topic-refresh] Topic fetch failed:", topicErr);
     return;
   }
 
-  const { data: messages, error: msgErr } = await supabase
-    .from("messages")
-    .select("id, role, content, created_at")
-    .eq("conversation_id", conversationId)
-    .eq("topic_id", topicId)
-    .order("created_at", { ascending: true })
-    .limit(40);
+  let messagesResult;
+  try {
+    messagesResult = await withQueryTimeout(
+      supabase
+        .from("messages")
+        .select("id, role, content, created_at")
+        .eq("conversation_id", conversationId)
+        .eq("topic_id", topicId)
+        .order("created_at", { ascending: true })
+        .limit(40),
+    );
+  } catch (msgErr) {
+    console.warn("[topic-refresh] Message fetch failed:", msgErr);
+    return;
+  }
+
+  const { data: messages, error: msgErr } = messagesResult ?? {};
 
   if (msgErr) {
     console.warn("[topic-refresh] Message fetch failed:", msgErr);
