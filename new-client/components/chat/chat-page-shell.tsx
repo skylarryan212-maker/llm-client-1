@@ -61,6 +61,15 @@ type SearchStatusEvent =
   | { type: "file-reading-complete" }
   | { type: "file-reading-error"; message?: string };
 
+type SearchIndicatorState =
+  | {
+      message: string;
+      variant: "running" | "complete" | "error";
+      domains: string[];
+      subtext?: string;
+    }
+  | null;
+
 interface ChatPageShellProps {
   conversations: ShellConversation[];
   activeConversationId: string | null; // allow null for "/"
@@ -151,6 +160,7 @@ export default function ChatPageShell({
   const [selectedChatId, setSelectedChatId] = useState<string | null>(
     activeConversationId ?? null
   );
+  const prevActiveConversationIdRef = useRef<string | null>(activeConversationId);
 
   const [selectedProjectId, setSelectedProjectId] = useState(projectId ?? "");
   const [isNewProjectOpen, setIsNewProjectOpen] = useState(false);
@@ -173,13 +183,7 @@ export default function ChatPageShell({
   // Force re-render while thinking so a live duration chip can update
   const [, setThinkingTick] = useState(0);
   const [searchIndicator, setSearchIndicator] = useState<
-    | {
-        message: string;
-        variant: "running" | "complete" | "error";
-        domains: string[];
-        subtext?: string;
-      }
-    | null
+    SearchIndicatorState
   >(null);
   const searchDomainListRef = useRef<string[]>([]);
   const searchDomainSetRef = useRef(new Set<string>());
@@ -199,6 +203,20 @@ export default function ChatPageShell({
     assistantMessageId: null as string | null,
   });
   const pendingThinkingInfoRef = useRef<ThinkingTimingInfo | null>(null);
+  const conversationUiStateRef = useRef<
+    Record<
+      string,
+      {
+        isStreaming: boolean;
+        thinkingStatus: { variant: "thinking" | "extended"; label: string } | null;
+        searchIndicator: SearchIndicatorState;
+        fileReadingIndicator: "running" | "error" | null;
+        activeIndicatorMessageId: string | null;
+        responseTiming: { start: number | null; firstToken: number | null; assistantMessageId: string | null };
+        pendingThinking: ThinkingTimingInfo | null;
+      }
+    >
+  >({});
   const searchIndicatorTimerRef = useRef<NodeJS.Timeout | null>(null);
   const fileIndicatorTimerRef = useRef<NodeJS.Timeout | null>(null);
   const hasSessionAutoStream = useCallback((conversationId: string) => {
@@ -489,16 +507,68 @@ export default function ChatPageShell({
   }, [activeIndicatorMessageId, searchIndicator, fileReadingIndicator, thinkingStatus]);
 
   useEffect(() => {
-    setSelectedChatId(activeConversationId ?? null);
-    // Reset timing refs when conversation changes to prevent stale data
-    responseTimingRef.current = {
-      start: null,
-      firstToken: null,
-      assistantMessageId: null,
+    const previousKey = prevActiveConversationIdRef.current ?? "__no_conversation__";
+    conversationUiStateRef.current[previousKey] = {
+      isStreaming,
+      thinkingStatus,
+      searchIndicator,
+      fileReadingIndicator,
+      activeIndicatorMessageId,
+      responseTiming: { ...responseTimingRef.current },
+      pendingThinking: pendingThinkingInfoRef.current,
     };
-    pendingThinkingInfoRef.current = null;
-    resetThinkingIndicator();
-  }, [activeConversationId, resetThinkingIndicator]);
+
+    setSelectedChatId(activeConversationId ?? null);
+    const key = activeConversationId ?? "__no_conversation__";
+    const saved = conversationUiStateRef.current[key];
+
+    if (saved) {
+      setIsStreaming(saved.isStreaming);
+      setThinkingStatus(saved.thinkingStatus);
+      setSearchIndicator(saved.searchIndicator);
+      setFileReadingIndicator(saved.fileReadingIndicator);
+      setActiveIndicatorMessageId(saved.activeIndicatorMessageId);
+      responseTimingRef.current = { ...saved.responseTiming };
+      pendingThinkingInfoRef.current = saved.pendingThinking;
+    } else {
+      setIsStreaming(false);
+      hideThinkingIndicator();
+      setSearchIndicator(null);
+      setFileReadingIndicator(null);
+      setActiveIndicatorMessageId(null);
+      responseTimingRef.current = { start: null, firstToken: null, assistantMessageId: null };
+      pendingThinkingInfoRef.current = null;
+    }
+    prevActiveConversationIdRef.current = activeConversationId ?? null;
+  }, [
+    activeConversationId,
+    hideThinkingIndicator,
+    isStreaming,
+    thinkingStatus,
+    searchIndicator,
+    fileReadingIndicator,
+    activeIndicatorMessageId,
+  ]);
+
+  useEffect(() => {
+    const key = selectedChatId ?? "__no_conversation__";
+    conversationUiStateRef.current[key] = {
+      isStreaming,
+      thinkingStatus,
+      searchIndicator,
+      fileReadingIndicator,
+      activeIndicatorMessageId,
+      responseTiming: { ...responseTimingRef.current },
+      pendingThinking: pendingThinkingInfoRef.current,
+    };
+  }, [
+    selectedChatId,
+    isStreaming,
+    thinkingStatus,
+    searchIndicator,
+    fileReadingIndicator,
+    activeIndicatorMessageId,
+  ]);
 
   useEffect(() => {
     if (!initialConversations.length) return;
