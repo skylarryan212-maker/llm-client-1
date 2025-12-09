@@ -110,6 +110,29 @@ function UpgradePageContent() {
     return planHierarchy[planId] < planHierarchy[currentPlan];
   };
 
+  const filteredPlans = plans.filter((plan) => {
+    // If showing all plans (from settings), show all
+    if (shouldShowAllPlans) return true;
+    
+    // Hide free plan if user has any paid plan
+    if (plan.id === "free" && currentPlan !== "free") {
+      return false;
+    }
+    // Hide plus plan if user has pro or dev plan
+    if (plan.id === "plus" && (currentPlan === "pro" || currentPlan === "dev")) {
+      return false;
+    }
+    // Hide pro plan if user has dev plan
+    if (plan.id === "pro" && currentPlan === "dev") {
+      return false;
+    }
+    // Only show dev plan if user has dev plan
+    if (currentPlan === "dev" && plan.id !== "dev") {
+      return false;
+    }
+    return true;
+  });
+
   return (
     <div className="min-h-screen bg-background text-foreground flex flex-col">
       <div className="flex-1">
@@ -124,32 +147,13 @@ function UpgradePageContent() {
             </div>
           </div>
 
-          <div className="max-w-7xl mx-auto">
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 items-stretch gap-6">
-          {plans
-            .filter((plan) => {
-              // If showing all plans (from settings), show all
-              if (shouldShowAllPlans) return true;
-              
-              // Hide free plan if user has any paid plan
-              if (plan.id === "free" && currentPlan !== "free") {
-                return false;
-              }
-              // Hide plus plan if user has pro or dev plan
-              if (plan.id === "plus" && (currentPlan === "pro" || currentPlan === "dev")) {
-                return false;
-              }
-              // Hide pro plan if user has dev plan
-              if (plan.id === "pro" && currentPlan === "dev") {
-                return false;
-              }
-              // Only show dev plan if user has dev plan
-              if (currentPlan === "dev" && plan.id !== "dev") {
-                return false;
-              }
-              return true;
-            })
-            .map((plan) => {
+          <div className="max-w-7xl mx-auto flex justify-center">
+            <div
+              className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 items-stretch gap-6 justify-center justify-items-center w-full ${
+                filteredPlans.length === 1 ? "max-w-sm" : ""
+              }`}
+            >
+          {filteredPlans.map((plan) => {
             const isCurrent = currentPlan === plan.id;
             return (
               <div
