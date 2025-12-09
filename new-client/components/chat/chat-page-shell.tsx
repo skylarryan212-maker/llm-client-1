@@ -938,7 +938,9 @@ export default function ChatPageShell({
         triggerAutoNaming(conversationId, message, conversation.title ?? undefined);
 
         // Navigate immediately so the new chat page shows thinking/streaming
-        const targetUrl = `/projects/${targetProjectId}/c/${newChatId}`;
+        const targetUrl = `/projects/${targetProjectId}/c/${newChatId}?autoStreamHandled=true`;
+        // Prevent duplicate auto-stream on landing effect
+        markConversationAsAutoStreamed(conversationId);
         if (typeof window !== "undefined" && !window.location.pathname.includes(`/c/${newChatId}`)) {
           router.push(targetUrl);
         }
@@ -982,8 +984,10 @@ export default function ChatPageShell({
         triggerAutoNaming(conversationId, message, conversation.title ?? undefined);
 
         // Navigate immediately so the new chat page shows thinking/streaming
+        // Prevent duplicate auto-stream on landing effect
+        markConversationAsAutoStreamed(conversationId);
         if (typeof window !== "undefined" && !window.location.pathname.includes(`/c/${newChatId}`)) {
-          router.push(`/c/${newChatId}`);
+          router.push(`/c/${newChatId}?autoStreamHandled=true`);
         }
 
         // Kick off streaming in the background; the new page will pick up state even if we navigate
