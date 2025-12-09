@@ -4,6 +4,8 @@ import type { Database } from "@/lib/supabase/types";
 type MessageRow = Database["public"]["Tables"]["messages"]["Row"];
 type TopicRow = Database["public"]["Tables"]["conversation_topics"]["Row"];
 
+type QueryResult<T> = { data: T | null; error: unknown } | null | undefined;
+
 interface RefreshTopicMetadataParams {
   supabase: SupabaseClient<Database>;
   openai: any;
@@ -73,7 +75,9 @@ export async function refreshTopicMetadata({
     return;
   }
 
-  const { data: topicRow, error: topicErr } = topicResult ?? {};
+  const topicResponse = topicResult as QueryResult<TopicRow>;
+  const topicRow = topicResponse?.data;
+  const topicErr = topicResponse?.error;
 
   if (topicErr || !topicRow) {
     console.warn("[topic-refresh] Topic fetch failed:", topicErr);
@@ -96,7 +100,9 @@ export async function refreshTopicMetadata({
     return;
   }
 
-  const { data: messages, error: msgErr } = messagesResult ?? {};
+  const messagesResponse = messagesResult as QueryResult<MessageRow[]>;
+  const messages = messagesResponse?.data;
+  const msgErr = messagesResponse?.error;
 
   if (msgErr) {
     console.warn("[topic-refresh] Message fetch failed:", msgErr);
