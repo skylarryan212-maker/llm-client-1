@@ -17,8 +17,16 @@ import type { Database } from "@/lib/supabase/types";
 type ConversationRow = Database["public"]["Tables"]["conversations"]["Row"];
 type MessageRow = Database["public"]["Tables"]["messages"]["Row"];
 
+type AttachmentInput = {
+  name?: string;
+  mime?: string;
+  dataUrl?: string;
+  url?: string;
+};
+
 export async function startGlobalConversationAction(
-  firstMessageContent: string
+  firstMessageContent: string,
+  attachments?: AttachmentInput[]
 ): Promise<{
   conversationId: string;
   message: MessageRow;
@@ -27,6 +35,7 @@ export async function startGlobalConversationAction(
   const { conversation, message } = await createGlobalConversationWithFirstMessage({
     title: "New chat",
     firstMessageContent,
+    attachments,
   });
 
   return { conversationId: conversation.id as string, message, conversation };
@@ -57,6 +66,7 @@ export async function appendAssistantMessageAction(
 export async function startProjectConversationAction(params: {
   projectId: string;
   firstMessageContent: string;
+  attachments?: AttachmentInput[];
 }): Promise<{
   conversationId: string;
   message: MessageRow;
@@ -66,6 +76,7 @@ export async function startProjectConversationAction(params: {
     await createProjectConversationWithFirstMessage({
       projectId: params.projectId,
       firstMessageContent: params.firstMessageContent,
+      attachments: params.attachments,
     });
 
   return { conversationId: conversation.id as string, message, conversation };

@@ -19,12 +19,25 @@ interface DecideRoutingParams {
   supabase: SupabaseClient<Database>;
   conversationId: string;
   userMessage: string;
+  projectId?: string | null;
+  userId: string;
+  conversationTitle?: string | null;
+  projectName?: string | null;
 }
 
 interface RouterContextPayload {
-  topics: ConversationTopic[];
+  topics: Array<
+    ConversationTopic & {
+      conversation_title?: string | null;
+      project_id?: string | null;
+      is_cross_conversation?: boolean;
+    }
+  >;
   artifacts: Artifact[];
   recentMessages: Pick<Message, "id" | "role" | "content" | "created_at" | "topic_id">[];
+  projectId?: string | null;
+  projectName?: string | null;
+  conversationTitle?: string | null;
 }
 
 const baseRouterFields = {
@@ -55,8 +68,16 @@ const routerDecisionSchema = z.union([newTopicPayload, existingTopicPayload]);
 export async function decideRoutingForMessage(
   params: DecideRoutingParams
 ): Promise<RouterDecision> {
-  const { supabase, conversationId, userMessage } = params;
-  const payload = await loadRouterContextPayload(supabase, conversationId, userMessage);
+  const { supabase, conversationId, userMessage, projectId, userId, conversationTitle, projectName } = params;
+  const payload = await loadRouterContextPayload(
+    supabase,
+    conversationId,
+    userMessage,
+    projectId,
+    userId,
+    conversationTitle,
+    projectName
+  );
 
   if (!process.env.OPENAI_API_KEY) {
     throw new Error("[topic-router] OPENAI_API_KEY missing");
@@ -128,9 +149,13 @@ export async function decideRoutingForMessage(
 async function loadRouterContextPayload(
   supabase: SupabaseClient<Database>,
   conversationId: string,
-  userMessage: string
+  userMessage: string,
+  projectId?: string | null,
+  userId?: string,
+  conversationTitle?: string | null,
+  projectName?: string | null
 ): Promise<RouterContextPayload> {
-  const [{ data: topics }, { data: recent }, artifacts] = await Promise.all([
+  const [{ data: topics }, { data: recent }, artifacts, crossChatTopics] = await Promise.all([
     supabase
       .from("conversation_topics")
       .select("*")
@@ -143,13 +168,78 @@ async function loadRouterContextPayload(
       .order("created_at", { ascending: false })
       .limit(MAX_RECENT_MESSAGES),
     loadCandidateArtifacts(supabase, conversationId, userMessage),
+    loadCrossConversationTopics(supabase, conversationId, projectId, userId),
   ]);
 
+  const mergedTopics = [
+    ...(Array.isArray(topics)
+      ? (topics as ConversationTopic[]).map((topic) => ({ ...topic, is_cross_conversation: false }))
+      : []),
+    ...crossChatTopics,
+  ];
+
   return {
-    topics: Array.isArray(topics) ? topics : [],
+    topics: mergedTopics,
     artifacts,
     recentMessages: Array.isArray(recent) ? recent.reverse() : [],
+    projectId,
+    projectName,
+    conversationTitle,
   };
+}
+
+const CROSS_CHAT_TOKEN_LIMIT = 200_000;
+const MAX_FOREIGN_CONVERSATIONS = 12;
+const MAX_FOREIGN_TOPICS = 50;
+
+async function loadCrossConversationTopics(
+  supabase: SupabaseClient<Database>,
+  conversationId: string,
+  projectId?: string | null,
+  userId?: string
+): Promise<RouterContextPayload["topics"]> {
+  const conversationQuery = supabase
+    .from("conversations")
+    .select("id, title, project_id")
+    .neq("id", conversationId)
+    .order("created_at", { ascending: false })
+    .limit(MAX_FOREIGN_CONVERSATIONS);
+
+  if (projectId) {
+    conversationQuery.eq("project_id", projectId);
+  }
+  if (userId) {
+    conversationQuery.eq("user_id", userId);
+  }
+
+  const { data: otherConversations } = await conversationQuery;
+  if (!Array.isArray(otherConversations) || !otherConversations.length) {
+    return [];
+  }
+
+  const conversationMap = new Map(
+    otherConversations.map((row) => [row.id, { title: row.title, project_id: row.project_id }])
+  );
+  const conversationIds = Array.from(conversationMap.keys());
+
+  const { data: topicRows } = await supabase
+    .from("conversation_topics")
+    .select("*")
+    .in("conversation_id", conversationIds)
+    .lte("token_estimate", CROSS_CHAT_TOKEN_LIMIT)
+    .order("updated_at", { ascending: false })
+    .limit(MAX_FOREIGN_TOPICS);
+
+  if (!Array.isArray(topicRows)) {
+    return [];
+  }
+
+  return topicRows.map((topic) => ({
+    ...topic,
+    is_cross_conversation: true,
+    conversation_title: conversationMap.get(topic.conversation_id)?.title ?? null,
+    project_id: conversationMap.get(topic.conversation_id)?.project_id ?? null,
+  }));
 }
 
 async function loadCandidateArtifacts(
@@ -196,6 +286,16 @@ function buildKeywordList(message: string): string[] {
 }
 
 function buildRouterPrompt(payload: RouterContextPayload, userMessage: string): string {
+  const workspaceContext = [
+    payload.projectId
+      ? `Project: ${payload.projectName ?? "(unnamed project)"} [${payload.projectId}]`
+      : "No active project (global chat).",
+    `Current chat: ${payload.conversationTitle ?? "Untitled chat"} [${
+      payload.projectId ? "project" : "global"
+    }]`,
+    "You may reuse topics from other chats listed below if their token estimate is under 200k tokens.",
+  ].join("\n");
+
   const recentSection =
     payload.recentMessages.length > 0
       ? payload.recentMessages
@@ -217,7 +317,13 @@ function buildRouterPrompt(payload: RouterContextPayload, userMessage: string): 
             const updated = topic.updated_at ? ` updated ${topic.updated_at}` : "";
             const summary =
               topic.summary?.replace(/\s+/g, " ").slice(0, 180) ?? "No summary yet.";
-            return `- [${topic.id}] ${topic.label}${parent}${updated}: ${desc} | Summary: ${summary}`;
+            const locationLabel = topic.is_cross_conversation
+              ? `other chat: ${topic.conversation_title ?? topic.conversation_id}`
+              : "current chat";
+            const tokenLabel = typeof topic.token_estimate === "number"
+              ? ` ~${Math.round(topic.token_estimate)} tokens`
+              : "";
+            return `- [${topic.id}] ${topic.label}${parent}${updated} (${locationLabel}${tokenLabel}): ${desc} | Summary: ${summary}`;
           })
           .join("\n")
       : "No topics exist yet.";
@@ -235,6 +341,9 @@ function buildRouterPrompt(payload: RouterContextPayload, userMessage: string): 
 
   return [
     "You are the topic router. Review the new user message and metadata below.",
+    "Workspace context:",
+    workspaceContext,
+    "",
     "Recent conversation snippets:",
     recentSection,
     "",
