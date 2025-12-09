@@ -147,18 +147,26 @@ function UpgradePageContent() {
             </div>
           </div>
 
-          <div className="max-w-7xl mx-auto flex justify-center">
+          <div className="max-w-6xl mx-auto flex justify-center">
             <div
-              className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 items-stretch gap-6 justify-center justify-items-center w-full ${
-                filteredPlans.length === 1 ? "max-w-sm" : ""
-              }`}
+              className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 items-stretch gap-6 justify-items-center w-full"
+              style={{
+                maxWidth:
+                  filteredPlans.length === 1
+                    ? "20rem"
+                    : filteredPlans.length === 2
+                    ? "48rem"
+                    : filteredPlans.length === 3
+                    ? "64rem"
+                    : "100%",
+              }}
             >
           {filteredPlans.map((plan) => {
             const isCurrent = currentPlan === plan.id;
             return (
               <div
                 key={plan.id}
-                className="group relative w-full h-full overflow-hidden rounded-xl border border-border bg-card transition-all hover:border-primary/50 hover:shadow-lg hover:shadow-primary/10"
+                className="group relative w-full max-w-sm h-full overflow-hidden rounded-xl border border-border bg-card transition-all hover:border-primary/50 hover:shadow-lg hover:shadow-primary/10"
               >
                 {plan.recommended && (
                   <div className="absolute top-4 right-4 rounded-full bg-primary/20 px-3 py-1 text-xs font-semibold text-primary">

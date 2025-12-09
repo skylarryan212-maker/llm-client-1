@@ -240,6 +240,7 @@ export function ChatSidebar({
   const primaryButtonClass = isOpen
     ? "w-full justify-start px-2.5 h-9 gap-2 text-sidebar-foreground hover:bg-sidebar-accent sidebar-entry"
     : "w-12 h-10 p-0 justify-center gap-2 text-sidebar-foreground hover:bg-sidebar-accent sidebar-entry";
+  const listItemClass = "w-full text-left rounded-lg px-2.5 py-2 flex items-center gap-2 transition-colors sidebar-entry";
 
   return (
     <>
@@ -353,7 +354,7 @@ export function ChatSidebar({
                                   onProjectSelect?.(project.id)
                                   closeSidebarIfMobile()
                                 }}
-                                className={`group relative flex w-full items-center gap-2 rounded-lg px-2.5 py-2 transition-colors sidebar-entry ${
+                                className={`group relative flex ${listItemClass} ${
                                   isProjectActive
                                     ? 'bg-zinc-800 text-white'
                                     : 'hover:bg-sidebar-accent'
@@ -392,7 +393,7 @@ export function ChatSidebar({
                                       onKeyDown={(event) =>
                                         handleListItemKeyDown(event, () => onProjectChatSelect?.(project.id, chat.id))
                                       }
-                                      className={`group/chat flex w-full items-center gap-2 rounded-lg pl-7 pr-2.5 py-1.5 text-left transition-colors sidebar-entry ${
+                                      className={`group/chat flex w-full items-center rounded-lg pl-7 pr-2.5 py-1.5 text-left transition-colors sidebar-entry ${
                                         selectedChatId === chat.id
                                           ? 'bg-zinc-800 text-white'
                                           : 'hover:bg-sidebar-accent'
@@ -466,11 +467,11 @@ export function ChatSidebar({
                                         onProjectSelect?.(project.id)
                                         setShowMoreProjects(false)
                                       }}
-                                      className={`group block w-full text-left rounded-lg transition-colors ${
-                                        isProjectRootView && activeProjectId === project.id
-                                          ? 'bg-zinc-800 text-white'
-                                          : 'hover:bg-accent'
-                                      }`}
+                                    className={`group block w-full text-left rounded-lg transition-colors ${
+                                      isProjectRootView && activeProjectId === project.id
+                                        ? 'bg-zinc-800 text-white'
+                                        : 'hover:bg-accent'
+                                    }`}
                                     >
                                       <div className="py-2 px-3 flex items-center justify-between gap-2">
                                         <div className="flex items-center gap-2 flex-1 min-w-0">
@@ -521,7 +522,7 @@ export function ChatSidebar({
                             onKeyDown={(event) =>
                               handleListItemKeyDown(event, () => onChatSelect?.(conv.id))
                             }
-                            className={`group/chat w-full text-left rounded-lg px-2.5 py-2 flex items-center gap-2 transition-colors ${
+                            className={`group/chat ${listItemClass} ${
                               selectedChatId === conv.id && !isAgentsPage
                                 ? 'bg-zinc-800 text-white'
                                 : 'hover:bg-sidebar-accent'
