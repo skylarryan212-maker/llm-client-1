@@ -28,6 +28,7 @@ interface ChatMessageProps {
   showInsightChips?: boolean
   isStreaming?: boolean
   enableEntryAnimation?: boolean
+  suppressPreStreamAnimation?: boolean
 }
 
 export function ChatMessage({
@@ -42,6 +43,7 @@ export function ChatMessage({
   showInsightChips = true,
   isStreaming = false,
   enableEntryAnimation = false,
+  suppressPreStreamAnimation = false,
 }: ChatMessageProps) {
   const [copied, setCopied] = useState(false)
   const [retryModel, setRetryModel] = useState('')
@@ -78,7 +80,10 @@ export function ChatMessage({
   }, [enableEntryAnimation, messageId])
 
   const animateClass = isAnimating ? 'chat-entry-animate' : ''
-  const assistantStreamingClass = role === 'assistant' && isStreaming ? 'assistant-streaming' : ''
+  const assistantStreamingClass =
+    role === 'assistant' && isStreaming && !suppressPreStreamAnimation
+      ? 'assistant-streaming'
+      : ''
 
   // Extract metadata safely
   let metadataObj: AssistantMessageMetadata | Record<string, unknown> | null = null

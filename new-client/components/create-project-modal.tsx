@@ -37,7 +37,7 @@ export function CreateProjectModal({ isOpen, onClose, onCreate }: CreateProjectM
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
       <div className="relative w-full max-w-lg rounded-xl border border-border bg-popover p-6 shadow-xl">
         <div className="mb-6 flex items-center justify-between">
-          <h2 className="text-xl font-semibold text-foreground">Project name</h2>
+          <h2 className="sr-only">Project name</h2>
           <div className="flex items-center gap-2">
             <Button variant="ghost" size="icon" className="h-8 w-8">
               <Settings className="h-4 w-4" />
