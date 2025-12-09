@@ -36,7 +36,7 @@ export function MarkdownContent({ content }: MarkdownContentProps) {
   }
 
   return (
-    <div className="prose prose-invert max-w-none prose-p:leading-relaxed prose-pre:p-0 prose-pre:bg-transparent w-full break-words overflow-x-hidden max-w-full">
+    <div className="prose prose-invert max-w-none prose-p:leading-relaxed prose-pre:p-0 prose-pre:bg-transparent w-full max-w-full min-w-0 break-words prose-a:break-words">
       <ReactMarkdown
         remarkPlugins={[remarkGfm, remarkMath]}
         rehypePlugins={[rehypeKatex, rehypeRaw]}
@@ -91,7 +91,7 @@ export function MarkdownContent({ content }: MarkdownContentProps) {
         // Links
         a: withoutNode((props) => (
           <a
-            className="text-blue-400 hover:text-blue-300 underline underline-offset-2"
+            className="text-blue-400 hover:text-blue-300 underline underline-offset-2 break-words break-all"
             target="_blank"
             rel="noopener noreferrer"
             {...props}
@@ -142,8 +142,8 @@ export function MarkdownContent({ content }: MarkdownContentProps) {
           if (!inline && language) {
             // Code block with syntax highlighting
             return (
-              <div className="my-4 rounded-lg border border-border bg-[#1e1e1e] max-w-full overflow-hidden">
-                <div className="flex items-center justify-between border-b border-border/50 bg-[#252526] px-4 py-2 rounded-t-lg">
+              <div className="my-4 rounded-lg border border-border bg-[#1e1e1e] max-w-full w-full overflow-hidden min-w-0">
+                <div className="flex items-center justify-between border-b border-border/50 bg-[#252526] px-4 py-2 rounded-t-lg min-w-0">
                   <span className="text-xs font-mono text-muted-foreground">{language}</span>
                   <Button
                     variant="ghost"
@@ -164,7 +164,7 @@ export function MarkdownContent({ content }: MarkdownContentProps) {
                     )}
                   </Button>
                 </div>
-                <div className="overflow-x-auto rounded-b-lg max-w-full touch-pan-x">
+                <div className="overflow-x-auto rounded-b-lg max-w-full w-full touch-pan-x" role="region" aria-label={`${language} code block`}>
                   <SyntaxHighlighter
                     language={language}
                     style={vscDarkPlus}
@@ -174,6 +174,8 @@ export function MarkdownContent({ content }: MarkdownContentProps) {
                       background: '#1e1e1e',
                       fontSize: '0.875rem',
                       minWidth: '100%',
+                      width: 'fit-content',
+                      display: 'inline-block',
                     }}
                   >
                     {codeString}
