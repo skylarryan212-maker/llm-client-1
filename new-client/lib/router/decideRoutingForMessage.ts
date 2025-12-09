@@ -238,8 +238,15 @@ async function loadCrossConversationTopics(
     return [];
   }
 
+  const isConversationTopic = (topic: unknown): topic is ConversationTopic =>
+    Boolean(topic) &&
+    typeof topic === "object" &&
+    "id" in topic &&
+    "conversation_id" in topic &&
+    "label" in topic;
+
   return topicRows
-    .filter((topic): topic is ConversationTopic => Boolean(topic) && typeof topic === "object")
+    .filter(isConversationTopic)
     .map((topic) => ({
       ...topic,
       is_cross_conversation: true,
