@@ -316,11 +316,13 @@ async function loadConversationMetadata(
       .from("projects")
       .select("id, name")
       .in("id", projectIds);
-    if (Array.isArray(projects)) {
-      projects.forEach((p) => {
-        projectNameMap.set(p.id, p.name ?? null);
-      });
-    }
+    const projectRows = (Array.isArray(projects) ? projects : []) as Pick<
+      Database["public"]["Tables"]["projects"]["Row"],
+      "id" | "name"
+    >[];
+    projectRows.forEach((p) => {
+      projectNameMap.set(p.id, p.name ?? null);
+    });
   }
 
   const metaMap = new Map<string, ConversationMeta>();
