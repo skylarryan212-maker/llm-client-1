@@ -145,13 +145,6 @@ export async function buildContextForMainModel({
   let summaryCount = 0;
   let artifactCount = 0;
 
-  const blockedNotices = buildBlockedTopicNotices(blockedTopics, conversationMeta, conversationId);
-  for (const notice of blockedNotices) {
-    if (pushMessage(summaryMessages, notice)) {
-      summaryCount += 1;
-    }
-  }
-
   const pushMessage = (target: ContextMessage[], message: ContextMessage) => {
     const tokens = estimateTokens(message.content);
     if (tokens > tokenBudgetRemaining) {
@@ -162,6 +155,12 @@ export async function buildContextForMainModel({
     return true;
   };
 
+  const blockedNotices = buildBlockedTopicNotices(blockedTopics, conversationMeta, conversationId);
+  for (const notice of blockedNotices) {
+    if (pushMessage(summaryMessages, notice)) {
+      summaryCount += 1;
+    }
+  }
   const primaryOrigin = formatTopicOrigin(primaryTopic, conversationMeta, conversationId);
 
   if (primaryTopic.summary?.trim()) {
