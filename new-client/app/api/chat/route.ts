@@ -2031,12 +2031,14 @@ export async function POST(request: NextRequest) {
             }
 
             try {
-              await maybeExtractArtifactsFromMessage({
+              const clientForArtifacts = openai;
+              await maybeGenerateArtifactsWithLLM({
                 supabase: supabaseAny,
+                openai: clientForArtifacts,
                 message: assistantRowForMeta,
               });
             } catch (artifactError) {
-              console.error("[artifacts] Extraction failed:", artifactError);
+              console.error("[artifacts] LLM extraction failed:", artifactError);
             }
           }
         } catch (error) {
@@ -2165,5 +2167,125 @@ export async function DELETE(request: NextRequest) {
       { error: "Internal server error" },
       { status: 500 }
     );
+  }
+}
+
+async function maybeGenerateArtifactsWithLLM({
+  supabase,
+  openai,
+  message,
+}: {
+  supabase: any;
+  openai: any;
+  message: MessageRow;
+}) {
+  if (!message?.id || !message?.conversation_id) return;
+  if (!message.topic_id) return;
+  const text = message.content ?? "";
+  if (!text || text.length < 200) return; // avoid tiny replies
+
+  // Avoid duplicate extraction on retries
+  const { data: existing } = await supabase
+    .from("artifacts")
+    .select("id")
+    .eq("created_by_message_id", message.id)
+    .limit(1);
+  if (existing && existing.length) return;
+
+  const response = await openai.responses.create({
+    model: "gpt-5-nano-2025-08-07",
+    input: [
+      {
+        role: "system",
+        type: "message",
+        content:
+          "You create reusable artifacts (schemas, specs, notes, summaries, code snippets) from the assistant's latest reply. Only emit artifacts that would help future turns on this topic. Output JSON only.",
+      },
+      {
+        role: "user",
+        type: "message",
+        content: `Conversation topic id: ${message.topic_id}\nMessage:\n${text}`,
+      },
+    ],
+    text: {
+      format: {
+        type: "json_schema",
+        name: "artifacts",
+        schema: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            artifacts: {
+              type: "array",
+              items: {
+                type: "object",
+                additionalProperties: false,
+                properties: {
+                  type: {
+                    type: "string",
+                    enum: [
+                      "schema",
+                      "design",
+                      "notes",
+                      "instructions",
+                      "summary",
+                      "code",
+                      "spec",
+                      "config",
+                      "other",
+                    ],
+                  },
+                  title: { type: "string" },
+                  content: { type: "string" },
+                },
+                required: ["type", "title", "content"],
+              },
+              default: [],
+            },
+          },
+          required: ["artifacts"],
+        },
+      },
+    },
+  });
+
+  const parsedText =
+    (response as any)?.output?.find((o: any) => o.type === "message")?.content?.[0]?.text ||
+    (response as any).output_text ||
+    "";
+  let parsed: any = null;
+  try {
+    parsed = parsedText ? JSON.parse(parsedText) : null;
+  } catch (err) {
+    console.error("[artifacts] Failed to parse artifacts JSON:", err);
+    return;
+  }
+  const artifacts: Array<{ type: string; title: string; content: string }> =
+    Array.isArray(parsed?.artifacts) ? parsed.artifacts : [];
+  if (!artifacts.length) return;
+
+  const inserts = artifacts.map((art) => {
+    const content = String(art.content || "").trim();
+    const title = String(art.title || "").trim().slice(0, 200) || "Artifact";
+    const type = typeof art.type === "string" ? art.type : "other";
+    const summary = content.replace(/\s+/g, " ").slice(0, 180);
+    const tokenEstimate = Math.max(50, Math.round(content.length / 4));
+    return {
+      conversation_id: message.conversation_id,
+      topic_id: message.topic_id,
+      created_by_message_id: message.id,
+      type,
+      title,
+      summary,
+      content,
+      token_estimate: tokenEstimate,
+    };
+  });
+
+  try {
+    await supabase.from("artifacts").insert(inserts);
+    console.log(`[artifacts] Inserted ${inserts.length} artifacts from assistant message ${message.id}`);
+  } catch (error) {
+    console.error("[artifacts] Failed to insert artifacts:", error);
   }
 }
