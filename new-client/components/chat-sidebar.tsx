@@ -325,7 +325,7 @@ export function ChatSidebar({
                       <div className="space-y-1">
                         <Button
                           variant="ghost"
-                            className="h-9 w-full justify-start gap-2 px-2.5 text-sidebar-foreground hover:bg-sidebar-accent"
+                            className="h-9 w-full justify-start gap-2 px-2.5 text-sidebar-foreground"
                           onClick={() => {
                             onNewProject?.()
                             closeSidebarIfMobile()
