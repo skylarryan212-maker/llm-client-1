@@ -60,9 +60,9 @@ const newTopicPayload = z.object({
 const existingTopicPayload = z.object({
   topicAction: z.enum(["continue_active", "reopen_existing"]),
   ...baseRouterFields,
-  newTopicLabel: z.string().max(240).optional().default(""),
-  newTopicDescription: z.string().max(500).optional().default(""),
-  newTopicSummary: z.string().max(500).optional().default(""),
+  newTopicLabel: z.string().max(240).nullable().optional().default(""),
+  newTopicDescription: z.string().max(500).nullable().optional().default(""),
+  newTopicSummary: z.string().max(500).nullable().optional().default(""),
 });
 
 const routerDecisionSchema = z.union([newTopicPayload, existingTopicPayload]);
@@ -689,10 +689,12 @@ async function callRouterWithSchema(
         topicAction: validatedData.topicAction,
         primaryTopicId: validatedData.primaryTopicId ?? null,
         secondaryTopicIds: validatedData.secondaryTopicIds ?? [],
-        newTopicLabel: validatedData.newTopicLabel,
-        newTopicDescription: validatedData.newTopicDescription,
+        newTopicLabel: typeof validatedData.newTopicLabel === "string" ? validatedData.newTopicLabel : "",
+        newTopicDescription:
+          typeof validatedData.newTopicDescription === "string" ? validatedData.newTopicDescription : "",
         newParentTopicId: validatedData.newParentTopicId ?? null,
-        newTopicSummary: validatedData.newTopicSummary,
+        newTopicSummary:
+          typeof validatedData.newTopicSummary === "string" ? validatedData.newTopicSummary : "",
         artifactsToLoad: validatedData.artifactsToLoad ?? [],
       };
     } catch (error) {
