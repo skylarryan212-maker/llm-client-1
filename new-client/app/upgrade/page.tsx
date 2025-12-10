@@ -136,7 +136,7 @@ function UpgradePageContent() {
   return (
     <div className="min-h-screen bg-background text-foreground flex flex-col">
       <div className="flex-1">
-        <div className="max-w-6xl mx-auto px-4 py-8 space-y-8">
+          <div className="max-w-6xl mx-auto px-4 py-8 space-y-8">
           <div className="flex items-center gap-3">
             <Button variant="ghost" size="icon" onClick={() => router.back()} aria-label="Go back">
               <ArrowLeft className="h-5 w-5" />
@@ -148,7 +148,7 @@ function UpgradePageContent() {
           </div>
 
           <div className="max-w-6xl mx-auto flex justify-center px-2">
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 w-full justify-items-center">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 w-full justify-items-center justify-center">
           {filteredPlans.map((plan) => {
             const isCurrent = currentPlan === plan.id;
             return (
