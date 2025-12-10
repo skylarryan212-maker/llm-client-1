@@ -72,15 +72,49 @@ export default function HumanWritingAgentPage() {
         </div>
       </div>
 
+      <div className="mx-auto flex w-full max-w-[960px] justify-end px-4 pb-4 sm:px-6 lg:px-8">
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              className="flex items-center gap-2 rounded-full border border-white/10 bg-black/30 px-4 py-2 text-sm font-semibold text-white/80 shadow-md shadow-black/30 ring-1 ring-white/10 backdrop-blur transition hover:border-white/30 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+            >
+              <span>Task history</span>
+              <span className="rounded-full bg-white/10 px-2 py-0.5 text-[11px] font-semibold text-white/70">{tasks.length}</span>
+              <ChevronDown className="size-4" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent className="w-72 space-y-3 border border-white/10 bg-[#101014]/95 p-3 shadow-lg">
+            <DropdownMenuLabel className="text-[11px] uppercase tracking-[0.25em] text-white/50">Recent tasks</DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            <div className="space-y-2">
+              {tasks.length === 0 ? (
+                <p className="text-xs text-white/60">No tasks recorded yet.</p>
+              ) : (
+                tasks.map((task) => (
+                  <DropdownMenuItem key={task.id} className="text-sm text-white">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="truncate">{task.title}</span>
+                      <span className="text-[11px] text-white/60">{task.timestamp}</span>
+                    </div>
+                  </DropdownMenuItem>
+                ))
+              )}
+            </div>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+
       <div className="pointer-events-none fixed inset-x-0 bottom-0 flex justify-center pb-6">
-        <div className="pointer-events-auto w-full max-w-[960px] rounded-[22px] border border-white/10 bg-[#121217]/90 p-6 ring-1 ring-white/5 shadow-[0_40px_80px_rgba(0,0,0,0.6)] backdrop-blur-3xl">
+        <div className="pointer-events-auto relative w-full max-w-[960px] rounded-[22px] border border-white/10 bg-[#121217]/90 p-6 ring-1 ring-white/5 shadow-[0_40px_80px_rgba(0,0,0,0.6)] backdrop-blur-3xl">
           <Textarea
             value={composerText}
             onChange={(event) => setComposerText(event.target.value)}
             placeholder="Describe the essay or writing task..."
-            className="min-h-[180px] border border-white/10 bg-transparent text-white placeholder:text-white/50 focus-visible:border-amber-400 focus-visible:ring-4 focus-visible:ring-amber-400/30"
+            className="min-h-[200px] resize-none bg-transparent text-white placeholder:text-white/50 shadow-none outline-none ring-0 border-none focus-visible:ring-0 focus-visible:outline-none pr-32 pb-28"
           />
-          <div className="mt-4 flex justify-end">
+
+          <div className="absolute bottom-4 right-4">
             <Button
               type="button"
               className="bg-gradient-to-r from-amber-500 via-orange-500 to-rose-500 text-white shadow-lg shadow-amber-600/40 hover:shadow-amber-600/60"
@@ -89,7 +123,7 @@ export default function HumanWritingAgentPage() {
             </Button>
           </div>
 
-          <div className="mt-4 grid gap-3 border-t border-white/10 pt-4 sm:grid-cols-3">
+          <div className="absolute bottom-4 left-4 right-36 grid gap-3 sm:grid-cols-3">
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button type="button" className={dropdownButtonClass}>
@@ -181,33 +215,18 @@ export default function HumanWritingAgentPage() {
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button type="button" className={dropdownButtonClass}>
-                  <div className="flex items-center gap-2">
-                    <span>Task history</span>
-                    <span className="rounded-full bg-white/10 px-2 py-0.5 text-[11px] font-semibold text-white/70">
-                      {tasks.length}
-                    </span>
-                  </div>
+                  <span>Model details</span>
                   <ChevronDown className="size-4" />
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent className="w-72 space-y-3 border border-white/10 bg-[#101014]/95 p-3 shadow-lg">
                 <DropdownMenuLabel className="text-[11px] uppercase tracking-[0.25em] text-white/50">
-                  Recent tasks
+                  Reference
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator />
-                <div className="space-y-2">
-                  {tasks.length === 0 ? (
-                    <p className="text-xs text-white/60">No tasks recorded yet.</p>
-                  ) : (
-                    tasks.map((task) => (
-                      <DropdownMenuItem key={task.id} className="text-sm text-white">
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="truncate">{task.title}</span>
-                          <span className="text-[11px] text-white/60">{task.timestamp}</span>
-                        </div>
-                      </DropdownMenuItem>
-                    ))
-                  )}
+                <div className="space-y-2 text-sm text-white/80">
+                  <p>Draft → Rephrasy humanizer → Detector → repeat until pass.</p>
+                  <p className="text-xs text-white/50">Future: export, share, and version tasks here.</p>
                 </div>
               </DropdownMenuContent>
             </DropdownMenu>
