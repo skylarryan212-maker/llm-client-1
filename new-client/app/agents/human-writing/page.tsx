@@ -57,7 +57,7 @@ export default function HumanWritingAgentPage() {
           </div>
         </div>
 
-        <div className="mt-10 grid gap-6 items-start lg:grid-cols-[minmax(280px,320px)_minmax(560px,1fr)_minmax(280px,320px)]">
+        <div className="mt-10 grid gap-6 items-start lg:grid-cols-[minmax(320px,360px)_minmax(560px,1fr)_minmax(320px,360px)]">
           <div className="space-y-6">
             <div className="rounded-[18px] border border-white/8 bg-white/6 p-6 shadow-lg shadow-black/40 backdrop-blur-sm space-y-5">
               <div className="flex items-center justify-between">
@@ -65,42 +65,42 @@ export default function HumanWritingAgentPage() {
                 <p className="text-xs text-white/60">Matches Rephrasy API fields</p>
               </div>
 
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div className="space-y-2">
-                  <Label className="text-sm text-white/80">Model</Label>
-                  <Select value={modelChoice} onValueChange={(value) => setModelChoice(value as ModelChoice)}>
-                    <SelectTrigger className="w-full bg-black/20 text-white border-white/10">
-                      <SelectValue placeholder="Choose model" />
-                    </SelectTrigger>
-                    <SelectContent className="bg-[#0f0d12] text-white border-white/10">
-                      <SelectItem value="undetectable">Undetectable Model v2 (default)</SelectItem>
-                      <SelectItem value="seo">SEO Model</SelectItem>
-                      <SelectItem value="custom">Custom Writing Style ID</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label className="text-sm text-white/80">Model</Label>
+                    <Select value={modelChoice} onValueChange={(value) => setModelChoice(value as ModelChoice)}>
+                      <SelectTrigger className="w-full bg-black/20 text-white border-white/10">
+                        <SelectValue placeholder="Choose model" />
+                      </SelectTrigger>
+                      <SelectContent className="bg-[#0f0d12] text-white border-white/10">
+                        <SelectItem value="undetectable">Undetectable Model v2 (default)</SelectItem>
+                        <SelectItem value="seo">SEO Model</SelectItem>
+                        <SelectItem value="custom">Custom Writing Style ID</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
 
-                <div className="space-y-2">
-                  <Label className="text-sm text-white/80">Language</Label>
-                  <Select value={language} onValueChange={(value) => setLanguage(value)}>
-                    <SelectTrigger className="w-full bg-black/20 text-white border-white/10">
-                      <SelectValue placeholder="Auto-detect" />
-                    </SelectTrigger>
-                    <SelectContent className="bg-[#0f0d12] text-white border-white/10">
-                      <SelectItem value="auto">Auto-detect</SelectItem>
-                      <SelectItem value="English">English</SelectItem>
-                      <SelectItem value="German">German</SelectItem>
-                      <SelectItem value="French">French</SelectItem>
-                      <SelectItem value="Spanish">Spanish</SelectItem>
-                      <SelectItem value="Italian">Italian</SelectItem>
-                      <SelectItem value="Portuguese">Portuguese</SelectItem>
-                      <SelectItem value="Dutch">Dutch</SelectItem>
-                      <SelectItem value="Polish">Polish</SelectItem>
-                      <SelectItem value="Japanese">Japanese</SelectItem>
-                    </SelectContent>
-                  </Select>
+                  <div className="space-y-2">
+                    <Label className="text-sm text-white/80">Language</Label>
+                    <Select value={language} onValueChange={(value) => setLanguage(value)}>
+                      <SelectTrigger className="w-full bg-black/20 text-white border-white/10">
+                        <SelectValue placeholder="Auto-detect" />
+                      </SelectTrigger>
+                      <SelectContent className="bg-[#0f0d12] text-white border-white/10">
+                        <SelectItem value="auto">Auto-detect</SelectItem>
+                        <SelectItem value="English">English</SelectItem>
+                        <SelectItem value="German">German</SelectItem>
+                        <SelectItem value="French">French</SelectItem>
+                        <SelectItem value="Spanish">Spanish</SelectItem>
+                        <SelectItem value="Italian">Italian</SelectItem>
+                        <SelectItem value="Portuguese">Portuguese</SelectItem>
+                        <SelectItem value="Dutch">Dutch</SelectItem>
+                        <SelectItem value="Polish">Polish</SelectItem>
+                        <SelectItem value="Japanese">Japanese</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </div>
-              </div>
 
               {modelChoice === "custom" && (
                 <div className="space-y-2">
@@ -230,11 +230,11 @@ export default function HumanWritingAgentPage() {
                 "Light corrections to maintain quality",
                 "Export result",
               ].map((step, idx) => (
-                <li key={step} className="flex items-start gap-3">
-                  <span className="mt-0.5 flex h-7 w-7 items-center justify-center rounded-full bg-white/10 text-xs font-semibold text-white/80 border border-white/10">
+                <li key={step} className="flex items-center gap-3">
+                  <span className="flex h-8 w-8 items-center justify-center rounded-full bg-white/10 text-xs font-semibold text-white/80 border border-white/12">
                     {idx + 1}
                   </span>
-                  <span className="leading-relaxed">{step}</span>
+                  <span className="leading-relaxed text-sm sm:text-base">{step}</span>
                 </li>
               ))}
             </ol>
