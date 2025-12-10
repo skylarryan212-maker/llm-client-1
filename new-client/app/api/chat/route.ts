@@ -38,6 +38,7 @@ import {
   type PermanentInstructionCacheItem,
 } from "@/lib/permanentInstructions";
 import { decideRoutingForMessage } from "@/lib/router/decideRoutingForMessage";
+import { callCloudflareLlama } from "@/lib/cloudflareLlama";
 import type { RouterDecision } from "@/lib/router/types";
 import { buildContextForMainModel } from "@/lib/context/buildContextForMainModel";
 import type { PermanentInstructionToWrite } from "@/lib/llm-router";
@@ -2109,7 +2110,6 @@ export async function POST(request: NextRequest) {
                   if (topicId) {
                     await refreshTopicMetadata({
                       supabase: supabaseAny,
-                      openai,
                       topicId,
                       conversationId,
                       userId,
@@ -2124,10 +2124,8 @@ export async function POST(request: NextRequest) {
             // Kick off artifact extraction in the background so UI is not blocked
             (async () => {
               try {
-                const clientForArtifacts = openai;
                 await maybeGenerateArtifactsWithLLM({
                   supabase: supabaseAny,
-                  openai: clientForArtifacts,
                   message: assistantRowForMeta,
                   userId,
                 });
@@ -2267,12 +2265,10 @@ export async function DELETE(request: NextRequest) {
 
 async function maybeGenerateArtifactsWithLLM({
   supabase,
-  openai,
   message,
   userId,
 }: {
   supabase: any;
-  openai: any;
   message: MessageRow;
   userId?: string | null;
 }) {
@@ -2291,72 +2287,65 @@ async function maybeGenerateArtifactsWithLLM({
 
   console.log("[artifacts] Starting LLM artifact extraction");
 
-  const response = await openai.responses.create({
-    model: "gpt-5-nano-2025-08-07",
-    input: [
+  const schema = {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      artifacts: {
+        type: "array",
+        items: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            type: {
+              type: "string",
+              enum: [
+                "schema",
+                "design",
+                "notes",
+                "instructions",
+                "summary",
+                "code",
+                "spec",
+                "config",
+                "other",
+              ],
+            },
+            title: { type: "string" },
+            content: { type: "string" },
+          },
+          required: ["type", "title", "content"],
+        },
+        default: [],
+      },
+    },
+    required: ["artifacts"],
+  };
+
+  const { text: responseText, usage: usageInfo } = await callCloudflareLlama({
+    messages: [
       {
         role: "system",
-        type: "message",
         content:
           "You create reusable artifacts (schemas, specs, notes, summaries, code snippets) from the assistant's latest reply. Only emit artifacts that would help future turns on this topic. Output JSON only.",
       },
       {
         role: "user",
-        type: "message",
         content: `Conversation topic id: ${message.topic_id}\nMessage:\n${text}`,
       },
     ],
-    text: {
-      format: {
-        type: "json_schema",
-        name: "artifacts",
-        schema: {
-          type: "object",
-          additionalProperties: false,
-          properties: {
-            artifacts: {
-              type: "array",
-              items: {
-                type: "object",
-                additionalProperties: false,
-                properties: {
-                  type: {
-                    type: "string",
-                    enum: [
-                      "schema",
-                      "design",
-                      "notes",
-                      "instructions",
-                      "summary",
-                      "code",
-                      "spec",
-                      "config",
-                      "other",
-                    ],
-                  },
-                  title: { type: "string" },
-                  content: { type: "string" },
-                },
-                required: ["type", "title", "content"],
-              },
-              default: [],
-            },
-          },
-          required: ["artifacts"],
-        },
-      },
-    },
+    schemaName: "artifacts",
+    schema,
   });
 
-  const usageInfo = (response as any)?.usage;
   if (userId && usageInfo) {
     try {
       await logUsageRecord({
         userId,
         conversationId: message.conversation_id ?? null,
-        model: "gpt-5-nano-2025-08-07",
+        model: "@cf/meta/llama-3.2-1b-instruct",
         inputTokens: usageInfo.input_tokens ?? 0,
-        cachedTokens: usageInfo.cached_tokens ?? 0,
+        cachedTokens: 0,
         outputTokens: usageInfo.output_tokens ?? 0,
       });
     } catch (artifactUsageErr) {
@@ -2364,10 +2353,7 @@ async function maybeGenerateArtifactsWithLLM({
     }
   }
 
-  const parsedText =
-    (response as any)?.output?.find((o: any) => o.type === "message")?.content?.[0]?.text ||
-    (response as any).output_text ||
-    "";
+  const parsedText = responseText || "";
   let parsed: any = null;
   try {
     parsed = parsedText ? JSON.parse(parsedText) : null;

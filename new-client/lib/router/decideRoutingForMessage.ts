@@ -10,9 +10,10 @@ import type {
 } from "@/lib/supabase/types";
 import type { RouterDecision } from "@/lib/router/types";
 import { logUsageRecord } from "@/lib/usage";
+import { callCloudflareLlama } from "@/lib/cloudflareLlama";
 
-const TOPIC_ROUTER_MODEL = process.env.TOPIC_ROUTER_MODEL_ID ?? "gpt-5-nano-2025-08-07";
-const ALLOWED_ROUTER_MODELS = new Set(["gpt-5-nano-2025-08-07", "gpt-5-mini-2025-05-28"]);
+const TOPIC_ROUTER_MODEL = "@cf/meta/llama-3.2-1b-instruct";
+const ALLOWED_ROUTER_MODELS = new Set(["@cf/meta/llama-3.2-1b-instruct", "gpt-5-nano-2025-08-07", "gpt-5-mini-2025-05-28"]);
 const MAX_RECENT_MESSAGES = 25;
 const MAX_ARTIFACTS = 10;
 
@@ -80,22 +81,10 @@ export async function decideRoutingForMessage(
     projectName
   );
 
-  if (!process.env.OPENAI_API_KEY) {
-    throw new Error("[topic-router] OPENAI_API_KEY missing");
-  }
-
-  if (!ALLOWED_ROUTER_MODELS.has(TOPIC_ROUTER_MODEL)) {
-    console.warn(
-      `[topic-router] Router model ${TOPIC_ROUTER_MODEL} is not nano/mini; defaulting to gpt-5-nano-2025-08-07 for latency control`
-    );
-  }
-
   const routerPrompt = buildRouterPrompt(payload, userMessage);
 
   try {
-    const OpenAI = (await import("openai")).default;
-    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-    const parsed = await callRouterWithSchema(openai, routerPrompt, {
+    const parsed = await callRouterWithSchema(routerPrompt, {
       userId,
       conversationId,
     });
@@ -574,7 +563,6 @@ function buildAutoTopicDescription(message: string): string | null {
   return sentence.endsWith(".") ? sentence : `${sentence}.`;
 }
 async function callRouterWithSchema(
-  openai: any,
   routerPrompt: string,
   ctx?: { userId?: string; conversationId?: string }
 ): Promise<RouterDecision> {
@@ -614,47 +602,34 @@ async function callRouterWithSchema(
   let lastError: unknown = null;
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
-      const response = await openai.responses.create({
-        model: ALLOWED_ROUTER_MODELS.has(TOPIC_ROUTER_MODEL)
-          ? TOPIC_ROUTER_MODEL
-          : "gpt-5-nano-2025-08-07",
-        input: [
-          { role: "system", type: "message", content: TOPIC_ROUTER_SYSTEM_PROMPT },
-          { role: "user", type: "message", content: routerPrompt },
+      const { text, usage } = await callCloudflareLlama({
+        messages: [
+          { role: "system", content: TOPIC_ROUTER_SYSTEM_PROMPT },
+          { role: "user", content: routerPrompt },
         ],
-        text: {
-          format: {
-            type: "json_schema",
-            name: "router_decision",
-            schema,
-          },
-        },
-        reasoning: { effort: "low" },
+        schemaName: "router_decision",
+        schema,
       });
-      const usageInfo = (response as any)?.usage;
+      const usageInfo = usage;
       if (ctx?.userId && usageInfo) {
         await logUsageRecord({
           userId: ctx.userId,
           conversationId: ctx.conversationId ?? null,
-          model: ALLOWED_ROUTER_MODELS.has(TOPIC_ROUTER_MODEL)
-            ? TOPIC_ROUTER_MODEL
-            : "gpt-5-nano-2025-08-07",
+          model: TOPIC_ROUTER_MODEL,
           inputTokens: usageInfo.input_tokens ?? 0,
-          cachedTokens: usageInfo.cached_tokens ?? 0,
+          cachedTokens: 0,
           outputTokens: usageInfo.output_tokens ?? 0,
         });
       }
-      const textOutput =
-        response?.output?.find((item: any) => item.type === "message")?.content?.[0]?.text ?? "";
       let validatedData: z.infer<typeof routerDecisionSchema>;
       try {
-        const cleaned = textOutput.trim();
+        const cleaned = text.trim();
         console.warn("[topic-router] RAW OUTPUT:", cleaned);
         const parsed = JSON.parse(cleaned);
         validatedData = routerDecisionSchema.parse(parsed);
       } catch (err) {
         console.error("[topic-router] SCHEMA ERROR:", err);
-        console.error("[topic-router] RAW OUTPUT THAT FAILED:", textOutput);
+        console.error("[topic-router] RAW OUTPUT THAT FAILED:", text);
         throw new Error("[topic-router] Router output failed schema validation");
       }
       return {

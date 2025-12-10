@@ -1,6 +1,5 @@
 // app/api/conversations/generate-title/route.ts
 import { NextRequest, NextResponse } from "next/server";
-import OpenAI from "openai";
 import { supabaseServer } from "@/lib/supabase/server";
 import { getCurrentUserIdServer } from "@/lib/supabase/user";
 import {
@@ -9,10 +8,7 @@ import {
 } from "@/lib/conversation-utils";
 import { calculateCost } from "@/lib/pricing";
 import { logUsageRecord } from "@/lib/usage";
-
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+import { callCloudflareLlama } from "@/lib/cloudflareLlama";
 
 export async function POST(req: NextRequest) {
   try {
@@ -62,56 +58,34 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Generate title using GPT 5 Nano with streaming
+    // Generate title using Cloudflare llama (non-streaming single call)
     console.log(
       `[titleDebug] generating quick title for conversation ${conversationId}`
     );
 
-    const stream = await openai.chat.completions.create({
-      model: "gpt-5-nano-2025-08-07",
-      messages: [
-        {
-          role: "system",
-          content:
-            "You create short chat titles (3-8 words) from a single user prompt. Avoid punctuation, emojis, and filler words. Respond with the title only.",
-        },
-        {
-          role: "user",
-          content: `User message:\n${userMessage}\n\nTitle:`,
-        },
-      ],
-      stream: true,
-      stream_options: { include_usage: true },
-    });
-
     const encoder = new TextEncoder();
     const readable = new ReadableStream({
       async start(controller) {
-        let fullTitle = "";
-        let usageData: any = null;
-        
         try {
-          for await (const chunk of stream) {
-            const token = chunk.choices[0]?.delta?.content || "";
-            if (token) {
-              fullTitle += token;
-              // Send each token as it arrives
-              controller.enqueue(
-                encoder.encode(JSON.stringify({ token, fullTitle }) + "\n")
-              );
-            }
-            
-            // Capture usage data from final chunk
-            if (chunk.usage) {
-              usageData = chunk.usage;
-            }
-          }
+          const { text, usage } = await callCloudflareLlama({
+            messages: [
+              {
+                role: "system",
+                content:
+                  "You create short chat titles (3-8 words) from a single user prompt. Avoid punctuation, emojis, and filler words. Respond with the title only.",
+              },
+              {
+                role: "user",
+                content: `User message:\n${userMessage}\n\nTitle:`,
+              },
+            ],
+          });
 
-          const normalizedTitle = normalizeGeneratedTitle(fullTitle.trim());
+          const normalizedTitle = normalizeGeneratedTitle(text.trim());
 
           if (!normalizedTitle) {
             console.warn(
-              `[titleDebug] title generation failed or produced invalid result: ${fullTitle}`
+              `[titleDebug] title generation failed or produced invalid result: ${text}`
             );
             controller.enqueue(
               encoder.encode(JSON.stringify({ error: "Title generation failed" }) + "\n")
@@ -121,14 +95,14 @@ export async function POST(req: NextRequest) {
           }
 
           // Log usage to database
-          if (usageData) {
+          if (usage) {
             try {
-              const inputTokens = usageData.prompt_tokens || 0;
-              const outputTokens = usageData.completion_tokens || 0;
-              const cachedTokens = usageData.prompt_tokens_details?.cached_tokens || 0;
+              const inputTokens = usage.input_tokens || 0;
+              const outputTokens = usage.output_tokens || 0;
+              const cachedTokens = 0;
 
               const cost = calculateCost(
-                "gpt-5-nano-2025-08-07",
+                "@cf/meta/llama-3.2-1b-instruct",
                 inputTokens,
                 cachedTokens,
                 outputTokens
@@ -137,7 +111,7 @@ export async function POST(req: NextRequest) {
               await logUsageRecord({
                 userId,
                 conversationId,
-                model: "gpt-5-nano-2025-08-07",
+                model: "@cf/meta/llama-3.2-1b-instruct",
                 inputTokens,
                 cachedTokens,
                 outputTokens,

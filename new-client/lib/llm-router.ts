@@ -51,7 +51,7 @@ export interface RouterContext {
   permanentInstructions?: PermanentInstructionToWrite[]; // ignored
 }
 
-const ROUTER_MODEL_ID = "gpt-5-nano-2025-08-07";
+const ROUTER_MODEL_ID = "@cf/meta/llama-3.2-1b-instruct";
 const ROUTER_SYSTEM_PROMPT = `You are a lightweight routing assistant. Your primary job: choose the model and reasoning effort. Additionally, select which memory categories to load and any memory/permanent-instruction writes/deletes when warranted.
 
 - Default to the smallest model that answers reliably; escalate only when clearly necessary (stakes, complexity, length).
@@ -69,16 +69,7 @@ export async function routeWithLLM(
   context?: RouterContext
 ): Promise<LLMRouterDecision | null> {
   try {
-    // Dynamic import to avoid build-time dependency
-    const OpenAI = (await import("openai")).default;
-    
-    if (!process.env.OPENAI_API_KEY) {
-      console.error("[llm-router] OPENAI_API_KEY not set");
-      return null;
-    }
-
-    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-
+    const { callCloudflareLlama } = await import("@/lib/cloudflareLlama");
     // Build context message
     let contextNote = "";
     if (context?.userModelPreference && context.userModelPreference !== "auto") {
@@ -102,119 +93,103 @@ export async function routeWithLLM(
     console.log("[llm-router] Starting LLM routing call");
     const startTime = Date.now();
 
-    const response = await openai.responses.create({
-      model: ROUTER_MODEL_ID,
-      input: [
-        { role: "system", content: ROUTER_SYSTEM_PROMPT, type: "message" },
-        { role: "user", content: routerPrompt, type: "message" },
-      ],
-      reasoning: { effort: "low" },
-      text: {
-        format: {
-          type: "json_schema",
-          name: "router_decision",
-          schema: {
+    const schema = {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        model: { type: "string", enum: ["gpt-5-nano", "gpt-5-mini", "gpt-5.1"] },
+        effort: { type: "string", enum: ["none", "low", "medium", "high"] },
+        memoryTypesToLoad: {
+          type: "array",
+          items: { type: "string" },
+          description: "Minimal set of memory categories to load for this turn",
+        },
+        memoriesToWrite: {
+          type: "array",
+          items: {
             type: "object",
             additionalProperties: false,
             properties: {
-              model: { type: "string", enum: ["gpt-5-nano", "gpt-5-mini", "gpt-5.1"] },
-              effort: { type: "string", enum: ["none", "low", "medium", "high"] },
-              memoryTypesToLoad: {
-                type: "array",
-                items: { type: "string" },
-                description: "Minimal set of memory categories to load for this turn",
-              },
-              memoriesToWrite: {
-                type: "array",
-                items: {
-                  type: "object",
-                  additionalProperties: false,
-                  properties: {
-                    type: { type: "string" },
-                    title: { type: "string" },
-                    content: { type: "string" },
-                  },
-                  required: ["type", "title", "content"],
-                },
-              },
-              memoriesToDelete: {
-                type: "array",
-                items: {
-                  type: "object",
-                  additionalProperties: false,
-                  properties: {
-                    id: { type: "string" },
-                    reason: { type: "string" },
-                  },
-                  required: ["id", "reason"],
-                },
-              },
-              permanentInstructionsToWrite: {
-                type: "array",
-                items: {
-                  type: "object",
-                  additionalProperties: false,
-                  properties: {
-                    scope: { type: "string", enum: ["user", "conversation"] },
-                    title: { type: "string" },
-                    content: { type: "string" },
-                  },
-                  required: ["scope", "title", "content"],
-                },
-              },
-              permanentInstructionsToDelete: {
-                type: "array",
-                items: {
-                  type: "object",
-                  additionalProperties: false,
-                  properties: {
-                    id: { type: "string" },
-                    reason: { type: "string" },
-                  },
-                  required: ["id", "reason"],
-                },
-              },
-              routedBy: { type: "string" },
+              type: { type: "string" },
+              title: { type: "string" },
+              content: { type: "string" },
             },
-            required: [
-              "model",
-              "effort",
-              "routedBy",
-              "memoryTypesToLoad",
-              "memoriesToWrite",
-              "memoriesToDelete",
-              "permanentInstructionsToWrite",
-              "permanentInstructionsToDelete",
-            ],
+            required: ["type", "title", "content"],
           },
         },
+        memoriesToDelete: {
+          type: "array",
+          items: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              id: { type: "string" },
+              reason: { type: "string" },
+            },
+            required: ["id", "reason"],
+          },
+        },
+        permanentInstructionsToWrite: {
+          type: "array",
+          items: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              scope: { type: "string", enum: ["user", "conversation"] },
+              title: { type: "string" },
+              content: { type: "string" },
+            },
+            required: ["scope", "title", "content"],
+          },
+        },
+        permanentInstructionsToDelete: {
+          type: "array",
+          items: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              id: { type: "string" },
+              reason: { type: "string" },
+            },
+            required: ["id", "reason"],
+          },
+        },
+        routedBy: { type: "string" },
       },
+      required: [
+        "model",
+        "effort",
+        "routedBy",
+        "memoryTypesToLoad",
+        "memoriesToWrite",
+        "memoriesToDelete",
+        "permanentInstructionsToWrite",
+        "permanentInstructionsToDelete",
+      ],
+    };
+
+    const { text, usage } = await callCloudflareLlama({
+      messages: [
+        { role: "system", content: ROUTER_SYSTEM_PROMPT },
+        { role: "user", content: routerPrompt },
+      ],
+      schemaName: "router_decision",
+      schema,
     });
 
     const elapsed = Date.now() - startTime;
     console.log(`[llm-router] LLM routing completed in ${elapsed}ms`);
 
-    const usageInfo = (response as { usage?: { input_tokens?: number; output_tokens?: number } }).usage;
-    if (usageInfo) {
+    if (usage) {
       lastRouterUsage = {
         model: ROUTER_MODEL_ID,
-        inputTokens: usageInfo.input_tokens ?? lastRouterUsage.inputTokens,
-        outputTokens: usageInfo.output_tokens ?? lastRouterUsage.outputTokens,
+        inputTokens: usage.input_tokens ?? lastRouterUsage.inputTokens,
+        outputTokens: usage.output_tokens ?? lastRouterUsage.outputTokens,
       };
     }
 
     const parsed = (() => {
       try {
-        const outputs: any[] = Array.isArray((response as any).output)
-          ? ((response as any).output as any[])
-          : [];
-        const maybeMessage = outputs.find((item) => item && item.type === "message") as
-          | { content?: Array<{ text?: string }> }
-          | undefined;
-        const text =
-          (maybeMessage?.content && maybeMessage.content[0]?.text) ||
-          (response as any).output_text ||
-          "";
         return text ? JSON.parse(text) : null;
       } catch {
         return null;
@@ -397,14 +372,7 @@ export async function analyzeForMemory(
   existingMemories?: Array<{ title: string; content: string }>
 ): Promise<MemoryAnalysis | null> {
   try {
-    const OpenAI = (await import("openai")).default;
-    
-    if (!process.env.OPENAI_API_KEY) {
-      console.error("[memory-analysis] OPENAI_API_KEY not set");
-      return null;
-    }
-
-    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+    const { callCloudflareLlama } = await import("@/lib/cloudflareLlama");
 
     // Build context about existing memories to avoid duplicates
     let existingContext = "";
@@ -423,19 +391,17 @@ Should a memory be saved? If yes, extract and structure it.`;
     console.log("[memory-analysis] Starting memory analysis");
     const startTime = Date.now();
 
-    const response = await openai.responses.create({
-      model: "gpt-5-nano-2025-08-07",
-      input: [
-        { role: "system", content: MEMORY_ANALYSIS_PROMPT, type: "message" },
-        { role: "user", content: analysisPrompt, type: "message" },
+    const { text } = await callCloudflareLlama({
+      messages: [
+        { role: "system", content: MEMORY_ANALYSIS_PROMPT },
+        { role: "user", content: analysisPrompt },
       ],
-      reasoning: { effort: "low" },
     });
 
     const elapsed = Date.now() - startTime;
     console.log(`[memory-analysis] Completed in ${elapsed}ms`);
 
-    const content = response.output_text;
+    const content = text;
     if (!content) {
       console.error("[memory-analysis] No content in response");
       return null;
@@ -490,7 +456,7 @@ Should a memory be saved? If yes, extract and structure it.`;
 export function getMemoryAnalysisUsageEstimate() {
   // Rough estimate: ~200 input tokens, ~50 output tokens for Nano
   return {
-    model: "gpt-5-nano-2025-08-07",
+    model: "@cf/meta/llama-3.2-1b-instruct",
     inputTokens: 200,
     outputTokens: 50,
   };

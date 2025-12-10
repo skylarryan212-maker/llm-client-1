@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/supabase/types";
 import { logUsageRecord } from "@/lib/usage";
+import { callCloudflareLlama } from "@/lib/cloudflareLlama";
 
 type MessageRow = Database["public"]["Tables"]["messages"]["Row"];
 type TopicRow = Database["public"]["Tables"]["conversation_topics"]["Row"];
@@ -9,10 +10,8 @@ type QueryResult<T> = { data: T | null; error: unknown } | null | undefined;
 
 interface RefreshTopicMetadataParams {
   supabase: SupabaseClient<Database>;
-  openai: any;
   topicId: string;
   conversationId: string;
-  model?: string;
   userId?: string | null;
 }
 
@@ -56,10 +55,8 @@ function withQueryTimeout<T>(builder: any, ms = 5000): Promise<T> {
 
 export async function refreshTopicMetadata({
   supabase,
-  openai,
   topicId,
   conversationId,
-  model = "gpt-5-nano-2025-08-07",
   userId,
 }: RefreshTopicMetadataParams): Promise<void> {
   if (!topicId) return;
@@ -120,28 +117,35 @@ export async function refreshTopicMetadata({
 
   const userPayload = buildUserPayload(topicRow as TopicRow, (messages ?? []) as MessageRow[]);
 
+  const MODEL_ID = "@cf/meta/llama-3.2-1b-instruct";
   let responseText = "";
   try {
-    const completion = await openai.responses.create({
-      model,
-      input: [
+    const { text, usage } = await callCloudflareLlama({
+      messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: JSON.stringify(userPayload) },
       ],
-      max_output_tokens: 400,
+      schemaName: "topic_refresh",
+      schema: {
+        type: "object",
+        properties: {
+          description: { type: "string" },
+          summary: { type: "string" },
+        },
+        additionalProperties: false,
+      },
     });
-    const usage = (completion as any)?.usage;
     if (userId && usage) {
       await logUsageRecord({
         userId,
         conversationId,
-        model,
+        model: MODEL_ID,
         inputTokens: usage.input_tokens ?? 0,
-        cachedTokens: usage.cached_tokens ?? 0,
+        cachedTokens: 0,
         outputTokens: usage.output_tokens ?? 0,
       });
     }
-    responseText = completion.output_text || "";
+    responseText = text || "";
   } catch (err) {
     console.error("[topic-refresh] LLM call failed:", err);
     return;
