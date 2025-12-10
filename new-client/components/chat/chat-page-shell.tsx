@@ -2366,25 +2366,25 @@ export default function ChatPageShell({
           </div>
         </div>
       </div>
-      {isInsightSidebarOpen && (
-        <div className="fixed inset-0 z-40 pointer-events-none">
-          <div
-            className="absolute inset-0 bg-black/30 pointer-events-auto"
-            onClick={closeInsightSidebar}
-          />
-          <div className="absolute right-0 top-0 h-full w-[560px] max-w-[80vw] bg-background border-l border-border shadow-2xl pointer-events-auto flex flex-col">
-            <div className="flex items-center justify-between px-4 py-3 border-b border-border">
-              <div className="text-sm font-medium">Thoughts &amp; updates</div>
-              <Button variant="ghost" size="icon" onClick={closeInsightSidebar}>
-                <X className="h-4 w-4" />
-              </Button>
-            </div>
-            <div className="flex-1 p-4 text-sm text-muted-foreground">
-              User updates will appear here.
-            </div>
+      {/* Insight sidebar */}
+      <div
+        className={`h-full flex-shrink-0 transition-all duration-300 ease-in-out border-l border-border bg-background overflow-hidden ${
+          isInsightSidebarOpen ? "w-[280px] max-w-[80vw] opacity-100 pointer-events-auto" : "w-0 opacity-0 pointer-events-none"
+        }`}
+        aria-hidden={!isInsightSidebarOpen}
+      >
+        <div className={`flex h-full flex-col transition-opacity duration-200 ease-in-out ${isInsightSidebarOpen ? "opacity-100" : "opacity-0"}`}>
+          <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+            <div className="text-sm font-medium">Thoughts &amp; updates</div>
+            <Button variant="ghost" size="icon" onClick={closeInsightSidebar}>
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+          <div className="flex-1 p-4 text-sm text-muted-foreground">
+            User updates will appear here.
           </div>
         </div>
-      )}
+      </div>
       <SettingsModal
         isOpen={isSettingsOpen}
         onClose={() => {
