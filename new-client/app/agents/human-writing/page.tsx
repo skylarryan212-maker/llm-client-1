@@ -36,34 +36,34 @@ export default function HumanWritingAgentPage() {
     "flex items-center justify-between gap-2 rounded-[14px] border border-white/10 bg-black/30 px-4 py-2 text-sm font-semibold text-white duration-200 hover:border-white/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400";
 
   return (
-    <div className="relative min-h-screen bg-[#0f0d12] text-foreground overflow-hidden">
-      <div className="mx-auto max-w-[1280px] px-4 sm:px-6 lg:px-8 py-8 sm:py-12">
+    <div className="relative min-h-screen overflow-hidden bg-[#0f0d12] text-foreground">
+      <div className="mx-auto max-w-[1280px] px-4 py-8 sm:px-6 sm:py-12 lg:px-8">
         <div className="mb-6">
           <Link
             href="/agents"
-            className="inline-flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
+            className="inline-flex items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground"
           >
             <ArrowLeft className="h-4 w-4" />
             Back to Agents
           </Link>
         </div>
 
-        <div className="relative mx-auto w-full max-w-[1180px] overflow-hidden rounded-[20px] border border-white/6 bg-gradient-to-br from-amber-500/25 via-orange-500/15 to-rose-500/25 p-6 sm:p-8 shadow-[0_24px_90px_-48px_rgba(0,0,0,0.6)]">
-          <div className="absolute inset-0 pointer-events-none bg-[radial-gradient(circle_at_20%_20%,rgba(255,255,255,0.08),transparent_35%),radial-gradient(circle_at_80%_0%,rgba(255,255,255,0.08),transparent_30%)]" />
+        <div className="relative mx-auto w-full max-w-[1180px] overflow-hidden rounded-[20px] border border-white/6 bg-gradient-to-br from-amber-500/25 via-orange-500/15 to-rose-500/25 p-6 shadow-[0_24px_90px_-48px_rgba(0,0,0,0.6)] sm:p-8">
+          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_20%_20%,rgba(255,255,255,0.08),transparent_35%),radial-gradient(circle_at_80%_0%,rgba(255,255,255,0.08),transparent_30%)]" />
           <div className="relative flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div className="flex items-start gap-3">
               <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-white/10 text-amber-100 ring-1 ring-white/20 backdrop-blur">
                 <PenLine className="h-6 w-6" />
               </div>
               <div className="space-y-2">
-                <h1 className="text-3xl sm:text-4xl font-bold text-white drop-shadow-sm">Human Writing Agent</h1>
-                <p className="max-w-2xl text-base sm:text-lg text-white/80">
-                  Draft with GPT-5 Nano, humanize with Rephrasy, verify with detectors, and iterate until it reads like
-                  a human wrote it.
+                <h1 className="text-3xl font-bold text-white drop-shadow-sm sm:text-4xl">Human Writing Agent</h1>
+                <p className="max-w-2xl text-base text-white/80 sm:text-lg">
+                  Draft with GPT-5 Nano, humanize with Rephrasy, verify with detectors, and iterate until it reads like a
+                  human wrote it.
                 </p>
               </div>
             </div>
-            <div className="flex gap-3 flex-wrap">
+            <div className="flex flex-wrap gap-3">
               <BadgePill icon={<Sparkles className="h-4 w-4" />}>Humanizer API</BadgePill>
               <BadgePill icon={<ShieldCheck className="h-4 w-4" />}>Detector Check</BadgePill>
               <BadgePill icon={<Repeat className="h-4 w-4" />}>Iterative Loop</BadgePill>
@@ -73,145 +73,144 @@ export default function HumanWritingAgentPage() {
       </div>
 
       <div className="pointer-events-none fixed inset-x-0 bottom-0 flex justify-center pb-6">
-        <div className="pointer-events-auto w-full max-w-[960px] rounded-[22px] border border-white/10 bg-[#121217]/90 p-6 shadow-[0_40px_80px_rgba(0,0,0,0.6)] ring-1 ring-white/5 backdrop-blur-3xl">
+        <div className="pointer-events-auto w-full max-w-[960px] rounded-[22px] border border-white/10 bg-[#121217]/90 p-6 ring-1 ring-white/5 shadow-[0_40px_80px_rgba(0,0,0,0.6)] backdrop-blur-3xl">
           <Textarea
             value={composerText}
             onChange={(event) => setComposerText(event.target.value)}
             placeholder="Describe the essay or writing task..."
-            className="min-h-[180px] bg-transparent text-white placeholder:text-white/50 border border-white/10 focus-visible:border-amber-400 focus-visible:ring-4 focus-visible:ring-amber-400/30"
-            />
-            <div className="mt-4 flex justify-end">
-              <Button
-                type="button"
-                className="bg-gradient-to-r from-amber-500 via-orange-500 to-rose-500 text-white shadow-lg shadow-amber-600/40 hover:shadow-amber-600/60"
-              >
-                Send
-              </Button>
-            </div>
+            className="min-h-[180px] border border-white/10 bg-transparent text-white placeholder:text-white/50 focus-visible:border-amber-400 focus-visible:ring-4 focus-visible:ring-amber-400/30"
+          />
+          <div className="mt-4 flex justify-end">
+            <Button
+              type="button"
+              className="bg-gradient-to-r from-amber-500 via-orange-500 to-rose-500 text-white shadow-lg shadow-amber-600/40 hover:shadow-amber-600/60"
+            >
+              Send
+            </Button>
+          </div>
 
-            <div className="mt-4 border-t border-white/10 pt-4 grid gap-3 sm:grid-cols-3">
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <button type="button" className={dropdownButtonClass}>
-                    <span>Humanizer settings</span>
-                    <ChevronDown className="size-4" />
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent className="w-72 space-y-4 border border-white/10 bg-[#101014]/95 p-3 shadow-lg">
-                  <div className="space-y-2">
-                    <p className="text-[11px] uppercase tracking-[0.25em] text-white/50">Model</p>
-                    <Select value={modelChoice} onValueChange={(value) => setModelChoice(value as ModelChoice)}>
-                      <SelectTrigger className="w-full bg-black/20 text-white border border-white/10">
-                        <SelectValue placeholder="Choose model" />
-                      </SelectTrigger>
-                      <SelectContent className="bg-[#0f0d12] text-white border border-white/10">
-                        <SelectItem value="undetectable">Undetectable Model v2 (default)</SelectItem>
-                        <SelectItem value="seo">SEO Model</SelectItem>
-                        <SelectItem value="custom">Custom Writing Style ID</SelectItem>
-                      </SelectContent>
-                    </Select>
+          <div className="mt-4 grid gap-3 border-t border-white/10 pt-4 sm:grid-cols-3">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button type="button" className={dropdownButtonClass}>
+                  <span>Humanizer settings</span>
+                  <ChevronDown className="size-4" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent className="w-72 space-y-4 border border-white/10 bg-[#101014]/95 p-3 shadow-lg">
+                <div className="space-y-2">
+                  <p className="text-[11px] uppercase tracking-[0.25em] text-white/50">Model</p>
+                  <Select value={modelChoice} onValueChange={(value) => setModelChoice(value as ModelChoice)}>
+                    <SelectTrigger className="w-full border border-white/10 bg-black/20 text-white">
+                      <SelectValue placeholder="Choose model" />
+                    </SelectTrigger>
+                    <SelectContent className="border border-white/10 bg-[#0f0d12] text-white">
+                      <SelectItem value="undetectable">Undetectable Model v2 (default)</SelectItem>
+                      <SelectItem value="seo">SEO Model</SelectItem>
+                      <SelectItem value="custom">Custom Writing Style ID</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <p className="text-[11px] uppercase tracking-[0.25em] text-white/50">Language</p>
+                  <Select value={language} onValueChange={(value) => setLanguage(value)}>
+                    <SelectTrigger className="w-full border border-white/10 bg-black/20 text-white">
+                      <SelectValue placeholder="Auto-detect" />
+                    </SelectTrigger>
+                    <SelectContent className="border border-white/10 bg-[#0f0d12] text-white">
+                      <SelectItem value="auto">Auto-detect</SelectItem>
+                      <SelectItem value="English">English</SelectItem>
+                      <SelectItem value="German">German</SelectItem>
+                      <SelectItem value="French">French</SelectItem>
+                      <SelectItem value="Spanish">Spanish</SelectItem>
+                      <SelectItem value="Italian">Italian</SelectItem>
+                      <SelectItem value="Portuguese">Portuguese</SelectItem>
+                      <SelectItem value="Dutch">Dutch</SelectItem>
+                      <SelectItem value="Polish">Polish</SelectItem>
+                      <SelectItem value="Japanese">Japanese</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                {modelChoice === "custom" && (
+                  <Input
+                    value={customStyleId}
+                    onChange={(event) => setCustomStyleId(event.target.value)}
+                    placeholder="Writing Style ID"
+                    className="border border-white/10 bg-black/20 text-white placeholder:text-white/40"
+                  />
+                )}
+                <div className="space-y-2">
+                  <ToggleRow
+                    label="Return costs"
+                    helper="Adds costs: true to the request"
+                    checked={returnCosts}
+                    onChange={setReturnCosts}
+                  />
+                  <ToggleRow
+                    label="Word-based pricing"
+                    helper="words: true (flat + per-100-word pricing)"
+                    checked={wordsPricing}
+                    onChange={setWordsPricing}
+                  />
+                </div>
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button type="button" className={dropdownButtonClass}>
+                  <span>Detector mode</span>
+                  <ChevronDown className="size-4" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent className="w-64 space-y-3 border border-white/10 bg-[#101014]/95 p-3 shadow-lg">
+                <DropdownMenuLabel className="text-[11px] uppercase tracking-[0.25em] text-white/50">
+                  Mode
+                </DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuRadioGroup
+                  value={detectorMode}
+                  onValueChange={(value) => setDetectorMode(value as DetectorMode)}
+                >
+                  <DropdownMenuRadioItem value="overall">Overall score</DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="depth">Depth analysis</DropdownMenuRadioItem>
+                </DropdownMenuRadioGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button type="button" className={dropdownButtonClass}>
+                  <div className="flex items-center gap-2">
+                    <span>Task history</span>
+                    <span className="rounded-full bg-white/10 px-2 py-0.5 text-[11px] font-semibold text-white/70">
+                      {tasks.length}
+                    </span>
                   </div>
-                  <div className="space-y-2">
-                    <p className="text-[11px] uppercase tracking-[0.25em] text-white/50">Language</p>
-                    <Select value={language} onValueChange={(value) => setLanguage(value)}>
-                      <SelectTrigger className="w-full bg-black/20 text-white border border-white/10">
-                        <SelectValue placeholder="Auto-detect" />
-                      </SelectTrigger>
-                      <SelectContent className="bg-[#0f0d12] text-white border border-white/10">
-                        <SelectItem value="auto">Auto-detect</SelectItem>
-                        <SelectItem value="English">English</SelectItem>
-                        <SelectItem value="German">German</SelectItem>
-                        <SelectItem value="French">French</SelectItem>
-                        <SelectItem value="Spanish">Spanish</SelectItem>
-                        <SelectItem value="Italian">Italian</SelectItem>
-                        <SelectItem value="Portuguese">Portuguese</SelectItem>
-                        <SelectItem value="Dutch">Dutch</SelectItem>
-                        <SelectItem value="Polish">Polish</SelectItem>
-                        <SelectItem value="Japanese">Japanese</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  {modelChoice === "custom" && (
-                    <Input
-                      value={customStyleId}
-                      onChange={(e) => setCustomStyleId(e.target.value)}
-                      placeholder="Writing Style ID"
-                      className="bg-black/20 text-white placeholder:text-white/40 border border-white/10"
-                    />
+                  <ChevronDown className="size-4" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent className="w-72 space-y-3 border border-white/10 bg-[#101014]/95 p-3 shadow-lg">
+                <DropdownMenuLabel className="text-[11px] uppercase tracking-[0.25em] text-white/50">
+                  Recent tasks
+                </DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <div className="space-y-2">
+                  {tasks.length === 0 ? (
+                    <p className="text-xs text-white/60">No tasks recorded yet.</p>
+                  ) : (
+                    tasks.map((task) => (
+                      <DropdownMenuItem key={task.id} className="text-sm text-white">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="truncate">{task.title}</span>
+                          <span className="text-[11px] text-white/60">{task.timestamp}</span>
+                        </div>
+                      </DropdownMenuItem>
+                    ))
                   )}
-                  <div className="space-y-2">
-                    <ToggleRow
-                      label="Return costs"
-                      helper="Adds costs: true to the request"
-                      checked={returnCosts}
-                      onChange={setReturnCosts}
-                    />
-                    <ToggleRow
-                      label="Word-based pricing"
-                      helper="words: true (flat + per-100-word pricing)"
-                      checked={wordsPricing}
-                      onChange={setWordsPricing}
-                    />
-                  </div>
-                </DropdownMenuContent>
-              </DropdownMenu>
-
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <button type="button" className={dropdownButtonClass}>
-                    <span>Detector mode</span>
-                    <ChevronDown className="size-4" />
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent className="w-64 space-y-3 border border-white/10 bg-[#101014]/95 p-3 shadow-lg">
-                  <DropdownMenuLabel className="text-[11px] uppercase tracking-[0.25em] text-white/50">
-                    Mode
-                  </DropdownMenuLabel>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuRadioGroup
-                    value={detectorMode}
-                    onValueChange={(value) => setDetectorMode(value as DetectorMode)}
-                  >
-                    <DropdownMenuRadioItem value="overall">Overall score</DropdownMenuRadioItem>
-                    <DropdownMenuRadioItem value="depth">Depth analysis</DropdownMenuRadioItem>
-                  </DropdownMenuRadioGroup>
-                </DropdownMenuContent>
-              </DropdownMenu>
-
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <button type="button" className={dropdownButtonClass}>
-                    <div className="flex items-center gap-2">
-                      <span>Task history</span>
-                      <span className="rounded-full bg-white/10 px-2 py-0.5 text-[11px] font-semibold text-white/70">
-                        {tasks.length}
-                      </span>
-                    </div>
-                    <ChevronDown className="size-4" />
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent className="w-72 space-y-3 border border-white/10 bg-[#101014]/95 p-3 shadow-lg">
-                  <DropdownMenuLabel className="text-[11px] uppercase tracking-[0.25em] text-white/50">
-                    Recent tasks
-                  </DropdownMenuLabel>
-                  <DropdownMenuSeparator />
-                  <div className="space-y-2">
-                    {tasks.length === 0 ? (
-                      <p className="text-xs text-white/60">No tasks recorded yet.</p>
-                    ) : (
-                      tasks.map((task) => (
-                        <DropdownMenuItem key={task.id} className="text-sm text-white">
-                          <div className="flex items-center justify-between gap-2">
-                            <span className="truncate">{task.title}</span>
-                            <span className="text-[11px] text-white/60">{task.timestamp}</span>
-                          </div>
-                        </DropdownMenuItem>
-                      ))
-                    )}
-                  </div>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
+                </div>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
       </div>
@@ -244,7 +243,7 @@ function ToggleRow({
       <input
         type="checkbox"
         checked={checked}
-        onChange={(e) => onChange(e.target.checked)}
+        onChange={(event) => onChange(event.target.checked)}
         className="mt-1 h-4 w-4 cursor-pointer accent-amber-400"
       />
       <div className="space-y-1">
