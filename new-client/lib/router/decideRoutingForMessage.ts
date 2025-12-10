@@ -53,8 +53,8 @@ const newTopicPayload = z.object({
   topicAction: z.literal("new"),
   ...baseRouterFields,
   newTopicLabel: z.string().min(1).max(240),
-  newTopicDescription: z.string().min(1).max(500),
-  newTopicSummary: z.string().min(1).max(500),
+  newTopicDescription: z.string().max(500).optional().default(""),
+  newTopicSummary: z.string().max(500).optional().default(""),
 });
 
 const existingTopicPayload = z.object({
