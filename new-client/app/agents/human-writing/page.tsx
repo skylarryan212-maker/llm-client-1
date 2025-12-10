@@ -116,76 +116,70 @@ export default function HumanWritingAgentPage() {
                   <p className="text-xs text-white/60">Matches Rephrasy API fields</p>
                 </div>
 
-            <div className="rounded-2xl border border-white/5 bg-white/5 p-6 shadow-lg shadow-black/30 backdrop-blur-sm space-y-5">
-              <div className="flex items-center justify-between">
-                <h2 className="text-lg font-semibold text-white">Humanizer settings</h2>
-                <p className="text-xs text-white/60">Matches Rephrasy API fields</p>
-              </div>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label className="text-sm text-white/80">Model</Label>
+                    <Select value={modelChoice} onValueChange={(value) => setModelChoice(value as ModelChoice)}>
+                      <SelectTrigger className="w-full bg-black/20 text-white border-white/10">
+                        <SelectValue placeholder="Choose model" />
+                      </SelectTrigger>
+                      <SelectContent className="bg-[#0f0d12] text-white border-white/10">
+                        <SelectItem value="undetectable">Undetectable Model v2 (default)</SelectItem>
+                        <SelectItem value="seo">SEO Model</SelectItem>
+                        <SelectItem value="custom">Custom Writing Style ID</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
 
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div className="space-y-2">
-                  <Label className="text-sm text-white/80">Model</Label>
-                  <Select value={modelChoice} onValueChange={(value) => setModelChoice(value as ModelChoice)}>
-                    <SelectTrigger className="w-full bg-black/20 text-white border-white/10">
-                      <SelectValue placeholder="Choose model" />
-                    </SelectTrigger>
-                    <SelectContent className="bg-[#0f0d12] text-white border-white/10">
-                      <SelectItem value="undetectable">Undetectable Model v2 (default)</SelectItem>
-                      <SelectItem value="seo">SEO Model</SelectItem>
-                      <SelectItem value="custom">Custom Writing Style ID</SelectItem>
-                    </SelectContent>
-                  </Select>
+                  <div className="space-y-2">
+                    <Label className="text-sm text-white/80">Language</Label>
+                    <Select value={language} onValueChange={(value) => setLanguage(value)}>
+                      <SelectTrigger className="w-full bg-black/20 text-white border-white/10">
+                        <SelectValue placeholder="Auto-detect" />
+                      </SelectTrigger>
+                      <SelectContent className="bg-[#0f0d12] text-white border-white/10">
+                        <SelectItem value="auto">Auto-detect</SelectItem>
+                        <SelectItem value="English">English</SelectItem>
+                        <SelectItem value="German">German</SelectItem>
+                        <SelectItem value="French">French</SelectItem>
+                        <SelectItem value="Spanish">Spanish</SelectItem>
+                        <SelectItem value="Italian">Italian</SelectItem>
+                        <SelectItem value="Portuguese">Portuguese</SelectItem>
+                        <SelectItem value="Dutch">Dutch</SelectItem>
+                        <SelectItem value="Polish">Polish</SelectItem>
+                        <SelectItem value="Japanese">Japanese</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </div>
 
-                <div className="space-y-2">
-                  <Label className="text-sm text-white/80">Language</Label>
-                  <Select value={language} onValueChange={(value) => setLanguage(value)}>
-                    <SelectTrigger className="w-full bg-black/20 text-white border-white/10">
-                      <SelectValue placeholder="Auto-detect" />
-                    </SelectTrigger>
-                    <SelectContent className="bg-[#0f0d12] text-white border-white/10">
-                      <SelectItem value="auto">Auto-detect</SelectItem>
-                      <SelectItem value="English">English</SelectItem>
-                      <SelectItem value="German">German</SelectItem>
-                      <SelectItem value="French">French</SelectItem>
-                      <SelectItem value="Spanish">Spanish</SelectItem>
-                      <SelectItem value="Italian">Italian</SelectItem>
-                      <SelectItem value="Portuguese">Portuguese</SelectItem>
-                      <SelectItem value="Dutch">Dutch</SelectItem>
-                      <SelectItem value="Polish">Polish</SelectItem>
-                      <SelectItem value="Japanese">Japanese</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
+                {modelChoice === "custom" && (
+                  <div className="space-y-2">
+                    <Label className="text-sm text-white/80">Writing Style ID</Label>
+                    <Input
+                      value={customStyleId}
+                      onChange={(e) => setCustomStyleId(e.target.value)}
+                      placeholder="Enter your custom Writing Style ID"
+                      className="bg-black/20 text-white placeholder:text-white/40 border-white/10"
+                    />
+                  </div>
+                )}
 
-              {modelChoice === "custom" && (
-                <div className="space-y-2">
-                  <Label className="text-sm text-white/80">Writing Style ID</Label>
-                  <Input
-                    value={customStyleId}
-                    onChange={(e) => setCustomStyleId(e.target.value)}
-                    placeholder="Enter your custom Writing Style ID"
-                    className="bg-black/20 text-white placeholder:text-white/40 border-white/10"
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <ToggleRow
+                    label="Return costs"
+                    helper="Adds costs: true to the request"
+                    checked={returnCosts}
+                    onChange={setReturnCosts}
+                  />
+                  <ToggleRow
+                    label="Word-based pricing"
+                    helper="words: true (flat + per-100-word pricing)"
+                    checked={wordsPricing}
+                    onChange={setWordsPricing}
                   />
                 </div>
-              )}
-
-              <div className="grid gap-3 sm:grid-cols-2">
-                <ToggleRow
-                  label="Return costs"
-                  helper="Adds costs: true to the request"
-                  checked={returnCosts}
-                  onChange={setReturnCosts}
-                />
-                <ToggleRow
-                  label="Word-based pricing"
-                  helper="words: true (flat + per-100-word pricing)"
-                  checked={wordsPricing}
-                  onChange={setWordsPricing}
-                />
               </div>
-            </div>
 
               <div className="rounded-2xl border border-white/5 bg-white/5 p-6 shadow-lg shadow-black/30 backdrop-blur-sm space-y-5">
                 <div className="flex items-center justify-between">
