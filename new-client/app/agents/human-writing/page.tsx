@@ -153,18 +153,6 @@ export default function HumanWritingAgentPage() {
                 />
               </div>
 
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <div className="text-sm text-white/70">
-                  Pipeline concept: Detector → Humanizer → Detector (and repeat until score passes).
-                </div>
-                <Button
-                  type="button"
-                  className="bg-gradient-to-r from-amber-500 via-orange-500 to-rose-500 text-white shadow-lg shadow-amber-500/30"
-                  disabled
-                >
-                  Run pipeline (coming soon)
-                </Button>
-              </div>
             </div>
           </div>
 
