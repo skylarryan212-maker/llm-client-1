@@ -148,13 +148,13 @@ function UpgradePageContent() {
           </div>
 
           <div className="max-w-6xl mx-auto flex justify-center px-2">
-            <div className="flex flex-wrap justify-center gap-6 w-full max-w-5xl">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 w-full justify-items-center">
           {filteredPlans.map((plan) => {
             const isCurrent = currentPlan === plan.id;
             return (
               <div
                 key={plan.id}
-                className="group relative w-full sm:w-[280px] md:w-[300px] max-w-xs h-full overflow-hidden rounded-xl border border-border bg-card transition-all hover:border-primary/50 hover:shadow-lg hover:shadow-primary/10"
+                className="group relative w-full max-w-[260px] overflow-hidden rounded-xl border border-border bg-card transition-all hover:border-primary/50 hover:shadow-lg hover:shadow-primary/10"
               >
                 {plan.recommended && (
                   <div className="absolute top-4 right-4 rounded-full bg-primary/20 px-3 py-1 text-xs font-semibold text-primary">
@@ -162,7 +162,7 @@ function UpgradePageContent() {
                   </div>
                 )}
                 <div className={`pointer-events-none absolute inset-0 bg-gradient-to-br ${plan.gradientFrom} ${plan.gradientTo} opacity-0 transition-opacity group-hover:opacity-100`} />
-                <div className="relative p-6 flex flex-col h-full min-h-[400px]">
+                <div className="relative p-5 flex flex-col h-full min-h-[280px]">
                   <div className="mb-6">
                     <h2 className="text-2xl font-bold text-foreground mb-2">{plan.name}</h2>
                     <div className="flex items-baseline gap-1 mb-3">
