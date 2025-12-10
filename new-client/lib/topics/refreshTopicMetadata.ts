@@ -111,9 +111,10 @@ export async function refreshTopicMetadata({
 
   const systemPrompt =
     "You are updating metadata for a conversation topic. Keep the label stable. " +
-    "Given prior description/summary and the ordered messages for this topic, produce a refreshed description (1-2 sentences) " +
-    "and a rolling summary (concise but retaining earlier meaning). Do not invent details. " +
-    "Output JSON with keys: description, summary.";
+    "Use the ordered messages plus the prior description/summary to generate:\n" +
+    "- description: 1–2 sentences that clearly state the topic scope and what the user is trying to achieve (not just 'hi'). Mention key entities/dates/goals if present.\n" +
+    "- summary: a compact but informative recap (2–4 sentences) capturing key decisions, requests, facts, and next steps. Include names, dates/times, and tasks when present. Do not fabricate.\n" +
+    "Keep both fields concise, avoid fluff, and do not invent details. Output JSON with keys: description, summary.";
 
   const userPayload = buildUserPayload(topicRow as TopicRow, (messages ?? []) as MessageRow[]);
 
