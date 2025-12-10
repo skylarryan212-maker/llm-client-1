@@ -33,13 +33,18 @@ export interface BuildContextResult {
   includedTopicIds: string[];
   summaryCount: number;
   artifactCount: number;
+  debug?: {
+    totalTopicTokens: number;
+    summaryTokens: number;
+    artifactTokens: number;
+    loadedMessageCount: number;
+    trimmedMessageCount: number;
+    budget: number;
+  };
 }
 
 const DEFAULT_MAX_TOKENS = 350_000;
 const FALLBACK_TOKEN_CAP = 200_000;
-const SECONDARY_TOPIC_TAIL = 3;
-const PRIMARY_TOPIC_FULL_THRESHOLD = 280_000;
-const PRIMARY_TOPIC_RECENT_TARGET = 200_000;
 const CROSS_CHAT_TOKEN_LIMIT = 200_000;
 
 export async function buildContextForMainModel({
@@ -140,39 +145,24 @@ export async function buildContextForMainModel({
   const summaryMessages: ContextMessage[] = [];
   const artifactMessages: ContextMessage[] = [];
   const conversationMessages: ContextMessage[] = [];
-  let tokenBudgetRemaining = maxContextTokens;
   const includedTopics = new Set<string>([primaryTopic.id]);
   let summaryCount = 0;
   let artifactCount = 0;
 
-  const pushMessage = (target: ContextMessage[], message: ContextMessage) => {
-    const tokens = estimateTokens(message.content);
-    if (tokens > tokenBudgetRemaining) {
-      return false;
-    }
-    target.push(message);
-    tokenBudgetRemaining -= tokens;
-    return true;
-  };
-
   const blockedNotices = buildBlockedTopicNotices(blockedTopics, conversationMeta, conversationId);
   for (const notice of blockedNotices) {
-    if (pushMessage(summaryMessages, notice)) {
-      summaryCount += 1;
-    }
+    summaryMessages.push(notice);
+    summaryCount += 1;
   }
   const primaryOrigin = formatTopicOrigin(primaryTopic, conversationMeta, conversationId);
 
   if (primaryTopic.summary?.trim()) {
-    if (
-      pushMessage(summaryMessages, {
-        role: "assistant",
-        content: `[Topic summary: ${primaryTopic.label} from ${primaryOrigin}] ${primaryTopic.summary.trim()}`,
-        type: "message",
-      })
-    ) {
-      summaryCount += 1;
-    }
+    summaryMessages.push({
+      role: "assistant",
+      content: `[Topic summary: ${primaryTopic.label} from ${primaryOrigin}] ${primaryTopic.summary.trim()}`,
+      type: "message",
+    });
+    summaryCount += 1;
   }
 
   const primaryMessages = await loadTopicMessages(
@@ -201,19 +191,16 @@ export async function buildContextForMainModel({
     if (!summaryParts.length) {
       continue;
     }
-    if (
-      pushMessage(summaryMessages, {
-        role: "assistant",
-        content: `[Reference summary: ${topic.label} from ${originLabel}] ${summaryParts.join(" | ")}`,
-        type: "message",
-      })
-    ) {
-      summaryCount += 1;
-    }
+    summaryMessages.push({
+      role: "assistant",
+      content: `[Reference summary: ${topic.label} from ${originLabel}] ${summaryParts.join(" | ")}`,
+      type: "message",
+    });
+    summaryCount += 1;
   }
 
-  if (routerDecision.artifactsToLoad.length && tokenBudgetRemaining > 0) {
-    const artifactBudget = Math.min(Math.floor(maxContextTokens * 0.2), tokenBudgetRemaining);
+  if (routerDecision.artifactsToLoad.length) {
+    const artifactBudget = Math.floor(maxContextTokens * 0.2);
     const artifacts = await loadArtifactsByIds(
       supabase,
       routerDecision.artifactsToLoad,
@@ -221,29 +208,45 @@ export async function buildContextForMainModel({
     );
     for (const artifact of artifacts) {
       const label = artifact.title || "Unnamed artifact";
-      if (
-        pushMessage(artifactMessages, {
-          role: "assistant",
-          content: `[Artifact: ${label}] ${artifact.content}`,
-          type: "message",
-        })
-      ) {
-        artifactCount += 1;
-        if (artifact.topic_id) {
-          includedTopics.add(artifact.topic_id);
-        }
+      artifactMessages.push({
+        role: "assistant",
+        content: `[Artifact: ${label}] ${artifact.content}`,
+        type: "message",
+      });
+      artifactCount += 1;
+      if (artifact.topic_id) {
+        includedTopics.add(artifact.topic_id);
       }
     }
   }
 
-  if (tokenBudgetRemaining > 0) {
-    const totalPrimaryTokens = estimateTopicMessagesTokens(primaryMessages);
-    const allowFullTopic = totalPrimaryTokens <= PRIMARY_TOPIC_FULL_THRESHOLD;
-    const topicBudget = allowFullTopic
-      ? tokenBudgetRemaining
-      : Math.min(PRIMARY_TOPIC_RECENT_TARGET, tokenBudgetRemaining);
-    const { trimmed, tokensUsed } = trimMessagesToBudget(primaryMessages, topicBudget);
-    tokenBudgetRemaining = Math.max(tokenBudgetRemaining - tokensUsed, 0);
+  // Load all messages for primary and secondary topics
+  const secondaryMessagesBatches: MessageRow[][] = [];
+  for (const topic of secondaryTopics) {
+    const msgs = await loadTopicMessages(supabase, topic.conversation_id, topic.id);
+    secondaryMessagesBatches.push(msgs);
+  }
+
+  const allTopicMessages: MessageRow[] = [
+    ...primaryMessages,
+    ...secondaryMessagesBatches.flat(),
+  ].sort((a, b) => (a.created_at || "").localeCompare(b.created_at || ""));
+
+  const totalTopicTokens = estimateTopicMessagesTokens(allTopicMessages);
+  const summaryTokens = summaryMessages.reduce((sum, msg) => sum + estimateTokens(msg.content), 0);
+  const artifactTokens = artifactMessages.reduce((sum, msg) => sum + estimateTokens(msg.content), 0);
+  let trimmedMessageCount = 0;
+
+  if (totalTopicTokens + artifactTokens <= maxContextTokens) {
+    // Load all messages (no summaries needed) and cap with artifacts if necessary
+    allTopicMessages.forEach((msg) => conversationMessages.push(toContextMessage(msg)));
+    summaryMessages.length = 0;
+    summaryCount = 0;
+  } else {
+    // Too large: include summaries and trim messages to remaining budget
+    const budgetForMessages = Math.max(0, maxContextTokens - summaryTokens - artifactTokens);
+    const { trimmed } = trimMessagesToBudget(allTopicMessages, budgetForMessages);
+    trimmedMessageCount = allTopicMessages.length - trimmed.length;
     trimmed.forEach((msg) => conversationMessages.push(toContextMessage(msg)));
   }
 
@@ -282,6 +285,14 @@ export async function buildContextForMainModel({
     includedTopicIds: Array.from(includedTopics),
     summaryCount,
     artifactCount,
+    debug: {
+      totalTopicTokens,
+      summaryTokens,
+      artifactTokens,
+      loadedMessageCount: conversationMessages.length,
+      trimmedMessageCount,
+      budget: maxContextTokens,
+    },
   };
 }
 
