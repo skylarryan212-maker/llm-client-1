@@ -36,7 +36,7 @@ export default function HumanWritingAgentPage() {
     "flex items-center justify-between gap-2 rounded-[14px] border border-white/10 bg-black/30 px-4 py-2 text-sm font-semibold text-white duration-200 hover:border-white/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400";
 
   return (
-    <div className="min-h-screen bg-[#0f0d12] text-foreground">
+    <div className="relative min-h-screen bg-[#0f0d12] text-foreground overflow-hidden">
       <div className="mx-auto max-w-[1280px] px-4 sm:px-6 lg:px-8 py-8 sm:py-12">
         <div className="mb-6">
           <Link
@@ -58,7 +58,8 @@ export default function HumanWritingAgentPage() {
               <div className="space-y-2">
                 <h1 className="text-3xl sm:text-4xl font-bold text-white drop-shadow-sm">Human Writing Agent</h1>
                 <p className="max-w-2xl text-base sm:text-lg text-white/80">
-                  Draft with GPT-5 Nano, humanize with Rephrasy, verify with detectors, and iterate until it reads like a human wrote it.
+                  Draft with GPT-5 Nano, humanize with Rephrasy, verify with detectors, and iterate until it reads like
+                  a human wrote it.
                 </p>
               </div>
             </div>
@@ -69,61 +70,15 @@ export default function HumanWritingAgentPage() {
             </div>
           </div>
         </div>
+      </div>
 
-        <div className="mt-10 flex flex-col items-center gap-6">
-          <div className="w-full max-w-[540px] rounded-[18px] border border-white/8 bg-white/6 p-6 shadow-lg shadow-black/40 backdrop-blur-sm">
-            <h3 className="text-lg font-semibold text-white mb-4">Pipeline preview</h3>
-            <ol className="space-y-3 text-white/85">
-              {[
-                "Draft with GPT-5 Nano",
-                "Detector: overall / depth score",
-                "Humanizer: Rephrasy (model + language)",
-                "Detector: re-check for AI-ness",
-                "Optional: repeat humanize + detect until pass",
-                "Light corrections to maintain quality",
-                "Export result",
-              ].map((step, idx) => (
-                <li key={step} className="flex items-start gap-3">
-                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-white/12 bg-white/10 text-xs font-semibold text-white/80">
-                    {idx + 1}
-                  </span>
-                  <span className="leading-relaxed text-sm sm:text-base">{step}</span>
-                </li>
-              ))}
-            </ol>
-          </div>
-
-          <div className="w-full max-w-[540px] rounded-[18px] border border-white/8 bg-white/6 p-6 shadow-lg shadow-black/40 backdrop-blur-sm space-y-3">
-            <div className="flex items-center justify-between">
-              <h3 className="text-lg font-semibold text-white">Tasks</h3>
-              <span className="text-xs text-white/60">Past tasks will appear here</span>
-            </div>
-            {tasks.length === 0 ? (
-              <div className="rounded-lg border border-dashed border-white/15 bg-black/20 p-6 text-center text-white/70">
-                No tasks yet. Send a task to start one.
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {tasks.map((task) => (
-                  <div key={task.id} className="rounded-lg border border-white/10 bg-black/20 px-4 py-3 text-white/85">
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="font-medium text-white">{task.title}</div>
-                      <div className="text-xs text-white/60">{task.timestamp}</div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-
-        <div className="mt-16 flex justify-center">
-          <div className="relative w-full max-w-[960px] rounded-[22px] border border-white/10 bg-[#121217]/90 p-6 shadow-[0_40px_80px_rgba(0,0,0,0.6)] ring-1 ring-white/5 backdrop-blur-3xl">
-            <Textarea
-              value={composerText}
-              onChange={(event) => setComposerText(event.target.value)}
-              placeholder="Describe the essay or writing task..."
-              className="min-h-[180px] bg-transparent text-white placeholder:text-white/50 border border-white/10 focus-visible:border-amber-400 focus-visible:ring-4 focus-visible:ring-amber-400/30"
+      <div className="pointer-events-none fixed inset-x-0 bottom-0 flex justify-center pb-6">
+        <div className="pointer-events-auto w-full max-w-[960px] rounded-[22px] border border-white/10 bg-[#121217]/90 p-6 shadow-[0_40px_80px_rgba(0,0,0,0.6)] ring-1 ring-white/5 backdrop-blur-3xl">
+          <Textarea
+            value={composerText}
+            onChange={(event) => setComposerText(event.target.value)}
+            placeholder="Describe the essay or writing task..."
+            className="min-h-[180px] bg-transparent text-white placeholder:text-white/50 border border-white/10 focus-visible:border-amber-400 focus-visible:ring-4 focus-visible:ring-amber-400/30"
             />
             <div className="mt-4 flex justify-end">
               <Button
