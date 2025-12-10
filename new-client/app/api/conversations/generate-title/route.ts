@@ -8,7 +8,7 @@ import {
 } from "@/lib/conversation-utils";
 import { calculateCost } from "@/lib/pricing";
 import { logUsageRecord } from "@/lib/usage";
-import { callCloudflareLlama } from "@/lib/cloudflareLlama";
+import { callDeepInfraGemma } from "@/lib/deepInfraGemma";
 
 export async function POST(req: NextRequest) {
   try {
@@ -67,7 +67,7 @@ export async function POST(req: NextRequest) {
     const readable = new ReadableStream({
       async start(controller) {
         try {
-          const { text, usage } = await callCloudflareLlama({
+          const { text, usage } = await callDeepInfraGemma({
             messages: [
               {
                 role: "system",
@@ -79,6 +79,8 @@ export async function POST(req: NextRequest) {
                 content: `User message:\n${userMessage}\n\nTitle:`,
               },
             ],
+            enforceJson: false,
+            maxTokens: 100,
           });
 
           const normalizedTitle = normalizeGeneratedTitle(text.trim());
@@ -102,7 +104,7 @@ export async function POST(req: NextRequest) {
               const cachedTokens = 0;
 
               const cost = calculateCost(
-                "@cf/meta/llama-3.2-1b-instruct",
+                "google/gemma-3-4b-it",
                 inputTokens,
                 cachedTokens,
                 outputTokens
@@ -111,7 +113,7 @@ export async function POST(req: NextRequest) {
               await logUsageRecord({
                 userId,
                 conversationId,
-                model: "@cf/meta/llama-3.2-1b-instruct",
+                model: "google/gemma-3-4b-it",
                 inputTokens,
                 cachedTokens,
                 outputTokens,

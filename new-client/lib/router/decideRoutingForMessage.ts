@@ -10,10 +10,10 @@ import type {
 } from "@/lib/supabase/types";
 import type { RouterDecision } from "@/lib/router/types";
 import { logUsageRecord } from "@/lib/usage";
-import { callCloudflareLlama } from "@/lib/cloudflareLlama";
+import { callDeepInfraGemma } from "@/lib/deepInfraGemma";
 
-const TOPIC_ROUTER_MODEL = "@cf/meta/llama-3.2-1b-instruct";
-const ALLOWED_ROUTER_MODELS = new Set(["@cf/meta/llama-3.2-1b-instruct", "gpt-5-nano-2025-08-07", "gpt-5-mini-2025-05-28"]);
+const TOPIC_ROUTER_MODEL = "google/gemma-3-4b-it";
+const ALLOWED_ROUTER_MODELS = new Set(["google/gemma-3-4b-it"]);
 const MAX_RECENT_MESSAGES = 25;
 const MAX_ARTIFACTS = 10;
 
@@ -620,7 +620,7 @@ async function callRouterWithSchema(
         attempt === 1
           ? "\n\nSECOND TRY: STRICT JSON ONLY. Begin with { and end with }. No explanations."
           : "";
-      const { text, usage } = await callCloudflareLlama({
+      const { text, usage } = await callDeepInfraGemma({
         messages: [
           {
             role: "system",

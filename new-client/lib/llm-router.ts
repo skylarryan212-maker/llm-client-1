@@ -51,7 +51,7 @@ export interface RouterContext {
   permanentInstructions?: PermanentInstructionToWrite[]; // ignored
 }
 
-const ROUTER_MODEL_ID = "@cf/meta/llama-3.2-1b-instruct";
+const ROUTER_MODEL_ID = "google/gemma-3-4b-it";
 const ROUTER_SYSTEM_PROMPT = `You are a lightweight routing assistant. Your primary job: choose the model and reasoning effort. Additionally, select which memory categories to load and any memory/permanent-instruction writes/deletes when warranted.
 
 - Default to the smallest model that answers reliably; escalate only when clearly necessary (stakes, complexity, length).
@@ -69,7 +69,7 @@ export async function routeWithLLM(
   context?: RouterContext
 ): Promise<LLMRouterDecision | null> {
   try {
-    const { callCloudflareLlama } = await import("@/lib/cloudflareLlama");
+    const { callDeepInfraGemma } = await import("@/lib/deepInfraGemma");
     // Build context message
     let contextNote = "";
     if (context?.userModelPreference && context.userModelPreference !== "auto") {
@@ -168,7 +168,7 @@ export async function routeWithLLM(
       ],
     };
 
-    const { text, usage } = await callCloudflareLlama({
+    const { text, usage } = await callDeepInfraGemma({
       messages: [
         { role: "system", content: ROUTER_SYSTEM_PROMPT },
         { role: "user", content: routerPrompt },
@@ -391,11 +391,12 @@ Should a memory be saved? If yes, extract and structure it.`;
     console.log("[memory-analysis] Starting memory analysis");
     const startTime = Date.now();
 
-    const { text } = await callCloudflareLlama({
+    const { text } = await callDeepInfraGemma({
       messages: [
         { role: "system", content: MEMORY_ANALYSIS_PROMPT },
         { role: "user", content: analysisPrompt },
       ],
+      maxTokens: 300,
     });
 
     const elapsed = Date.now() - startTime;
@@ -456,7 +457,7 @@ Should a memory be saved? If yes, extract and structure it.`;
 export function getMemoryAnalysisUsageEstimate() {
   // Rough estimate: ~200 input tokens, ~50 output tokens for Nano
   return {
-    model: "@cf/meta/llama-3.2-1b-instruct",
+    model: "google/gemma-3-4b-it",
     inputTokens: 200,
     outputTokens: 50,
   };

@@ -38,7 +38,7 @@ import {
   type PermanentInstructionCacheItem,
 } from "@/lib/permanentInstructions";
 import { decideRoutingForMessage } from "@/lib/router/decideRoutingForMessage";
-import { callCloudflareLlama } from "@/lib/cloudflareLlama";
+import { callDeepInfraGemma } from "@/lib/deepInfraGemma";
 import type { RouterDecision } from "@/lib/router/types";
 import { buildContextForMainModel } from "@/lib/context/buildContextForMainModel";
 import type { PermanentInstructionToWrite } from "@/lib/llm-router";
@@ -2322,7 +2322,7 @@ async function maybeGenerateArtifactsWithLLM({
     required: ["artifacts"],
   };
 
-  const { text: responseText, usage: usageInfo } = await callCloudflareLlama({
+  const { text: responseText, usage: usageInfo } = await callDeepInfraGemma({
     messages: [
       {
         role: "system",
@@ -2343,7 +2343,7 @@ async function maybeGenerateArtifactsWithLLM({
       await logUsageRecord({
         userId,
         conversationId: message.conversation_id ?? null,
-        model: "@cf/meta/llama-3.2-1b-instruct",
+        model: "google/gemma-3-4b-it",
         inputTokens: usageInfo.input_tokens ?? 0,
         cachedTokens: 0,
         outputTokens: usageInfo.output_tokens ?? 0,
