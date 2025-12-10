@@ -21,12 +21,14 @@ export async function callDeepInfraGemma({
   schemaName,
   schema,
   maxTokens = 400,
+  model = "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
   enforceJson = true,
 }: {
   messages: ChatCompletionMessageParam[];
   schemaName?: string;
   schema?: any;
   maxTokens?: number;
+  model?: string;
   enforceJson?: boolean;
 }): Promise<{ text: string; usage: { input_tokens: number; output_tokens: number } }> {
   const client = getClient();
@@ -41,7 +43,7 @@ export async function callDeepInfraGemma({
     : messages;
 
   const completion = await client.chat.completions.create({
-    model: "google/gemma-3-4b-it",
+    model,
     messages: finalMessages,
     temperature: 0,
     max_tokens: maxTokens,

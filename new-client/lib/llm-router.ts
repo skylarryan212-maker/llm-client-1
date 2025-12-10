@@ -51,7 +51,7 @@ export interface RouterContext {
   permanentInstructions?: PermanentInstructionToWrite[]; // ignored
 }
 
-const ROUTER_MODEL_ID = "google/gemma-3-4b-it";
+const ROUTER_MODEL_ID = "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo";
 const ROUTER_SYSTEM_PROMPT = `You are a lightweight routing assistant. Your primary job: choose the model and reasoning effort. Additionally, select which memory categories to load and any memory/permanent-instruction writes/deletes when warranted.
 
 - Default to the smallest model that answers reliably; escalate only when clearly necessary (stakes, complexity, length).
@@ -175,6 +175,7 @@ export async function routeWithLLM(
       ],
       schemaName: "router_decision",
       schema,
+      model: ROUTER_MODEL_ID,
     });
 
     const elapsed = Date.now() - startTime;
@@ -397,6 +398,7 @@ Should a memory be saved? If yes, extract and structure it.`;
         { role: "user", content: analysisPrompt },
       ],
       maxTokens: 300,
+      model: ROUTER_MODEL_ID,
     });
 
     const elapsed = Date.now() - startTime;

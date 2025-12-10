@@ -12,8 +12,8 @@ import type { RouterDecision } from "@/lib/router/types";
 import { logUsageRecord } from "@/lib/usage";
 import { callDeepInfraGemma } from "@/lib/deepInfraGemma";
 
-const TOPIC_ROUTER_MODEL = "google/gemma-3-4b-it";
-const ALLOWED_ROUTER_MODELS = new Set(["google/gemma-3-4b-it"]);
+const TOPIC_ROUTER_MODEL = "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo";
+const ALLOWED_ROUTER_MODELS = new Set(["meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo"]);
 const MAX_RECENT_MESSAGES = 25;
 const MAX_ARTIFACTS = 10;
 
@@ -630,6 +630,7 @@ async function callRouterWithSchema(
         ],
         schemaName: "router_decision",
         schema,
+        model: TOPIC_ROUTER_MODEL,
       });
       const usageInfo = usage;
       if (ctx?.userId && usageInfo) {
