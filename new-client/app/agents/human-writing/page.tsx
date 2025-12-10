@@ -24,7 +24,7 @@ export default function HumanWritingAgentPage() {
 
   return (
     <div className="min-h-screen bg-[#0f0d12] text-foreground">
-      <div className="mx-auto max-w-7xl px-4 sm:px-6 py-8 sm:py-12">
+      <div className="mx-auto max-w-[1600px] px-4 sm:px-6 py-8 sm:py-12">
         <div className="mb-6">
           <Link
             href="/agents"
@@ -35,7 +35,7 @@ export default function HumanWritingAgentPage() {
           </Link>
         </div>
 
-        <div className="relative overflow-hidden rounded-2xl border border-white/5 bg-gradient-to-br from-amber-500/25 via-orange-500/15 to-rose-500/25 p-6 sm:p-8 shadow-[0_20px_80px_-40px_rgba(0,0,0,0.45)]">
+        <div className="relative mx-auto max-w-[1200px] overflow-hidden rounded-2xl border border-white/5 bg-gradient-to-br from-amber-500/25 via-orange-500/15 to-rose-500/25 p-6 sm:p-8 shadow-[0_20px_80px_-40px_rgba(0,0,0,0.45)]">
           <div className="absolute inset-0 pointer-events-none bg-[radial-gradient(circle_at_20%_20%,rgba(255,255,255,0.08),transparent_35%),radial-gradient(circle_at_80%_0%,rgba(255,255,255,0.08),transparent_30%)]" />
           <div className="relative flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div className="flex items-start gap-3">
@@ -57,8 +57,8 @@ export default function HumanWritingAgentPage() {
           </div>
         </div>
 
-        <div className="mt-10 grid gap-6 lg:grid-cols-12">
-          <div className="space-y-6 col-span-12 lg:col-span-4">
+        <div className="mt-10 grid gap-6 lg:grid-cols-12 items-start">
+          <div className="space-y-6 col-span-12 lg:col-span-3">
             <div className="rounded-2xl border border-white/5 bg-white/5 p-6 shadow-lg shadow-black/30 backdrop-blur-sm space-y-5">
               <div className="flex items-center justify-between">
                 <h2 className="text-lg font-semibold text-white">Humanizer settings</h2>
@@ -168,7 +168,7 @@ export default function HumanWritingAgentPage() {
             </div>
           </div>
 
-          <div className="space-y-6 col-span-12 lg:col-span-5">
+          <div className="space-y-6 col-span-12 lg:col-span-6 lg:col-start-4">
             <div className="rounded-2xl border border-white/5 bg-white/5 p-6 shadow-lg shadow-black/30 backdrop-blur-sm">
               <div className="flex items-center justify-between flex-wrap gap-3">
                 <h2 className="text-lg font-semibold text-white">Task brief</h2>
@@ -218,7 +218,7 @@ export default function HumanWritingAgentPage() {
             </div>
           </div>
 
-          <div className="rounded-2xl border border-white/5 bg-white/10 p-6 shadow-lg shadow-black/30 backdrop-blur col-span-12 lg:col-span-3">
+          <div className="rounded-2xl border border-white/5 bg-white/10 p-6 shadow-lg shadow-black/30 backdrop-blur col-span-12 lg:col-span-3 lg:col-start-10">
             <h3 className="text-lg font-semibold text-white mb-4">Pipeline preview</h3>
             <ol className="space-y-3 text-white/85">
               {[
