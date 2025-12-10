@@ -2375,12 +2375,12 @@ export default function ChatPageShell({
       {/* Insight sidebar */}
       <div
         className={`h-full flex-shrink-0 transition-all duration-300 ease-in-out border-l border-border bg-background overflow-hidden ${
-          isInsightSidebarOpen ? "w-[336px] max-w-[80vw] opacity-100 pointer-events-auto" : "w-0 opacity-0 pointer-events-none"
+          isInsightSidebarOpen ? "w-[400px] max-w-[80vw] opacity-100 pointer-events-auto" : "w-0 opacity-0 pointer-events-none"
         }`}
         aria-hidden={!isInsightSidebarOpen}
       >
         <div className={`flex h-full flex-col transition-opacity duration-200 ease-in-out ${isInsightSidebarOpen ? "opacity-100" : "opacity-0"}`}>
-          <div className="flex h-12 items-center justify-between px-4 border-b border-border">
+          <div className="flex h-[53px] items-center justify-between px-4 border-b border-border">
             <div className="text-sm font-medium">Thoughts &amp; updates</div>
             <Button variant="ghost" size="icon" onClick={closeInsightSidebar}>
               <X className="h-4 w-4" />
