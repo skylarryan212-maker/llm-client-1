@@ -11,9 +11,9 @@ export const MODEL_PRICING = {
     output: 10.0,
   },
   "gpt-5-mini-2025-08-07": {
-    input: 0.15,
-    cached: 0.015,
-    output: 1.2,
+    input: 0.25,
+    cached: 0.025,
+    output: 2.0,
   },
   "gpt-5-nano-2025-08-07": {
     input: 0.05,
@@ -22,14 +22,14 @@ export const MODEL_PRICING = {
   },
   // Cloudflare Workers AI @cf/meta/llama-3.2-1b-instruct (per 1M tokens, placeholder low-cost assumption)
   "@cf/meta/llama-3.2-1b-instruct": {
-    input: 0.02,
+    input: 0.027,
     cached: 0,
-    output: 0.08,
+    output: 0.20,
   },
   "gpt-5-pro-2025-10-06": {
-    input: 2.5,
-    cached: 0.25,
-    output: 20.0,
+    input: 15.0,
+    cached: 1.5,
+    output: 120.0,
   },
   "gpt-4o-mini": {
     input: 0.6,
