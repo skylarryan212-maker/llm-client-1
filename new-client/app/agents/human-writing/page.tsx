@@ -106,7 +106,7 @@ export default function HumanWritingAgentPage() {
       </div>
 
       <div className="pointer-events-none fixed inset-x-0 bottom-0 flex justify-center pb-6">
-        <div className="pointer-events-auto relative w-full max-w-[960px] rounded-[22px] border border-white/10 bg-[#121217]/90 p-6 ring-1 ring-white/5 shadow-[0_40px_80px_rgba(0,0,0,0.6)] backdrop-blur-3xl">
+        <div className="pointer-events-auto relative w-full max-w-[960px] rounded-[22px] border border-white/8 bg-[#121217]/90 p-6 shadow-[0_40px_80px_rgba(0,0,0,0.6)] backdrop-blur-3xl">
           <Textarea
             value={composerText}
             onChange={(event) => setComposerText(event.target.value)}
@@ -117,7 +117,7 @@ export default function HumanWritingAgentPage() {
           <div className="absolute bottom-4 right-4">
             <Button
               type="button"
-              className="accent-send-button flex h-11 w-11 items-center justify-center rounded-full shadow-lg transition hover:scale-[1.03]"
+              className="flex h-11 w-11 items-center justify-center rounded-full bg-gradient-to-r from-amber-500 via-orange-500 to-rose-500 text-white shadow-lg shadow-amber-600/40 transition hover:scale-[1.03] hover:shadow-amber-600/60"
             >
               <ArrowUp className="h-5 w-5" />
             </Button>
