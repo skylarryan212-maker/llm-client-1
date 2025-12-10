@@ -42,7 +42,7 @@ function parseJsonObject(text: string): { description?: string; summary?: string
   return null;
 }
 
-function withQueryTimeout<T>(builder: any, ms = 5000): Promise<T> {
+function withQueryTimeout<T>(builder: any, ms = 10000): Promise<T> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), ms);
 
