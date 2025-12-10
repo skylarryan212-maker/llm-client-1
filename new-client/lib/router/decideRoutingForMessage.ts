@@ -267,15 +267,16 @@ async function loadCandidateArtifacts(
   const keywords = buildKeywordList(userMessage);
   let query = supabase
     .from("artifacts")
-    .select("id, conversation_id, topic_id, type, title, summary, created_at")
+    .select("id, conversation_id, topic_id, type, title, summary, created_at, keywords")
     .eq("conversation_id", conversationId)
     .order("created_at", { ascending: false })
-    .limit(40);
+    .limit(60);
 
   if (keywords.length) {
     const clauses = keywords.flatMap((kw) => [
       `title.ilike.%${kw}%`,
       `summary.ilike.%${kw}%`,
+      `keywords.cs.{\"${kw}\"}`,
     ]);
     if (clauses.length) {
       query = query.or(clauses.join(","));

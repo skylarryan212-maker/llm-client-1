@@ -181,6 +181,75 @@ type SearchStatusEvent =
   | { type: "file-reading-complete" }
   | { type: "file-reading-error"; message?: string };
 
+function extractKeywords(text: string, topicLabel?: string | null): string[] {
+  const STOP = new Set([
+    "the",
+    "and",
+    "for",
+    "with",
+    "this",
+    "that",
+    "have",
+    "from",
+    "into",
+    "about",
+    "your",
+    "you",
+    "are",
+    "was",
+    "were",
+    "will",
+    "would",
+    "shall",
+    "should",
+    "could",
+    "there",
+    "here",
+    "they",
+    "them",
+    "their",
+    "our",
+    "ours",
+    "has",
+    "had",
+    "can",
+    "but",
+    "not",
+    "just",
+    "like",
+    "then",
+    "than",
+    "when",
+    "what",
+    "why",
+    "how",
+    "who",
+    "where",
+    "which",
+    "also",
+    "into",
+    "within",
+  ]);
+
+  const base = [text || "", topicLabel || ""]
+    .join(" ")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ");
+  const freq = new Map<string, number>();
+  for (const token of base.split(/\s+/)) {
+    if (!token || token.length < 3 || token.length > 24) continue;
+    if (STOP.has(token)) continue;
+    freq.set(token, (freq.get(token) ?? 0) + 1);
+  }
+
+  const sorted = Array.from(freq.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 12)
+    .map(([k]) => k);
+
+  return sorted;
+}
+
 const BASE_SYSTEM_PROMPT =
   "**CRITICAL RESPONSE RULE: You MUST ALWAYS provide a text response to the user. NEVER end a turn with only tool calls. Even if you call a function, you must follow it with explanatory text.**\\n\\n" +
   "You are a web-connected assistant with access to multiple tools for enhanced capabilities:\\n" +
@@ -2306,20 +2375,28 @@ async function maybeGenerateArtifactsWithLLM({
     console.error("[artifacts] Failed to parse artifacts JSON:", err);
     return;
   }
-  const artifacts: Array<{ type: string; title: string; content: string }> =
+  let artifacts: Array<{ type: string; title: string; content: string }> =
     Array.isArray(parsed?.artifacts) ? parsed.artifacts : [];
+
+  // Bias toward saving at least one artifact when the LLM returns nothing
   if (!artifacts.length) {
-    console.log("[artifacts] No artifacts returned by LLM");
-    return;
+    artifacts = [
+      {
+        type: "notes",
+        title: (text || "Assistant reply").slice(0, 200),
+        content: text.slice(0, 4000),
+      },
+    ];
   }
-  console.log(`[artifacts] Parsed ${artifacts.length} candidate artifacts from LLM`);
+  console.log(`[artifacts] Parsed ${artifacts.length} candidate artifacts from LLM (or fallback)`);
 
   const inserts = artifacts.map((art) => {
     const content = String(art.content || "").trim();
     const title = String(art.title || "").trim().slice(0, 200) || "Artifact";
     const type = typeof art.type === "string" ? art.type : "other";
     const summary = content.replace(/\s+/g, " ").slice(0, 180);
-    const tokenEstimate = Math.max(50, Math.round(content.length / 4));
+    const tokenEstimate = Math.max(50, Math.round(Math.max(summary.length, content.length) / 4));
+    const keywords = extractKeywords([title, summary, content].join(" "), undefined);
     return {
       conversation_id: message.conversation_id,
       topic_id: message.topic_id,
@@ -2329,13 +2406,25 @@ async function maybeGenerateArtifactsWithLLM({
       summary,
       content,
       token_estimate: tokenEstimate,
+      keywords,
     };
   });
 
   try {
     await supabase.from("artifacts").insert(inserts);
     console.log(`[artifacts] Inserted ${inserts.length} artifacts from assistant message ${message.id}`);
-  } catch (error) {
+  } catch (error: any) {
     console.error("[artifacts] Failed to insert artifacts:", error);
+    if (String(error?.message || "").includes("keywords")) {
+      const insertsNoKeywords = inserts.map(({ keywords, ...rest }) => rest);
+      try {
+        await supabase.from("artifacts").insert(insertsNoKeywords);
+        console.log(
+          `[artifacts] Inserted ${insertsNoKeywords.length} artifacts without keywords (keywords column missing)`
+        );
+      } catch (err2) {
+        console.error("[artifacts] Retry insert without keywords failed:", err2);
+      }
+    }
   }
 }
