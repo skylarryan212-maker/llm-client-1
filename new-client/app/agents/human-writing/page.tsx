@@ -111,7 +111,7 @@ export default function HumanWritingAgentPage() {
             value={composerText}
             onChange={(event) => setComposerText(event.target.value)}
             placeholder="Describe the essay or writing task..."
-            className="min-h-[200px] resize-none bg-transparent text-white placeholder:text-white/50 shadow-none outline-none ring-0 border-0 focus-visible:ring-0 focus-visible:outline-none focus-visible:border-0 pr-32 pb-28"
+            className="min-h-[200px] resize-none bg-transparent !bg-transparent text-white placeholder:text-white/50 shadow-none outline-none ring-0 border-0 focus-visible:ring-0 focus-visible:outline-none focus-visible:border-0 focus-visible:shadow-none pr-32 pb-28"
           />
 
           <div className="absolute bottom-4 right-4">
