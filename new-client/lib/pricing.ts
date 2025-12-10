@@ -20,6 +20,12 @@ export const MODEL_PRICING = {
     cached: 0.005,
     output: 0.4,
   },
+  // Cloudflare Workers AI @cf/meta/llama-3.2-1b-instruct (per 1M tokens, placeholder low-cost assumption)
+  "@cf/meta/llama-3.2-1b-instruct": {
+    input: 0.02,
+    cached: 0,
+    output: 0.08,
+  },
   "gpt-5-pro-2025-10-06": {
     input: 2.5,
     cached: 0.25,
