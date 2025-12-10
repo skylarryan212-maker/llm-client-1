@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Code2, Database, Menu, TrendingUp, Workflow } from "lucide-react";
+import { Code2, Database, Menu, PenLine, TrendingUp, Workflow } from "lucide-react";
 
 import { AgentCard } from "@/components/agent-card";
 import { ChatSidebar } from "@/components/chat-sidebar";
@@ -32,6 +32,12 @@ const agents = [
     title: "Automation Builder",
     description:
       "Design and deploy intelligent workflows. Connect APIs, automate tasks, orchestrate complex processes, and streamline operations effortlessly.",
+  },
+  {
+    icon: PenLine,
+    title: "Human Writing Agent",
+    description:
+      "Produce clear, human-quality writing fast. Draft emails, docs, and narratives with tone control and structure that feels natural.",
   },
   {
     icon: Database,
