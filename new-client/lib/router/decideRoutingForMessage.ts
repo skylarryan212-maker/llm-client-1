@@ -600,11 +600,13 @@ async function callRouterWithSchema(
   };
 
   let lastError: unknown = null;
+  const forceJsonReminder =
+    "CRITICAL: Respond with ONLY raw JSON that matches the schema. Do not add any commentary, markdown, or prose.";
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const { text, usage } = await callCloudflareLlama({
         messages: [
-          { role: "system", content: TOPIC_ROUTER_SYSTEM_PROMPT },
+          { role: "system", content: `${TOPIC_ROUTER_SYSTEM_PROMPT}\n\n${forceJsonReminder}` },
           { role: "user", content: routerPrompt },
         ],
         schemaName: "router_decision",
@@ -625,7 +627,7 @@ async function callRouterWithSchema(
       try {
         const cleaned = text.trim();
         console.warn("[topic-router] RAW OUTPUT:", cleaned);
-        const parsed = JSON.parse(cleaned);
+        const parsed = parseJsonLoose(cleaned);
         validatedData = routerDecisionSchema.parse(parsed);
       } catch (err) {
         console.error("[topic-router] SCHEMA ERROR:", err);
@@ -650,6 +652,18 @@ async function callRouterWithSchema(
   throw lastError || new Error("[topic-router] Router failed after retries");
 }
 
+function parseJsonLoose(raw: string) {
+  const withoutFences = raw.replace(/```json|```/g, "").trim();
+  try {
+    return JSON.parse(withoutFences);
+  } catch {
+    const match = withoutFences.match(/\{[\s\S]*\}/);
+    if (match) {
+      return JSON.parse(match[0]);
+    }
+    throw new Error("No JSON object found");
+  }
+}
 
 
 
