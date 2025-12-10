@@ -1847,7 +1847,7 @@ export default function ChatPageShell({
 
     const hasIndicator = Boolean(thinkingStatus || searchIndicator || fileReadingIndicator);
     const lastHasContent = messages.length === 0 || Boolean(messages[messages.length - 1]?.content);
-    const allowRegardless = Boolean(searchIndicator || fileReadingIndicator);
+    const allowRegardless = Boolean(searchIndicator || fileReadingIndicator || thinkingStatus);
 
     if (!hasIndicator || (!lastHasContent && !allowRegardless)) {
       return null;
