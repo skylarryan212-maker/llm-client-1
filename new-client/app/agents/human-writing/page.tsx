@@ -57,7 +57,7 @@ export default function HumanWritingAgentPage() {
           </div>
         </div>
 
-        <div className="mt-10 grid gap-6 items-start lg:grid-cols-[minmax(320px,360px)_minmax(560px,1fr)_minmax(320px,360px)]">
+        <div className="mt-10 mx-auto w-full max-w-[1180px] grid gap-6 items-start lg:grid-cols-[minmax(320px,360px)_minmax(560px,1fr)_minmax(320px,360px)]">
           <div className="space-y-6">
             <div className="rounded-[18px] border border-white/8 bg-white/6 p-6 shadow-lg shadow-black/40 backdrop-blur-sm space-y-5">
               <div className="flex items-center justify-between">
