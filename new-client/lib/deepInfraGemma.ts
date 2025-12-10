@@ -49,7 +49,7 @@ export async function callDeepInfraGemma({
   });
 
   const text = completion.choices?.[0]?.message?.content?.trim() ?? "";
-  const usage = completion.usage || {};
+  const usage: any = completion.usage || {};
 
   return {
     text,
