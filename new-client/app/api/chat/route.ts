@@ -31,6 +31,7 @@ import { hasExceededLimit, getPlanLimit } from "@/lib/usage-limits";
 import { getRelevantMemories, type PersonalizationMemorySettings, type MemoryStrategy } from "@/lib/memory-router";
 import type { MemoryItem } from "@/lib/memory";
 import { writeMemory, deleteMemory } from "@/lib/memory";
+import { logUsageRecord } from "@/lib/usage";
 import {
   applyPermanentInstructionMutations,
   loadPermanentInstructions,
@@ -961,16 +962,14 @@ export async function POST(request: NextRequest) {
           routerUsage.outputTokens
         );
 
-        await supabaseAny.from("user_api_usage").insert({
-          id: crypto.randomUUID(),
-          user_id: userId,
-          conversation_id: conversationId,
+        await logUsageRecord({
+          userId,
+          conversationId,
           model: routerUsage.model,
-          input_tokens: routerUsage.inputTokens,
-          cached_tokens: 0,
-          output_tokens: routerUsage.outputTokens,
-          estimated_cost: routerCost,
-          created_at: new Date().toISOString(),
+          inputTokens: routerUsage.inputTokens,
+          cachedTokens: 0,
+          outputTokens: routerUsage.outputTokens,
+          estimatedCost: routerCost,
         });
 
         console.log(`[router-usage] Logged LLM router cost: $${routerCost.toFixed(6)}`);
@@ -1857,28 +1856,18 @@ export async function POST(request: NextRequest) {
           // Log usage to database
           if (inputTokens > 0 || outputTokens > 0) {
             try {
-              const insertData = {
-                id: crypto.randomUUID(),
-                user_id: userId,
-                conversation_id: conversationId,
+              await logUsageRecord({
+                userId,
+                conversationId,
                 model: modelConfig.model,
-                input_tokens: inputTokens,
-                cached_tokens: cachedTokens,
-                output_tokens: outputTokens,
-                estimated_cost: estimatedCost,
-                created_at: new Date().toISOString(),
-              };
-              console.log("[usage] Attempting to insert:", insertData);
-              
-              const { error } = await supabaseAny.from("user_api_usage").insert(insertData);
-              
-              if (error) {
-                console.error("[usage] Insert error:", error);
-              } else {
-                console.log(
-                  `[usage] Successfully logged: ${inputTokens} input, ${cachedTokens} cached, ${outputTokens} output, cost: $${estimatedCost.toFixed(6)}`
-                );
-              }
+                inputTokens,
+                cachedTokens,
+                outputTokens,
+                estimatedCost: estimatedCost,
+              });
+              console.log(
+                `[usage] Successfully logged: ${inputTokens} input, ${cachedTokens} cached, ${outputTokens} output, cost: $${estimatedCost.toFixed(6)}`
+              );
             } catch (usageErr) {
               console.error("[usage] Failed to log usage:", usageErr);
             }
@@ -2054,6 +2043,7 @@ export async function POST(request: NextRequest) {
                       openai,
                       topicId,
                       conversationId,
+                      userId,
                     });
                   }
                 } catch (metaErr) {
@@ -2070,6 +2060,7 @@ export async function POST(request: NextRequest) {
                   supabase: supabaseAny,
                   openai: clientForArtifacts,
                   message: assistantRowForMeta,
+                  userId,
                 });
               } catch (artifactError) {
                 console.error("[artifacts] LLM extraction failed:", artifactError);
@@ -2209,10 +2200,12 @@ async function maybeGenerateArtifactsWithLLM({
   supabase,
   openai,
   message,
+  userId,
 }: {
   supabase: any;
   openai: any;
   message: MessageRow;
+  userId?: string | null;
 }) {
   if (!message?.id || !message?.conversation_id) return;
   if (!message.topic_id) return;
@@ -2285,6 +2278,22 @@ async function maybeGenerateArtifactsWithLLM({
       },
     },
   });
+
+  const usageInfo = (response as any)?.usage;
+  if (userId && usageInfo) {
+    try {
+      await logUsageRecord({
+        userId,
+        conversationId: message.conversation_id ?? null,
+        model: "gpt-5-nano-2025-08-07",
+        inputTokens: usageInfo.input_tokens ?? 0,
+        cachedTokens: usageInfo.cached_tokens ?? 0,
+        outputTokens: usageInfo.output_tokens ?? 0,
+      });
+    } catch (artifactUsageErr) {
+      console.error("[artifacts] Failed to log usage:", artifactUsageErr);
+    }
+  }
 
   const parsedText =
     (response as any)?.output?.find((o: any) => o.type === "message")?.content?.[0]?.text ||

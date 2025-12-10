@@ -148,13 +148,13 @@ function UpgradePageContent() {
           </div>
 
           <div className="max-w-6xl mx-auto flex justify-center px-2">
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 w-full justify-items-center justify-center">
+            <div className="grid grid-cols-[repeat(auto-fit,minmax(240px,1fr))] gap-4 w-full justify-items-center">
           {filteredPlans.map((plan) => {
             const isCurrent = currentPlan === plan.id;
             return (
               <div
                 key={plan.id}
-                className="group relative w-full max-w-[260px] overflow-hidden rounded-xl border border-border bg-card transition-all hover:border-primary/50 hover:shadow-lg hover:shadow-primary/10"
+                className="group relative w-full max-w-[280px] overflow-hidden rounded-xl border border-border bg-card transition-all hover:border-primary/50 hover:shadow-lg hover:shadow-primary/10"
               >
                 {plan.recommended && (
                   <div className="absolute top-4 right-4 rounded-full bg-primary/20 px-3 py-1 text-xs font-semibold text-primary">
@@ -162,10 +162,10 @@ function UpgradePageContent() {
                   </div>
                 )}
                 <div className={`pointer-events-none absolute inset-0 bg-gradient-to-br ${plan.gradientFrom} ${plan.gradientTo} opacity-0 transition-opacity group-hover:opacity-100`} />
-                <div className="relative p-5 flex flex-col h-full min-h-[280px]">
-                  <div className="mb-6">
-                    <h2 className="text-2xl font-bold text-foreground mb-2">{plan.name}</h2>
-                    <div className="flex items-baseline gap-1 mb-3">
+                <div className="relative p-5 flex flex-col h-full min-h-[240px]">
+                  <div className="mb-4">
+                    <h2 className="text-2xl font-bold text-foreground mb-1">{plan.name}</h2>
+                    <div className="flex items-baseline gap-1 mb-2">
                       <span className="text-sm text-muted-foreground">$</span>
                       <span className="text-4xl font-bold text-foreground">{plan.price}</span>
                       <span className="text-sm text-muted-foreground">USD / month</span>
@@ -173,7 +173,7 @@ function UpgradePageContent() {
                     <p className="text-sm text-muted-foreground">{plan.description}</p>
                   </div>
 
-                  <div className="space-y-3 flex-1">
+                  <div className="space-y-2 flex-1">
                     {plan.features.map((feature, index) => (
                       <div key={index} className="flex items-start gap-3">
                         <div className="flex-shrink-0 mt-0.5">
@@ -186,7 +186,7 @@ function UpgradePageContent() {
                     ))}
                   </div>
 
-                  <div className="mt-6 space-y-2">
+                  <div className="mt-4 space-y-2">
                     {isCurrent ? (
                       <Button variant="outline" className="w-full" disabled>
                         Your current plan

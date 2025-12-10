@@ -238,9 +238,10 @@ export function ChatSidebar({
   }
 
   const primaryButtonClass = isOpen
-    ? "w-full justify-start px-3 h-10 gap-2 text-sidebar-foreground hover:bg-sidebar-accent sidebar-entry"
-    : "w-12 h-10 p-0 justify-center gap-2 text-sidebar-foreground hover:bg-sidebar-accent sidebar-entry";
-  const listItemClass = "w-full justify-start px-3 py-2 gap-2 text-sidebar-foreground hover:bg-sidebar-accent sidebar-entry";
+    ? "w-full justify-start px-2.5 h-10 gap-2 text-sidebar-foreground hover:bg-sidebar-accent rounded-lg sidebar-entry"
+    : "w-12 h-10 p-0 justify-center gap-2 text-sidebar-foreground hover:bg-sidebar-accent rounded-lg sidebar-entry";
+  const listItemClass =
+    "w-full justify-start px-2.5 py-2 gap-2 text-sidebar-foreground hover:bg-sidebar-accent rounded-lg sidebar-entry";
 
   return (
     <>

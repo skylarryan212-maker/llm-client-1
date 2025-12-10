@@ -55,7 +55,7 @@
   }
 
   .sidebar-entry:hover {
-    transform: translateX(4px);
+    transform: translateX(2px);
   }
 
   .sidebar-entry[data-sidebar-selected="true"] {

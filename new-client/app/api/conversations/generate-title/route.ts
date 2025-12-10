@@ -8,6 +8,7 @@ import {
   normalizeGeneratedTitle,
 } from "@/lib/conversation-utils";
 import { calculateCost } from "@/lib/pricing";
+import { logUsageRecord } from "@/lib/usage";
 
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
@@ -122,30 +123,27 @@ export async function POST(req: NextRequest) {
           // Log usage to database
           if (usageData) {
             try {
-              const { randomUUID } = require("crypto");
               const inputTokens = usageData.prompt_tokens || 0;
               const outputTokens = usageData.completion_tokens || 0;
               const cachedTokens = usageData.prompt_tokens_details?.cached_tokens || 0;
-              
+
               const cost = calculateCost(
                 "gpt-5-nano-2025-08-07",
                 inputTokens,
                 cachedTokens,
                 outputTokens
               );
-              
-              await supabaseAny.from("user_api_usage").insert({
-                id: randomUUID(),
-                user_id: userId,
-                conversation_id: conversationId,
+
+              await logUsageRecord({
+                userId,
+                conversationId,
                 model: "gpt-5-nano-2025-08-07",
-                input_tokens: inputTokens,
-                cached_tokens: cachedTokens,
-                output_tokens: outputTokens,
-                estimated_cost: cost,
-                created_at: new Date().toISOString(),
+                inputTokens,
+                cachedTokens,
+                outputTokens,
+                estimatedCost: cost,
               });
-              
+
               console.log(`[titleDebug] logged usage: $${cost.toFixed(6)}`);
             } catch (usageErr) {
               console.error("[titleDebug] failed to log usage:", usageErr);

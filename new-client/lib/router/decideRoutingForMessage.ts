@@ -9,6 +9,7 @@ import type {
   Message,
 } from "@/lib/supabase/types";
 import type { RouterDecision } from "@/lib/router/types";
+import { logUsageRecord } from "@/lib/usage";
 
 const TOPIC_ROUTER_MODEL = process.env.TOPIC_ROUTER_MODEL_ID ?? "gpt-5-nano-2025-08-07";
 const ALLOWED_ROUTER_MODELS = new Set(["gpt-5-nano-2025-08-07", "gpt-5-mini-2025-05-28"]);
@@ -94,7 +95,10 @@ export async function decideRoutingForMessage(
   try {
     const OpenAI = (await import("openai")).default;
     const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-    const parsed = await callRouterWithSchema(openai, routerPrompt);
+    const parsed = await callRouterWithSchema(openai, routerPrompt, {
+      userId,
+      conversationId,
+    });
     const resolvedDecision = await ensureTopicAssignment({
       supabase,
       conversationId,
@@ -569,7 +573,11 @@ function buildAutoTopicDescription(message: string): string | null {
   const sentence = clean.slice(0, 280);
   return sentence.endsWith(".") ? sentence : `${sentence}.`;
 }
-async function callRouterWithSchema(openai: any, routerPrompt: string): Promise<RouterDecision> {
+async function callRouterWithSchema(
+  openai: any,
+  routerPrompt: string,
+  ctx?: { userId?: string; conversationId?: string }
+): Promise<RouterDecision> {
   const schema = {
     type: "object",
     properties: {
@@ -623,6 +631,19 @@ async function callRouterWithSchema(openai: any, routerPrompt: string): Promise<
         },
         reasoning: { effort: "low" },
       });
+      const usageInfo = (response as any)?.usage;
+      if (ctx?.userId && usageInfo) {
+        await logUsageRecord({
+          userId: ctx.userId,
+          conversationId: ctx.conversationId ?? null,
+          model: ALLOWED_ROUTER_MODELS.has(TOPIC_ROUTER_MODEL)
+            ? TOPIC_ROUTER_MODEL
+            : "gpt-5-nano-2025-08-07",
+          inputTokens: usageInfo.input_tokens ?? 0,
+          cachedTokens: usageInfo.cached_tokens ?? 0,
+          outputTokens: usageInfo.output_tokens ?? 0,
+        });
+      }
       const textOutput =
         response?.output?.find((item: any) => item.type === "message")?.content?.[0]?.text ?? "";
       let validatedData: z.infer<typeof routerDecisionSchema>;

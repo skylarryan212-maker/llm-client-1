@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/supabase/types";
+import { logUsageRecord } from "@/lib/usage";
 
 type MessageRow = Database["public"]["Tables"]["messages"]["Row"];
 type TopicRow = Database["public"]["Tables"]["conversation_topics"]["Row"];
@@ -12,6 +13,7 @@ interface RefreshTopicMetadataParams {
   topicId: string;
   conversationId: string;
   model?: string;
+  userId?: string | null;
 }
 
 function buildUserPayload(topic: TopicRow, messages: MessageRow[]) {
@@ -58,6 +60,7 @@ export async function refreshTopicMetadata({
   topicId,
   conversationId,
   model = "gpt-5-nano-2025-08-07",
+  userId,
 }: RefreshTopicMetadataParams): Promise<void> {
   if (!topicId) return;
 
@@ -127,6 +130,17 @@ export async function refreshTopicMetadata({
       ],
       max_output_tokens: 400,
     });
+    const usage = (completion as any)?.usage;
+    if (userId && usage) {
+      await logUsageRecord({
+        userId,
+        conversationId,
+        model,
+        inputTokens: usage.input_tokens ?? 0,
+        cachedTokens: usage.cached_tokens ?? 0,
+        outputTokens: usage.output_tokens ?? 0,
+      });
+    }
     responseText = completion.output_text || "";
   } catch (err) {
     console.error("[topic-refresh] LLM call failed:", err);
