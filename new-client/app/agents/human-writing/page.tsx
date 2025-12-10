@@ -57,18 +57,64 @@ export default function HumanWritingAgentPage() {
           </div>
         </div>
 
-        <div className="mt-10 grid gap-8 lg:grid-cols-[1.3fr_0.9fr]">
-          <div className="space-y-6">
+        <div className="mt-10 flex flex-col gap-8">
+          <div className="mx-auto w-full max-w-3xl space-y-4">
             <div className="rounded-2xl border border-white/5 bg-white/5 p-6 shadow-lg shadow-black/30 backdrop-blur-sm">
-              <div className="mb-4 flex items-center justify-between gap-3">
+              <div className="flex items-center justify-between flex-wrap gap-3">
                 <h2 className="text-lg font-semibold text-white">Task brief</h2>
-                <span className="text-xs text-white/60">Describe the essay or writing task</span>
+                <span className="text-xs text-white/60">Compose your task and send</span>
               </div>
-              <Textarea
-                placeholder="Write a 600-word persuasive essay about the benefits of urban green spaces..."
-                className="min-h-[160px] bg-black/20 text-white placeholder:text-white/40 border-white/10 focus-visible:ring-amber-400/50"
-              />
+              <div className="mt-3 space-y-3">
+                <Textarea
+                  placeholder="Example: Write a 600-word persuasive essay on the benefits of urban green spaces..."
+                  className="min-h-[140px] bg-black/20 text-white placeholder:text-white/40 border-white/10 focus-visible:ring-amber-400/50"
+                />
+                <div className="flex justify-end">
+                  <Button
+                    type="button"
+                    className="bg-gradient-to-r from-amber-500 via-orange-500 to-rose-500 text-white shadow-lg shadow-amber-500/30"
+                    disabled
+                  >
+                    Send task (coming soon)
+                  </Button>
+                </div>
+              </div>
             </div>
+
+            <div className="rounded-2xl border border-white/5 bg-white/5 p-6 shadow-lg shadow-black/30 backdrop-blur-sm space-y-4">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-semibold text-white">Tasks</h3>
+                <span className="text-xs text-white/60">Past tasks will appear here</span>
+              </div>
+              {tasks.length === 0 ? (
+                <div className="rounded-lg border border-dashed border-white/15 bg-black/20 p-6 text-center text-white/70">
+                  No tasks yet. Send a task to start one.
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {tasks.map((task) => (
+                    <div
+                      key={task.id}
+                      className="rounded-lg border border-white/10 bg-black/20 px-4 py-3 text-white/85"
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="font-medium text-white">{task.title}</div>
+                        <div className="text-xs text-white/60">{task.timestamp}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="grid gap-8 lg:grid-cols-[1.3fr_0.9fr]">
+            <div className="space-y-6">
+              <div className="rounded-2xl border border-white/5 bg-white/5 p-6 shadow-lg shadow-black/30 backdrop-blur-sm space-y-5">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-lg font-semibold text-white">Humanizer settings</h2>
+                  <p className="text-xs text-white/60">Matches Rephrasy API fields</p>
+                </div>
 
             <div className="rounded-2xl border border-white/5 bg-white/5 p-6 shadow-lg shadow-black/30 backdrop-blur-sm space-y-5">
               <div className="flex items-center justify-between">
@@ -141,45 +187,44 @@ export default function HumanWritingAgentPage() {
               </div>
             </div>
 
-            <div className="rounded-2xl border border-white/5 bg-white/5 p-6 shadow-lg shadow-black/30 backdrop-blur-sm space-y-5">
-              <div className="flex items-center justify-between">
-                <h2 className="text-lg font-semibold text-white">Detector settings</h2>
-                <p className="text-xs text-white/60">Maps to Rephrasy detector API</p>
-              </div>
-
-              <div className="grid gap-3 sm:grid-cols-2">
-                <DetectorModeCard
-                  mode="overall"
-                  active={detectorMode === "overall"}
-                  onSelect={() => setDetectorMode("overall")}
-                  title="Overall score"
-                  description="Single overall 0–100 score (0 = human, 100 = AI)."
-                />
-                <DetectorModeCard
-                  mode="depth"
-                  active={detectorMode === "depth"}
-                  onSelect={() => setDetectorMode("depth")}
-                  title="Depth"
-                  description="Sentence-level scores plus overall; helpful for spotting weak spots."
-                />
-              </div>
-
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                <div className="text-sm text-white/70">
-                  Pipeline concept: Detector → Humanizer → Detector (and repeat until score passes).
+              <div className="rounded-2xl border border-white/5 bg-white/5 p-6 shadow-lg shadow-black/30 backdrop-blur-sm space-y-5">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-lg font-semibold text-white">Detector settings</h2>
+                  <p className="text-xs text-white/60">Maps to Rephrasy detector API</p>
                 </div>
-                <Button
-                  type="button"
-                  className="bg-gradient-to-r from-amber-500 via-orange-500 to-rose-500 text-white shadow-lg shadow-amber-500/30"
-                  disabled
-                >
-                  Run pipeline (coming soon)
-                </Button>
+
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <DetectorModeCard
+                    mode="overall"
+                    active={detectorMode === "overall"}
+                    onSelect={() => setDetectorMode("overall")}
+                    title="Overall score"
+                    description="Single overall 0–100 score (0 = human, 100 = AI)."
+                  />
+                  <DetectorModeCard
+                    mode="depth"
+                    active={detectorMode === "depth"}
+                    onSelect={() => setDetectorMode("depth")}
+                    title="Depth"
+                    description="Sentence-level scores plus overall; helpful for spotting weak spots."
+                  />
+                </div>
+
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="text-sm text-white/70">
+                    Pipeline concept: Detector → Humanizer → Detector (and repeat until score passes).
+                  </div>
+                  <Button
+                    type="button"
+                    className="bg-gradient-to-r from-amber-500 via-orange-500 to-rose-500 text-white shadow-lg shadow-amber-500/30"
+                    disabled
+                  >
+                    Run pipeline (coming soon)
+                  </Button>
+                </div>
               </div>
             </div>
-          </div>
 
-          <div className="space-y-6">
             <div className="rounded-2xl border border-white/5 bg-white/10 p-6 shadow-lg shadow-black/30 backdrop-blur">
               <h3 className="text-lg font-semibold text-white mb-4">Pipeline preview</h3>
               <ol className="space-y-3 text-white/85">
@@ -200,50 +245,6 @@ export default function HumanWritingAgentPage() {
                   </li>
                 ))}
               </ol>
-            </div>
-
-            <div className="rounded-2xl border border-white/5 bg-white/5 p-6 shadow-lg shadow-black/30 backdrop-blur space-y-4">
-              <h3 className="text-lg font-semibold text-white">Output preview (concept)</h3>
-              <div className="space-y-3 text-sm text-white/80">
-                <div className="rounded-lg border border-white/10 bg-black/20 p-4">
-                  <div className="text-xs uppercase tracking-wide text-white/50 mb-2">Humanized text</div>
-                  <p className="leading-relaxed">
-                    Your humanized draft will appear here once the pipeline is wired up. It will include readability and
-                    detector signals.
-                  </p>
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  <ScoreCard label="Detector score" value="—" helper="0 = human, 100 = AI" />
-                  <ScoreCard label="Flesch score" value="—" helper="Higher = easier to read" />
-                  <ScoreCard label="Rephrase cost" value="—" helper="Shown when costs: true" />
-                </div>
-              </div>
-            </div>
-
-            <div className="rounded-2xl border border-white/5 bg-white/5 p-6 shadow-lg shadow-black/30 backdrop-blur space-y-4">
-              <div className="flex items-center justify-between">
-                <h3 className="text-lg font-semibold text-white">Tasks</h3>
-                <span className="text-xs text-white/60">Past runs will show here</span>
-              </div>
-              {tasks.length === 0 ? (
-                <div className="rounded-lg border border-dashed border-white/15 bg-black/20 p-6 text-center text-white/70">
-                  No tasks yet. Send a task to start one.
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {tasks.map((task) => (
-                    <div
-                      key={task.id}
-                      className="rounded-lg border border-white/10 bg-black/20 px-4 py-3 text-white/85"
-                    >
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="font-medium text-white">{task.title}</div>
-                        <div className="text-xs text-white/60">{task.timestamp}</div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
             </div>
           </div>
         </div>
@@ -314,15 +315,5 @@ function DetectorModeCard({
       <div className="text-sm font-semibold">{title}</div>
       <p className="mt-1 text-xs text-white/60">{description}</p>
     </button>
-  );
-}
-
-function ScoreCard({ label, value, helper }: { label: string; value: string; helper: string }) {
-  return (
-    <div className="rounded-lg border border-white/10 bg-black/20 p-4">
-      <div className="text-xs uppercase tracking-wide text-white/50 mb-1">{label}</div>
-      <div className="text-2xl font-semibold text-white">{value}</div>
-      <div className="text-xs text-white/60 mt-1">{helper}</div>
-    </div>
   );
 }
