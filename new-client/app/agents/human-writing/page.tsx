@@ -1,4 +1,6 @@
-"\"use client\";\n+\n+import { useState, type ReactNode } from \"react\";\n*** End Patch  (json) ***>### Note: apply_patch requires plain text not json? I attempted to use JSON; need plain patch text. We'll use apply_patch with actual patch. Let's re-run.**. Let's correct. We'll patch using apply_patch with correct formatting (not JSON).***
+"use client";
+
+import { useState, type ReactNode } from "react";
 import Link from "next/link";
 import { ArrowLeft, PenLine, Repeat, ShieldCheck, Sparkles, ChevronDown } from "lucide-react";
 
