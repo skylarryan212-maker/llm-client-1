@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { X, Settings, Bell, User, Grid3x3, Calendar, ShoppingCart, Database, Shield, Users2, UserCircle, ChevronDown } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
@@ -84,43 +84,48 @@ export function SettingsModal({ isOpen, onClose, initialTab = 'personalization' 
   const [deleteAllChatsConfirmOpen, setDeleteAllChatsConfirmOpen] = useState(false)
   const [deleteAllChatsProcessing, setDeleteAllChatsProcessing] = useState(false)
 
-  useEffect(() => {
-    // Load plan details when account tab is active
-    if (isOpen && activeTab === 'account') {
-      Promise.all([
+  const fetchAccountData = useCallback(async () => {
+    try {
+      const [details, total, monthly] = await Promise.all([
         getUserPlanDetails(),
         getUserTotalSpending(),
         getMonthlySpending()
-      ]).then(async ([details, total, monthly]) => {
-        setPlanDetails(details)
-        setTotalSpending(total)
-        setMonthlySpending(monthly)
-        if (details) {
-          const status = getUsageStatus(monthly, details.planType)
-          setUsageStatus(status)
-          try {
-            window.localStorage.setItem('settingsUsageCache', JSON.stringify({
-              planDetails: details,
-              totalSpending: total,
-              monthlySpending: monthly,
-              usageStatus: status
-            }))
-          } catch {
-            // ignore storage failures
-          }
-        } else {
-          try {
-            window.localStorage.setItem('settingsUsageCache', JSON.stringify({
-              planDetails: details,
-              totalSpending: total,
-              monthlySpending: monthly,
-              usageStatus: null
-            }))
-          } catch {}
-        }
-      })
+      ])
+
+      setPlanDetails(details)
+      setTotalSpending(total)
+      setMonthlySpending(monthly)
+
+      const status = details ? getUsageStatus(monthly, details.planType) : null
+      setUsageStatus(status)
+
+      try {
+        window.localStorage.setItem('settingsUsageCache', JSON.stringify({
+          planDetails: details,
+          totalSpending: total,
+          monthlySpending: monthly,
+          usageStatus: status
+        }))
+      } catch {
+        // ignore storage failures
+      }
+    } catch (error) {
+      console.error('Failed to load account data', error)
     }
-  }, [isOpen, activeTab])
+  }, [])
+
+  useEffect(() => {
+    // Refresh account data in the background regardless of modal state
+    fetchAccountData()
+    const interval = setInterval(fetchAccountData, 5 * 60 * 1000)
+    return () => clearInterval(interval)
+  }, [fetchAccountData])
+
+  useEffect(() => {
+    if (isOpen && activeTab === 'account') {
+      fetchAccountData()
+    }
+  }, [isOpen, activeTab, fetchAccountData])
 
   useEffect(() => {
     // Accent color is now loaded from server via AccentColorProvider

@@ -45,7 +45,8 @@ export async function callDeepInfraGemma({
   const completion = await client.chat.completions.create({
     model,
     messages: finalMessages,
-    temperature: 0,
+    // Allow some variability so titles aren’t overly deterministic.
+    temperature: 0.7,
     max_tokens: maxTokens,
     response_format: enforceJson ? { type: "json_object" } : undefined,
   });

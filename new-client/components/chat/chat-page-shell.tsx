@@ -1929,7 +1929,13 @@ export default function ChatPageShell({
               <ApiUsageBadge />
             </div>
 
-            <DropdownMenu>
+            <DropdownMenu
+              onOpenChange={(open) => {
+                if (!open) {
+                  setShowOtherModels(false);
+                }
+              }}
+            >
               <DropdownMenuTrigger asChild>
                 <Button
                   variant="ghost"
@@ -2019,7 +2025,7 @@ export default function ChatPageShell({
                     />
                   </DropdownMenuItem>
                   {showOtherModels && (
-                    <div className="mt-1 space-y-1 rounded-md border border-border/70 bg-muted/30 px-2 py-2">
+                    <div className="mt-1 space-y-1 rounded-md border border-border/70 bg-popover px-2 py-2 text-foreground shadow-sm">
                       <div className="px-3 pb-1 text-sm font-semibold text-muted-foreground">
                         GPT 5 Nano
                       </div>
@@ -2369,12 +2375,12 @@ export default function ChatPageShell({
       {/* Insight sidebar */}
       <div
         className={`h-full flex-shrink-0 transition-all duration-300 ease-in-out border-l border-border bg-background overflow-hidden ${
-          isInsightSidebarOpen ? "w-[280px] max-w-[80vw] opacity-100 pointer-events-auto" : "w-0 opacity-0 pointer-events-none"
+          isInsightSidebarOpen ? "w-[336px] max-w-[80vw] opacity-100 pointer-events-auto" : "w-0 opacity-0 pointer-events-none"
         }`}
         aria-hidden={!isInsightSidebarOpen}
       >
         <div className={`flex h-full flex-col transition-opacity duration-200 ease-in-out ${isInsightSidebarOpen ? "opacity-100" : "opacity-0"}`}>
-          <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+          <div className="flex h-12 items-center justify-between px-4 border-b border-border">
             <div className="text-sm font-medium">Thoughts &amp; updates</div>
             <Button variant="ghost" size="icon" onClick={closeInsightSidebar}>
               <X className="h-4 w-4" />
