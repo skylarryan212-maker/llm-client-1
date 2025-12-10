@@ -601,13 +601,13 @@ async function callRouterWithSchema(
 
   let lastError: unknown = null;
   const forceJsonReminder =
-    "CRITICAL: Respond with ONLY raw JSON that matches the schema. Do not add any commentary, markdown, or prose.";
+    "CRITICAL: Respond with ONLY raw JSON that matches the schema. Do not add any commentary, markdown, or prose. Start with '{' and end with '}'. One object only.";
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const { text, usage } = await callCloudflareLlama({
         messages: [
           { role: "system", content: `${TOPIC_ROUTER_SYSTEM_PROMPT}\n\n${forceJsonReminder}` },
-          { role: "user", content: routerPrompt },
+          { role: "user", content: `${routerPrompt}\n\n${forceJsonReminder}` },
         ],
         schemaName: "router_decision",
         schema,
@@ -632,7 +632,17 @@ async function callRouterWithSchema(
       } catch (err) {
         console.error("[topic-router] SCHEMA ERROR:", err);
         console.error("[topic-router] RAW OUTPUT THAT FAILED:", text);
-        throw new Error("[topic-router] Router output failed schema validation");
+        // If the model failed to return JSON, fall back to a minimal continue_active decision
+        validatedData = routerDecisionSchema.parse({
+          topicAction: "continue_active",
+          primaryTopicId: null,
+          secondaryTopicIds: [],
+          newTopicLabel: "",
+          newTopicDescription: "",
+          newParentTopicId: null,
+          newTopicSummary: "",
+          artifactsToLoad: [],
+        });
       }
       return {
         topicAction: validatedData.topicAction,
