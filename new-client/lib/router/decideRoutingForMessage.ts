@@ -13,7 +13,7 @@ import { logUsageRecord } from "@/lib/usage";
 
 const TOPIC_ROUTER_MODEL = process.env.TOPIC_ROUTER_MODEL_ID ?? "gpt-5-nano-2025-08-07";
 const ALLOWED_ROUTER_MODELS = new Set(["gpt-5-nano-2025-08-07", "gpt-5-mini-2025-05-28"]);
-const MAX_RECENT_MESSAGES = 10;
+const MAX_RECENT_MESSAGES = 25;
 const MAX_ARTIFACTS = 10;
 
 interface DecideRoutingParams {

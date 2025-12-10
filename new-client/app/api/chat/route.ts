@@ -2210,7 +2210,7 @@ async function maybeGenerateArtifactsWithLLM({
   if (!message?.id || !message?.conversation_id) return;
   if (!message.topic_id) return;
   const text = message.content ?? "";
-  if (!text || text.length < 200) return; // avoid tiny replies
+  if (!text || text.length < 80) return; // avoid very tiny replies
 
   // Avoid duplicate extraction on retries
   const { data: existing } = await supabase
