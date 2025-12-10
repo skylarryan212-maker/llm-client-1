@@ -8,6 +8,7 @@ interface StatusBubbleProps {
   label: string;
   variant?: StatusVariant;
   subtext?: string;
+  onClick?: () => void;
 }
 
 const baseClassMap: Record<StatusVariant, string> = {
@@ -28,14 +29,16 @@ const dotClassMap: Record<StatusVariant, string> = {
   warning: "bg-yellow-400",
 };
 
-export function StatusBubble({ label, variant = "default", subtext }: StatusBubbleProps) {
+export function StatusBubble({ label, variant = "default", subtext, onClick }: StatusBubbleProps) {
   return (
     <div
       className={cn(
         "status-bubble inline-flex max-w-full items-center rounded-full border px-3 py-1 text-xs overflow-visible",
+        onClick ? "cursor-pointer" : "",
         baseClassMap[variant]
       )}
       aria-live="polite"
+      onClick={onClick}
     >
       <div className="flex items-center gap-2 min-w-0">
         <span

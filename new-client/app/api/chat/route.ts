@@ -971,7 +971,11 @@ export async function POST(request: NextRequest) {
         permanentInstructionSummary: permanentInstructionSummaryForRouter,
         permanentInstructions:
           (permanentInstructionState?.instructions as unknown as PermanentInstructionToWrite[] | undefined),
-      }
+      },
+      (recentMessages || []).slice(-5).map((m: any) => ({
+        role: m.role,
+        content: m.content,
+      }))
     );
 
     let resolvedTopicDecision: RouterDecision;

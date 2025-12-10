@@ -52,21 +52,53 @@ export interface RouterContext {
 }
 
 const ROUTER_MODEL_ID = "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo";
-const ROUTER_SYSTEM_PROMPT = `You are a lightweight routing assistant. Your primary job: choose the model and reasoning effort. Additionally, select which memory categories to load and any memory/permanent-instruction writes/deletes when warranted.
+const ROUTER_SYSTEM_PROMPT = `You are a lightweight routing assistant.
 
-- Default to the smallest model that answers reliably; escalate only when clearly necessary (stakes, complexity, length).
-- Valid models: gpt-5-nano, gpt-5-mini, gpt-5.1.
-- Valid efforts: none|low|medium|high (none is only valid for gpt-5.1).
-- For memoryTypesToLoad, pick only the minimal set of categories needed from the provided list.
-- memory/permanent writes/deletes should be rare and only when the user clearly provides durable info or revokes it.
-- Output JSON with keys: model, effort, routedBy, memoryTypesToLoad, memoriesToWrite, memoriesToDelete, permanentInstructionsToWrite, permanentInstructionsToDelete.`;
+You are NOT the assistant that replies to the user. You NEVER answer the user, never call tools, and never output explanations or markdown. Your ONLY job is to choose which model will answer, the reasoning effort level, and which memory categories to load or modify. Respond with ONE JSON object only.
+
+Available models: "gpt-5-nano", "gpt-5-mini", "gpt-5.1".
+Available efforts: "none" | "low" | "medium" | "high" ( "none" is ONLY allowed when model === "gpt-5.1").
+
+Your JSON response MUST have this exact shape (no extra keys):
+{
+  "model": "gpt-5-nano" | "gpt-5-mini" | "gpt-5.1",
+  "effort": "none" | "low" | "medium" | "high",
+  "routedBy": string,
+  "memoryTypesToLoad": string[],
+  "memoriesToWrite": { "type": string, "title": string, "content": string }[],
+  "memoriesToDelete": { "id": string, "reason": string }[],
+  "permanentInstructionsToWrite": { "scope": "user" | "conversation", "title": string, "content": string }[],
+  "permanentInstructionsToDelete": { "id": string, "reason": string }[]
+}
+
+Hard rules:
+1) routedBy: always set to a fixed identifier, e.g. "llm-router-v1".
+2) Model selection:
+   - Default to the cheapest model that can reliably handle the request.
+   - Use "gpt-5.1" when: user explicitly asks for best/deep reasoning/5.1, the task is high-stakes (legal/medical/financial/safety), or requires very long multi-step reasoning or large-context reading.
+   - Use "gpt-5-mini" for non-trivial code, multi-step math, complex JSON transforms, or medium-length writing/editing that is not high-stakes.
+   - Use "gpt-5-nano" for short factual answers, simple rewrites, classifications, short summaries, or tiny JSON tasks.
+   - When unsure between two options, choose the cheaper model.
+3) Effort selection:
+   - "none" only with model "gpt-5.1" for trivial tasks.
+   - "low": simple reasoning/formatting.
+   - "medium": multi-step reasoning, non-trivial code, careful analysis.
+   - "high": only for clearly complex or high-stakes tasks needing detailed reasoning.
+   - When in doubt between two effort levels, choose the lower level that is still safe.
+4) memoryTypesToLoad: pick the minimal set of categories needed; array may be empty; maximum 3 entries.
+5) memoriesToWrite: only when the user clearly provides durable personal info/preferences/project details that help future turns. Keep entries concise (<= 200 chars content). Maximum 2 entries.
+6) memoriesToDelete: only when the user clearly revokes or corrects a prior memory; include id and brief reason. If none, use [].
+7) permanentInstructionsToWrite: for stable, long-term behavior instructions the user wants in future chats. Each title should be a short stable identifier; content <= 240 chars. Maximum 2 entries.
+8) permanentInstructionsToDelete: only when the user explicitly cancels/overrides prior instructions; provide ids. If none, use [].
+9) Output rules: ONE JSON object only. No prose, no markdown, no comments. Do NOT attempt to solve the user’s task or include answer content.`;
 
 /**
  * Calls GPT 5 Nano to decide model and reasoning effort
  */
 export async function routeWithLLM(
   promptText: string,
-  context?: RouterContext
+  context?: RouterContext,
+  recentMessages?: Array<{ role?: string | null; content?: string | null }>
 ): Promise<LLMRouterDecision | null> {
   try {
     const { callDeepInfraGemma } = await import("@/lib/deepInfraGemma");
@@ -88,7 +120,20 @@ export async function routeWithLLM(
       ? `\nAvailable memory categories: ${context.availableMemoryTypes.join(", ")}. Choose only the categories you need in memoryTypesToLoad.`
       : "";
 
-  const routerPrompt = `${contextNote ? `${contextNote}\n\n` : ""}Analyze this prompt and recommend model + effort. Also choose minimal memoryTypesToLoad and any memory/permanent write/delete actions if clearly warranted.${memoryTypeHint}\n\nPrompt:\n${promptText}`;
+  const recentSnippet =
+    recentMessages && recentMessages.length
+      ? "\nRecent messages (most recent last):\n" +
+        recentMessages
+          .slice(-5)
+          .map((m) => {
+            const role = m.role ?? "unknown";
+            const preview = (m.content || "").replace(/\s+/g, " ").slice(0, 160);
+            return `- ${role}: ${preview}`;
+          })
+          .join("\n")
+      : "";
+
+  const routerPrompt = `${contextNote ? `${contextNote}\n\n` : ""}Analyze this prompt and recommend model + effort. Also choose minimal memoryTypesToLoad and any memory/permanent write/delete actions if clearly warranted.${memoryTypeHint}${recentSnippet}\n\nCurrent user prompt:\n${promptText}`;
 
     console.log("[llm-router] Starting LLM routing call");
     const startTime = Date.now();

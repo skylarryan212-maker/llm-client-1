@@ -14,7 +14,7 @@ import { callDeepInfraGemma } from "@/lib/deepInfraGemma";
 
 const TOPIC_ROUTER_MODEL = "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo";
 const ALLOWED_ROUTER_MODELS = new Set(["meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo"]);
-const MAX_RECENT_MESSAGES = 25;
+const MAX_RECENT_MESSAGES = 10;
 const MAX_ARTIFACTS = 10;
 
 interface DecideRoutingParams {
@@ -367,61 +367,82 @@ function buildRouterPrompt(payload: RouterContextPayload, userMessage: string): 
   ].join("\n");
 }
 
-const TOPIC_ROUTER_SYSTEM_PROMPT = `You organize a single conversation into lightweight topics and subtopics.
+const TOPIC_ROUTER_SYSTEM_PROMPT = `You are a topic routing helper for a single conversation.
 
-Definitions:
-- A topic captures a cohesive subject within the conversation (e.g., "Billing API refactor").
-- A subtopic is nested beneath one topic when a narrower thread emerges (e.g., "Billing API refactor -> data model").
-- Artifacts are named resources (schemas, specs, code) that can be reused later.
+You are NOT the assistant that replies to the user. You NEVER answer questions, never call tools, and never output explanations or markdown. Your ONLY job is to decide how this message fits into the existing topic tree and which artifacts to load, and to output ONE JSON object.
 
-Outputs must obey this JSON schema (no markdown, no commentary):
+You receive:
+- The active topic id (if any).
+- A list of existing topics with ids, labels, parent ids, and summaries.
+- A list of artifacts with ids, labels, and linked topic ids.
+- A short window of recent messages.
+
+Your job is to decide:
+- Whether this message CONTINUES the active topic, OPENS a NEW topic, or REOPENS an existing topic.
+- Which topic id is primary.
+- Which other topic ids should be treated as secondary (cross-topic context).
+- Whether a new topic should be created, with an optional parent.
+- Which artifacts (by id) should be loaded as context.
+
+Return EXACTLY one JSON object with these keys and types:
 {
   "topicAction": "continue_active" | "new" | "reopen_existing",
-  "primaryTopicId": "uuid or null",
-  "secondaryTopicIds": ["uuid"],
-  "newTopicLabel": "string?",
-  "newTopicDescription": "string?",
-  "newParentTopicId": "uuid|null?",
-  "newTopicSummary": "string?",
-  "artifactsToLoad": ["artifact-id"]
+  "primaryTopicId": string | null,
+  "secondaryTopicIds": string[],        // always an array, may be empty
+  "newTopicLabel": string | null,       // 3–5 title-case words when used
+  "newTopicDescription": string | null, // <= 120 chars
+  "newTopicSummary": string | null,     // <= 160 chars
+  "newParentTopicId": string | null,    // existing topic id or null
+  "artifactsToLoad": string[]           // artifact ids, array, may be empty
 }
 
-Example (valid JSON only):
-{
-  "topicAction": "continue_active",
-  "primaryTopicId": "123e4567-e89b-12d3-a456-426614174000",
-  "secondaryTopicIds": [],
-  "newTopicLabel": "",
-  "newTopicDescription": "",
-  "newParentTopicId": null,
-  "newTopicSummary": "",
-  "artifactsToLoad": []
-}
+Hard invariants:
 
-Rules:
-1. Topic continuation vs new topic:
-   - Use semantic comprehension of the entire conversation to decide whether the latest user message is a follow-up or a new project. Do not rely on superficial keyword overlap.
-   - If the user clearly refers back to earlier assistant content (e.g., "what were the API key table values again?", "remind me what you said about X", "what was that schema you wrote before?", "those values you mentioned earlier", "explain that part again/in more detail"), treat it as continuation unless they explicitly request a new, unrelated project.
-   - Prefer "continue_active" for these referential follow-ups so the main model retains the existing topic history. Only choose "new" when the user genuinely switches subjects or explicitly says they want a new topic/thread.
-   - If the user explicitly names or clearly points to a different existing topic than the active one (e.g., "back to PF schema", "return to the API keys topic"), select that matching topic and use "reopen_existing" rather than continuing the current thread. It is OK to reopen prior topics when they fit best.
-2. Topic hierarchy:
-   - NEVER nest under generic or empty topics ("General chat", single-word greetings, topics with <50 tokens). If the parent is vague or brand new, leave newParentTopicId null so the topic stays top-level.
-   - You may create subtopics under a top-level topic that has meaningful content, but DO NOT create a subtopic under another subtopic. Subtopics must be direct children of a top-level topic only.
-3. Model-selection constraints:
-   - Treat the previous model on a topic as the minimum baseline whenever topicAction is "continue_active". Capability tiers from highest to lowest: gpt-5.1, gpt-5-mini, gpt-5-nano.
-   - You may keep the same tier, upgrade, or (only if the new message is extremely simple/low-stakes and does not depend on detailed continuity) downgrade by two tiers (e.g., gpt-5.1 -> gpt-5-nano). One-tier downgrades on continuing topics are forbidden.
-4. Artifacts and cross-topic references:
-   - ALWAYS select artifacts that materially help answer the message.
-   - Use secondaryTopicIds when information from another topic will clearly be referenced. You may include multiple secondary topics when the message spans them.
-5. Topic naming and summaries:
-   - Name topics in 3-5 title-case words that describe the subject. Subtopics should be equally short and reflect the narrower scope.
-   - Keep outputs ultra-short: newTopicLabel <= 60 chars; newTopicDescription <= 120 chars; newTopicSummary <= 160 chars.
-6. Parent/subtopic creation:
-   - When you create a new topic, you MAY set newParentTopicId to an existing top-level topic to create a subtopic if the message is clearly a narrower thread of that parent.
-   - Never set newParentTopicId on continue/reopen actions.
-   - If no obvious parent exists, create a top-level topic (leave newParentTopicId null) rather than forcing a subtopic.
-7. No invented IDs:
-   - Never invent topic or artifact IDs. Only choose from the provided metadata.`;
+1) topicAction meanings:
+   - "continue_active": user is following up on the active topic or implicitly referring to it.
+   - "new": user clearly changes subject or starts a fresh thread that does not match any existing topic.
+   - "reopen_existing": user explicitly names or clearly refers back to a prior topic that is not the active one.
+
+2) Field combinations:
+   - If topicAction === "continue_active":
+     - primaryTopicId MUST equal the active topic id (if one exists).
+     - newTopicLabel, newTopicDescription, newTopicSummary, newParentTopicId MUST all be null.
+   - If topicAction === "new":
+     - primaryTopicId MUST be null.
+     - newTopicLabel, newTopicDescription, newTopicSummary MUST be non-empty strings.
+     - newParentTopicId MAY be a parent topic id when the new topic is clearly a child of a specific existing top-level topic; otherwise null.
+   - If topicAction === "reopen_existing":
+     - primaryTopicId MUST be one of the existing topic ids.
+     - newTopicLabel, newTopicDescription, newTopicSummary, newParentTopicId MUST all be null.
+
+3) Topic hierarchy rules:
+   - Subtopics are allowed only directly under top-level topics.
+   - NEVER create subtopic-under-subtopic chains.
+   - NEVER use generic/greeting/empty topics as parents for new subtopics.
+   - When in doubt about hierarchy, set newParentTopicId to null and create a top-level topic.
+
+4) IDs:
+   - primaryTopicId, secondaryTopicIds, newParentTopicId, artifactsToLoad MUST use ONLY ids from the provided lists. NEVER invent ids.
+
+5) secondaryTopicIds:
+   - Use only when the user clearly references or depends on content from other specific topics.
+   - Must be a list of existing topic ids, excluding the primaryTopicId.
+   - At most 3 secondaryTopicIds.
+
+6) artifactsToLoad:
+   - Choose at most 3 artifact ids.
+   - Prefer artifacts explicitly referenced by name or clearly tied to the chosen primaryTopicId or secondaryTopicIds.
+   - Do NOT select artifacts “just in case.”
+
+7) Naming and summaries for new topics:
+   - newTopicLabel: 3–5 words, title case, specific (<= 60 chars).
+   - newTopicDescription: one concise sentence (<= 120 chars).
+   - newTopicSummary: one or two sentences summarizing the topic so far (<= 160 chars).
+
+8) Output rules:
+   - Respond with ONE JSON object only.
+   - No markdown, no surrounding text, no comments.
+   - Do NOT answer the user’s question or generate any content besides the routing JSON.`;
 
 async function ensureTopicAssignment({
   supabase,

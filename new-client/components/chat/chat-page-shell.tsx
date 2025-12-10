@@ -9,7 +9,7 @@ import { ChatMessage } from "@/components/chat-message";
 import { ChatComposer } from "@/components/chat-composer";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
-import { ArrowDown, Check, ChevronDown, Menu, Plus } from "lucide-react";
+import { ArrowDown, Check, ChevronDown, Menu, Plus, X } from "lucide-react";
 import { SettingsModal } from "@/components/settings-modal";
 import { StatusBubble } from "@/components/chat/status-bubble";
 import { ApiUsageBadge } from "@/components/api-usage-badge";
@@ -190,6 +190,7 @@ export default function ChatPageShell({
   const searchDomainSetRef = useRef(new Set<string>());
   const [fileReadingIndicator, setFileReadingIndicator] = useState<"running" | "error" | null>(null);
   const [activeIndicatorMessageId, setActiveIndicatorMessageId] = useState<string | null>(null);
+  const [isInsightSidebarOpen, setIsInsightSidebarOpen] = useState(false);
   const scrollViewportRef = useRef<HTMLDivElement | null>(null);
   const conversationRenderKeyRef = useRef<string | null>(null);
   const animatedMessageIdsRef = useRef<Set<string>>(new Set());
@@ -220,6 +221,8 @@ export default function ChatPageShell({
   >({});
   const searchIndicatorTimerRef = useRef<NodeJS.Timeout | null>(null);
   const fileIndicatorTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const openInsightSidebar = useCallback(() => setIsInsightSidebarOpen(true), []);
+  const closeInsightSidebar = useCallback(() => setIsInsightSidebarOpen(false), []);
   const hasSessionAutoStream = useCallback((conversationId: string) => {
     return (
       typeof window !== "undefined" &&
@@ -762,7 +765,6 @@ export default function ChatPageShell({
     setActiveIndicatorMessageId(assistantId);
     responseTimingRef.current.assistantMessageId = assistantId;
     startResponseTiming();
-    showThinkingIndicator(null);
     try {
       const response = await fetch("/api/guest-chat", {
         method: "POST",
@@ -1079,9 +1081,7 @@ export default function ChatPageShell({
         message,
         reasoningEffortOverride
       );
-      const indicatorEffort = previewModelConfig.reasoning?.effort ?? null;
       startResponseTiming();
-      showThinkingIndicator(indicatorEffort);
       clearSearchIndicator();
       clearFileReadingIndicator();
 
@@ -1194,7 +1194,7 @@ export default function ChatPageShell({
                   chatId,
                   currentMessageId,
                   messageMetadata,
-                  indicatorEffort
+                  messageMetadata?.reasoningEffort ?? null
                 );
                 // On first token, clear transient indicators without wiping timing
                 if (responseTimingRef.current.firstToken !== null) {
@@ -1473,14 +1473,7 @@ export default function ChatPageShell({
      }
 
     // Start timing and show thinking indicator BEFORE removing message
-    const retryPreviewConfig = getModelAndReasoningConfig(
-      retryModelFamily,
-      retrySpeedMode ?? "auto",
-      userMessage.content
-    );
-    const retryIndicatorEffort = retryPreviewConfig.reasoning?.effort ?? null;
     startResponseTiming();
-    showThinkingIndicator(retryIndicatorEffort);
     clearSearchIndicator();
     clearFileReadingIndicator();
 
@@ -1583,7 +1576,7 @@ export default function ChatPageShell({
                   selectedChatId,
                   currentMessageId,
                   messageMetadata,
-                  retryIndicatorEffort
+                  messageMetadata?.reasoningEffort ?? null
                 );
                 // Update the assistant message with new content
                 updateMessage(selectedChatId, currentMessageId, {
@@ -1846,6 +1839,7 @@ export default function ChatPageShell({
       <StatusBubble
         label={thinkingStatus.label}
         variant={thinkingStatus.variant === "extended" ? "extended" : "default"}
+        onClick={openInsightSidebar}
       />
     ) : null;
 
@@ -2293,7 +2287,12 @@ export default function ChatPageShell({
                                 style={{ minHeight: metadataIndicators ? 'auto' : '0px' }}
                               >
                                 <div className="flex flex-wrap items-center gap-1.5 pt-1">
-                                  {metadataIndicators && <MessageInsightChips metadata={displayMetadata || undefined} />}
+                                  {metadataIndicators && (
+                                    <MessageInsightChips
+                                      metadata={displayMetadata || undefined}
+                                      onOpenSidebar={openInsightSidebar}
+                                    />
+                                  )}
                                 </div>
                               </div>
                             </div>
@@ -2367,6 +2366,25 @@ export default function ChatPageShell({
           </div>
         </div>
       </div>
+      {isInsightSidebarOpen && (
+        <div className="fixed inset-0 z-40 pointer-events-none">
+          <div
+            className="absolute inset-0 bg-black/30 pointer-events-auto"
+            onClick={closeInsightSidebar}
+          />
+          <div className="absolute right-0 top-0 h-full w-[560px] max-w-[80vw] bg-background border-l border-border shadow-2xl pointer-events-auto flex flex-col">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+              <div className="text-sm font-medium">Thoughts &amp; updates</div>
+              <Button variant="ghost" size="icon" onClick={closeInsightSidebar}>
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+            <div className="flex-1 p-4 text-sm text-muted-foreground">
+              User updates will appear here.
+            </div>
+          </div>
+        </div>
+      )}
       <SettingsModal
         isOpen={isSettingsOpen}
         onClose={() => {

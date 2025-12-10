@@ -6,6 +6,7 @@ import { StatusBubble } from "@/components/chat/status-bubble";
 
 interface MessageInsightChipsProps {
   metadata?: AssistantMessageMetadata | Record<string, unknown> | null;
+  onOpenSidebar?: () => void;
 }
 
 function normalizeMetadata(
@@ -15,7 +16,7 @@ function normalizeMetadata(
   return metadata as AssistantMessageMetadata;
 }
 
-export function MessageInsightChips({ metadata }: MessageInsightChipsProps) {
+export function MessageInsightChips({ metadata, onOpenSidebar }: MessageInsightChipsProps) {
   const typed = normalizeMetadata(metadata);
   if (!typed) return null;
 
@@ -47,7 +48,7 @@ export function MessageInsightChips({ metadata }: MessageInsightChipsProps) {
   const thoughtLabel = explicitThought || fallbackThought;
   // Show badge whenever reasoning effort is medium/high so users see the “thinking for longer” state
   if (thoughtLabel && (reasoningEffort === "medium" || reasoningEffort === "high")) {
-    chips.push(<StatusBubble key="thought" label={thoughtLabel} />);
+    chips.push(<StatusBubble key="thought" label={thoughtLabel} onClick={onOpenSidebar} />);
   }
 
   if (!chips.length) return null;

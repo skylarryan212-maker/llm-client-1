@@ -26,6 +26,12 @@ export const MODEL_PRICING = {
     cached: 0,
     output: 0.20,
   },
+  // DeepInfra Meta-Llama 3.1 8B Instruct Turbo (user-provided rates: $0.02 input / $0.03 output per 1M)
+  "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo": {
+    input: 0.02,
+    cached: 0.002, // assume ~10% discount for cached tokens (align with other models)
+    output: 0.03,
+  },
   // DeepInfra Gemma 3 4B IT
   "google/gemma-3-4b-it": {
     input: 0.04, // $0.04 per 1M input tokens

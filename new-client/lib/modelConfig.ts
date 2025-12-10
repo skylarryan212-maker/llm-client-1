@@ -364,7 +364,8 @@ export async function getModelAndReasoningConfigWithLLM(
   usagePercentage?: number,
   userId?: string,
   conversationId?: string,
-  routerOptions?: RouterRequestOptions
+  routerOptions?: RouterRequestOptions,
+  recentMessages?: Array<{ role?: string | null; content?: string | null }>
 ): Promise<ModelConfig> {
   const shouldUseLLMRouter = modelFamily === "auto";
 
@@ -384,14 +385,18 @@ export async function getModelAndReasoningConfigWithLLM(
 
       console.log("[modelConfig] Attempting LLM-based routing");
 
-      const decision = await routeWithLLM(promptText, {
-        userModelPreference: modelFamily,
-        speedMode,
-        usagePercentage,
-        availableMemoryTypes,
-        permanentInstructionSummary: routerOptions?.permanentInstructionSummary,
-        permanentInstructions: routerOptions?.permanentInstructions,
-      });
+      const decision = await routeWithLLM(
+        promptText,
+        {
+          userModelPreference: modelFamily,
+          speedMode,
+          usagePercentage,
+          availableMemoryTypes,
+          permanentInstructionSummary: routerOptions?.permanentInstructionSummary,
+          permanentInstructions: routerOptions?.permanentInstructions,
+        },
+        recentMessages
+      );
 
       if (decision) {
         console.log(
