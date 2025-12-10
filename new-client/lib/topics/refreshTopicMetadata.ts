@@ -51,7 +51,7 @@ function withQueryTimeout<T>(builder: any, ms = 5000): Promise<T> {
     builder.abortSignal(controller.signal);
   }
 
-  return (builder as Promise<T>).finally(() => clearTimeout(timer));
+  return Promise.resolve(builder as Promise<T>).finally(() => clearTimeout(timer));
 }
 
 export async function refreshTopicMetadata({

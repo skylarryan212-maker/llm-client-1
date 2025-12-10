@@ -148,7 +148,7 @@ function UpgradePageContent() {
           </div>
 
           <div className="max-w-6xl mx-auto flex justify-center px-2">
-            <div className="grid grid-cols-[repeat(auto-fit,minmax(240px,1fr))] gap-4 w-full justify-items-center">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 sm:gap-4 w-full justify-items-center">
           {filteredPlans.map((plan) => {
             const isCurrent = currentPlan === plan.id;
             return (

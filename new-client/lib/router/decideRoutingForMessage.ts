@@ -1,4 +1,4 @@
-﻿import type { SupabaseClient } from "@supabase/supabase-js";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { z } from "zod";
 import type {
   Database,
@@ -380,8 +380,8 @@ function buildRouterPrompt(payload: RouterContextPayload, userMessage: string): 
 const TOPIC_ROUTER_SYSTEM_PROMPT = `You organize a single conversation into lightweight topics and subtopics.
 
 Definitions:
-- A topic captures a cohesive subject within the conversation (e.g., â€œBilling API refactorâ€).
-- A subtopic is nested beneath one topic when a narrower thread emerges (e.g., â€œBilling API refactor -> data modelâ€).
+- A topic captures a cohesive subject within the conversation (e.g., "Billing API refactor").
+- A subtopic is nested beneath one topic when a narrower thread emerges (e.g., "Billing API refactor -> data model").
 - Artifacts are named resources (schemas, specs, code) that can be reused later.
 
 Outputs must obey this JSON schema (no markdown, no commentary):
@@ -393,7 +393,7 @@ Outputs must obey this JSON schema (no markdown, no commentary):
   "newTopicDescription": "string?",
   "newParentTopicId": "uuid|null?",
   "newTopicSummary": "string?",
- "artifactsToLoad": ["artifact-id"]
+  "artifactsToLoad": ["artifact-id"]
 }
 
 Rules:
@@ -401,23 +401,22 @@ Rules:
    - Use semantic comprehension of the entire conversation to decide whether the latest user message is a follow-up or a new project. Do not rely on superficial keyword overlap.
    - If the user clearly refers back to earlier assistant content (e.g., "what were the API key table values again?", "remind me what you said about X", "what was that schema you wrote before?", "those values you mentioned earlier", "explain that part again/in more detail"), treat it as continuation unless they explicitly request a new, unrelated project.
    - Prefer "continue_active" for these referential follow-ups so the main model retains the existing topic history. Only choose "new" when the user genuinely switches subjects or explicitly says they want a new topic/thread.
-   - If the user explicitly names or clearly points to a different existing topic than the active one (e.g., "back to PF schema", "return to the API keys topic"), select that matching topic and use "reopen_existing" rather than continuing the current thread. Only stay "continue_active" if the new message best aligns with the currently active topic.
+   - If the user explicitly names or clearly points to a different existing topic than the active one (e.g., "back to PF schema", "return to the API keys topic"), select that matching topic and use "reopen_existing" rather than continuing the current thread. It is OK to reopen prior topics when they fit best.
 2. Topic hierarchy:
    - NEVER nest under generic or empty topics ("General chat", single-word greetings, topics with <50 tokens). If the parent is vague or brand new, leave newParentTopicId null so the topic stays top-level.
-   - You may create unlimited subtopics under a top-level topic that has meaningful content, but DO NOT create a subtopic under another subtopic. Subtopics must be direct children of a top-level topic only (e.g., "IFR vs VFR" under "Aviation" is allowed; "Deep dive" under "IFR vs VFR" is not).
+   - You may create subtopics under a top-level topic that has meaningful content, but DO NOT create a subtopic under another subtopic. Subtopics must be direct children of a top-level topic only.
 3. Model-selection constraints:
    - Treat the previous model on a topic as the minimum baseline whenever topicAction is "continue_active". Capability tiers from highest to lowest: gpt-5.1, gpt-5-mini, gpt-5-nano.
-   - You may keep the same tier, upgrade, or (only if the new message is extremely simple/low-stakes and does not depend on detailed continuity) downgrade by two tiers (e.g., gpt-5.1 â†’ gpt-5-nano). One-tier downgrades on continuing topics (gpt-5.1 â†’ gpt-5-mini or gpt-5-mini â†’ gpt-5-nano) are forbidden. If you find yourself considering a one-tier drop, override that instinct and stay at the previous tier.
+   - You may keep the same tier, upgrade, or (only if the new message is extremely simple/low-stakes and does not depend on detailed continuity) downgrade by two tiers (e.g., gpt-5.1 -> gpt-5-nano). One-tier downgrades on continuing topics are forbidden.
 4. Artifacts and cross-topic references:
-   - ALWAYS select artifacts that materially help answer the message (reuse existing specs or schemas rather than re-creating them).
-   - Use secondaryTopicIds when information from another topic will clearly be referenced.
+   - ALWAYS select artifacts that materially help answer the message.
+   - Use secondaryTopicIds when information from another topic will clearly be referenced. You may include multiple secondary topics when the message spans them.
 5. Topic naming and summaries:
-   - Name topics in 3-5 title-case words that describe the subject ("Hair Styling Routine", "Dry Finish Spray Tips") rather than repeating the literal question text. Subtopics should be equally short and reflect the narrower scope.
-   - Keep outputs ultra-short: newTopicLabel ≤ 60 chars; newTopicDescription ≤ 120 chars (single sentence); newTopicSummary ≤ 160 chars (single-sentence synopsis, no transcript). Shorten further if unsure.
+   - Name topics in 3-5 title-case words that describe the subject. Subtopics should be equally short and reflect the narrower scope.
+   - Keep outputs ultra-short: newTopicLabel <= 60 chars; newTopicDescription <= 120 chars; newTopicSummary <= 160 chars.
 6. Parent/subtopic creation:
    - When you create a new topic, you MAY set newParentTopicId to an existing top-level topic to create a subtopic if the message is clearly a narrower thread of that parent.
    - Never set newParentTopicId on continue/reopen actions.
-   - Do NOT create subtopics of subtopics; newParentTopicId must point to a top-level topic.
    - If no obvious parent exists, create a top-level topic (leave newParentTopicId null) rather than forcing a subtopic.
 7. No invented IDs:
    - Never invent topic or artifact IDs. Only choose from the provided metadata.`;
@@ -518,7 +517,7 @@ const LABEL_STOP_WORDS = new Set([
   "i",
   "im",
   "i'm",
-  "iâ€™d",
+  "i’d",
   "need",
   "please",
   "please",
@@ -674,6 +673,7 @@ async function callRouterWithSchema(
   }
   throw lastError || new Error("[topic-router] Router failed after retries");
 }
+
 
 
 
