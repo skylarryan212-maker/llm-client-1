@@ -46,6 +46,7 @@ export interface BuildContextResult {
 const DEFAULT_MAX_TOKENS = 350_000;
 const FALLBACK_TOKEN_CAP = 200_000;
 const CROSS_CHAT_TOKEN_LIMIT = 200_000;
+const SECONDARY_TOPIC_TAIL = 3;
 
 export async function buildContextForMainModel({
   supabase,
