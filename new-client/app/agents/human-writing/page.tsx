@@ -35,7 +35,7 @@ export default function HumanWritingAgentPage() {
           </Link>
         </div>
 
-        <div className="relative mx-auto max-w-[1200px] overflow-hidden rounded-2xl border border-white/5 bg-gradient-to-br from-amber-500/25 via-orange-500/15 to-rose-500/25 p-6 sm:p-8 shadow-[0_20px_80px_-40px_rgba(0,0,0,0.45)]">
+        <div className="relative mx-auto w-full max-w-[900px] overflow-hidden rounded-2xl border border-white/5 bg-gradient-to-br from-amber-500/25 via-orange-500/15 to-rose-500/25 p-6 sm:p-8 shadow-[0_20px_80px_-40px_rgba(0,0,0,0.45)]">
           <div className="absolute inset-0 pointer-events-none bg-[radial-gradient(circle_at_20%_20%,rgba(255,255,255,0.08),transparent_35%),radial-gradient(circle_at_80%_0%,rgba(255,255,255,0.08),transparent_30%)]" />
           <div className="relative flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div className="flex items-start gap-3">
@@ -168,7 +168,7 @@ export default function HumanWritingAgentPage() {
             </div>
           </div>
 
-          <div className="space-y-6">
+          <div className="space-y-6 w-full max-w-[900px] mx-auto">
             <div className="rounded-2xl border border-white/5 bg-white/5 p-6 shadow-lg shadow-black/30 backdrop-blur-sm">
               <div className="flex items-center justify-between flex-wrap gap-3">
                 <h2 className="text-lg font-semibold text-white">Task brief</h2>
