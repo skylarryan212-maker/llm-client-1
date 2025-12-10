@@ -434,7 +434,7 @@ export function ChatSidebar({
                                     className="block w-full rounded-lg pl-6 pr-2.5 py-1.5 text-sm text-muted-foreground hover:bg-sidebar-accent"
                                     onClick={() => onProjectSelect?.(project.id)}
                                   >
-                                    See moreGÇª
+                                    See more
                                   </Link>
                                   )}
                                 </div>
@@ -650,7 +650,7 @@ export function ChatSidebar({
                   }`}
                 >
                   <span className="flex items-center gap-2">
-                    <span className="text-base">=ƒîÉ</span>
+                    <span className="text-base">[Global]</span>
                     <span>Global chat</span>
                   </span>
                   {!moveAction?.currentProjectId && (
