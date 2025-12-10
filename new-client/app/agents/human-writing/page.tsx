@@ -213,7 +213,10 @@ export default function HumanWritingAgentPage() {
                     Mode
                   </DropdownMenuLabel>
                   <DropdownMenuSeparator />
-                  <DropdownMenuRadioGroup value={detectorMode} onValueChange={setDetectorMode}>
+                  <DropdownMenuRadioGroup
+                    value={detectorMode}
+                    onValueChange={(value) => setDetectorMode(value as DetectorMode)}
+                  >
                     <DropdownMenuRadioItem value="overall">Overall score</DropdownMenuRadioItem>
                     <DropdownMenuRadioItem value="depth">Depth analysis</DropdownMenuRadioItem>
                   </DropdownMenuRadioGroup>
