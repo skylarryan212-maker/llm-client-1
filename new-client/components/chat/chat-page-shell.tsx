@@ -291,18 +291,22 @@ export default function ChatPageShell({
     pendingThinkingInfoRef.current = null;
   }, [hideThinkingIndicator]);
 
-  const showThinkingIndicator = useCallback((effort?: ReasoningEffort | null) => {
-    const normalizedEffort: ReasoningEffort = effort ?? "low";
+  const showThinkingIndicator = useCallback(() => {
     if (thinkingTimerRef.current) {
       clearTimeout(thinkingTimerRef.current);
       thinkingTimerRef.current = null;
     }
-    if (normalizedEffort === "medium" || normalizedEffort === "high") {
-      setThinkingStatus({ variant: "extended", label: "Thinking for longer…" });
-      return;
-    }
     setThinkingStatus({ variant: "thinking", label: "Thinking" });
-    // No extended indicator for low/minimal/none efforts
+  }, []);
+
+  const promoteThinkingIndicator = useCallback((effort?: ReasoningEffort | null) => {
+    if (effort !== "medium" && effort !== "high") return;
+    if (responseTimingRef.current.firstToken !== null) return;
+    if (thinkingTimerRef.current) {
+      clearTimeout(thinkingTimerRef.current);
+      thinkingTimerRef.current = null;
+    }
+    setThinkingStatus({ variant: "extended", label: "Thinking for longer" });
   }, []);
 
   const startResponseTiming = useCallback(() => {
@@ -764,7 +768,22 @@ export default function ChatPageShell({
     setIsStreaming(true);
     setActiveIndicatorMessageId(assistantId);
     responseTimingRef.current.assistantMessageId = assistantId;
+    const {
+      modelFamily: guestModelFamily,
+      speedMode: guestSpeedMode,
+      reasoningEffort: guestReasoningEffort,
+    } = getModelSettingsFromDisplayName(currentModel);
+    const guestPreviewFamily: ModelFamily =
+      currentModel === "Auto" ? "gpt-5-mini" : guestModelFamily;
+    const guestPreviewConfig = getModelAndReasoningConfig(
+      guestPreviewFamily,
+      guestSpeedMode,
+      userMessage,
+      guestReasoningEffort
+    );
     startResponseTiming();
+    showThinkingIndicator();
+    promoteThinkingIndicator(guestPreviewConfig.reasoning?.effort ?? guestReasoningEffort);
     try {
       const response = await fetch("/api/guest-chat", {
         method: "POST",
@@ -1082,6 +1101,8 @@ export default function ChatPageShell({
         reasoningEffortOverride
       );
       startResponseTiming();
+      showThinkingIndicator();
+      promoteThinkingIndicator(previewModelConfig.reasoning?.effort ?? reasoningEffortOverride);
       clearSearchIndicator();
       clearFileReadingIndicator();
 
@@ -1253,7 +1274,7 @@ export default function ChatPageShell({
                     thinking: messageMetadata.thinking,
                   };
                   if (parsed.model_info.reasoningEffort === "medium" || parsed.model_info.reasoningEffort === "high") {
-                    showThinkingIndicator(parsed.model_info.reasoningEffort as ReasoningEffort);
+                    promoteThinkingIndicator(parsed.model_info.reasoningEffort as ReasoningEffort);
                   }
                   messageMetadata = updatedMetadata;
                   updateMessage(chatId, currentMessageId, {
@@ -1369,6 +1390,7 @@ export default function ChatPageShell({
     resetThinkingIndicator,
     recordFirstTokenTiming,
     finalizeStreamingState,
+    promoteThinkingIndicator,
     showThinkingIndicator,
     startResponseTiming,
     updateMessage,
@@ -1457,23 +1479,30 @@ export default function ChatPageShell({
 
     // Map retry model name to model settings (without changing the UI dropdown)
     let retryModelFamily: ModelFamily = "gpt-5-mini";
-    let retrySpeedMode: SpeedMode | undefined = "auto";
-     if (retryModelName === "GPT 5 Nano") {
-       retryModelFamily = "gpt-5-nano";
-       retrySpeedMode = "auto";
-     } else if (retryModelName === "GPT 5 Mini") {
-       retryModelFamily = "gpt-5-mini";
-       retrySpeedMode = "auto";
-     } else if (retryModelName === "GPT 5.1") {
-       retryModelFamily = "gpt-5.1";
-       retrySpeedMode = "auto";
-     } else if (retryModelName === "GPT 5 Pro") {
-       retryModelFamily = "gpt-5-pro-2025-10-06";
-       retrySpeedMode = "auto";
-     }
+    let retrySpeedMode: SpeedMode = "auto";
+    if (retryModelName === "GPT 5 Nano") {
+      retryModelFamily = "gpt-5-nano";
+      retrySpeedMode = "auto";
+    } else if (retryModelName === "GPT 5 Mini") {
+      retryModelFamily = "gpt-5-mini";
+      retrySpeedMode = "auto";
+    } else if (retryModelName === "GPT 5.1") {
+      retryModelFamily = "gpt-5.1";
+      retrySpeedMode = "auto";
+    } else if (retryModelName === "GPT 5 Pro") {
+      retryModelFamily = "gpt-5-pro-2025-10-06";
+      retrySpeedMode = "auto";
+    }
+    const retryPreviewConfig = getModelAndReasoningConfig(
+      retryModelFamily,
+      retrySpeedMode,
+      userMessage.content
+    );
 
     // Start timing and show thinking indicator BEFORE removing message
     startResponseTiming();
+    showThinkingIndicator();
+    promoteThinkingIndicator(retryPreviewConfig.reasoning?.effort);
     clearSearchIndicator();
     clearFileReadingIndicator();
 
@@ -1496,77 +1525,77 @@ export default function ChatPageShell({
     // Wait for React to process the removal before adding new message
     await new Promise(resolve => setTimeout(resolve, 0));
 
-     // Re-stream with the specific retry model (not changing currentModel)
-     try {
-       // Get location data if available
-       let locationData = null;
-       try {
-         const locationStr = localStorage.getItem("location_data");
-         if (locationStr) {
-           const parsed = JSON.parse(locationStr);
-           locationData = {
-             lat: parsed.lat,
-             lng: parsed.lng,
-             city: parsed.city,
-           };
-         }
-       } catch (e) {
-         console.error("[Location] Failed to parse location data:", e);
-       }
+    // Re-stream with the specific retry model (not changing currentModel)
+    try {
+      // Get location data if available
+      let locationData = null;
+      try {
+        const locationStr = localStorage.getItem("location_data");
+        if (locationStr) {
+          const parsed = JSON.parse(locationStr);
+          locationData = {
+            lat: parsed.lat,
+            lng: parsed.lng,
+            city: parsed.city,
+          };
+        }
+      } catch (e) {
+        console.error("[Location] Failed to parse location data:", e);
+      }
 
-       const response = await fetch("/api/chat", {
-         method: "POST",
-         headers: { "Content-Type": "application/json" },
-         body: JSON.stringify({
-           conversationId: selectedChatId,
-           projectId: selectedProjectId || undefined,
-           message: userMessage.content,
-           modelFamilyOverride: retryModelFamily,
-           speedModeOverride: retrySpeedMode,
-            reasoningEffortOverride: undefined, // Let API auto-calculate
-            skipUserInsert: true,
-            location: locationData,
-         }),
-       });
+      const response = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          conversationId: selectedChatId,
+          projectId: selectedProjectId || undefined,
+          message: userMessage.content,
+          modelFamilyOverride: retryModelFamily,
+          speedModeOverride: retrySpeedMode,
+          reasoningEffortOverride: undefined, // Let API auto-calculate
+          skipUserInsert: true,
+          location: locationData,
+        }),
+      });
 
-       if (!response.ok) {
-         console.error("Chat API error:", response.status, response.statusText);
-         return;
-       }
+      if (!response.ok) {
+        console.error("Chat API error:", response.status, response.statusText);
+        return;
+      }
 
-       const reader = response.body?.getReader();
-       if (!reader) {
-         console.error("No response body reader");
-         return;
-       }
+      const reader = response.body?.getReader();
+      if (!reader) {
+        console.error("No response body reader");
+        return;
+      }
 
-       const decoder = new TextDecoder();
-       let assistantContent = "";
-       // assistantMessageId already generated and set above
-       let messageMetadata: AssistantMessageMetadata | null = {};
+      const decoder = new TextDecoder();
+      let assistantContent = "";
+      // assistantMessageId already generated and set above
+      let messageMetadata: AssistantMessageMetadata | null = {};
 
-       // Add the initial empty assistant message
-       appendMessages(selectedChatId, [
-         {
-           id: assistantMessageId,
-           role: "assistant",
-           content: "",
-           timestamp: new Date().toISOString(),
-         },
-       ]);
-       responseTimingRef.current.assistantMessageId = assistantMessageId;
+      // Add the initial empty assistant message
+      appendMessages(selectedChatId, [
+        {
+          id: assistantMessageId,
+          role: "assistant",
+          content: "",
+          timestamp: new Date().toISOString(),
+        },
+      ]);
+      responseTimingRef.current.assistantMessageId = assistantMessageId;
 
-       try {
-         while (true) {
-           const { done, value } = await reader.read();
-           if (done) break;
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
 
-           const chunk = decoder.decode(value, { stream: true });
-           const lines = chunk.split("\n").filter((l) => l.trim());
+          const chunk = decoder.decode(value, { stream: true });
+          const lines = chunk.split("\n").filter((l) => l.trim());
 
-           for (const line of lines) {
-             try {
-               const parsed = JSON.parse(line);
+          for (const line of lines) {
+            try {
+              const parsed = JSON.parse(line);
 
               if (parsed.token) {
                 assistantContent += parsed.token;
@@ -1604,21 +1633,21 @@ export default function ChatPageShell({
                 const currentMessageId =
                   responseTimingRef.current.assistantMessageId ?? assistantMessageId;
                 if (messageMetadata) {
-                const updatedMetadata: AssistantMessageMetadata = {
-                  ...messageMetadata,
-                  modelUsed: parsed.model_info.model,
-                  resolvedFamily: parsed.model_info.resolvedFamily,
-                  speedModeUsed: parsed.model_info.speedModeUsed,
-                  reasoningEffort: parsed.model_info.reasoningEffort,
-                };
-                if (parsed.model_info.reasoningEffort === "medium" || parsed.model_info.reasoningEffort === "high") {
-                  showThinkingIndicator(parsed.model_info.reasoningEffort as ReasoningEffort);
+                  const updatedMetadata: AssistantMessageMetadata = {
+                    ...messageMetadata,
+                    modelUsed: parsed.model_info.model,
+                    resolvedFamily: parsed.model_info.resolvedFamily,
+                    speedModeUsed: parsed.model_info.speedModeUsed,
+                    reasoningEffort: parsed.model_info.reasoningEffort,
+                  };
+                  if (parsed.model_info.reasoningEffort === "medium" || parsed.model_info.reasoningEffort === "high") {
+                    promoteThinkingIndicator(parsed.model_info.reasoningEffort as ReasoningEffort);
+                  }
+                  messageMetadata = updatedMetadata;
+                  updateMessage(selectedChatId, currentMessageId, {
+                    metadata: messageMetadata,
+                  });
                 }
-                messageMetadata = updatedMetadata;
-                updateMessage(selectedChatId, currentMessageId, {
-                  metadata: messageMetadata,
-                });
-              }
               } else if (parsed.meta) {
                 const fallbackMeta: AssistantMessageMetadata = {
                   modelUsed: parsed.meta.model,
@@ -1648,24 +1677,24 @@ export default function ChatPageShell({
                 });
                 responseTimingRef.current.assistantMessageId = newId;
               } else if (parsed.done) {
-                 // Streaming complete
-                 break;
-               }
-             } catch {
-               // Skip lines that aren't valid JSON
-             }
-           }
-         }
-       } finally {
-         reader.releaseLock();
-       }
-     } catch (error) {
-       console.error("Error retrying with model:", error);
-        } finally {
-          resetThinkingIndicator();
-          // Clear active indicator so buttons appear after streaming completes
-          setActiveIndicatorMessageId(null);
-     }
+                // Streaming complete
+                break;
+              }
+            } catch {
+              // Skip lines that aren't valid JSON
+            }
+          }
+        }
+      } finally {
+        reader.releaseLock();
+      }
+    } catch (error) {
+      console.error("Error retrying with model:", error);
+    } finally {
+      resetThinkingIndicator();
+      // Clear active indicator so buttons appear after streaming completes
+      setActiveIndicatorMessageId(null);
+    }
   };
 
   const handleChatSelect = (id: string) => {
