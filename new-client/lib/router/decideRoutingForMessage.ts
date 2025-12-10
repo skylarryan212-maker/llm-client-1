@@ -386,6 +386,18 @@ Outputs must obey this JSON schema (no markdown, no commentary):
   "artifactsToLoad": ["artifact-id"]
 }
 
+Example (valid JSON only):
+{
+  "topicAction": "continue_active",
+  "primaryTopicId": "123e4567-e89b-12d3-a456-426614174000",
+  "secondaryTopicIds": [],
+  "newTopicLabel": "",
+  "newTopicDescription": "",
+  "newParentTopicId": null,
+  "newTopicSummary": "",
+  "artifactsToLoad": []
+}
+
 Rules:
 1. Topic continuation vs new topic:
    - Use semantic comprehension of the entire conversation to decide whether the latest user message is a follow-up or a new project. Do not rely on superficial keyword overlap.
@@ -604,10 +616,17 @@ async function callRouterWithSchema(
     "CRITICAL: Respond with ONLY raw JSON that matches the schema. Do not add any commentary, markdown, or prose. Start with '{' and end with '}'. One object only.";
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
+      const extraNudge =
+        attempt === 1
+          ? "\n\nSECOND TRY: STRICT JSON ONLY. Begin with { and end with }. No explanations."
+          : "";
       const { text, usage } = await callCloudflareLlama({
         messages: [
-          { role: "system", content: `${TOPIC_ROUTER_SYSTEM_PROMPT}\n\n${forceJsonReminder}` },
-          { role: "user", content: `${routerPrompt}\n\n${forceJsonReminder}` },
+          {
+            role: "system",
+            content: `${TOPIC_ROUTER_SYSTEM_PROMPT}\n\n${forceJsonReminder}${extraNudge}`,
+          },
+          { role: "user", content: `${routerPrompt}\n\n${forceJsonReminder}${extraNudge}` },
         ],
         schemaName: "router_decision",
         schema,
