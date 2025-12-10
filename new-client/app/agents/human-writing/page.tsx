@@ -218,8 +218,8 @@ export default function HumanWritingAgentPage() {
                 "Light corrections to maintain quality",
                 "Export result",
               ].map((step, idx) => (
-                <li key={step} className="flex items-center gap-3">
-                  <span className="flex h-8 w-8 items-center justify-center rounded-full bg-white/10 text-xs font-semibold text-white/80 border border-white/12">
+                <li key={step} className="flex items-start gap-3">
+                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-white/12 bg-white/10 text-xs font-semibold text-white/80">
                     {idx + 1}
                   </span>
                   <span className="leading-relaxed text-sm sm:text-base">{step}</span>
