@@ -57,8 +57,118 @@ export default function HumanWritingAgentPage() {
           </div>
         </div>
 
-        <div className="mt-10 flex flex-col gap-8">
-          <div className="mx-auto w-full max-w-3xl space-y-4">
+        <div className="mt-10 grid gap-8 lg:grid-cols-[1.05fr_1.1fr_0.9fr]">
+          <div className="space-y-6">
+            <div className="rounded-2xl border border-white/5 bg-white/5 p-6 shadow-lg shadow-black/30 backdrop-blur-sm space-y-5">
+              <div className="flex items-center justify-between">
+                <h2 className="text-lg font-semibold text-white">Humanizer settings</h2>
+                <p className="text-xs text-white/60">Matches Rephrasy API fields</p>
+              </div>
+
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label className="text-sm text-white/80">Model</Label>
+                  <Select value={modelChoice} onValueChange={(value) => setModelChoice(value as ModelChoice)}>
+                    <SelectTrigger className="w-full bg-black/20 text-white border-white/10">
+                      <SelectValue placeholder="Choose model" />
+                    </SelectTrigger>
+                    <SelectContent className="bg-[#0f0d12] text-white border-white/10">
+                      <SelectItem value="undetectable">Undetectable Model v2 (default)</SelectItem>
+                      <SelectItem value="seo">SEO Model</SelectItem>
+                      <SelectItem value="custom">Custom Writing Style ID</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <Label className="text-sm text-white/80">Language</Label>
+                  <Select value={language} onValueChange={(value) => setLanguage(value)}>
+                    <SelectTrigger className="w-full bg-black/20 text-white border-white/10">
+                      <SelectValue placeholder="Auto-detect" />
+                    </SelectTrigger>
+                    <SelectContent className="bg-[#0f0d12] text-white border-white/10">
+                      <SelectItem value="auto">Auto-detect</SelectItem>
+                      <SelectItem value="English">English</SelectItem>
+                      <SelectItem value="German">German</SelectItem>
+                      <SelectItem value="French">French</SelectItem>
+                      <SelectItem value="Spanish">Spanish</SelectItem>
+                      <SelectItem value="Italian">Italian</SelectItem>
+                      <SelectItem value="Portuguese">Portuguese</SelectItem>
+                      <SelectItem value="Dutch">Dutch</SelectItem>
+                      <SelectItem value="Polish">Polish</SelectItem>
+                      <SelectItem value="Japanese">Japanese</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              {modelChoice === "custom" && (
+                <div className="space-y-2">
+                  <Label className="text-sm text-white/80">Writing Style ID</Label>
+                  <Input
+                    value={customStyleId}
+                    onChange={(e) => setCustomStyleId(e.target.value)}
+                    placeholder="Enter your custom Writing Style ID"
+                    className="bg-black/20 text-white placeholder:text-white/40 border-white/10"
+                  />
+                </div>
+              )}
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <ToggleRow
+                  label="Return costs"
+                  helper="Adds costs: true to the request"
+                  checked={returnCosts}
+                  onChange={setReturnCosts}
+                />
+                <ToggleRow
+                  label="Word-based pricing"
+                  helper="words: true (flat + per-100-word pricing)"
+                  checked={wordsPricing}
+                  onChange={setWordsPricing}
+                />
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-white/5 bg-white/5 p-6 shadow-lg shadow-black/30 backdrop-blur-sm space-y-5">
+              <div className="flex items-center justify-between">
+                <h2 className="text-lg font-semibold text-white">Detector settings</h2>
+                <p className="text-xs text-white/60">Maps to Rephrasy detector API</p>
+              </div>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <DetectorModeCard
+                  mode="overall"
+                  active={detectorMode === "overall"}
+                  onSelect={() => setDetectorMode("overall")}
+                  title="Overall score"
+                  description="Single overall 0–100 score (0 = human, 100 = AI)."
+                />
+                <DetectorModeCard
+                  mode="depth"
+                  active={detectorMode === "depth"}
+                  onSelect={() => setDetectorMode("depth")}
+                  title="Depth"
+                  description="Sentence-level scores plus overall; helpful for spotting weak spots."
+                />
+              </div>
+
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="text-sm text-white/70">
+                  Pipeline concept: Detector → Humanizer → Detector (and repeat until score passes).
+                </div>
+                <Button
+                  type="button"
+                  className="bg-gradient-to-r from-amber-500 via-orange-500 to-rose-500 text-white shadow-lg shadow-amber-500/30"
+                  disabled
+                >
+                  Run pipeline (coming soon)
+                </Button>
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-6">
             <div className="rounded-2xl border border-white/5 bg-white/5 p-6 shadow-lg shadow-black/30 backdrop-blur-sm">
               <div className="flex items-center justify-between flex-wrap gap-3">
                 <h2 className="text-lg font-semibold text-white">Task brief</h2>
@@ -108,138 +218,26 @@ export default function HumanWritingAgentPage() {
             </div>
           </div>
 
-          <div className="grid gap-8 lg:grid-cols-[1.3fr_0.9fr]">
-            <div className="space-y-6">
-              <div className="rounded-2xl border border-white/5 bg-white/5 p-6 shadow-lg shadow-black/30 backdrop-blur-sm space-y-5">
-                <div className="flex items-center justify-between">
-                  <h2 className="text-lg font-semibold text-white">Humanizer settings</h2>
-                  <p className="text-xs text-white/60">Matches Rephrasy API fields</p>
-                </div>
-
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <div className="space-y-2">
-                    <Label className="text-sm text-white/80">Model</Label>
-                    <Select value={modelChoice} onValueChange={(value) => setModelChoice(value as ModelChoice)}>
-                      <SelectTrigger className="w-full bg-black/20 text-white border-white/10">
-                        <SelectValue placeholder="Choose model" />
-                      </SelectTrigger>
-                      <SelectContent className="bg-[#0f0d12] text-white border-white/10">
-                        <SelectItem value="undetectable">Undetectable Model v2 (default)</SelectItem>
-                        <SelectItem value="seo">SEO Model</SelectItem>
-                        <SelectItem value="custom">Custom Writing Style ID</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label className="text-sm text-white/80">Language</Label>
-                    <Select value={language} onValueChange={(value) => setLanguage(value)}>
-                      <SelectTrigger className="w-full bg-black/20 text-white border-white/10">
-                        <SelectValue placeholder="Auto-detect" />
-                      </SelectTrigger>
-                      <SelectContent className="bg-[#0f0d12] text-white border-white/10">
-                        <SelectItem value="auto">Auto-detect</SelectItem>
-                        <SelectItem value="English">English</SelectItem>
-                        <SelectItem value="German">German</SelectItem>
-                        <SelectItem value="French">French</SelectItem>
-                        <SelectItem value="Spanish">Spanish</SelectItem>
-                        <SelectItem value="Italian">Italian</SelectItem>
-                        <SelectItem value="Portuguese">Portuguese</SelectItem>
-                        <SelectItem value="Dutch">Dutch</SelectItem>
-                        <SelectItem value="Polish">Polish</SelectItem>
-                        <SelectItem value="Japanese">Japanese</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-
-                {modelChoice === "custom" && (
-                  <div className="space-y-2">
-                    <Label className="text-sm text-white/80">Writing Style ID</Label>
-                    <Input
-                      value={customStyleId}
-                      onChange={(e) => setCustomStyleId(e.target.value)}
-                      placeholder="Enter your custom Writing Style ID"
-                      className="bg-black/20 text-white placeholder:text-white/40 border-white/10"
-                    />
-                  </div>
-                )}
-
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <ToggleRow
-                    label="Return costs"
-                    helper="Adds costs: true to the request"
-                    checked={returnCosts}
-                    onChange={setReturnCosts}
-                  />
-                  <ToggleRow
-                    label="Word-based pricing"
-                    helper="words: true (flat + per-100-word pricing)"
-                    checked={wordsPricing}
-                    onChange={setWordsPricing}
-                  />
-                </div>
-              </div>
-
-              <div className="rounded-2xl border border-white/5 bg-white/5 p-6 shadow-lg shadow-black/30 backdrop-blur-sm space-y-5">
-                <div className="flex items-center justify-between">
-                  <h2 className="text-lg font-semibold text-white">Detector settings</h2>
-                  <p className="text-xs text-white/60">Maps to Rephrasy detector API</p>
-                </div>
-
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <DetectorModeCard
-                    mode="overall"
-                    active={detectorMode === "overall"}
-                    onSelect={() => setDetectorMode("overall")}
-                    title="Overall score"
-                    description="Single overall 0–100 score (0 = human, 100 = AI)."
-                  />
-                  <DetectorModeCard
-                    mode="depth"
-                    active={detectorMode === "depth"}
-                    onSelect={() => setDetectorMode("depth")}
-                    title="Depth"
-                    description="Sentence-level scores plus overall; helpful for spotting weak spots."
-                  />
-                </div>
-
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                  <div className="text-sm text-white/70">
-                    Pipeline concept: Detector → Humanizer → Detector (and repeat until score passes).
-                  </div>
-                  <Button
-                    type="button"
-                    className="bg-gradient-to-r from-amber-500 via-orange-500 to-rose-500 text-white shadow-lg shadow-amber-500/30"
-                    disabled
-                  >
-                    Run pipeline (coming soon)
-                  </Button>
-                </div>
-              </div>
-            </div>
-
-            <div className="rounded-2xl border border-white/5 bg-white/10 p-6 shadow-lg shadow-black/30 backdrop-blur">
-              <h3 className="text-lg font-semibold text-white mb-4">Pipeline preview</h3>
-              <ol className="space-y-3 text-white/85">
-                {[
-                  "Draft with GPT-5 Nano",
-                  "Detector: overall / depth score",
-                  "Humanizer: Rephrasy (model + language)",
-                  "Detector: re-check for AI-ness",
-                  "Optional: repeat humanize + detect until pass",
-                  "Light corrections to maintain quality",
-                  "Export result",
-                ].map((step, idx) => (
-                  <li key={step} className="flex items-start gap-3">
-                    <span className="mt-0.5 flex h-7 w-7 items-center justify-center rounded-full bg-white/10 text-xs font-semibold text-white/80 border border-white/10">
-                      {idx + 1}
-                    </span>
-                    <span className="leading-relaxed">{step}</span>
-                  </li>
-                ))}
-              </ol>
-            </div>
+          <div className="rounded-2xl border border-white/5 bg-white/10 p-6 shadow-lg shadow-black/30 backdrop-blur">
+            <h3 className="text-lg font-semibold text-white mb-4">Pipeline preview</h3>
+            <ol className="space-y-3 text-white/85">
+              {[
+                "Draft with GPT-5 Nano",
+                "Detector: overall / depth score",
+                "Humanizer: Rephrasy (model + language)",
+                "Detector: re-check for AI-ness",
+                "Optional: repeat humanize + detect until pass",
+                "Light corrections to maintain quality",
+                "Export result",
+              ].map((step, idx) => (
+                <li key={step} className="flex items-start gap-3">
+                  <span className="mt-0.5 flex h-7 w-7 items-center justify-center rounded-full bg-white/10 text-xs font-semibold text-white/80 border border-white/10">
+                    {idx + 1}
+                  </span>
+                  <span className="leading-relaxed">{step}</span>
+                </li>
+              ))}
+            </ol>
           </div>
         </div>
       </div>
