@@ -24,7 +24,7 @@ export default function HumanWritingAgentPage() {
 
   return (
     <div className="min-h-screen bg-[#0f0d12] text-foreground">
-      <div className="mx-auto max-w-[1600px] px-4 sm:px-6 py-8 sm:py-12">
+      <div className="mx-auto max-w-none px-3 sm:px-4 lg:px-6 py-8 sm:py-12">
         <div className="mb-6">
           <Link
             href="/agents"
@@ -57,8 +57,8 @@ export default function HumanWritingAgentPage() {
           </div>
         </div>
 
-        <div className="mt-10 grid gap-6 lg:grid-cols-12 items-start">
-          <div className="space-y-6 col-span-12 lg:col-span-3">
+        <div className="mt-10 grid gap-4 lg:gap-6 items-start lg:grid-cols-[minmax(280px,340px)_minmax(640px,1fr)_minmax(280px,340px)]">
+          <div className="space-y-6">
             <div className="rounded-2xl border border-white/5 bg-white/5 p-6 shadow-lg shadow-black/30 backdrop-blur-sm space-y-5">
               <div className="flex items-center justify-between">
                 <h2 className="text-lg font-semibold text-white">Humanizer settings</h2>
@@ -168,7 +168,7 @@ export default function HumanWritingAgentPage() {
             </div>
           </div>
 
-          <div className="space-y-6 col-span-12 lg:col-span-6 lg:col-start-4">
+          <div className="space-y-6">
             <div className="rounded-2xl border border-white/5 bg-white/5 p-6 shadow-lg shadow-black/30 backdrop-blur-sm">
               <div className="flex items-center justify-between flex-wrap gap-3">
                 <h2 className="text-lg font-semibold text-white">Task brief</h2>
@@ -218,7 +218,7 @@ export default function HumanWritingAgentPage() {
             </div>
           </div>
 
-          <div className="rounded-2xl border border-white/5 bg-white/10 p-6 shadow-lg shadow-black/30 backdrop-blur col-span-12 lg:col-span-3 lg:col-start-10">
+          <div className="rounded-2xl border border-white/5 bg-white/10 p-6 shadow-lg shadow-black/30 backdrop-blur">
             <h3 className="text-lg font-semibold text-white mb-4">Pipeline preview</h3>
             <ol className="space-y-3 text-white/85">
               {[
