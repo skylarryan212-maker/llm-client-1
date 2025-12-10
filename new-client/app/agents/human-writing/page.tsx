@@ -20,6 +20,7 @@ export default function HumanWritingAgentPage() {
   const [wordsPricing, setWordsPricing] = useState<boolean>(false);
   const [returnCosts, setReturnCosts] = useState<boolean>(false);
   const [detectorMode, setDetectorMode] = useState<DetectorMode>("overall");
+  const [tasks] = useState<Array<{ id: string; title: string; timestamp: string }>>([]);
 
   return (
     <div className="min-h-screen bg-[#0f0d12] text-foreground">
@@ -34,7 +35,7 @@ export default function HumanWritingAgentPage() {
           </Link>
         </div>
 
-        <div className="relative overflow-hidden rounded-2xl border border-white/5 bg-gradient-to-br from-amber-500/20 via-orange-500/10 to-rose-500/20 p-6 sm:p-8 shadow-[0_20px_80px_-40px_rgba(0,0,0,0.45)]">
+        <div className="relative overflow-hidden rounded-2xl border border-white/5 bg-gradient-to-br from-amber-500/25 via-orange-500/15 to-rose-500/25 p-6 sm:p-8 shadow-[0_20px_80px_-40px_rgba(0,0,0,0.45)]">
           <div className="absolute inset-0 pointer-events-none bg-[radial-gradient(circle_at_20%_20%,rgba(255,255,255,0.08),transparent_35%),radial-gradient(circle_at_80%_0%,rgba(255,255,255,0.08),transparent_30%)]" />
           <div className="relative flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div className="flex items-start gap-3">
@@ -217,6 +218,32 @@ export default function HumanWritingAgentPage() {
                   <ScoreCard label="Rephrase cost" value="—" helper="Shown when costs: true" />
                 </div>
               </div>
+            </div>
+
+            <div className="rounded-2xl border border-white/5 bg-white/5 p-6 shadow-lg shadow-black/30 backdrop-blur space-y-4">
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-semibold text-white">Tasks</h3>
+                <span className="text-xs text-white/60">Past runs will show here</span>
+              </div>
+              {tasks.length === 0 ? (
+                <div className="rounded-lg border border-dashed border-white/15 bg-black/20 p-6 text-center text-white/70">
+                  No tasks yet. Send a task to start one.
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {tasks.map((task) => (
+                    <div
+                      key={task.id}
+                      className="rounded-lg border border-white/10 bg-black/20 px-4 py-3 text-white/85"
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="font-medium text-white">{task.title}</div>
+                        <div className="text-xs text-white/60">{task.timestamp}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         </div>
