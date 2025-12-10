@@ -372,7 +372,7 @@ export async function analyzeForMemory(
   existingMemories?: Array<{ title: string; content: string }>
 ): Promise<MemoryAnalysis | null> {
   try {
-    const { callCloudflareLlama } = await import("@/lib/cloudflareLlama");
+    const { callDeepInfraGemma } = await import("@/lib/deepInfraGemma");
 
     // Build context about existing memories to avoid duplicates
     let existingContext = "";
