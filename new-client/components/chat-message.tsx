@@ -105,8 +105,9 @@ export function ChatMessage({
     if (!family) return 'Unknown'
     if (family.includes('nano')) return 'GPT 5 Nano'
     if (family.includes('mini')) return 'GPT 5 Mini'
-    if (family.includes('5.1')) return 'GPT 5.1'
-    if (family.includes('pro')) return 'GPT 5 Pro'
+    if (family.includes('5.2-pro') || family.includes('5.2 pro') || family.includes('52-pro')) return 'GPT 5.2 Pro'
+    if (family.includes('5.2')) return 'GPT 5.2'
+    if (family.includes('pro')) return 'GPT 5.2 Pro'
     return family
   }
 
@@ -115,8 +116,8 @@ export function ChatMessage({
     const lower = modelUsed.toLowerCase()
     if (lower.includes('nano')) resolvedFamily = 'gpt-5-nano'
     else if (lower.includes('mini')) resolvedFamily = 'gpt-5-mini'
-  else if (lower.includes('5.2')) resolvedFamily = 'gpt-5.2'
-    else if (lower.includes('pro')) resolvedFamily = 'gpt-5-pro-2025-10-06'
+    else if (lower.includes('5.2')) resolvedFamily = 'gpt-5.2'
+    else if (lower.includes('pro')) resolvedFamily = 'gpt-5.2-pro'
   }
 
   const displayModelName = isGuest ? null : getDisplayModelName(resolvedFamily)
@@ -248,13 +249,13 @@ export function ChatMessage({
                           <span className="flex-1">Retry with GPT 5 Mini</span>
                           {displayModelName === 'GPT 5 Mini' && <span className="text-xs text-muted-foreground ml-2">(current)</span>}
                         </DropdownMenuRadioItem>
-                        <DropdownMenuRadioItem value="GPT 5.1">
-                          <span className="flex-1">Retry with GPT 5.1</span>
-                          {displayModelName === 'GPT 5.1' && <span className="text-xs text-muted-foreground ml-2">(current)</span>}
+                        <DropdownMenuRadioItem value="GPT 5.2">
+                          <span className="flex-1">Retry with GPT 5.2</span>
+                          {displayModelName === 'GPT 5.2' && <span className="text-xs text-muted-foreground ml-2">(current)</span>}
                         </DropdownMenuRadioItem>
-                        <DropdownMenuRadioItem value="GPT 5 Pro">
-                          <span className="flex-1">Retry with GPT 5 Pro</span>
-                          {displayModelName === 'GPT 5 Pro' && <span className="text-xs text-muted-foreground ml-2">(current)</span>}
+                        <DropdownMenuRadioItem value="GPT 5.2 Pro">
+                          <span className="flex-1">Retry with GPT 5.2 Pro</span>
+                          {displayModelName === 'GPT 5.2 Pro' && <span className="text-xs text-muted-foreground ml-2">(current)</span>}
                         </DropdownMenuRadioItem>
                       </DropdownMenuRadioGroup>
                     </DropdownMenuContent>

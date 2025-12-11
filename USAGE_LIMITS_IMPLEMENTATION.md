@@ -8,7 +8,7 @@ Comprehensive per-user monthly usage limits have been implemented to ensure prof
 ### Profitability Analysis
 
 **Cost Structure:**
-- Average GPT 5.1 message: ~$0.006
+- Average GPT 5.2 message: ~$0.008 (at $1.75 / $0.175 / $14 per 1M tokens, typical short chats)
 - GPT 5 Nano (titles): ~$0.0001
 - Vector storage: ~$0.0001 per file
 - Whisper transcription: ~$0.0003 per minute
@@ -22,7 +22,7 @@ Comprehensive per-user monthly usage limits have been implemented to ensure prof
 | **Pro** | $25 | $20.00 | $5.00 (20%) | ~3,300 messages |
 | **Dev** | $100 | $80.00 | $20.00 (20%) | ~13,300 messages |
 
-*Based on GPT 5.1 usage with flex pricing for free tier
+*Based on GPT 5.2 usage with flex pricing for free tier
 
 ### Free Tier Strategy
 The free tier operates at a $2/month loss per user, which is a common acquisition cost in SaaS:
@@ -34,7 +34,7 @@ The free tier operates at a $2/month loss per user, which is a common acquisitio
 
 ### Recommended Adjustments by User Behavior
 
-If most users prefer **GPT 5 Mini** instead of GPT 5.1:
+If most users prefer **GPT 5 Mini** instead of GPT 5.2:
 - Average message cost: ~$0.0012
 - Free: ~1,650 messages/month
 - Plus: ~8,300 messages/month

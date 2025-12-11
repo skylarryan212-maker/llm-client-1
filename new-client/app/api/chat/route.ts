@@ -808,7 +808,7 @@ export async function POST(request: NextRequest) {
         modelFamily = "gpt-5-nano";
       }
     } else if (usagePercentage >= 90) {
-      // At 90-95%: Disable GPT 5.1, allow Mini and Nano
+      // At 90-95%: Disable GPT 5.2, allow Mini and Nano
       if (modelFamily === "gpt-5.2") {
         console.log(`[usageLimit] User at ${usagePercentage.toFixed(1)}% usage - downgrading from 5.1 to Mini`);
         modelFamily = "gpt-5-mini";
@@ -1571,9 +1571,9 @@ export async function POST(request: NextRequest) {
     try {
       // Progressive flex processing: free users always, all users at 80%+ usage,
       // and GPT-5 Pro forces flex for non-Dev plans.
-      const flexEligibleFamilies = ["gpt-5.2", "gpt-5-mini", "gpt-5-nano", "gpt-5-pro-2025-10-06"];
+      const flexEligibleFamilies = ["gpt-5.2", "gpt-5.2-pro", "gpt-5-mini", "gpt-5-nano"];
       const isPromptModel = flexEligibleFamilies.includes(modelConfig.resolvedFamily);
-      const forceProFlex = modelConfig.resolvedFamily === "gpt-5-pro-2025-10-06" && userPlan !== "dev";
+      const forceProFlex = modelConfig.resolvedFamily === "gpt-5.2-pro" && userPlan !== "dev";
       const usageBasedFlex = (userPlan === "free" || usagePercentage >= 80) && isPromptModel;
       const useFlex = (isPromptModel && forceProFlex) || usageBasedFlex;
       
@@ -1590,8 +1590,7 @@ export async function POST(request: NextRequest) {
       }
       const extendedCacheModels = new Set([
         "gpt-5.2",
-        "gpt-5.2-codex",
-        "gpt-5.2-codex-mini",
+        "gpt-5.2-pro",
         "gpt-5.2-chat-latest",
         "gpt-5",
         "gpt-5-codex",

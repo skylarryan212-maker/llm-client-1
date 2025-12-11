@@ -64,7 +64,7 @@ npm run dev
   {
     "model": "gpt-5.2",
     "reasoningEffort": "low" or "medium" or "high",
-    "resolvedFamily": "gpt-5-mini" or "gpt-5-pro" etc
+    "resolvedFamily": "gpt-5-mini" or "gpt-5.2-pro" etc
   }
   ```
 
@@ -175,7 +175,7 @@ Should output: "Successfully compiled X files with tsc"
 **Issue**: Tokens appear but assistant message never saves
 - **Fix**: Check database insert line in `route.ts` - may need to verify Supabase RLS policies allow inserts
 
-**Issue**: Model always shows as gpt-5-pro (wrong model)
+**Issue**: Model always shows as gpt-5.2-pro (wrong model)
 - **Fix**: Check `modelConfig.ts` model family selection - may need to adjust thresholds
 
 ---

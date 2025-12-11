@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import {
   ReactNode,
@@ -158,8 +158,8 @@ const MODEL_RETRY_OPTIONS: {
 }[] = [
   { value: "gpt-5-nano", label: "GPT 5 Nano" },
   { value: "gpt-5-mini", label: "GPT 5 Mini" },
-  { value: "gpt-5.2", label: "GPT 5.1" },
-  { value: "gpt-5-pro-2025-10-06", label: "GPT 5 Pro" },
+  { value: "gpt-5.2", label: "GPT 5.2" },
+  { value: "gpt-5.2-pro", label: "GPT 5.2 Pro" },
 ];
 
 const IMAGE_MODEL_OPTIONS: { value: ImageModelKey; label: string }[] = [
@@ -191,9 +191,9 @@ const OTHER_MODEL_GROUPS: Array<{
     supportsSpeedModes: true,
   },
   {
-    family: "gpt-5-pro-2025-10-06",
-    label: "GPT 5 Pro",
-    shortLabel: describeModelFamily("gpt-5-pro-2025-10-06"),
+    family: "gpt-5.2-pro",
+    label: "GPT 5.2 Pro",
+    shortLabel: describeModelFamily("gpt-5.2-pro"),
     supportsSpeedModes: false,
   },
 ];
@@ -513,7 +513,7 @@ function legacyModeFromFamily(family: ModelFamily): ModelMode {
       return "mini";
     case "gpt-5.2":
       return "full";
-    case "gpt-5-pro-2025-10-06":
+    case "gpt-5.2-pro":
       return "full";
     default:
       return "auto";
@@ -1077,13 +1077,13 @@ export function MainApp({
         return;
       }
       if (effort === "medium" || effort === "high") {
-        setThinkingStatus({ variant: "extended", label: "Thinking for longerâ€¦" });
+        setThinkingStatus({ variant: "extended", label: "Thinking for longer…" });
         return;
       }
       setThinkingStatus({ variant: "thinking", label: "Thinking" });
       if (effort === "low") {
         longThinkTimerRef.current = setTimeout(() => {
-          setThinkingStatus({ variant: "extended", label: "Thinking for longerâ€¦" });
+          setThinkingStatus({ variant: "extended", label: "Thinking for longer…" });
           longThinkTimerRef.current = null;
         }, 4000);
       }
@@ -1515,7 +1515,7 @@ export function MainApp({
       ? `Auto (${describeModelFamily("gpt-5-mini")})`
       : describeModelFamily(modelFamily);
   const headerSpeedDisplay =
-    modelFamily === "gpt-5-pro-2025-10-06" || speedMode === "auto"
+    modelFamily === "gpt-5.2-pro" || speedMode === "auto"
       ? null
       : SPEED_LABELS[speedMode];
   const imageAttachmentLimitReached =
@@ -1564,8 +1564,8 @@ export function MainApp({
         ? "rounded-full py-3"
         : "rounded-full py-1.5";
   const composerPlaceholder = isTranscribing
-    ? "Transcribing voice inputâ€¦"
-    : "Message the assistantâ€¦";
+    ? "Transcribing voice input…"
+    : "Message the assistant…";
   const composerGapClass = isCodexMode ? "gap-3" : "gap-2";
   const composerPaddingX = isCodexMode ? "px-4" : "px-3";
   const composerSurfaceClass = isCodexMode
@@ -1669,7 +1669,7 @@ export function MainApp({
                   onClick={() => setForceWebSearch(false)}
                   className="flex items-center gap-1 rounded-full border border-[#4b64ff]/50 bg-[#1a1e2f] px-3 py-1 text-[11px] text-[#a5bfff]"
                 >
-                  <span className="text-base leading-none">ðŸŒ</span>
+                  <span className="text-base leading-none">🌐</span>
                   <span>Web search</span>
                 </button>
               )}
@@ -1682,7 +1682,7 @@ export function MainApp({
                   }}
                   className="flex items-center gap-1 rounded-full border border-white/30 bg-[#2b2b31] px-3 py-1 text-[11px] text-zinc-200"
                 >
-                  <span className="text-base leading-none">ðŸŽ¨</span>
+                  <span className="text-base leading-none">🎨</span>
                   <span>Create image</span>
                 </button>
               )}
@@ -1724,7 +1724,7 @@ export function MainApp({
                           onClick={() => handleRemoveImageAttachment(attachment.id)}
                           className="rounded-full p-1 text-white/60 transition hover:bg-white/10 hover:text-white"
                         >
-                          Ã—
+                          ×
                         </button>
                       </div>
                     );
@@ -1769,7 +1769,7 @@ export function MainApp({
                           onClick={() => handleRemoveFileAttachment(file.id)}
                           className="rounded-full p-1 text-white/60 transition hover:bg-white/10 hover:text-white"
                         >
-                          Ã—
+                          ×
                         </button>
                       </div>
                     );
@@ -2022,7 +2022,7 @@ export function MainApp({
                   {isTranscribing && !isRecording && (
                     <div className="flex items-center gap-2 text-xs text-zinc-400">
                       <span className="h-2 w-2 animate-pulse rounded-full bg-white/60" aria-hidden />
-                      <span>Transcribingâ€¦</span>
+                      <span>Transcribing…</span>
                     </div>
                   )}
                 </div>
@@ -2074,7 +2074,7 @@ export function MainApp({
 
               {!isLoadingMessages && messages.length === 0 && (
                 <div className="mt-10 text-center text-sm text-zinc-400">
-                  Start chatting â€” {describeModelFamily("gpt-5.2")} chat is
+                  Start chatting — {describeModelFamily("gpt-5.2")} chat is
                   streaming live.
                 </div>
               )}
@@ -2503,7 +2503,7 @@ export function MainApp({
                               ) : (
                                 <p className="text-[12px] text-white/60">
                                   {isStreamingAssistantMessage
-                                    ? "Gathering live citationsâ€¦"
+                                    ? "Gathering live citations…"
                                     : "No citations were shared for this response."}
                                 </p>
                               )}
@@ -3213,7 +3213,7 @@ type RetryOptions = {
   };
 
   // ------------------------------------------------------------
-  // SEND MESSAGE â€” STREAMING
+  // SEND MESSAGE — STREAMING
   // ------------------------------------------------------------
   async function sendTextMessage(options?: SendTextMessageOptions) {
     console.log("[SEND_PIPELINE] sendTextMessage invoked", {
@@ -3849,7 +3849,7 @@ type RetryOptions = {
                   const status = payload.status as ServerStatusEvent;
                   if (status.type === "search-start") {
                     setSearchIndicator({
-                      message: "Searching the webâ€¦",
+                      message: "Searching the web…",
                       variant: "running",
                       domains: [],
                     });
@@ -3989,7 +3989,7 @@ type RetryOptions = {
         console.error("[SEND_PIPELINE] sendTextMessage error", error);
         if (!conversationId) {
           setComposerError(
-            "We couldnâ€™t create a conversation record. Check the console logs and Supabase schema."
+            "We couldn’t create a conversation record. Check the console logs and Supabase schema."
           );
         } else if (assistantMessageId) {
           setMessages((prev) =>
@@ -4075,7 +4075,7 @@ type RetryOptions = {
     setSearchIndicator(null);
     setFileReadingIndicator(null);
     setLiveSearchDomains([]);
-    setThinkingStatus({ variant: "thinking", label: "Generating imageâ€¦" });
+    setThinkingStatus({ variant: "thinking", label: "Generating image…" });
 
     try {
       if (!conversationId && isRetry) {
@@ -4686,7 +4686,7 @@ type RetryOptions = {
           onClick={() => void handleNewChat(true)}
           className="flex w-full items-center gap-2 rounded-md bg-[#202123] px-3 py-2 text-sm text-zinc-100 hover:bg-[#26272b]"
         >
-          <span className="text-lg leading-none">ï¼‹</span>
+          <span className="text-lg leading-none">＋</span>
           <span>New chat</span>
         </button>
         <button
@@ -4760,7 +4760,7 @@ type RetryOptions = {
                   aria-label="Project actions"
                   className="mr-2 flex h-7 w-7 items-center justify-center rounded-full text-zinc-500 opacity-0 transition hover:text-zinc-200 focus:opacity-100 group-hover:opacity-100"
                 >
-                  â‹¯
+                  ⋯
                 </button>
 
                 {isMenuOpen && (
@@ -4869,7 +4869,7 @@ type RetryOptions = {
                 aria-label="Conversation actions"
                 className="mr-1 flex h-7 w-7 items-center justify-center rounded-full text-zinc-500 opacity-0 transition hover:text-zinc-200 focus:opacity-100 group-hover:opacity-100"
               >
-                â‹¯
+                ⋯
               </button>
 
               {isMenuOpen && (
@@ -4900,7 +4900,7 @@ type RetryOptions = {
                       >
                         Move to project
                         <span className="text-[10px] text-zinc-500">
-                          {showMoveMenu ? "â–²" : "â–¼"}
+                          {showMoveMenu ? "▲" : "▼"}
                         </span>
                       </button>
                       {showMoveMenu && (
@@ -4951,7 +4951,7 @@ type RetryOptions = {
       </div>
 
       <div className="border-t border-[#202123] px-3 py-3 text-xs text-zinc-500">
-        LLM Client Â· dev build
+        LLM Client · dev build
       </div>
     </>
   );
@@ -5284,7 +5284,7 @@ type RetryOptions = {
               className="rounded-md border border-[#2f2f32] px-2 py-1 text-sm text-zinc-300 hover:bg-[#2a2a2e] md:hidden"
               onClick={() => setSidebarOpen(true)}
             >
-              â˜°
+              ☰
             </button>
             {showAgentsCatalog ? (
               <span className="text-base font-semibold text-white md:text-lg">
@@ -5508,7 +5508,7 @@ type RetryOptions = {
                 onClick={() => void handleNewChat(false)}
                 className="mb-6 w-full rounded-2xl bg-[#181818] px-4 py-3 text-sm text-zinc-300 hover:bg-[#202123]"
               >
-                ï¼‹ New chat in {currentProject.name}
+                ＋ New chat in {currentProject.name}
               </button>
 
               {projectChats.length === 0 && (
@@ -5544,7 +5544,7 @@ type RetryOptions = {
                       aria-label="Delete chat"
                       className="rounded-md p-1 text-xs text-zinc-500 transition hover:text-red-400"
                     >
-                      Ã—
+                      ×
                     </button>
                     </div>
 
@@ -5556,7 +5556,7 @@ type RetryOptions = {
                         Rename
                       </button>
 
-                      <span>Â·</span>
+                      <span>·</span>
 
                       <select
                         className="rounded-md border border-[#3f3f46] bg-transparent px-1 py-0.5"
@@ -5576,7 +5576,7 @@ type RetryOptions = {
                         ))}
                       </select>
 
-                      <span>Â·</span>
+                      <span>·</span>
 
                       <button
                         onClick={() => requestDeleteConversation(c.id)}
@@ -5629,7 +5629,7 @@ type RetryOptions = {
 
                   {!isLoadingMessages && messages.length === 0 && (
                     <div className="mt-10 text-center text-sm text-zinc-400">
-                      Start chatting â€” {describeModelFamily("gpt-5.2")} chat is
+                      Start chatting — {describeModelFamily("gpt-5.2")} chat is
                       streaming live.
                     </div>
                   )}
@@ -6011,7 +6011,7 @@ type RetryOptions = {
                                       ) : (
                                         <p className="text-[12px] text-zinc-400">
                                           {isStreamingAssistantMessage
-                                            ? "Gathering live citationsâ€¦"
+                                            ? "Gathering live citations…"
                                             : "No citations were shared for this response."}
                                         </p>
                                       )}
@@ -6177,7 +6177,7 @@ type RetryOptions = {
                         onClick={() => setForceWebSearch(false)}
                         className="flex items-center gap-1 rounded-full border border-[#4b64ff]/50 bg-[#1a1e2f] px-3 py-1 text-[11px] text-[#a5bfff]"
                       >
-                        <span className="text-base leading-none">ðŸŒ</span>
+                        <span className="text-base leading-none">🌐</span>
                         <span>Web search</span>
                       </button>
                     )}
@@ -6190,7 +6190,7 @@ type RetryOptions = {
                         }}
                         className="flex items-center gap-1 rounded-full border border-white/30 bg-[#2b2b31] px-3 py-1 text-[11px] text-zinc-200"
                       >
-                        <span className="text-base leading-none">ðŸŽ¨</span>
+                        <span className="text-base leading-none">🎨</span>
                         <span>Create image</span>
                       </button>
                     )}
@@ -6234,7 +6234,7 @@ type RetryOptions = {
                                 onClick={() => handleRemoveImageAttachment(attachment.id)}
                                 className="rounded-full p-1 text-white/60 transition hover:bg-white/10 hover:text-white"
                               >
-                                Ã—
+                                ×
                               </button>
                             </div>
                           );
@@ -6279,7 +6279,7 @@ type RetryOptions = {
                                 onClick={() => handleRemoveFileAttachment(file.id)}
                                 className="rounded-full p-1 text-white/60 transition hover:bg-white/10 hover:text-white"
                               >
-                                Ã—
+                                ×
                               </button>
                             </div>
                           );
@@ -6546,7 +6546,7 @@ type RetryOptions = {
                               className="h-2 w-2 animate-pulse rounded-full bg-white/60"
                               aria-hidden
                             />
-                            <span>Transcribingâ€¦</span>
+                            <span>Transcribing…</span>
                           </div>
                         )}
                       </div>
@@ -6573,7 +6573,7 @@ type RetryOptions = {
                 onClick={() => setShowProjectModal(false)}
                 className="text-lg text-zinc-400 hover:text-zinc-200"
               >
-                Ã—
+                ×
               </button>
             </div>
 

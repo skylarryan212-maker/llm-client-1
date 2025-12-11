@@ -6,16 +6,21 @@ export const MODEL_PRICING = {
     output: 0,
   },
   "gpt-5.2": {
-    input: 1.25,
-    cached: 0.125,
-    output: 10.0,
+    input: 1.75,
+    cached: 0.175,
+    output: 14.0,
   },
-  "gpt-5-mini-2025-08-07": {
+  "gpt-5.2-pro": {
+    input: 21.0,
+    cached: 2.1,
+    output: 168.0,
+  },
+  "gpt-5-mini": {
     input: 0.25,
     cached: 0.025,
     output: 2.0,
   },
-  "gpt-5-nano-2025-08-07": {
+  "gpt-5-nano": {
     input: 0.05,
     cached: 0.005,
     output: 0.4,
@@ -37,11 +42,6 @@ export const MODEL_PRICING = {
     input: 0.04, // $0.04 per 1M input tokens
     cached: 0,
     output: 0.08, // $0.08 per 1M output tokens
-  },
-  "gpt-5-pro-2025-10-06": {
-    input: 15.0,
-    cached: 1.5,
-    output: 120.0,
   },
   "gpt-4o-mini": {
     input: 0.6,

@@ -1,4 +1,4 @@
-﻿export const runtime = "nodejs";
+export const runtime = "nodejs";
 
 import { randomUUID } from "crypto";
 import { NextResponse } from "next/server";
@@ -53,9 +53,9 @@ type PersistedHistoryRow = {
   metadata?: Record<string, unknown> | null;
 };
 
-type ModelMode = "auto" | "nano" | "mini" | "full";
+type ModelMode = "auto" | "nano" | "mini" | "full" | "full-pro";
 type NonAutoModelMode = Exclude<ModelMode, "auto">;
-type ModelKey = "nano" | "mini" | "full" | "codex-mini" | "codex-full";
+type ModelKey = "nano" | "mini" | "full" | "full-pro" | "codex-mini" | "codex-full";
 type NonAutoModelFamily = Exclude<ModelFamily, "auto">;
 
 export type RankedSource = {
@@ -165,9 +165,10 @@ type ResponseMetadata = {
 };
 
 const MODEL_MAP: Record<ModelKey, string> = {
-  nano: "gpt-5-nano-2025-08-07",
-  mini: "gpt-5-mini-2025-08-07",
-  full: "gpt-5.2-2025-11-13",
+  nano: "gpt-5-nano",
+  mini: "gpt-5-mini",
+  full: "gpt-5.2",
+  "full-pro": "gpt-5.2-pro",
   "codex-mini": "gpt-5.2-codex-mini",
   "codex-full": "gpt-5.2-codex",
 };
@@ -176,12 +177,13 @@ const MODEL_FAMILY_TO_MODE: Record<NonAutoModelFamily, NonAutoModelMode> = {
   "gpt-5-nano": "nano",
   "gpt-5-mini": "mini",
   "gpt-5.2": "full",
-  "gpt-5-pro-2025-10-06": "full",
+  "gpt-5.2-pro": "full-pro",
 };
 const MODEL_KEY_TO_FAMILY: Record<ModelKey, NonAutoModelFamily> = {
   nano: "gpt-5-nano",
   mini: "gpt-5-mini",
   full: "gpt-5.2",
+  "full-pro": "gpt-5.2-pro",
   "codex-mini": "gpt-5.2",
   "codex-full": "gpt-5.2",
 };
@@ -446,7 +448,7 @@ function isPlaceholderTitle(value: string | null | undefined) {
 
 function normalizeGeneratedTitle(input: string | null | undefined) {
   const cleaned = (input || "")
-    .replace(/["'â€œâ€â€˜â€™]+/g, "")
+    .replace(/["'“”‘’]+/g, "")
     .replace(/[.!?,:;]+$/g, "")
     .trim();
   if (!cleaned) {
@@ -480,7 +482,7 @@ function parseModelFamily(value: unknown): ModelFamily {
     "gpt-5.2",
     "gpt-5-mini",
     "gpt-5-nano",
-    "gpt-5-pro-2025-10-06",
+    "gpt-5.2-pro",
   ];
   if (typeof value === "string") {
     const normalized = value.toLowerCase() as ModelFamily;
@@ -2103,7 +2105,7 @@ function extractUrlCitations(response: OpenAIResponse): Source[] {
 function logWebSearchCall(call: WebSearchCall) {
   try {
     const serialized = JSON.stringify(call);
-    const trimmed = serialized.length > 2000 ? `${serialized.slice(0, 2000)}â€¦` : serialized;
+    const trimmed = serialized.length > 2000 ? `${serialized.slice(0, 2000)}…` : serialized;
     console.log(`[webSearchDebug] result=${trimmed}`);
   } catch (error) {
     console.log("[webSearchDebug] unable to serialize web_search result", error);

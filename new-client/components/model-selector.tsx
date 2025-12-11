@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import {
   Select,
@@ -19,9 +19,9 @@ interface ModelSelectorProps {
 const MODEL_FAMILY_OPTIONS: { value: ModelFamily; label: string }[] = [
   { value: 'auto', label: 'Auto' },
   { value: 'gpt-5.2', label: 'GPT 5.2' },
+  { value: 'gpt-5.2-pro', label: 'GPT 5.2 Pro' },
   { value: 'gpt-5-mini', label: 'GPT 5 Mini' },
   { value: 'gpt-5-nano', label: 'GPT 5 Nano' },
-  { value: 'gpt-5-pro-2025-10-06', label: 'GPT 5 Pro' },
 ]
 
 const SPEED_MODE_OPTIONS: { value: SpeedMode; label: string }[] = [

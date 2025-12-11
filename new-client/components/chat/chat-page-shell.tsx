@@ -1486,11 +1486,11 @@ export default function ChatPageShell({
     } else if (retryModelName === "GPT 5 Mini") {
       retryModelFamily = "gpt-5-mini";
       retrySpeedMode = "auto";
-    } else if (retryModelName === "GPT 5.1") {
+    } else if (retryModelName === "GPT 5.2") {
       retryModelFamily = "gpt-5.2";
       retrySpeedMode = "auto";
-    } else if (retryModelName === "GPT 5 Pro") {
-      retryModelFamily = "gpt-5-pro-2025-10-06";
+    } else if (retryModelName === "GPT 5.2 Pro" || retryModelName === "GPT 5 Pro") {
+      retryModelFamily = "gpt-5.2-pro";
       retrySpeedMode = "auto";
     }
     const retryPreviewConfig = getModelAndReasoningConfig(
@@ -1972,11 +1972,11 @@ export default function ChatPageShell({
                   className="h-9 w-auto gap-1.5 border-0 px-2 text-base font-semibold focus-visible:bg-transparent focus-visible:outline-none focus-visible:ring-0"
                 >
                   {currentModel === "Auto"
-                    ? "GPT 5.1"
+                    ? "GPT 5.2"
                     : currentModel === "Instant"
-                      ? "GPT 5.1 Instant"
+                      ? "GPT 5.2 Instant"
                       : currentModel === "Thinking"
-                        ? "GPT 5.1 Thinking"
+                        ? "GPT 5.2 Thinking"
                         : currentModel}
                   <ChevronDown className="h-4 w-4 text-muted-foreground" />
                 </Button>
@@ -1988,7 +1988,7 @@ export default function ChatPageShell({
                   className="w-auto min-w-[220px] max-w-[90vw] sm:w-64 space-y-1 py-2"
                 >
                   <div className="px-3 pb-1 text-sm font-semibold text-muted-foreground">
-                    GPT 5.1
+                    GPT 5.2
                   </div>
                   <DropdownMenuItem
                     className="items-center gap-3 px-3 py-2"

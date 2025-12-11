@@ -516,7 +516,7 @@ export function SettingsModal({ isOpen, onClose, initialTab = 'personalization' 
                   {(usageStatus?.percentage ?? 0) >= 90 && (usageStatus?.percentage ?? 0) < 95 && (
                     <div className="rounded-md bg-orange-500/10 border border-orange-500/20 p-3">
                       <p className="text-xs text-orange-600 dark:text-orange-400 font-medium">
-                        ⚡ Cost-saving mode: GPT 5.1 disabled, Mini and Nano available (90%+ usage)
+                        ⚡ Cost-saving mode: GPT 5.2 disabled, Mini and Nano available (90%+ usage)
                       </p>
                     </div>
                   )}

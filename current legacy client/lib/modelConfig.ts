@@ -2,10 +2,10 @@
 export type ModelFamily =
   | "auto"
   | "gpt-5.2"
+  | "gpt-5.2-pro"
   | "gpt-5-mini"
-  | "gpt-5-nano"
-  | "gpt-5-pro-2025-10-06";
-export type ReasoningEffort = "none" | "low" | "medium" | "high";
+  | "gpt-5-nano";
+export type ReasoningEffort = "none" | "low" | "medium" | "high" | "xhigh";
 
 export interface ModelConfig {
   model: string;
@@ -16,10 +16,10 @@ export interface ModelConfig {
 }
 
 const MODEL_ID_MAP: Record<Exclude<ModelFamily, "auto">, string> = {
-  "gpt-5.2": "gpt-5.2-2025-11-13",
-  "gpt-5-mini": "gpt-5-mini-2025-08-07",
-  "gpt-5-nano": "gpt-5-nano-2025-08-07",
-  "gpt-5-pro-2025-10-06": "gpt-5-pro-2025-10-06",
+  "gpt-5.2": "gpt-5.2",
+  "gpt-5.2-pro": "gpt-5.2-pro",
+  "gpt-5-mini": "gpt-5-mini",
+  "gpt-5-nano": "gpt-5-nano",
 };
 
 const LIGHT_REASONING_KEYWORDS = [
@@ -175,7 +175,7 @@ export function suggestSmallerModelForEffort(
   return null;
 }
 
-function selectGpt51AutoFamily(
+function selectGpt52AutoFamily(
   promptText: string,
   effort: ReasoningEffort | null
 ): Exclude<ModelFamily, "auto"> {
@@ -227,9 +227,9 @@ export function getModelAndReasoningConfig(
 
   let chosenEffort: ReasoningEffort | null = null;
   const isFullFamily =
-    resolvedFamily === "gpt-5.2" || resolvedFamily === "gpt-5-pro-2025-10-06";
+    resolvedFamily === "gpt-5.2" || resolvedFamily === "gpt-5.2-pro";
 
-  if (resolvedFamily === "gpt-5-pro-2025-10-06") {
+  if (resolvedFamily === "gpt-5.2-pro") {
     chosenEffort = "high";
   } else if (speedMode === "instant") {
     chosenEffort = isFullFamily ? "none" : "low";
@@ -248,7 +248,7 @@ export function getModelAndReasoningConfig(
   }
 
   if (modelFamily === "gpt-5.2" && speedMode === "auto") {
-    resolvedFamily = selectGpt51AutoFamily(trimmedPrompt, chosenEffort);
+    resolvedFamily = selectGpt52AutoFamily(trimmedPrompt, chosenEffort);
   }
 
   const model = MODEL_ID_MAP[resolvedFamily];
@@ -272,13 +272,13 @@ export function getModelAndReasoningConfig(
 export function describeModelFamily(family: ModelFamily) {
   switch (family) {
     case "gpt-5.2":
-      return "GPT 5.1";
+      return "GPT 5.2";
+    case "gpt-5.2-pro":
+      return "GPT 5.2 Pro";
     case "gpt-5-mini":
       return "GPT 5 Mini";
     case "gpt-5-nano":
       return "GPT 5 Nano";
-    case "gpt-5-pro-2025-10-06":
-      return "GPT 5 Pro";
     default:
       return "Auto";
   }

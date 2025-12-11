@@ -56,13 +56,13 @@ const ROUTER_SYSTEM_PROMPT = `You are a lightweight routing assistant.
 
 You are NOT the assistant that replies to the user. You NEVER answer the user, never call tools, and never output explanations or markdown. Your ONLY job is to choose which model will answer, the reasoning effort level, and which memory categories to load or modify. Respond with ONE JSON object only.
 
-Available models: "gpt-5-nano", "gpt-5-mini", "gpt-5.2".
-Available efforts: "none" | "low" | "medium" | "high" ( "none" is ONLY allowed when model === "gpt-5.2").
+Available models: "gpt-5-nano", "gpt-5-mini", "gpt-5.2", "gpt-5.2-pro".
+Available efforts: "none" | "low" | "medium" | "high" | "xhigh" ( "none" is ONLY allowed when model === "gpt-5.2" or "gpt-5.2-pro").
 
 Your JSON response MUST have this exact shape (no extra keys):
 {
-  "model": "gpt-5-nano" | "gpt-5-mini" | "gpt-5.2",
-  "effort": "none" | "low" | "medium" | "high",
+  "model": "gpt-5-nano" | "gpt-5-mini" | "gpt-5.2" | "gpt-5.2-pro",
+  "effort": "none" | "low" | "medium" | "high" | "xhigh",
   "routedBy": string,
   "memoryTypesToLoad": string[],
   "memoriesToWrite": { "type": string, "title": string, "content": string }[],
@@ -75,15 +75,17 @@ Hard rules:
 1) routedBy: always set to a fixed identifier, e.g. "llm-router-v1".
 2) Model selection:
    - Default to the cheapest model that can reliably handle the request.
-   - Use "gpt-5.2" when: user explicitly asks for best/deep reasoning/5.2, the task is high-stakes (legal/medical/financial/safety), or requires very long multi-step reasoning or large-context reading.
+   - Use "gpt-5.2" when: user explicitly asks for best/deep reasoning/5.2, the task is high-stakes (legal/medical/financial/safety), or requires long multi-step reasoning or large-context reading.
+   - Use "gpt-5.2-pro" only when the user explicitly asks for Pro/strongest/hard thinking OR when the task is clearly the most complex/high-risk scenario that justifies extra cost.
    - Use "gpt-5-mini" for non-trivial code, multi-step math, complex JSON transforms, or medium-length writing/editing that is not high-stakes.
    - Use "gpt-5-nano" for short factual answers, simple rewrites, classifications, short summaries, or tiny JSON tasks.
-   - When unsure between two options, choose the cheaper model.
+   - When unsure between two options, choose the cheaper model unless the task is high-stakes.
 3) Effort selection:
-   - "none" only with model "gpt-5.2" for trivial tasks.
+   - "none" only with model "gpt-5.2" or "gpt-5.2-pro" for trivial tasks.
    - "low": simple reasoning/formatting.
    - "medium": multi-step reasoning, non-trivial code, careful analysis.
-   - "high": only for clearly complex or high-stakes tasks needing detailed reasoning.
+   - "high": complex or high-stakes tasks needing detailed reasoning.
+   - "xhigh": only when the task is extremely complex/high stakes and warrants maximum reasoning budget (only with 5.2/5.2-pro).
    - When in doubt between two effort levels, choose the lower level that is still safe.
 4) memoryTypesToLoad: pick the minimal set of categories needed; array may be empty; maximum 3 entries.
 5) memoriesToWrite: only when the user clearly provides durable personal info/preferences/project details that help future turns. Keep entries concise (<= 200 chars content). Maximum 2 entries.
@@ -142,8 +144,8 @@ export async function routeWithLLM(
       type: "object",
       additionalProperties: false,
       properties: {
-        model: { type: "string", enum: ["gpt-5-nano", "gpt-5-mini", "gpt-5.2"] },
-        effort: { type: "string", enum: ["none", "low", "medium", "high"] },
+        model: { type: "string", enum: ["gpt-5-nano", "gpt-5-mini", "gpt-5.2", "gpt-5.2-pro"] },
+        effort: { type: "string", enum: ["none", "low", "medium", "high", "xhigh"] },
         memoryTypesToLoad: {
           type: "array",
           items: { type: "string" },
@@ -252,8 +254,9 @@ export async function routeWithLLM(
       "gpt-5-nano",
       "gpt-5-mini",
       "gpt-5.2",
+      "gpt-5.2-pro",
     ];
-    const validEfforts: ReasoningEffort[] = ["none", "low", "medium", "high"];
+    const validEfforts: ReasoningEffort[] = ["none", "low", "medium", "high", "xhigh"];
     if (!validModels.includes(parsed.model)) {
       console.error(`[llm-router] Invalid model: ${parsed.model}`);
       return null;
@@ -264,16 +267,14 @@ export async function routeWithLLM(
       return null;
     }
 
-    // Block GPT 5 Pro
-    if (parsed.model === "gpt-5-pro-2025-10-06") {
-      console.warn("[llm-router] Router tried to select GPT 5 Pro, defaulting to 5.2");
-      parsed.model = "gpt-5.2";
-    }
-
-    // Ensure Mini/Nano don't use "none" effort
-    if ((parsed.model === "gpt-5-mini" || parsed.model === "gpt-5-nano") && parsed.effort === "none") {
+    const isFullFamily = parsed.model === "gpt-5.2" || parsed.model === "gpt-5.2-pro";
+    if (!isFullFamily && parsed.effort === "none") {
       console.warn(`[llm-router] ${parsed.model} cannot use "none" effort, forcing to "low"`);
       parsed.effort = "low";
+    }
+    if (!isFullFamily && parsed.effort === "xhigh") {
+      console.warn(`[llm-router] ${parsed.model} cannot use "xhigh" effort, reducing to "high"`);
+      parsed.effort = "high";
     }
 
     return {

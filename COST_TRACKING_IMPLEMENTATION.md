@@ -9,7 +9,7 @@ Complete implementation of per-user API cost tracking across all OpenAI services
 **Location:** `new-client/app/api/chat/route.ts`
 
 **What's Tracked:**
-- Model: GPT 5.1, GPT 5 Mini, GPT 5 Nano, GPT 5 Pro
+- Model: GPT 5.2, GPT 5.2 Pro, GPT 5 Mini, GPT 5 Nano
 - Input tokens (with separate cached token pricing)
 - Output tokens
 - Per-model pricing rates
@@ -21,10 +21,10 @@ Complete implementation of per-user API cost tracking across all OpenAI services
 - UUID generation for proper database insertion
 
 **Pricing:**
-- GPT 5.1: $1.25 input, $0.125 cached, $10.00 output per 1M tokens
-- GPT 5 Mini: $0.15 input, $0.015 cached, $1.20 output per 1M tokens
+- GPT 5.2: $1.75 input, $0.175 cached, $14.00 output per 1M tokens
+- GPT 5.2 Pro: $21.00 input, $2.10 cached, $168.00 output per 1M tokens
+- GPT 5 Mini: $0.25 input, $0.025 cached, $2.00 output per 1M tokens
 - GPT 5 Nano: $0.05 input, $0.005 cached, $0.40 output per 1M tokens
-- GPT 5 Pro: $2.50 input, $0.25 cached, $20.00 output per 1M tokens
 
 ### 2. Automatic Title Generation
 **Location:** `new-client/app/api/conversations/generate-title/route.ts`
