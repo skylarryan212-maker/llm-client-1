@@ -16,7 +16,7 @@ function getClient() {
   return cachedClient;
 }
 
-export async function callDeepInfraGemma({
+export async function callDeepInfraLlama({
   messages,
   schemaName,
   schema,
@@ -45,8 +45,8 @@ export async function callDeepInfraGemma({
   const completion = await client.chat.completions.create({
     model,
     messages: finalMessages,
-    // Allow some variability so titles aren’t overly deterministic.
-    temperature: 0.7,
+    // Max variability requested; 1.0 is the upper bound for this helper.
+    temperature: 1.0,
     max_tokens: maxTokens,
     response_format: enforceJson ? { type: "json_object" } : undefined,
   });

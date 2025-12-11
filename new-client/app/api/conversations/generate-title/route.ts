@@ -8,7 +8,7 @@ import {
 } from "@/lib/conversation-utils";
 import { calculateCost } from "@/lib/pricing";
 import { logUsageRecord } from "@/lib/usage";
-import { callDeepInfraGemma } from "@/lib/deepInfraGemma";
+import { callDeepInfraLlama } from "@/lib/deepInfraLlama";
 
 export async function POST(req: NextRequest) {
   try {
@@ -67,7 +67,7 @@ export async function POST(req: NextRequest) {
     const readable = new ReadableStream({
       async start(controller) {
         try {
-          const { text, usage } = await callDeepInfraGemma({
+          const { text, usage } = await callDeepInfraLlama({
             messages: [
               {
                 role: "system",

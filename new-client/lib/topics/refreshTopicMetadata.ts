@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/lib/supabase/types";
 import { logUsageRecord } from "@/lib/usage";
-import { callDeepInfraGemma } from "@/lib/deepInfraGemma";
+import { callDeepInfraLlama } from "@/lib/deepInfraLlama";
 
 type MessageRow = Database["public"]["Tables"]["messages"]["Row"];
 type TopicRow = Database["public"]["Tables"]["conversation_topics"]["Row"];
@@ -121,7 +121,7 @@ export async function refreshTopicMetadata({
   const MODEL_ID = "google/gemma-3-4b-it";
   let responseText = "";
   try {
-    const { text, usage } = await callDeepInfraGemma({
+    const { text, usage } = await callDeepInfraLlama({
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: JSON.stringify(userPayload) },

@@ -1,4 +1,4 @@
-﻿/**
+/**
  * LLM-based Router for Model Selection
  * 
  * Uses GPT 5 Nano to intelligently decide which model and reasoning effort
@@ -92,7 +92,7 @@ Hard rules:
 6) memoriesToDelete: only when the user clearly revokes or corrects a prior memory; include id and brief reason. If none, use [].
 7) permanentInstructionsToWrite: for stable, long-term behavior instructions the user wants in future chats. Each title should be a short stable identifier; content <= 240 chars. Maximum 2 entries.
 8) permanentInstructionsToDelete: only when the user explicitly cancels/overrides prior instructions; provide ids. If none, use [].
-9) Output rules: ONE JSON object only. No prose, no markdown, no comments. Do NOT attempt to solve the userâ€™s task or include answer content.`;
+9) Output rules: ONE JSON object only. No prose, no markdown, no comments. Do NOT attempt to solve the user’s task or include answer content.`;
 
 /**
  * Calls GPT 5 Nano to decide model and reasoning effort
@@ -103,7 +103,7 @@ export async function routeWithLLM(
   recentMessages?: Array<{ role?: string | null; content?: string | null }>
 ): Promise<LLMRouterDecision | null> {
   try {
-    const { callDeepInfraGemma } = await import("@/lib/deepInfraGemma");
+    const { callDeepInfraLlama } = await import("@/lib/deepInfraLlama");
     // Build context message
     let contextNote = "";
     if (context?.userModelPreference && context.userModelPreference !== "auto") {
@@ -215,7 +215,7 @@ export async function routeWithLLM(
       ],
     };
 
-    const { text, usage } = await callDeepInfraGemma({
+    const { text, usage } = await callDeepInfraLlama({
       messages: [
         { role: "system", content: ROUTER_SYSTEM_PROMPT },
         { role: "user", content: routerPrompt },
@@ -343,7 +343,7 @@ const MEMORY_ANALYSIS_PROMPT = `You are a memory extraction assistant. Analyze c
 
 User: "My name is Alex and I prefer dark mode"
 Assistant: "Got it, Alex! I'll remember your preference for dark mode."
-â†’ WRITE:
+→ WRITE:
 {
   "shouldWrite": true,
   "type": "identity",
@@ -354,7 +354,7 @@ Assistant: "Got it, Alex! I'll remember your preference for dark mode."
 
 User: "I'm not a fan of verbose explanations, keep it brief"
 Assistant: "Understood, I'll keep responses concise."
-â†’ WRITE:
+→ WRITE:
 {
   "shouldWrite": true,
   "type": "preference",
@@ -365,7 +365,7 @@ Assistant: "Understood, I'll keep responses concise."
 
 User: "Never use var in JavaScript, always use const or let"
 Assistant: "Absolutely, const and let are best practices."
-â†’ WRITE:
+→ WRITE:
 {
   "shouldWrite": true,
   "type": "constraint",
@@ -376,7 +376,7 @@ Assistant: "Absolutely, const and let are best practices."
 
 User: "What's the weather today?"
 Assistant: "I don't have access to weather data."
-â†’ DON'T WRITE:
+→ DON'T WRITE:
 {
   "shouldWrite": false,
   "reasoning": "Just a question, no information about user to remember"
@@ -384,7 +384,7 @@ Assistant: "I don't have access to weather data."
 
 User: "Thanks!"
 Assistant: "You're welcome!"
-â†’ DON'T WRITE:
+→ DON'T WRITE:
 {
   "shouldWrite": false,
   "reasoning": "Just pleasantries, nothing to remember"
@@ -392,7 +392,7 @@ Assistant: "You're welcome!"
 
 User: "Can you write a Python script for me?"
 Assistant: "Sure! Here's a script..."
-â†’ DON'T WRITE:
+→ DON'T WRITE:
 {
   "shouldWrite": false,
   "reasoning": "One-time task request, not persistent information"
@@ -419,7 +419,7 @@ export async function analyzeForMemory(
   existingMemories?: Array<{ title: string; content: string }>
 ): Promise<MemoryAnalysis | null> {
   try {
-    const { callDeepInfraGemma } = await import("@/lib/deepInfraGemma");
+    const { callDeepInfraLlama } = await import("@/lib/deepInfraLlama");
 
     // Build context about existing memories to avoid duplicates
     let existingContext = "";
@@ -438,7 +438,7 @@ Should a memory be saved? If yes, extract and structure it.`;
     console.log("[memory-analysis] Starting memory analysis");
     const startTime = Date.now();
 
-    const { text } = await callDeepInfraGemma({
+    const { text } = await callDeepInfraLlama({
       messages: [
         { role: "system", content: MEMORY_ANALYSIS_PROMPT },
         { role: "user", content: analysisPrompt },

@@ -10,7 +10,7 @@ import type {
 } from "@/lib/supabase/types";
 import type { RouterDecision } from "@/lib/router/types";
 import { logUsageRecord } from "@/lib/usage";
-import { callDeepInfraGemma } from "@/lib/deepInfraGemma";
+import { callDeepInfraLlama } from "@/lib/deepInfraLlama";
 
 const TOPIC_ROUTER_MODEL = "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo";
 const ALLOWED_ROUTER_MODELS = new Set(["meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo"]);
@@ -641,7 +641,7 @@ async function callRouterWithSchema(
         attempt === 1
           ? "\n\nSECOND TRY: STRICT JSON ONLY. Begin with { and end with }. No explanations."
           : "";
-      const { text, usage } = await callDeepInfraGemma({
+      const { text, usage } = await callDeepInfraLlama({
         messages: [
           {
             role: "system",
