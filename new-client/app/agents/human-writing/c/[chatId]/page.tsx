@@ -1,15 +1,22 @@
 ﻿"use client";
 
 import { Suspense, useState } from "react";
-import { useSearchParams, useRouter } from "next/navigation";
-import { ArrowLeft, ArrowUp } from "lucide-react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { ArrowLeft } from "lucide-react";
 
+import { ChatComposer } from "@/components/chat-composer";
+import { ChatMessage } from "@/components/chat-message";
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
 
 interface PageProps {
   params: { chatId: string };
+}
+
+interface Message {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
 }
 
 function ChatInner({ params }: PageProps) {
@@ -17,20 +24,13 @@ function ChatInner({ params }: PageProps) {
   const searchParams = useSearchParams();
   const prompt = searchParams.get("prompt")?.trim() || "Write a short essay.";
 
-  const [messages, setMessages] = useState(() => {
-    const userId = `u-${Date.now()}`;
-    const assistantId = `a-${Date.now()}`;
-    return [
-      { id: userId, role: "user" as const, content: prompt },
-      { id: assistantId, role: "assistant" as const, content: "Coming soon — pipeline wiring in progress." },
-    ];
-  });
-  const [composerText, setComposerText] = useState<string>("");
+  const [messages, setMessages] = useState<Message[]>([
+    { id: `u-${Date.now()}`, role: "user", content: prompt },
+    { id: `a-${Date.now()}`, role: "assistant", content: "Coming soon — pipeline wiring in progress." },
+  ]);
 
-  const hasText = composerText.trim().length > 0;
-
-  const handleSend = () => {
-    const trimmed = composerText.trim();
+  const handleSubmit = (content: string) => {
+    const trimmed = content.trim();
     if (!trimmed) return;
     const userId = `u-${Date.now()}`;
     const assistantId = `a-${Date.now()}`;
@@ -39,7 +39,6 @@ function ChatInner({ params }: PageProps) {
       { id: userId, role: "user", content: trimmed },
       { id: assistantId, role: "assistant", content: "Coming soon — pipeline wiring in progress." },
     ]);
-    setComposerText("");
   };
 
   return (
@@ -62,44 +61,29 @@ function ChatInner({ params }: PageProps) {
       <main className="flex-1 overflow-hidden">
         <ScrollArea className="h-full px-4 py-6 sm:px-6">
           <div className="mx-auto flex max-w-[960px] flex-col gap-4">
-            {messages.map((msg) => (
-              <div
-                key={msg.id}
-                className={`rounded-2xl border border-white/8 px-4 py-3 shadow-sm ${
-                  msg.role === "user" ? "bg-white/10 text-white" : "bg-[#14131a] text-white/90"
-                }`}
-              >
-                <div className="mb-1 text-[11px] uppercase tracking-[0.18em] text-white/40">
-                  {msg.role === "user" ? "You" : "Assistant"}
+            {messages.map((msg) =>
+              msg.role === "assistant" ? (
+                <div key={msg.id} className="px-1">
+                  <p className="text-sm leading-relaxed text-white/80">{msg.content}</p>
                 </div>
-                <p className="leading-relaxed">{msg.content}</p>
-              </div>
-            ))}
+              ) : (
+                <ChatMessage
+                  key={msg.id}
+                  role="user"
+                  content={msg.content}
+                  showInsightChips={false}
+                  enableEntryAnimation={false}
+                  suppressPreStreamAnimation
+                />
+              )
+            )}
           </div>
         </ScrollArea>
       </main>
 
       <div className="pointer-events-none fixed inset-x-0 bottom-0 flex justify-center pb-4">
-        <div className="pointer-events-auto relative w-full max-w-[960px] rounded-2xl border border-white/10 bg-[#111118]/85 px-4 py-3 shadow-[0_24px_60px_rgba(0,0,0,0.55)] backdrop-blur-2xl">
-          <div className="flex items-end gap-3">
-            <Textarea
-              value={composerText}
-              onChange={(e) => setComposerText(e.target.value)}
-              placeholder="Write the next task..."
-              className="min-h-[64px] max-h-[220px] flex-1 resize-none border-0 bg-transparent text-base text-white placeholder:text-white/50 shadow-none outline-none focus-visible:ring-0 focus-visible:border-0"
-            />
-            <Button
-              type="button"
-              onClick={handleSend}
-              className={`flex h-11 w-11 items-center justify-center rounded-full text-white shadow-lg transition hover:scale-[1.03] ${
-                hasText
-                  ? "bg-gradient-to-r from-amber-500 via-orange-500 to-rose-500 shadow-amber-600/40 hover:shadow-amber-600/60"
-                  : "bg-white/10 text-white/60 shadow-black/30"
-              }`}
-            >
-              <ArrowUp className="h-5 w-5" />
-            </Button>
-          </div>
+        <div className="pointer-events-auto w-full max-w-[960px] px-4">
+          <ChatComposer onSendMessage={handleSubmit} placeholder="Message the Human Writing Agent..." />
         </div>
       </div>
     </div>
