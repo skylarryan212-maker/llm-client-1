@@ -115,7 +115,7 @@ export function ChatMessage({
     const lower = modelUsed.toLowerCase()
     if (lower.includes('nano')) resolvedFamily = 'gpt-5-nano'
     else if (lower.includes('mini')) resolvedFamily = 'gpt-5-mini'
-    else if (lower.includes('5.1')) resolvedFamily = 'gpt-5.1'
+  else if (lower.includes('5.2')) resolvedFamily = 'gpt-5.2'
     else if (lower.includes('pro')) resolvedFamily = 'gpt-5-pro-2025-10-06'
   }
 

@@ -1,4 +1,4 @@
-# Comprehensive Cost Tracking Implementation
+﻿# Comprehensive Cost Tracking Implementation
 
 ## Overview
 Complete implementation of per-user API cost tracking across all OpenAI services used in the application. All costs are logged to the `user_api_usage` table in Supabase and displayed live to users.
@@ -133,7 +133,7 @@ const cost = calculateWhisperCost(estimatedDuration);
   id: UUID (primary key, manually generated),
   user_id: UUID (references auth.users),
   conversation_id: UUID (nullable, references conversations),
-  model: TEXT (e.g., "gpt-5.1-2025-11-13", "vector-storage", "whisper-1"),
+  model: TEXT (e.g., "gpt-5.2", "vector-storage", "whisper-1"),
   input_tokens: INTEGER (0 for non-token services),
   cached_tokens: INTEGER (0 for non-token services),
   output_tokens: INTEGER (0 for non-token services),
@@ -304,11 +304,11 @@ Potential additions (not currently implemented):
 ## Summary
 
 Comprehensive cost tracking is now implemented for:
-- ✅ All chat model completions (with flex pricing for free users)
-- ✅ Automatic title generation (GPT 5 Nano)
-- ✅ Vector storage for uploaded files
-- ✅ Audio transcription (Whisper)
-- ✅ Live cost display in UI
-- ✅ Complete database logging with proper UUIDs
+- âœ… All chat model completions (with flex pricing for free users)
+- âœ… Automatic title generation (GPT 5 Nano)
+- âœ… Vector storage for uploaded files
+- âœ… Audio transcription (Whisper)
+- âœ… Live cost display in UI
+- âœ… Complete database logging with proper UUIDs
 
 All API costs are tracked and displayed to users in real-time, providing full transparency and enabling usage-based billing or quota enforcement in the future.

@@ -1,4 +1,4 @@
-# Usage Limits Implementation
+﻿# Usage Limits Implementation
 
 ## Overview
 Comprehensive per-user monthly usage limits have been implemented to ensure profitability while providing fair access across all plan tiers. Limits are based on API costs and reset monthly.
@@ -124,15 +124,15 @@ To optimize for high volume:
 - Color-coded status:
   - Green (default): < 80% used
   - Yellow (warning): 80-100% used
-  - Red (exceeded): ≥ 100% used
+  - Red (exceeded): â‰¥ 100% used
 - Warning icon when approaching/exceeding limit
 - Auto-updates after each API call
 
 **Visual States:**
 ```
-Normal:   💵 $0.4523 / $2.00
-Warning:  ⚠️ $1.7890 / $2.00  (yellow)
-Exceeded: ⚠️ $2.0123 / $2.00  (red)
+Normal:   ðŸ’µ $0.4523 / $2.00
+Warning:  âš ï¸ $1.7890 / $2.00  (yellow)
+Exceeded: âš ï¸ $2.0123 / $2.00  (red)
 ```
 
 #### 2. Settings Modal (Enhanced)
@@ -147,15 +147,15 @@ Exceeded: ⚠️ $2.0123 / $2.00  (red)
 
 **Account Tab Layout:**
 ```
-┌─────────────────────────────────┐
-│ API Usage (This Month)          │
-│                                 │
-│ $1.2345                of $2.00 │
-│ ████████████████░░░░░░ 61.7%    │
-│ $0.7655 remaining               │
-│                                 │
-│ All-time total: $3.4567         │
-└─────────────────────────────────┘
+â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
+â”‚ API Usage (This Month)          â”‚
+â”‚                                 â”‚
+â”‚ $1.2345                of $2.00 â”‚
+â”‚ â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–‘â–‘â–‘â–‘â–‘â–‘ 61.7%    â”‚
+â”‚ $0.7655 remaining               â”‚
+â”‚                                 â”‚
+â”‚ All-time total: $3.4567         â”‚
+â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
 ```
 
 #### 3. Usage Limit Modal (New)
@@ -177,31 +177,31 @@ Exceeded: ⚠️ $2.0123 / $2.00  (red)
 
 **Example Display:**
 ```
-⚠️ Monthly Usage Limit Reached
+âš ï¸ Monthly Usage Limit Reached
 
 You've used $2.0123 of your $2.00 monthly limit
 
 Current Plan: Free
-████████████████████████ 100% used
+â–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆâ–ˆ 100% used
 
 Your free plan includes $2.00 of API usage per month.
 This resets on the 1st of each month.
 
-┌────────────────────────────────┐
-│ Upgrade to Plus                │
-│ $10 monthly API usage          │
-│                          $15   │
-│                      per month │
-└────────────────────────────────┘
+â”Œâ”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”
+â”‚ Upgrade to Plus                â”‚
+â”‚ $10 monthly API usage          â”‚
+â”‚                          $15   â”‚
+â”‚                      per month â”‚
+â””â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”˜
 
-[Close]  [View Plans →]
+[Close]  [View Plans â†’]
 
 Your usage will automatically reset on the 1st of next month
 ```
 
 ### Event System
 
-**Chat API → UI Communication:**
+**Chat API â†’ UI Communication:**
 
 1. **API Response (429):**
 ```json
@@ -266,25 +266,25 @@ await supabase
 
 ### Happy Path (Under Limit)
 1. User sends message
-2. API checks limit → ✅ Under limit
+2. API checks limit â†’ âœ… Under limit
 3. Message processed normally
 4. Cost logged to database
 5. Badge updates: "$0.1234 / $2.00"
 
 ### Warning Path (80-100%)
 1. User sends message
-2. API checks limit → ✅ Under limit (but close)
+2. API checks limit â†’ âœ… Under limit (but close)
 3. Message processed
-4. Badge turns yellow: "⚠️ $1.7890 / $2.00"
-5. Settings shows warning: "⚠️ You're approaching your monthly limit"
+4. Badge turns yellow: "âš ï¸ $1.7890 / $2.00"
+5. Settings shows warning: "âš ï¸ You're approaching your monthly limit"
 
 ### Limit Exceeded Path
 1. User sends message
-2. API checks limit → ❌ Exceeded
+2. API checks limit â†’ âŒ Exceeded
 3. API returns 429 error
 4. Modal appears: "Monthly Usage Limit Reached"
 5. User sees upgrade options
-6. Click "View Plans" → `/upgrade` page
+6. Click "View Plans" â†’ `/upgrade` page
 
 ### After Upgrade
 1. User upgrades to Plus plan
@@ -302,12 +302,12 @@ await supabase
 -- Insert fake usage to reach limit
 INSERT INTO user_api_usage (id, user_id, conversation_id, model, estimated_cost)
 VALUES 
-  (gen_random_uuid(), '<your-user-id>', '<conversation-id>', 'gpt-5.1-2025-11-13', 1.95),
-  (gen_random_uuid(), '<your-user-id>', '<conversation-id>', 'gpt-5.1-2025-11-13', 0.05);
+  (gen_random_uuid(), '<your-user-id>', '<conversation-id>', 'gpt-5.2', 1.95),
+  (gen_random_uuid(), '<your-user-id>', '<conversation-id>', 'gpt-5.2', 0.05);
 ```
 
 2. **Expected Behavior:**
-- Badge shows: "⚠️ $2.0000 / $2.00" (red)
+- Badge shows: "âš ï¸ $2.0000 / $2.00" (red)
 - Settings shows 100% progress bar
 - Next message attempt shows modal
 
@@ -315,11 +315,11 @@ VALUES
 ```sql
 -- Insert $1.70 to trigger 85% warning
 INSERT INTO user_api_usage (id, user_id, conversation_id, model, estimated_cost)
-VALUES (gen_random_uuid(), '<your-user-id>', '<conversation-id>', 'gpt-5.1-2025-11-13', 1.70);
+VALUES (gen_random_uuid(), '<your-user-id>', '<conversation-id>', 'gpt-5.2', 1.70);
 ```
 
 Expected:
-- Badge shows: "⚠️ $1.7000 / $2.00" (yellow)
+- Badge shows: "âš ï¸ $1.7000 / $2.00" (yellow)
 - Settings shows warning message
 
 ### Test Monthly Reset
@@ -339,9 +339,9 @@ WHERE user_id = '<your-user-id>';
 ### Test Plan Upgrade
 
 1. Start as free user with $1.95 spent
-2. Upgrade to Plus plan (settings → account → upgrade)
+2. Upgrade to Plus plan (settings â†’ account â†’ upgrade)
 3. Expected:
-   - Limit changes from $2.00 → $10.00
+   - Limit changes from $2.00 â†’ $10.00
    - Current spending stays $1.95
    - Remaining: $8.05
    - Can continue chatting
@@ -448,20 +448,20 @@ Prevents abuse and API quota exhaustion.
 ### Profitability Alerts
 
 **When to Adjust Limits:**
-- Free users averaging > $2.50/month → Reduce limit or conversion
-- Plus users averaging < $5/month → Can increase limit
-- Conversion rate < 10% → Limits may be too generous
-- Churn rate > 30% after limit → Limits may be too strict
+- Free users averaging > $2.50/month â†’ Reduce limit or conversion
+- Plus users averaging < $5/month â†’ Can increase limit
+- Conversion rate < 10% â†’ Limits may be too generous
+- Churn rate > 30% after limit â†’ Limits may be too strict
 
 ## Conclusion
 
 This implementation provides:
-✅ Fair, profitable limits for each tier
-✅ Transparent usage tracking for users
-✅ Clear upgrade path when limits reached
-✅ Automatic monthly reset
-✅ Protection against runaway costs
-✅ Positive user experience
+âœ… Fair, profitable limits for each tier
+âœ… Transparent usage tracking for users
+âœ… Clear upgrade path when limits reached
+âœ… Automatic monthly reset
+âœ… Protection against runaway costs
+âœ… Positive user experience
 
 **Next Steps:**
 1. Monitor usage for 30 days

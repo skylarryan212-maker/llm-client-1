@@ -1,4 +1,4 @@
-/**
+﻿/**
  * LLM-based Router for Model Selection
  * 
  * Uses GPT 5 Nano to intelligently decide which model and reasoning effort
@@ -56,12 +56,12 @@ const ROUTER_SYSTEM_PROMPT = `You are a lightweight routing assistant.
 
 You are NOT the assistant that replies to the user. You NEVER answer the user, never call tools, and never output explanations or markdown. Your ONLY job is to choose which model will answer, the reasoning effort level, and which memory categories to load or modify. Respond with ONE JSON object only.
 
-Available models: "gpt-5-nano", "gpt-5-mini", "gpt-5.1".
-Available efforts: "none" | "low" | "medium" | "high" ( "none" is ONLY allowed when model === "gpt-5.1").
+Available models: "gpt-5-nano", "gpt-5-mini", "gpt-5.2".
+Available efforts: "none" | "low" | "medium" | "high" ( "none" is ONLY allowed when model === "gpt-5.2").
 
 Your JSON response MUST have this exact shape (no extra keys):
 {
-  "model": "gpt-5-nano" | "gpt-5-mini" | "gpt-5.1",
+  "model": "gpt-5-nano" | "gpt-5-mini" | "gpt-5.2",
   "effort": "none" | "low" | "medium" | "high",
   "routedBy": string,
   "memoryTypesToLoad": string[],
@@ -75,12 +75,12 @@ Hard rules:
 1) routedBy: always set to a fixed identifier, e.g. "llm-router-v1".
 2) Model selection:
    - Default to the cheapest model that can reliably handle the request.
-   - Use "gpt-5.1" when: user explicitly asks for best/deep reasoning/5.1, the task is high-stakes (legal/medical/financial/safety), or requires very long multi-step reasoning or large-context reading.
+   - Use "gpt-5.2" when: user explicitly asks for best/deep reasoning/5.2, the task is high-stakes (legal/medical/financial/safety), or requires very long multi-step reasoning or large-context reading.
    - Use "gpt-5-mini" for non-trivial code, multi-step math, complex JSON transforms, or medium-length writing/editing that is not high-stakes.
    - Use "gpt-5-nano" for short factual answers, simple rewrites, classifications, short summaries, or tiny JSON tasks.
    - When unsure between two options, choose the cheaper model.
 3) Effort selection:
-   - "none" only with model "gpt-5.1" for trivial tasks.
+   - "none" only with model "gpt-5.2" for trivial tasks.
    - "low": simple reasoning/formatting.
    - "medium": multi-step reasoning, non-trivial code, careful analysis.
    - "high": only for clearly complex or high-stakes tasks needing detailed reasoning.
@@ -90,7 +90,7 @@ Hard rules:
 6) memoriesToDelete: only when the user clearly revokes or corrects a prior memory; include id and brief reason. If none, use [].
 7) permanentInstructionsToWrite: for stable, long-term behavior instructions the user wants in future chats. Each title should be a short stable identifier; content <= 240 chars. Maximum 2 entries.
 8) permanentInstructionsToDelete: only when the user explicitly cancels/overrides prior instructions; provide ids. If none, use [].
-9) Output rules: ONE JSON object only. No prose, no markdown, no comments. Do NOT attempt to solve the user’s task or include answer content.`;
+9) Output rules: ONE JSON object only. No prose, no markdown, no comments. Do NOT attempt to solve the userâ€™s task or include answer content.`;
 
 /**
  * Calls GPT 5 Nano to decide model and reasoning effort
@@ -108,7 +108,7 @@ export async function routeWithLLM(
       contextNote += `\nIMPORTANT: User explicitly selected "${context.userModelPreference}" - you MUST recommend this model (only decide reasoning effort).`;
     }
     if (context?.speedMode === "instant") {
-      contextNote += `\nUser selected INSTANT mode - prefer "none" (for 5.1) or "low" effort.`;
+      contextNote += `\nUser selected INSTANT mode - prefer "none" (for 5.2) or "low" effort.`;
     } else if (context?.speedMode === "thinking") {
       contextNote += `\nUser selected THINKING mode - prefer "medium" or "high" effort.`;
     }
@@ -142,7 +142,7 @@ export async function routeWithLLM(
       type: "object",
       additionalProperties: false,
       properties: {
-        model: { type: "string", enum: ["gpt-5-nano", "gpt-5-mini", "gpt-5.1"] },
+        model: { type: "string", enum: ["gpt-5-nano", "gpt-5-mini", "gpt-5.2"] },
         effort: { type: "string", enum: ["none", "low", "medium", "high"] },
         memoryTypesToLoad: {
           type: "array",
@@ -251,7 +251,7 @@ export async function routeWithLLM(
     const validModels: Array<Exclude<ModelFamily, "auto">> = [
       "gpt-5-nano",
       "gpt-5-mini",
-      "gpt-5.1",
+      "gpt-5.2",
     ];
     const validEfforts: ReasoningEffort[] = ["none", "low", "medium", "high"];
     if (!validModels.includes(parsed.model)) {
@@ -266,8 +266,8 @@ export async function routeWithLLM(
 
     // Block GPT 5 Pro
     if (parsed.model === "gpt-5-pro-2025-10-06") {
-      console.warn("[llm-router] Router tried to select GPT 5 Pro, defaulting to 5.1");
-      parsed.model = "gpt-5.1";
+      console.warn("[llm-router] Router tried to select GPT 5 Pro, defaulting to 5.2");
+      parsed.model = "gpt-5.2";
     }
 
     // Ensure Mini/Nano don't use "none" effort
@@ -342,7 +342,7 @@ const MEMORY_ANALYSIS_PROMPT = `You are a memory extraction assistant. Analyze c
 
 User: "My name is Alex and I prefer dark mode"
 Assistant: "Got it, Alex! I'll remember your preference for dark mode."
-→ WRITE:
+â†’ WRITE:
 {
   "shouldWrite": true,
   "type": "identity",
@@ -353,7 +353,7 @@ Assistant: "Got it, Alex! I'll remember your preference for dark mode."
 
 User: "I'm not a fan of verbose explanations, keep it brief"
 Assistant: "Understood, I'll keep responses concise."
-→ WRITE:
+â†’ WRITE:
 {
   "shouldWrite": true,
   "type": "preference",
@@ -364,7 +364,7 @@ Assistant: "Understood, I'll keep responses concise."
 
 User: "Never use var in JavaScript, always use const or let"
 Assistant: "Absolutely, const and let are best practices."
-→ WRITE:
+â†’ WRITE:
 {
   "shouldWrite": true,
   "type": "constraint",
@@ -375,7 +375,7 @@ Assistant: "Absolutely, const and let are best practices."
 
 User: "What's the weather today?"
 Assistant: "I don't have access to weather data."
-→ DON'T WRITE:
+â†’ DON'T WRITE:
 {
   "shouldWrite": false,
   "reasoning": "Just a question, no information about user to remember"
@@ -383,7 +383,7 @@ Assistant: "I don't have access to weather data."
 
 User: "Thanks!"
 Assistant: "You're welcome!"
-→ DON'T WRITE:
+â†’ DON'T WRITE:
 {
   "shouldWrite": false,
   "reasoning": "Just pleasantries, nothing to remember"
@@ -391,7 +391,7 @@ Assistant: "You're welcome!"
 
 User: "Can you write a Python script for me?"
 Assistant: "Sure! Here's a script..."
-→ DON'T WRITE:
+â†’ DON'T WRITE:
 {
   "shouldWrite": false,
   "reasoning": "One-time task request, not persistent information"

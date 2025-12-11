@@ -1,4 +1,4 @@
-# Model Logic Port - Implementation Summary
+﻿# Model Logic Port - Implementation Summary
 
 ## What Was Implemented
 
@@ -14,9 +14,9 @@ This implementation ports the core model selection logic from `current legacy cl
   - `pickMediumOrHigh()` - Classifier for high-complexity prompts
   - `shouldUseLightReasoning()` - Detects if light reasoning keywords present
   - `suggestSmallerModelForEffort()` - Suggests more efficient models when possible
-  - `selectGpt51AutoFamily()` - Model family selection for GPT-5.1
+  - `selectGpt51AutoFamily()` - Model family selection for gpt-5.2
 - All types exported: `ModelFamily`, `SpeedMode`, `ReasoningEffort`, `ModelConfig`
-- Uses GPT-5.1 family (not GPT-4)
+- Uses gpt-5.2 family (not GPT-4)
 - Zero changes to behavior vs legacy client
 
 #### 2. **`app/api/chat/route.ts`** (NEW)
@@ -58,11 +58,11 @@ This implementation ports the core model selection logic from `current legacy cl
 
 ## What NOT Changed
 
-- ✅ No UI components added (no model selector, no retry menu)
-- ✅ No visual regressions to chat/agents page
-- ✅ Existing conversation creation logic unchanged
-- ✅ Sidebar hydration logic intact
-- ✅ No changes to legacy client
+- âœ… No UI components added (no model selector, no retry menu)
+- âœ… No visual regressions to chat/agents page
+- âœ… Existing conversation creation logic unchanged
+- âœ… Sidebar hydration logic intact
+- âœ… No changes to legacy client
 
 ## Setup Instructions
 
@@ -98,7 +98,7 @@ Then:
 
 **Global Chat**:
 - Go to `/`
-- Type message → `/api/chat` streams response
+- Type message â†’ `/api/chat` streams response
 - User + assistant messages saved to DB
 
 **Project Chat**:
@@ -121,7 +121,7 @@ Then:
 ```json
 { "token": "hello" }
 { "token": " world" }
-{ "meta": { "assistantMessageRowId": "...", "model": "gpt-5.1-2025-11-13", "reasoningEffort": "low" } }
+{ "meta": { "assistantMessageRowId": "...", "model": "gpt-5.2", "reasoningEffort": "low" } }
 { "done": true }
 ```
 
@@ -133,7 +133,7 @@ No schema changes required. Uses existing:
 Metadata stored as JSON:
 ```json
 {
-  "model": "gpt-5.1-2025-11-13",
+  "model": "gpt-5.2",
   "reasoningEffort": "low",
   "resolvedFamily": "gpt-5-mini"
 }
@@ -155,7 +155,7 @@ Metadata stored as JSON:
    - Streaming error recovery
 
 4. **Real API Integration**:
-   - Currently using placeholder model IDs (gpt-5.1-2025-11-13, etc.)
+   - Currently using placeholder model IDs (gpt-5.2, etc.)
    - Map to actual OpenAI model names when available
 
 5. **Thinking Model Support**:
@@ -164,7 +164,7 @@ Metadata stored as JSON:
 
 ## Testing Checklist
 
-- [ ] Fresh page load → can create and send chat
+- [ ] Fresh page load â†’ can create and send chat
 - [ ] User message persisted to DB
 - [ ] Model tokens stream back
 - [ ] Assistant message persisted with metadata

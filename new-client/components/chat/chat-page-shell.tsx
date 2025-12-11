@@ -1487,7 +1487,7 @@ export default function ChatPageShell({
       retryModelFamily = "gpt-5-mini";
       retrySpeedMode = "auto";
     } else if (retryModelName === "GPT 5.1") {
-      retryModelFamily = "gpt-5.1";
+      retryModelFamily = "gpt-5.2";
       retrySpeedMode = "auto";
     } else if (retryModelName === "GPT 5 Pro") {
       retryModelFamily = "gpt-5-pro-2025-10-06";

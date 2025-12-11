@@ -5,7 +5,7 @@ export const MODEL_PRICING = {
     cached: 0,
     output: 0,
   },
-  "gpt-5.1-2025-11-13": {
+  "gpt-5.2": {
     input: 1.25,
     cached: 0.125,
     output: 10.0,

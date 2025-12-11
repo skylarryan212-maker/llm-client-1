@@ -1,4 +1,4 @@
-export const runtime = "nodejs";
+﻿export const runtime = "nodejs";
 
 import { randomUUID } from "crypto";
 import { NextResponse } from "next/server";
@@ -167,23 +167,23 @@ type ResponseMetadata = {
 const MODEL_MAP: Record<ModelKey, string> = {
   nano: "gpt-5-nano-2025-08-07",
   mini: "gpt-5-mini-2025-08-07",
-  full: "gpt-5.1-2025-11-13",
-  "codex-mini": "gpt-5.1-codex-mini",
-  "codex-full": "gpt-5.1-codex",
+  full: "gpt-5.2-2025-11-13",
+  "codex-mini": "gpt-5.2-codex-mini",
+  "codex-full": "gpt-5.2-codex",
 };
 
 const MODEL_FAMILY_TO_MODE: Record<NonAutoModelFamily, NonAutoModelMode> = {
   "gpt-5-nano": "nano",
   "gpt-5-mini": "mini",
-  "gpt-5.1": "full",
+  "gpt-5.2": "full",
   "gpt-5-pro-2025-10-06": "full",
 };
 const MODEL_KEY_TO_FAMILY: Record<ModelKey, NonAutoModelFamily> = {
   nano: "gpt-5-nano",
   mini: "gpt-5-mini",
-  full: "gpt-5.1",
-  "codex-mini": "gpt-5.1",
-  "codex-full": "gpt-5.1",
+  full: "gpt-5.2",
+  "codex-mini": "gpt-5.2",
+  "codex-full": "gpt-5.2",
 };
 
 const BASE_SYSTEM_PROMPT =
@@ -199,7 +199,7 @@ const BASE_SYSTEM_PROMPT =
 
 const CODEX_SYSTEM_PROMPT =
   "You are Codex, the professional engineering assistant inside the Codex workspace. Focus on coding, debugging, and multi-file reasoning across entire repositories.\n" +
-  "Use the Codex-tuned GPT-5.1 models to propose concrete changes with file paths, explain tradeoffs, and maintain a calm, implementation-focused tone.";
+  "Use the Codex-tuned gpt-5.2 models to propose concrete changes with file paths, explain tradeoffs, and maintain a calm, implementation-focused tone.";
 
 const FORCE_WEB_SEARCH_PROMPT =
   "The user explicitly requested live web search. Ensure you call the `web_search` tool for this turn unless it would clearly be redundant.";
@@ -446,7 +446,7 @@ function isPlaceholderTitle(value: string | null | undefined) {
 
 function normalizeGeneratedTitle(input: string | null | undefined) {
   const cleaned = (input || "")
-    .replace(/["'“”‘’]+/g, "")
+    .replace(/["'â€œâ€â€˜â€™]+/g, "")
     .replace(/[.!?,:;]+$/g, "")
     .trim();
   if (!cleaned) {
@@ -477,7 +477,7 @@ function parseSpeedMode(value: unknown): SpeedMode {
 function parseModelFamily(value: unknown): ModelFamily {
   const allowed: ModelFamily[] = [
     "auto",
-    "gpt-5.1",
+    "gpt-5.2",
     "gpt-5-mini",
     "gpt-5-nano",
     "gpt-5-pro-2025-10-06",
@@ -1355,7 +1355,7 @@ export async function POST(req: Request) {
     const previewEffort = previewConfig.reasoning?.effort ?? null;
 
     if (
-      requestedModelFamily === "gpt-5.1" &&
+      requestedModelFamily === "gpt-5.2" &&
       speedMode === "auto" &&
       previewConfig.resolvedFamily &&
       previewConfig.resolvedFamily !== targetModelFamily &&
@@ -2103,7 +2103,7 @@ function extractUrlCitations(response: OpenAIResponse): Source[] {
 function logWebSearchCall(call: WebSearchCall) {
   try {
     const serialized = JSON.stringify(call);
-    const trimmed = serialized.length > 2000 ? `${serialized.slice(0, 2000)}…` : serialized;
+    const trimmed = serialized.length > 2000 ? `${serialized.slice(0, 2000)}â€¦` : serialized;
     console.log(`[webSearchDebug] result=${trimmed}`);
   } catch (error) {
     console.log("[webSearchDebug] unable to serialize web_search result", error);

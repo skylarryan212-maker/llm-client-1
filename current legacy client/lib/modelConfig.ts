@@ -1,7 +1,7 @@
-export type SpeedMode = "auto" | "instant" | "thinking";
+﻿export type SpeedMode = "auto" | "instant" | "thinking";
 export type ModelFamily =
   | "auto"
-  | "gpt-5.1"
+  | "gpt-5.2"
   | "gpt-5-mini"
   | "gpt-5-nano"
   | "gpt-5-pro-2025-10-06";
@@ -16,7 +16,7 @@ export interface ModelConfig {
 }
 
 const MODEL_ID_MAP: Record<Exclude<ModelFamily, "auto">, string> = {
-  "gpt-5.1": "gpt-5.1-2025-11-13",
+  "gpt-5.2": "gpt-5.2-2025-11-13",
   "gpt-5-mini": "gpt-5-mini-2025-08-07",
   "gpt-5-nano": "gpt-5-nano-2025-08-07",
   "gpt-5-pro-2025-10-06": "gpt-5-pro-2025-10-06",
@@ -116,7 +116,7 @@ function autoReasoningForModelAndPrompt(
   if (/\b(plan|roadmap|design|strategy|debug)\b/i.test(normalized)) {
     return "medium";
   }
-  if (modelFamily === "gpt-5.1" && normalized.length >= LONG_PROMPT_THRESHOLD) {
+  if (modelFamily === "gpt-5.2" && normalized.length >= LONG_PROMPT_THRESHOLD) {
     return "low";
   }
   return null;
@@ -206,14 +206,14 @@ function selectGpt51AutoFamily(
     if (length < 1600 || !mentionsComplexity) {
       return "gpt-5-mini";
     }
-    return "gpt-5.1";
+    return "gpt-5.2";
   }
 
   // effort === "high"
   if (length < 900 && !mentionsComplexity) {
     return "gpt-5-mini";
   }
-  return "gpt-5.1";
+  return "gpt-5.2";
 }
 
 export function getModelAndReasoningConfig(
@@ -227,7 +227,7 @@ export function getModelAndReasoningConfig(
 
   let chosenEffort: ReasoningEffort | null = null;
   const isFullFamily =
-    resolvedFamily === "gpt-5.1" || resolvedFamily === "gpt-5-pro-2025-10-06";
+    resolvedFamily === "gpt-5.2" || resolvedFamily === "gpt-5-pro-2025-10-06";
 
   if (resolvedFamily === "gpt-5-pro-2025-10-06") {
     chosenEffort = "high";
@@ -247,7 +247,7 @@ export function getModelAndReasoningConfig(
     }
   }
 
-  if (modelFamily === "gpt-5.1" && speedMode === "auto") {
+  if (modelFamily === "gpt-5.2" && speedMode === "auto") {
     resolvedFamily = selectGpt51AutoFamily(trimmedPrompt, chosenEffort);
   }
 
@@ -271,7 +271,7 @@ export function getModelAndReasoningConfig(
 
 export function describeModelFamily(family: ModelFamily) {
   switch (family) {
-    case "gpt-5.1":
+    case "gpt-5.2":
       return "GPT 5.1";
     case "gpt-5-mini":
       return "GPT 5 Mini";

@@ -9,7 +9,7 @@ import type {
 export type SpeedMode = "auto" | "instant" | "thinking";
 export type ModelFamily =
   | "auto"
-  | "gpt-5.1"
+  | "gpt-5.2"
   | "gpt-5-mini"
   | "gpt-5-nano"
   | "gpt-5-pro-2025-10-06";
@@ -30,7 +30,7 @@ export interface ModelConfig {
 }
 
 const MODEL_ID_MAP: Record<Exclude<ModelFamily, "auto">, string> = {
-  "gpt-5.1": "gpt-5.1-2025-11-13",
+  "gpt-5.2": "gpt-5.2",
   "gpt-5-mini": "gpt-5-mini-2025-08-07",
   "gpt-5-nano": "gpt-5-nano-2025-08-07",
   "gpt-5-pro-2025-10-06": "gpt-5-pro-2025-10-06",
@@ -135,7 +135,7 @@ function autoReasoningForModelAndPrompt(
   if (/\b(plan|roadmap|design|strategy|debug)\b/i.test(normalized)) {
     return "medium";
   }
-  if (modelFamily === "gpt-5.1" && normalized.length >= LONG_PROMPT_THRESHOLD) {
+  if (modelFamily === "gpt-5.2" && normalized.length >= LONG_PROMPT_THRESHOLD) {
     return "low";
   }
   return null;
@@ -194,7 +194,7 @@ export function suggestSmallerModelForEffort(
   return null;
 }
 
-function selectGpt51AutoFamily(
+function selectGpt52AutoFamily(
   promptText: string,
   effort: ReasoningEffort | null
 ): Exclude<ModelFamily, "auto"> {
@@ -225,13 +225,13 @@ function selectGpt51AutoFamily(
     if (length < 1600 || !mentionsComplexity) {
       return "gpt-5-mini";
     }
-    return "gpt-5.1";
+    return "gpt-5.2";
   }
 
   if (length < 900 && !mentionsComplexity) {
     return "gpt-5-mini";
   }
-  return "gpt-5.1";
+  return "gpt-5.2";
 }
 
 function buildConfigFromRouterDecision(
@@ -250,7 +250,7 @@ function buildConfigFromRouterDecision(
   permanentInstructionsToDelete: PermanentInstructionToDelete[];
 } {
   const MODEL_ID_MAP_LOCAL: Record<Exclude<ModelFamily, "auto">, string> = {
-    "gpt-5.1": "gpt-5.1-2025-11-13",
+    "gpt-5.2": "gpt-5.2",
     "gpt-5-mini": "gpt-5-mini-2025-08-07",
     "gpt-5-nano": "gpt-5-nano-2025-08-07",
     "gpt-5-pro-2025-10-06": "gpt-5-pro-2025-10-06",
@@ -258,7 +258,7 @@ function buildConfigFromRouterDecision(
 
   let finalEffort = decision.effort;
   if (speedMode === "instant") {
-    const isFullModel = decision.model === "gpt-5.1" || decision.model === "gpt-5-pro-2025-10-06";
+    const isFullModel = decision.model === "gpt-5.2" || decision.model === "gpt-5-pro-2025-10-06";
     finalEffort = isFullModel ? "none" : "low";
   } else if (speedMode === "thinking") {
     if (finalEffort === "none" || finalEffort === "low") {
@@ -301,7 +301,7 @@ export function getModelAndReasoningConfig(
 
   let chosenEffort: ReasoningEffort | null = null;
   const isFullFamily =
-    resolvedFamily === "gpt-5.1" || resolvedFamily === "gpt-5-pro-2025-10-06";
+    resolvedFamily === "gpt-5.2" || resolvedFamily === "gpt-5-pro-2025-10-06";
 
   // If reasoning effort is explicitly provided, use it
   if (reasoningEffortHint) {
@@ -327,7 +327,7 @@ export function getModelAndReasoningConfig(
   // Auto-route across families when the user selected Auto model family
   // This applies to all speed modes (auto, instant, thinking)
   if (modelFamily === "auto") {
-    resolvedFamily = selectGpt51AutoFamily(trimmedPrompt, chosenEffort);
+    resolvedFamily = selectGpt52AutoFamily(trimmedPrompt, chosenEffort);
   }
 
   const model = MODEL_ID_MAP[resolvedFamily];
@@ -435,8 +435,8 @@ export async function getModelAndReasoningConfigWithLLM(
 
 export function describeModelFamily(family: ModelFamily) {
   switch (family) {
-    case "gpt-5.1":
-      return "GPT 5.1";
+    case "gpt-5.2":
+      return "GPT 5.2";
     case "gpt-5-mini":
       return "GPT 5 Mini";
     case "gpt-5-nano":
@@ -451,7 +451,7 @@ export function describeModelFamily(family: ModelFamily) {
 // Validation utilities
 export const VALID_MODEL_FAMILIES: ModelFamily[] = [
   "auto",
-  "gpt-5.1",
+  "gpt-5.2",
   "gpt-5-mini",
   "gpt-5-nano",
   "gpt-5-pro-2025-10-06",
@@ -483,29 +483,29 @@ export interface ModelSettings {
 }
 
 export function getModelSettingsFromDisplayName(displayName: string): ModelSettings {
-  // GPT 5.1 options
+  // GPT 5.2 options
   if (displayName === "Auto") return { modelFamily: "auto", speedMode: "auto" };
   if (displayName === "Instant") return { modelFamily: "auto", speedMode: "instant", reasoningEffort: "low" };
   if (displayName === "Thinking") return { modelFamily: "auto", speedMode: "thinking", reasoningEffort: "medium" };
-  
+
   // GPT 5 Nano options
   if (displayName === "GPT 5 Nano Auto") return { modelFamily: "gpt-5-nano", speedMode: "auto" };
   if (displayName === "GPT 5 Nano Instant") return { modelFamily: "gpt-5-nano", speedMode: "instant", reasoningEffort: "low" };
   if (displayName === "GPT 5 Nano Thinking") return { modelFamily: "gpt-5-nano", speedMode: "thinking", reasoningEffort: "medium" };
-  
+
   // GPT 5 Mini options
   if (displayName === "GPT 5 Mini Auto") return { modelFamily: "gpt-5-mini", speedMode: "auto" };
   if (displayName === "GPT 5 Mini Instant") return { modelFamily: "gpt-5-mini", speedMode: "instant", reasoningEffort: "low" };
   if (displayName === "GPT 5 Mini Thinking") return { modelFamily: "gpt-5-mini", speedMode: "thinking", reasoningEffort: "medium" };
-  
-  // GPT 5.1 options (explicit)
-  if (displayName === "GPT 5.1 Auto") return { modelFamily: "gpt-5.1", speedMode: "auto" };
-  if (displayName === "GPT 5.1 Instant") return { modelFamily: "gpt-5.1", speedMode: "instant", reasoningEffort: "low" };
-  if (displayName === "GPT 5.1 Thinking") return { modelFamily: "gpt-5.1", speedMode: "thinking", reasoningEffort: "medium" };
-  
-  // GPT 5 Pro (straight forward)
+
+  // GPT 5.2 options (explicit)
+  if (displayName === "GPT 5.2 Auto") return { modelFamily: "gpt-5.2", speedMode: "auto" };
+  if (displayName === "GPT 5.2 Instant") return { modelFamily: "gpt-5.2", speedMode: "instant", reasoningEffort: "low" };
+  if (displayName === "GPT 5.2 Thinking") return { modelFamily: "gpt-5.2", speedMode: "thinking", reasoningEffort: "medium" };
+
+  // GPT 5 Pro
   if (displayName === "GPT 5 Pro") return { modelFamily: "gpt-5-pro-2025-10-06", speedMode: "auto" };
-  
+
   // Default
   return { modelFamily: "auto", speedMode: "auto" };
 }

@@ -1,4 +1,4 @@
-# Testing the Model Logic Port
+﻿# Testing the Model Logic Port
 
 ## Pre-Flight Checklist
 
@@ -62,7 +62,7 @@ npm run dev
 - Check `messages` table: Assistant message metadata contains:
   ```json
   {
-    "model": "gpt-5.1-2025-11-13",
+    "model": "gpt-5.2",
     "reasoningEffort": "low" or "medium" or "high",
     "resolvedFamily": "gpt-5-mini" or "gpt-5-pro" etc
   }
@@ -116,10 +116,10 @@ Send a simple prompt:
 
 Send these in sequence and observe metadata:
 
-1. **Short factual**: `"What is Python?"` → expect LOW reasoning
-2. **Medium technical**: `"Explain async/await in JavaScript"` → expect LOW/MEDIUM
-3. **Complex design**: `"Design a rate limiter for a distributed system"` → expect MEDIUM/HIGH
-4. **Creative**: `"Write a funny limerick about debugging"` → expect LOW
+1. **Short factual**: `"What is Python?"` â†’ expect LOW reasoning
+2. **Medium technical**: `"Explain async/await in JavaScript"` â†’ expect LOW/MEDIUM
+3. **Complex design**: `"Design a rate limiter for a distributed system"` â†’ expect MEDIUM/HIGH
+4. **Creative**: `"Write a funny limerick about debugging"` â†’ expect LOW
 
 ---
 
@@ -127,7 +127,7 @@ Send these in sequence and observe metadata:
 
 ### No model tokens appearing?
 
-1. Check browser console (F12 → Console)
+1. Check browser console (F12 â†’ Console)
 2. Check Network tab: Does `/api/chat` request show in pending?
 3. Check that `OPENAI_API_KEY` is set:
    ```bash
@@ -140,7 +140,7 @@ Send these in sequence and observe metadata:
 
 1. Verify `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` are correct
 2. Check that your Supabase project allows public access to `conversations` and `messages` tables (or set up proper RLS)
-3. Check for errors in Network tab → `/api/chat` response
+3. Check for errors in Network tab â†’ `/api/chat` response
 
 ### TypeScript errors in IDE?
 
@@ -159,8 +159,8 @@ Should output: "Successfully compiled X files with tsc"
 | Model selection logic | `lib/modelConfig.ts` |
 | API endpoint | `app/api/chat/route.ts` |
 | Chat UI | `components/chat/chat-page-shell.tsx` |
-| NDJSON streaming handler | `components/chat/chat-page-shell.tsx` → `streamModelResponse()` |
-| Supabase persistence | `app/api/chat/route.ts` → message inserts |
+| NDJSON streaming handler | `components/chat/chat-page-shell.tsx` â†’ `streamModelResponse()` |
+| Supabase persistence | `app/api/chat/route.ts` â†’ message inserts |
 
 ---
 
@@ -170,7 +170,7 @@ Should output: "Successfully compiled X files with tsc"
 - **Fix**: `npm install` in new-client (installs openai ^4.80.0)
 
 **Issue**: Chat sends but nothing happens
-- **Fix**: Check `/api/chat` route is returning NDJSON format (check Network → Response tab)
+- **Fix**: Check `/api/chat` route is returning NDJSON format (check Network â†’ Response tab)
 
 **Issue**: Tokens appear but assistant message never saves
 - **Fix**: Check database insert line in `route.ts` - may need to verify Supabase RLS policies allow inserts
@@ -182,7 +182,7 @@ Should output: "Successfully compiled X files with tsc"
 
 ## Success Criteria
 
-✅ All tests pass when:
+âœ… All tests pass when:
 - [ ] New chat created and appears in sidebar (no refresh needed)
 - [ ] User message writes to Supabase
 - [ ] Model tokens stream in real-time
