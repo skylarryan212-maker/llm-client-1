@@ -59,32 +59,30 @@ function ChatInner({ params }: PageProps) {
       </header>
 
       <main className="flex-1 overflow-hidden">
-        <ScrollArea className="h-full py-4">
-          <div className="w-full px-4 sm:px-6 lg:px-12">
-            <div className="mx-auto flex w-full max-w-3xl flex-col gap-4">
-              {messages.map((msg) =>
-                msg.role === "assistant" ? (
-                  <div key={msg.id} className="px-1">
-                    <p className="text-sm leading-relaxed text-white/80">{msg.content}</p>
-                  </div>
-                ) : (
-                  <ChatMessage
-                    key={msg.id}
-                    role="user"
-                    content={msg.content}
-                    showInsightChips={false}
-                    enableEntryAnimation={false}
-                    suppressPreStreamAnimation
-                  />
-                )
-              )}
-            </div>
+        <ScrollArea className="h-full px-4 py-6 sm:px-6">
+          <div className="mx-auto flex max-w-[960px] flex-col gap-4">
+            {messages.map((msg) =>
+              msg.role === "assistant" ? (
+                <div key={msg.id} className="px-1">
+                  <p className="text-sm leading-relaxed text-white/80">{msg.content}</p>
+                </div>
+              ) : (
+                <ChatMessage
+                  key={msg.id}
+                  role="user"
+                  content={msg.content}
+                  showInsightChips={false}
+                  enableEntryAnimation={false}
+                  suppressPreStreamAnimation
+                />
+              )
+            )}
           </div>
         </ScrollArea>
       </main>
 
-      <div className="border-t border-white/10 bg-[#0f0d12] px-4 pb-4 pt-3 sm:px-6 lg:px-12">
-        <div className="mx-auto w-full max-w-3xl">
+      <div className="pointer-events-none fixed inset-x-0 bottom-0 flex justify-center pb-4">
+        <div className="pointer-events-auto w-full max-w-[960px] px-4">
           <ChatComposer onSendMessage={handleSubmit} placeholder="Message the Human Writing Agent..." />
         </div>
       </div>
