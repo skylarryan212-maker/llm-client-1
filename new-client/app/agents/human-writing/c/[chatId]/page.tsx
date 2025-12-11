@@ -65,11 +65,11 @@ function ChatInner({ params }: PageProps) {
             {messages.map((msg) => (
               <div
                 key={msg.id}
-                className={`rounded-2xl px-4 py-3 shadow-sm ring-1 ring-white/5 ${
-                  msg.role === "user" ? "bg-white/10 text-white" : "bg-white/5 text-white/90"
+                className={`rounded-2xl border border-white/8 px-4 py-3 shadow-sm ${
+                  msg.role === "user" ? "bg-white/10 text-white" : "bg-[#14131a] text-white/90"
                 }`}
               >
-                <div className="mb-1 text-[11px] uppercase tracking-[0.25em] text-white/40">
+                <div className="mb-1 text-[11px] uppercase tracking-[0.18em] text-white/40">
                   {msg.role === "user" ? "You" : "Assistant"}
                 </div>
                 <p className="leading-relaxed">{msg.content}</p>
@@ -80,18 +80,18 @@ function ChatInner({ params }: PageProps) {
       </main>
 
       <div className="pointer-events-none fixed inset-x-0 bottom-0 flex justify-center pb-4">
-        <div className="pointer-events-auto relative w-full max-w-[960px] rounded-[20px] border border-white/15 bg-[#111118]/90 p-4 shadow-[0_24px_60px_rgba(0,0,0,0.55)] backdrop-blur-2xl">
-          <Textarea
-            value={composerText}
-            onChange={(e) => setComposerText(e.target.value)}
-            placeholder="Write the next task..."
-            className="min-h-[120px] resize-none border-0 bg-transparent text-white placeholder:text-white/50 shadow-none outline-none focus-visible:ring-0"
-          />
-          <div className="absolute bottom-4 right-4">
+        <div className="pointer-events-auto relative w-full max-w-[960px] rounded-2xl border border-white/10 bg-[#111118]/85 px-4 py-3 shadow-[0_24px_60px_rgba(0,0,0,0.55)] backdrop-blur-2xl">
+          <div className="flex items-end gap-3">
+            <Textarea
+              value={composerText}
+              onChange={(e) => setComposerText(e.target.value)}
+              placeholder="Write the next task..."
+              className="min-h-[64px] max-h-[220px] flex-1 resize-none border-0 bg-transparent text-base text-white placeholder:text-white/50 shadow-none outline-none focus-visible:ring-0 focus-visible:border-0"
+            />
             <Button
               type="button"
               onClick={handleSend}
-              className={`flex h-10 w-10 items-center justify-center rounded-full text-white shadow-lg transition hover:scale-[1.03] ${
+              className={`flex h-11 w-11 items-center justify-center rounded-full text-white shadow-lg transition hover:scale-[1.03] ${
                 hasText
                   ? "bg-gradient-to-r from-amber-500 via-orange-500 to-rose-500 shadow-amber-600/40 hover:shadow-amber-600/60"
                   : "bg-white/10 text-white/60 shadow-black/30"
