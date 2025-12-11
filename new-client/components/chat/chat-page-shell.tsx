@@ -2139,11 +2139,11 @@ export default function ChatPageShell({
 
                       <DropdownMenuItem
                         className="items-center gap-3 px-3 py-2"
-                        onSelect={() => setCurrentModel("GPT 5 Pro")}
+                        onSelect={() => setCurrentModel("GPT 5.2 Pro")}
                       >
-                        <span className="flex-1">GPT 5 Pro</span>
+                        <span className="flex-1">GPT 5.2 Pro</span>
                         <span className="flex w-4 justify-end">
-                          {currentModel === "GPT 5 Pro" && (
+                          {currentModel === "GPT 5.2 Pro" && (
                             <Check className="h-4 w-4" />
                           )}
                         </span>
