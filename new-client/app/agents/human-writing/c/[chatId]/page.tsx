@@ -139,7 +139,7 @@ function ChatInner({ params }: PageProps) {
       }
 
       if (!draft.trim()) {
-        throw new Error("Draft stream returned no content");
+        draft = "Draft unavailable at the moment.";
       }
 
       setMessages((prev) => {

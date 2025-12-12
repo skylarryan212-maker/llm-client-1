@@ -131,11 +131,11 @@ export async function POST(request: NextRequest) {
               if (delta) enqueue({ token: delta });
               aggregatedDraft += delta;
             }
-            if (event.type === "response.completed") {
-              // If the stream produced no text, fall back to a non-streaming call
-              if (!aggregatedDraft.trim()) {
-                try {
-                  const fallback = await client.responses.create({
+              if (event.type === "response.completed") {
+                // If the stream produced no text, fall back to a non-streaming call
+                if (!aggregatedDraft.trim()) {
+                  try {
+                    const fallback = await client.responses.create({
                     model: "gpt-5-nano",
                     input,
                     temperature: 0.7,
@@ -150,6 +150,12 @@ export async function POST(request: NextRequest) {
                 } catch (err: any) {
                   enqueue({ error: err?.message || "draft_fallback_error" });
                 }
+              }
+
+              // If still empty, provide a minimal placeholder so downstream doesn't fail
+              if (!aggregatedDraft.trim()) {
+                aggregatedDraft = "Draft unavailable at the moment.";
+                enqueue({ token: aggregatedDraft });
               }
 
               // After streaming completes, decide CTA
