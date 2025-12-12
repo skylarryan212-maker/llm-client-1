@@ -113,7 +113,7 @@ export default function HumanWritingAgentPage() {
       </div>
 
       <div className="pointer-events-none fixed inset-x-0 bottom-0 flex justify-center pb-4">
-        <div className="pointer-events-auto relative w-full max-w-[960px] rounded-[18px] border border-white/10 bg-[#0d0c12] p-5 shadow-none">
+        <div className="pointer-events-auto relative w-full max-w-[960px] rounded-[18px] border border-white/10 bg-[#0f0d12] p-5 shadow-none">
           <Textarea
             value={composerText}
             onChange={(event) => setComposerText(event.target.value)}
@@ -124,7 +124,7 @@ export default function HumanWritingAgentPage() {
               }
             }}
             placeholder="Describe the essay or writing task..."
-            className="min-h-[180px] resize-none rounded-[14px] border border-white/10 bg-[#0d0c12] text-white placeholder:text-white/50 shadow-none outline-none ring-0 focus-visible:ring-0 focus-visible:outline-none focus-visible:border-white/20 focus-visible:shadow-none pr-32 pb-20"
+            className="min-h-[180px] resize-none rounded-[12px] border border-white/10 bg-[#0f0d12] text-white placeholder:text-white/50 shadow-none outline-none ring-0 focus-visible:ring-0 focus-visible:outline-none focus-visible:border-white/20 focus-visible:shadow-none pr-32 pb-20"
           />
 
           <div className="absolute bottom-3 right-3">
