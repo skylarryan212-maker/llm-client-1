@@ -2,64 +2,48 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
+import { callDeepInfraLlama } from "@/lib/deepInfraLlama";
 
 type DraftRequestBody = {
   prompt?: string;
   history?: Array<{ role: "user" | "assistant"; content: string }>;
 };
 
-async function decideCTA(draft: string, apiKey: string) {
-  const client = new OpenAI({ apiKey });
-  const tools = [
-    {
-      type: "function" as const,
-      name: "set_humanizer_visibility",
-      description:
-        "Decide whether to show the humanizer CTA. Only set show=true if this text is a real draft (multi-sentence, task-focused writing). If it's a greeting, meta reply, or placeholder, set show=false.",
-      parameters: {
-        type: "object",
-        properties: {
-          show: { type: "boolean", description: "Show the humanizer CTA." },
-          reason: { type: "string", description: "Short reason for the decision." },
-        },
-        required: ["show"],
-        additionalProperties: false,
-      },
-      strict: true,
+async function decideCTAWithLlama(draft: string) {
+  const schema = {
+    type: "object",
+    properties: {
+      show: { type: "boolean" },
+      reason: { type: "string" },
     },
+    required: ["show"],
+    additionalProperties: false,
+  };
+
+  const prompt = [
+    {
+      role: "system" as const,
+      content:
+        "Return JSON {\"show\": boolean, \"reason\": string?}. show=true only if this text is a substantive writing draft (multi-sentence, task-focused). If it's short, a greeting, meta text, or not a draft, set show=false.",
+    },
+    { role: "user" as const, content: draft },
   ];
 
-  const response = await client.responses.create({
-    model: "gpt-5-nano",
-    input: [
-      {
-        role: "system",
-        content:
-          "You decide if a 'Run humanizer' CTA should appear. Only set show=true if the text is a substantive writing draft (e.g., paragraphs/sentences answering a task). If it's short, a greeting, meta text, or not a draft, set show=false.",
-      },
-      { role: "user", content: draft },
-    ],
-    tools,
-    tool_choice: { type: "function", name: "set_humanizer_visibility" },
-    store: false,
-  });
-
-  let show = false;
-  let reason: string | undefined;
-
-  for (const item of response.output ?? []) {
-    if (item.type === "function_call" && item.name === "set_humanizer_visibility") {
-      try {
-        const args = JSON.parse(item.arguments || "{}");
-        if (typeof args.show === "boolean") show = args.show;
-        if (typeof args.reason === "string") reason = args.reason;
-      } catch {
-        // ignore
-      }
-    }
+  try {
+    const { text } = await callDeepInfraLlama({
+      messages: prompt,
+      schemaName: "HumanizerDecision",
+      schema,
+      enforceJson: true,
+      maxTokens: 120,
+    });
+    const parsed = JSON.parse(text || "{}");
+    const show = typeof parsed.show === "boolean" ? parsed.show : false;
+    const reason = typeof parsed.reason === "string" ? parsed.reason : undefined;
+    return { show, reason };
+  } catch (err: any) {
+    return { show: false, reason: err?.message || "decision_failed" };
   }
-
-  return { show, reason };
 }
 
 export async function POST(request: NextRequest) {
@@ -158,13 +142,9 @@ export async function POST(request: NextRequest) {
                 enqueue({ token: aggregatedDraft });
               }
 
-              // After streaming completes, decide CTA
-              try {
-                const decision = await decideCTA(aggregatedDraft, apiKey);
-                enqueue({ decision });
-              } catch (err: any) {
-                enqueue({ decision: { show: false, reason: err?.message || "decision_failed" } });
-              }
+              // After streaming completes, decide CTA using llama
+              const decision = await decideCTAWithLlama(aggregatedDraft);
+              enqueue({ decision });
               enqueue({ done: true });
             }
           }
