@@ -3,6 +3,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase/server";
 import { requireUserIdServer } from "@/lib/supabase/user";
+import { createClient } from "@supabase/supabase-js";
+import type { Database } from "@/lib/supabase/types";
 
 type LogRequest = {
   taskId: string;
@@ -24,8 +26,51 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "taskId and messages required" }, { status: 400 });
     }
 
-    const userId = await requireUserIdServer();
-    const supabase = await supabaseServer();
+    // Try cookie-based auth first
+    let userId: string | null = null;
+    let supabase = await supabaseServer();
+
+    try {
+      userId = await requireUserIdServer();
+    } catch {
+      userId = null;
+    }
+
+    // Fallback: accept a bearer token header for Supabase auth (client sends access token)
+    if (!userId) {
+      const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+      const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+      const authHeader = request.headers.get("authorization");
+      const tokenHeader = request.headers.get("x-supabase-token");
+      const accessToken =
+        (authHeader?.toLowerCase().startsWith("bearer ")
+          ? authHeader.slice(7)
+          : undefined) || tokenHeader || "";
+
+      if (!supabaseUrl || !supabaseAnonKey || !accessToken) {
+        return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+      }
+
+      const supabaseWithToken = createClient<Database>(supabaseUrl, supabaseAnonKey, {
+        auth: {
+          persistSession: false,
+          autoRefreshToken: false,
+        },
+        global: {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        },
+      });
+
+      const { data: userData, error: userError } = await supabaseWithToken.auth.getUser();
+      if (userError || !userData?.user?.id) {
+        return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+      }
+
+      userId = userData.user.id;
+      supabase = supabaseWithToken;
+    }
 
     // Find or create conversation
     const { data: existing, error: findError } = await supabase
