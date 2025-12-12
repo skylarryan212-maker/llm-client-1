@@ -1,8 +1,8 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ArrowLeft, Loader2 } from "lucide-react";
+import { ArrowDown, ArrowLeft, Loader2 } from "lucide-react";
 
 import { ChatComposer } from "@/components/chat-composer";
 import { ChatMessage } from "@/components/chat-message";
@@ -33,6 +33,9 @@ function ChatInner({ params }: PageProps) {
   const [isHumanizing, setIsHumanizing] = useState(false);
   const [activeActionId, setActiveActionId] = useState<string | null>(null);
   const [initialized, setInitialized] = useState(false);
+  const [showScrollToBottom, setShowScrollToBottom] = useState(false);
+  const [isAutoScroll, setIsAutoScroll] = useState(true);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (initialized) return;
@@ -56,6 +59,7 @@ function ChatInner({ params }: PageProps) {
   const handleSubmit = (content: string) => {
     const trimmed = content.trim();
     if (!trimmed || isDrafting || isHumanizing) return;
+    setIsAutoScroll(true);
     void startDraftFlow(trimmed);
   };
 
@@ -221,6 +225,29 @@ function ChatInner({ params }: PageProps) {
     }
   };
 
+  const scrollToBottom = (behavior: ScrollBehavior = "smooth") => {
+    const viewport = scrollRef.current;
+    if (!viewport) return;
+    viewport.scrollTo({ top: viewport.scrollHeight, behavior });
+  };
+
+  const handleScroll = () => {
+    const viewport = scrollRef.current;
+    if (!viewport) return;
+    const { scrollTop, scrollHeight, clientHeight } = viewport;
+    const distance = scrollHeight - (scrollTop + clientHeight);
+    const atBottom = distance <= 40;
+    setShowScrollToBottom(!atBottom);
+    if (!atBottom) {
+      setIsAutoScroll(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!isAutoScroll) return;
+    scrollToBottom("auto");
+  }, [messages, isAutoScroll]);
+
   return (
     <div className="flex h-screen flex-col bg-[#0f0d12] text-foreground">
       <header className="flex h-[56px] items-center gap-3 border-b border-white/10 bg-black/60 px-4 backdrop-blur">
@@ -240,7 +267,11 @@ function ChatInner({ params }: PageProps) {
 
       <div className="flex flex-1 min-h-0 flex-col">
         <main className="flex flex-1 min-h-0 flex-col overflow-hidden">
-          <div className="flex-1 min-h-0 overflow-y-auto">
+          <div
+            ref={scrollRef}
+            className="flex-1 min-h-0 overflow-y-auto"
+            onScroll={handleScroll}
+          >
             <div className="py-4">
               <div className="w-full px-4 sm:px-6 lg:px-12">
                 <div className="mx-auto flex w-full max-w-3xl flex-col gap-4">
@@ -270,9 +301,28 @@ function ChatInner({ params }: PageProps) {
                       />
                     );
                   })}
+                  <div className="h-24" aria-hidden="true" />
                 </div>
               </div>
             </div>
+            {showScrollToBottom && (
+              <div className="pointer-events-none fixed inset-x-0 bottom-[120px] z-20">
+                <div className="flex w-full justify-center">
+                  <Button
+                    type="button"
+                    size="icon"
+                    className="pointer-events-auto h-10 w-10 rounded-full border border-white/15 bg-black/60 text-white shadow-md backdrop-blur hover:bg-black/80"
+                    onClick={() => {
+                      setIsAutoScroll(true);
+                      setShowScrollToBottom(false);
+                      scrollToBottom("smooth");
+                    }}
+                  >
+                    <ArrowDown className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+            )}
           </div>
         </main>
 
