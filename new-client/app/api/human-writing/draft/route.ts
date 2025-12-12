@@ -98,7 +98,6 @@ export async function POST(request: NextRequest) {
     const responseStream = await client.responses.stream({
       model: "gpt-5-nano",
       input,
-      temperature: 0.7,
       max_output_tokens: 800,
       store: false,
     });
@@ -122,7 +121,6 @@ export async function POST(request: NextRequest) {
                     const fallback = await client.responses.create({
                       model: "gpt-5-nano",
                       input,
-                    temperature: 0.7,
                     max_output_tokens: 800,
                     store: false,
                   });
@@ -136,7 +134,6 @@ export async function POST(request: NextRequest) {
                     const promptOnly = await client.responses.create({
                       model: "gpt-5-nano",
                       input: input.slice(-2), // system + latest user
-                      temperature: 0.7,
                       max_output_tokens: 800,
                       store: false,
                     });
