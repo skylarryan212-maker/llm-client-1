@@ -85,7 +85,7 @@ function ChatInner({ params }: PageProps) {
         </ScrollArea>
       </main>
 
-      <div className="border-t border-white/10 bg-[#0f0d12] px-4 pb-4 pt-3 sm:px-6 lg:px-12">
+      <div className="bg-[#0f0d12] px-4 pb-4 pt-3 sm:px-6 lg:px-12">
         <div className="mx-auto w-full max-w-3xl">
           <ChatComposer onSendMessage={handleSubmit} placeholder="Message the Human Writing Agent..." />
         </div>
