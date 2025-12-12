@@ -132,6 +132,26 @@ export async function POST(request: NextRequest) {
               aggregatedDraft += delta;
             }
             if (event.type === "response.completed") {
+              // If the stream produced no text, fall back to a non-streaming call
+              if (!aggregatedDraft.trim()) {
+                try {
+                  const fallback = await client.responses.create({
+                    model: "gpt-5-nano",
+                    input,
+                    temperature: 0.7,
+                    max_output_tokens: 800,
+                    store: false,
+                  });
+                  const text = fallback.output_text || "";
+                  if (text) {
+                    aggregatedDraft = text;
+                    enqueue({ token: text });
+                  }
+                } catch (err: any) {
+                  enqueue({ error: err?.message || "draft_fallback_error" });
+                }
+              }
+
               // After streaming completes, decide CTA
               try {
                 const decision = await decideCTA(aggregatedDraft, apiKey);
