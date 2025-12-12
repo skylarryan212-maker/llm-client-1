@@ -130,6 +130,7 @@ export async function POST(request: NextRequest) {
                   if (text) {
                     aggregatedDraft = text;
                     enqueue({ token: text });
+                    enqueue({ fallback: "full_history" });
                   } else {
                     // Try again with prompt only (no history) as a secondary fallback
                     const promptOnly = await client.responses.create({
@@ -143,6 +144,7 @@ export async function POST(request: NextRequest) {
                     if (text2) {
                       aggregatedDraft = text2;
                       enqueue({ token: text2 });
+                      enqueue({ fallback: "prompt_only" });
                     }
                   }
                 } catch (err: any) {
@@ -165,6 +167,7 @@ export async function POST(request: NextRequest) {
             }
           }
         } catch (err: any) {
+          console.error("[human-writing][draft][stream] error:", err);
           enqueue({ error: err?.message || "draft_stream_error" });
         } finally {
           controller.close();

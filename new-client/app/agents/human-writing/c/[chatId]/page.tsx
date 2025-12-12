@@ -134,7 +134,6 @@ function ChatInner({ params }: PageProps) {
               done = true;
             }
           } catch (err) {
-            // Skip malformed lines but log for visibility
             console.warn("[draft-stream] failed to parse line", line);
           }
         }
