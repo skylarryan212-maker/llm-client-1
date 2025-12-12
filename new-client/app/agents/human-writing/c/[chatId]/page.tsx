@@ -414,8 +414,8 @@ export default function HumanWritingChatPage(props: PageProps) {
 
 function DraftingMessage({ text }: { text: string }) {
   return (
-    <div className="px-4 sm:px-6 lg:px-12">
-      <div className="mx-auto w-full max-w-3xl">
+    <div className="py-4 sm:py-6">
+      <div className="mx-auto w-full max-w-3xl px-1.5 sm:px-0">
         <p className="text-sm sm:text-base font-semibold leading-relaxed text-white/60">
           <span className="inline-block bg-[linear-gradient(90deg,rgba(120,126,140,0.9),rgba(255,255,255,0.95),rgba(120,126,140,0.9))] bg-[length:200%_100%] bg-clip-text text-transparent animate-[shimmer_1.4s_linear_infinite]">
             {text}
