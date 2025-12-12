@@ -11,24 +11,34 @@ export async function getUserTotalSpending(): Promise<number> {
     }
 
     const supabase = await supabaseServer();
-    const { data, error } = await supabase
-      .from("user_api_usage")
-      .select("estimated_cost")
-      .eq("user_id", userId);
+    const pageSize = 1000;
+    let from = 0;
+    let total = 0;
 
-    if (error) {
-      console.error("Error fetching user spending:", error);
-      return 0;
+    while (true) {
+      const { data, error } = await supabase
+        .from("user_api_usage")
+        .select("estimated_cost")
+        .eq("user_id", userId)
+        .order("created_at", { ascending: true })
+        .range(from, from + pageSize - 1);
+
+      if (error) {
+        console.error("Error fetching user spending:", error);
+        return total;
+      }
+
+      if (!data || data.length === 0) {
+        break;
+      }
+
+      total += data.reduce((sum, row) => sum + parseFloat(row.estimated_cost?.toString() || "0"), 0);
+      from += pageSize;
+
+      if (data.length < pageSize) {
+        break;
+      }
     }
-
-    if (!data || data.length === 0) {
-      return 0;
-    }
-
-    const total = data.reduce((sum, row) => {
-      const cost = parseFloat(row.estimated_cost?.toString() || "0");
-      return sum + cost;
-    }, 0);
 
     return total;
   } catch (error) {
@@ -53,32 +63,40 @@ export async function getMonthlySpending(): Promise<number> {
     console.log("[monthlySpending] Start of month (UTC):", startOfMonth.toISOString());
 
     const supabase = await supabaseServer();
-    const { data, error } = await supabase
-      .from("user_api_usage")
-      .select("estimated_cost, created_at")
-      .eq("user_id", userId)
-      .gte("created_at", startOfMonth.toISOString());
 
-    if (error) {
-      console.error("[monthlySpending] Error fetching monthly spending:", error);
-      return 0;
+    const pageSize = 1000;
+    let from = 0;
+    let total = 0;
+    let batch = 0;
+
+    while (true) {
+      const { data, error } = await supabase
+        .from("user_api_usage")
+        .select("estimated_cost, created_at")
+        .eq("user_id", userId)
+        .gte("created_at", startOfMonth.toISOString())
+        .order("created_at", { ascending: true })
+        .range(from, from + pageSize - 1);
+
+      if (error) {
+        console.error("[monthlySpending] Error fetching monthly spending:", error);
+        return total;
+      }
+
+      if (!data || data.length === 0) {
+        break;
+      }
+
+      batch += 1;
+      total += data.reduce((sum, row) => sum + parseFloat(row.estimated_cost?.toString() || "0"), 0);
+      from += pageSize;
+
+      if (data.length < pageSize) {
+        break;
+      }
     }
 
-    console.log("[monthlySpending] Found", data?.length || 0, "records");
-    if (data && data.length > 0) {
-      console.log("[monthlySpending] Sample record:", data[0]);
-    }
-
-    if (!data || data.length === 0) {
-      return 0;
-    }
-
-    const total = data.reduce((sum, row) => {
-      const cost = parseFloat(row.estimated_cost?.toString() || "0");
-      return sum + cost;
-    }, 0);
-
-    console.log("[monthlySpending] Total spending:", total);
+    console.log("[monthlySpending] Batches fetched:", batch, "Total spending:", total.toFixed(6));
     return total;
   } catch (error) {
     console.error("[monthlySpending] Error calculating monthly spending:", error);
