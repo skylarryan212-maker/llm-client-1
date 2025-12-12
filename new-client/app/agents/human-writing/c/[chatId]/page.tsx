@@ -239,50 +239,52 @@ function ChatInner({ params }: PageProps) {
         </div>
       </header>
 
-      <main className="flex-1 min-h-0 overflow-hidden">
-        <ScrollArea className="h-full">
-          <div className="py-4">
-            <div className="w-full px-4 sm:px-6 lg:px-12">
-              <div className="mx-auto flex w-full max-w-3xl flex-col gap-4">
-                {messages.map((msg) => {
-                  if (msg.kind === "cta") {
+      <div className="flex flex-1 min-h-0 flex-col">
+        <main className="flex-1 min-h-0 overflow-hidden">
+          <ScrollArea className="h-full">
+            <div className="py-4">
+              <div className="w-full px-4 sm:px-6 lg:px-12">
+                <div className="mx-auto flex w-full max-w-3xl flex-col gap-4">
+                  {messages.map((msg) => {
+                    if (msg.kind === "cta") {
+                      return (
+                        <PipelineActionMessage
+                          key={msg.id}
+                          content={msg.content}
+                          status={msg.status}
+                          disabled={isHumanizing || !msg.draftText}
+                          isRunning={isHumanizing && activeActionId === msg.id}
+                          onConfirm={() => msg.draftText && handleRunHumanizer(msg.draftText, msg.id)}
+                        />
+                      );
+                    }
+
                     return (
-                      <PipelineActionMessage
+                      <ChatMessage
                         key={msg.id}
+                        role={msg.role}
                         content={msg.content}
-                        status={msg.status}
-                        disabled={isHumanizing || !msg.draftText}
-                        isRunning={isHumanizing && activeActionId === msg.id}
-                        onConfirm={() => msg.draftText && handleRunHumanizer(msg.draftText, msg.id)}
+                        showInsightChips={false}
+                        showModelActions={false}
+                        enableEntryAnimation={false}
+                        suppressPreStreamAnimation
                       />
                     );
-                  }
-
-                  return (
-                    <ChatMessage
-                      key={msg.id}
-                      role={msg.role}
-                      content={msg.content}
-                      showInsightChips={false}
-                      showModelActions={false}
-                      enableEntryAnimation={false}
-                      suppressPreStreamAnimation
-                    />
-                  );
-                })}
+                  })}
+                </div>
               </div>
             </div>
-          </div>
-        </ScrollArea>
-      </main>
+          </ScrollArea>
+        </main>
 
-      <div className="bg-[#0f0d12] px-4 pb-4 pt-3 sm:px-6 lg:px-12">
-        <div className="mx-auto w-full max-w-3xl">
-          <ChatComposer
-            onSendMessage={handleSubmit}
-            placeholder="Send a prompt, I'll draft, then ask before running the humanizer..."
-            isStreaming={isDrafting || isHumanizing}
-          />
+        <div className="flex-none bg-[#0f0d12] px-4 pb-4 pt-3 sm:px-6 lg:px-12">
+          <div className="mx-auto w-full max-w-3xl">
+            <ChatComposer
+              onSendMessage={handleSubmit}
+              placeholder="Send a prompt, I'll draft, then ask before running the humanizer..."
+              isStreaming={isDrafting || isHumanizing}
+            />
+          </div>
         </div>
       </div>
     </div>
