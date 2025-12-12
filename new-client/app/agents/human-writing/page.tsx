@@ -33,7 +33,7 @@ export default function HumanWritingAgentPage() {
   const [returnCosts, setReturnCosts] = useState<boolean>(false);
   const [detectorMode, setDetectorMode] = useState<DetectorMode>("overall");
   const [composerText, setComposerText] = useState<string>("");
-  const [tasks] = useState<Array<{ id: string; title: string; timestamp: string }>>([]);
+  const [tasks, setTasks] = useState<Array<{ id: string; title: string; timestamp: string }>>([]);
 
   const dropdownButtonClass =
     "flex items-center justify-between gap-2 rounded-[14px] border border-white/10 bg-black/30 px-4 py-2 text-sm font-semibold text-white duration-200 hover:border-white/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400";
@@ -48,6 +48,37 @@ export default function HumanWritingAgentPage() {
     router.push(`/agents/human-writing/c/${id}?prompt=${promptParam}`);
     setComposerText("");
   };
+
+  useEffect(() => {
+    const loadTasks = async () => {
+      try {
+        const res = await fetch("/api/human-writing/tasks");
+        if (!res.ok) return;
+        const data = await res.json();
+        const items = (data?.tasks || []) as Array<{
+          id: string;
+          title: string | null;
+          created_at: string | null;
+          metadata?: Record<string, unknown> | null;
+        }>;
+        setTasks(
+          items.map((item) => {
+            const fallbackTitle =
+              (item.metadata as any)?.task_id ||
+              item.title ||
+              "Human Writing Task";
+            const ts = item.created_at
+              ? new Date(item.created_at).toLocaleString()
+              : "";
+            return { id: item.id, title: fallbackTitle, timestamp: ts };
+          })
+        );
+      } catch {
+        // ignore
+      }
+    };
+    loadTasks();
+  }, []);
 
   return (
     <div className="relative min-h-screen overflow-hidden bg-[#0f0d12] text-foreground">
