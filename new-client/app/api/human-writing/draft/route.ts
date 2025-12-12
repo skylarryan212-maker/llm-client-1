@@ -17,20 +17,33 @@ export async function POST(request: NextRequest) {
     }
 
     const apiKey = process.env.OPENAI_API_KEY;
+    const encoder = new TextEncoder();
+
+    // No key: stream a demo draft so the client still gets tokens.
     if (!apiKey) {
-      // Fallback for local testing without an API key.
       const demoDraft = `Draft (demo, no OPENAI_API_KEY set):\n\n${prompt}`;
-      return NextResponse.json({
-        draft: demoDraft,
-        model: "demo-no-api-key",
+      const readable = new ReadableStream({
+        start(controller) {
+          controller.enqueue(encoder.encode(JSON.stringify({ token: demoDraft }) + "\n"));
+          controller.enqueue(encoder.encode(JSON.stringify({ done: true }) + "\n"));
+          controller.close();
+        },
+      });
+
+      return new NextResponse(readable, {
+        headers: {
+          "Content-Type": "application/x-ndjson",
+          "Cache-Control": "no-cache",
+        },
       });
     }
 
     const client = new OpenAI({ apiKey });
-    const completion = await client.chat.completions.create({
+    const stream = await client.chat.completions.create({
       model: "gpt-4o-mini",
       temperature: 0.7,
       max_tokens: 800,
+      stream: true,
       messages: [
         {
           role: "system",
@@ -41,14 +54,31 @@ export async function POST(request: NextRequest) {
       ],
     });
 
-    const draft = completion.choices[0]?.message?.content?.trim();
-    if (!draft) {
-      throw new Error("No draft returned from model");
-    }
+    const readable = new ReadableStream({
+      async start(controller) {
+        const enqueue = (obj: Record<string, unknown>) =>
+          controller.enqueue(encoder.encode(JSON.stringify(obj) + "\n"));
+        try {
+          for await (const chunk of stream) {
+            const delta = chunk.choices?.[0]?.delta?.content;
+            if (delta) {
+              enqueue({ token: delta });
+            }
+          }
+          enqueue({ done: true });
+        } catch (err: any) {
+          enqueue({ error: err?.message || "draft_stream_error" });
+        } finally {
+          controller.close();
+        }
+      },
+    });
 
-    return NextResponse.json({
-      draft,
-      model: completion.model || "gpt-4o-mini",
+    return new NextResponse(readable, {
+      headers: {
+        "Content-Type": "application/x-ndjson",
+        "Cache-Control": "no-cache",
+      },
     });
   } catch (error: any) {
     console.error("[human-writing][draft] error:", error);

@@ -60,6 +60,14 @@ function ChatInner({ params }: PageProps) {
     void startDraftFlow(trimmed);
   };
 
+  const shouldOfferHumanizer = (text: string) => {
+    const trimmed = text.trim();
+    const words = trimmed.split(/\s+/).filter(Boolean);
+    if (words.length < 6) return false;
+    if (trimmed.length < 40) return false;
+    return true;
+  };
+
   const startDraftFlow = async (userText: string) => {
     const userId = `u-${Date.now()}`;
     const draftMsgId = `draft-${Date.now()}`;
@@ -75,6 +83,7 @@ function ChatInner({ params }: PageProps) {
     ]);
 
     setIsDrafting(true);
+    let draft = "";
     try {
       const response = await fetch("/api/human-writing/draft", {
         method: "POST",
@@ -82,16 +91,56 @@ function ChatInner({ params }: PageProps) {
         body: JSON.stringify({ prompt: userText }),
       });
 
-      const data = await response.json();
-      if (!response.ok) {
+      if (!response.ok && response.headers.get("content-type")?.includes("application/json")) {
+        const data = await response.json();
         throw new Error(data?.error || "draft_failed");
       }
 
-      const draft = data.draft as string;
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
+      if (!reader) {
+        throw new Error("No draft stream available");
+      }
+
+      let done = false;
+      while (!done) {
+        const { value, done: readerDone } = await reader.read();
+        if (readerDone) break;
+        const chunk = decoder.decode(value, { stream: true });
+        const lines = chunk.split("\n").filter((line) => line.trim().length > 0);
+        for (const line of lines) {
+          try {
+            const obj = JSON.parse(line);
+            if (obj.error) throw new Error(obj.error);
+            if (obj.token) {
+              draft += obj.token;
+              const currentDraft = draft;
+              setMessages((prev) =>
+                prev.map((msg) =>
+                  msg.id === draftMsgId ? { ...msg, content: currentDraft } : msg
+                )
+              );
+            }
+            if (obj.done) {
+              done = true;
+            }
+          } catch (err) {
+            // Skip malformed lines but log for visibility
+            console.warn("[draft-stream] failed to parse line", line);
+          }
+        }
+      }
+
+      if (!draft.trim()) {
+        throw new Error("Draft stream returned no content");
+      }
+
+      const offerHumanizer = shouldOfferHumanizer(draft);
       setMessages((prev) => {
         const updated = prev.map((msg) =>
           msg.id === draftMsgId ? { ...msg, content: draft } : msg
         );
+        if (!offerHumanizer) return updated;
         return [
           ...updated,
           {
@@ -268,7 +317,7 @@ function PipelineActionMessage({
             <Button
               type="button"
               size="sm"
-              className="bg-amber-500 text-white hover:bg-amber-600"
+              className="bg-gradient-to-r from-amber-400 via-pink-500 to-rose-500 text-white shadow-lg shadow-rose-500/30 hover:shadow-rose-500/50"
               onClick={onConfirm}
               disabled={disabled}
             >
