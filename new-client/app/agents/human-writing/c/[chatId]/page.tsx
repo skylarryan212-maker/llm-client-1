@@ -7,6 +7,7 @@ import { ArrowDown, ArrowLeft, Loader2 } from "lucide-react";
 import { ChatComposer } from "@/components/chat-composer";
 import { ChatMessage } from "@/components/chat-message";
 import { Button } from "@/components/ui/button";
+import supabaseBrowserClient from "@/lib/supabase/browser-client";
 
 interface PageProps {
   params: { chatId: string };
@@ -246,6 +247,9 @@ function ChatInner({ params }: PageProps) {
 
   const syncTranscript = async () => {
     try {
+      const { data: sessionData } = await supabaseBrowserClient.auth.getSession();
+      const token = sessionData?.session?.access_token;
+
       const payload = {
         taskId: params.chatId,
         title:
@@ -261,11 +265,15 @@ function ChatInner({ params }: PageProps) {
       };
       await fetch("/api/human-writing/log", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { "x-supabase-token": token } : {}),
+        },
+        credentials: "include",
         body: JSON.stringify(payload),
       });
-    } catch {
-      // ignore logging errors
+    } catch (err) {
+      console.warn("[human-writing][log] sync failed", err);
     }
   };
 
