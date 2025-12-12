@@ -223,7 +223,7 @@ function ChatInner({ params }: PageProps) {
   };
 
   return (
-    <div className="flex min-h-screen flex-col bg-[#0f0d12] text-foreground">
+    <div className="flex h-screen flex-col bg-[#0f0d12] text-foreground">
       <header className="flex h-[56px] items-center gap-3 border-b border-white/10 bg-black/60 px-4 backdrop-blur">
         <Button
           variant="ghost"
@@ -240,8 +240,8 @@ function ChatInner({ params }: PageProps) {
       </header>
 
       <div className="flex flex-1 min-h-0 flex-col">
-        <main className="flex-1 min-h-0 overflow-hidden">
-          <ScrollArea className="h-full">
+        <main className="flex flex-1 min-h-0 flex-col overflow-hidden">
+          <ScrollArea className="flex-1">
             <div className="py-4">
               <div className="w-full px-4 sm:px-6 lg:px-12">
                 <div className="mx-auto flex w-full max-w-3xl flex-col gap-4">
