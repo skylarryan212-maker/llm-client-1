@@ -12,7 +12,7 @@ interface PageProps {
   params: { chatId: string };
 }
 
-type MessageKind = "text" | "cta";
+type MessageKind = "text" | "cta" | "drafting";
 
 interface Message {
   id: string;
@@ -82,6 +82,7 @@ function ChatInner({ params }: PageProps) {
         id: draftMsgId,
         role: "assistant",
         content: "Drafting with the model...",
+        kind: "drafting",
       },
     ]);
 
@@ -115,15 +116,15 @@ function ChatInner({ params }: PageProps) {
           try {
             const obj = JSON.parse(line);
             if (obj.error) throw new Error(obj.error);
-            if (obj.token) {
-              draft += obj.token;
-              const currentDraft = draft;
-              setMessages((prev) =>
-                prev.map((msg) =>
-                  msg.id === draftMsgId ? { ...msg, content: currentDraft } : msg
-                )
-              );
-            }
+              if (obj.token) {
+                draft += obj.token;
+                const currentDraft = draft;
+                setMessages((prev) =>
+                  prev.map((msg) =>
+                    msg.id === draftMsgId ? { ...msg, content: currentDraft, kind: undefined } : msg
+                  )
+                );
+              }
             if (obj.done) {
               done = true;
             }
@@ -276,12 +277,16 @@ function ChatInner({ params }: PageProps) {
               <div className="w-full px-4 sm:px-6 lg:px-12">
                 <div className="mx-auto flex w-full max-w-3xl flex-col gap-4">
                   {messages.map((msg) => {
-                    if (msg.kind === "cta") {
-                      return (
-                        <PipelineActionMessage
-                          key={msg.id}
-                          content={msg.content}
-                          status={msg.status}
+                  if (msg.kind === "drafting") {
+                    return <DraftingMessage key={msg.id} text={msg.content} />;
+                  }
+
+                  if (msg.kind === "cta") {
+                    return (
+                      <PipelineActionMessage
+                        key={msg.id}
+                        content={msg.content}
+                        status={msg.status}
                           disabled={isHumanizing || !msg.draftText}
                           isRunning={isHumanizing && activeActionId === msg.id}
                           onConfirm={() => msg.draftText && handleRunHumanizer(msg.draftText, msg.id)}
@@ -393,6 +398,32 @@ export default function HumanWritingChatPage(props: PageProps) {
   return (
     <Suspense fallback={<div className="min-h-screen bg-[#0f0d12]" />}>
       <ChatInner {...props} />
+      <style jsx global>{`
+        @keyframes shimmer {
+          0% {
+            background-position: 0% 50%;
+          }
+          100% {
+            background-position: 200% 50%;
+          }
+        }
+      `}</style>
     </Suspense>
+  );
+}
+
+function DraftingMessage({ text }: { text: string }) {
+  return (
+    <div className="px-4 sm:px-6 lg:px-12">
+      <div className="mx-auto w-full max-w-3xl">
+        <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-2">
+          <span
+            className="inline-block bg-[linear-gradient(90deg,rgba(156,163,175,0.7),rgba(255,255,255,0.9),rgba(156,163,175,0.7))] bg-[length:200%_100%] bg-clip-text font-semibold text-transparent animate-[shimmer_1.6s_linear_infinite]"
+          >
+            {text}
+          </span>
+        </div>
+      </div>
+    </div>
   );
 }
