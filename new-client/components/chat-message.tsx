@@ -29,6 +29,7 @@ interface ChatMessageProps {
   isStreaming?: boolean
   enableEntryAnimation?: boolean
   suppressPreStreamAnimation?: boolean
+  showModelActions?: boolean
 }
 
 export function ChatMessage({
@@ -44,6 +45,7 @@ export function ChatMessage({
   isStreaming = false,
   enableEntryAnimation = false,
   suppressPreStreamAnimation = false,
+  showModelActions = true,
 }: ChatMessageProps) {
   const [copied, setCopied] = useState(false)
   const [retryModel, setRetryModel] = useState('')
@@ -232,7 +234,7 @@ export function ChatMessage({
                   </Button>
                 )}
                 
-                {!isGuest && displayModelName && (
+                {!isGuest && displayModelName && showModelActions && (
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                       <Button variant="ghost" size="sm" className="h-8 text-xs text-muted-foreground hover:text-foreground flex-shrink-0">

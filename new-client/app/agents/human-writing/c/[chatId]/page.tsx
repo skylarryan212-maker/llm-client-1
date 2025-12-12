@@ -264,6 +264,7 @@ function ChatInner({ params }: PageProps) {
                       role={msg.role}
                       content={msg.content}
                       showInsightChips={false}
+                      showModelActions={false}
                       enableEntryAnimation={false}
                       suppressPreStreamAnimation
                     />
