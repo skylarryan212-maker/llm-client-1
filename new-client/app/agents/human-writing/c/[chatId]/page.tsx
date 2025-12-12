@@ -7,7 +7,6 @@ import { ArrowLeft, Loader2 } from "lucide-react";
 import { ChatComposer } from "@/components/chat-composer";
 import { ChatMessage } from "@/components/chat-message";
 import { Button } from "@/components/ui/button";
-import { ScrollArea } from "@/components/ui/scroll-area";
 
 interface PageProps {
   params: { chatId: string };
@@ -241,7 +240,7 @@ function ChatInner({ params }: PageProps) {
 
       <div className="flex flex-1 min-h-0 flex-col">
         <main className="flex flex-1 min-h-0 flex-col overflow-hidden">
-          <ScrollArea className="flex-1">
+          <div className="flex-1 min-h-0 overflow-y-auto">
             <div className="py-4">
               <div className="w-full px-4 sm:px-6 lg:px-12">
                 <div className="mx-auto flex w-full max-w-3xl flex-col gap-4">
@@ -274,7 +273,7 @@ function ChatInner({ params }: PageProps) {
                 </div>
               </div>
             </div>
-          </ScrollArea>
+          </div>
         </main>
 
         <div className="flex-none bg-[#0f0d12] px-4 pb-4 pt-3 sm:px-6 lg:px-12">
