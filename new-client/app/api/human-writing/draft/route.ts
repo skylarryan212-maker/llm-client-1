@@ -58,7 +58,7 @@ export async function POST(request: NextRequest) {
 
     const client = new OpenAI({ apiKey });
     const responseStream = await client.responses.stream({
-      model: "gpt-4o-mini",
+      model: "gpt-5-nano",
       input,
       temperature: 0.7,
       max_output_tokens: 800,

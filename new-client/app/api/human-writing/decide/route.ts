@@ -43,7 +43,7 @@ export async function POST(request: NextRequest) {
     ];
 
     const response = await client.responses.create({
-      model: "gpt-4o-mini",
+      model: "gpt-5-nano",
       input: [
         {
           role: "system",
