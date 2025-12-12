@@ -85,6 +85,7 @@ function ChatInner({ params }: PageProps) {
 
     setIsDrafting(true);
     let draft = "";
+    let shouldShowCTA = false;
     try {
       const response = await fetch("/api/human-writing/draft", {
         method: "POST",
@@ -122,6 +123,11 @@ function ChatInner({ params }: PageProps) {
                   )
                 );
               }
+            if (obj.decision) {
+              if (typeof obj.decision.show === "boolean") {
+                shouldShowCTA = obj.decision.show;
+              }
+            }
             if (obj.done) {
               done = true;
             }
@@ -136,13 +142,12 @@ function ChatInner({ params }: PageProps) {
         throw new Error("Draft stream returned no content");
       }
 
-      const shouldShow = await decideHumanizer(draft);
       setMessages((prev) => {
         const updated = prev.map((msg) =>
           msg.id === draftMsgId ? { ...msg, content: draft } : msg
         );
         const next =
-          shouldShow && !updated.some((m) => m.kind === "cta")
+          shouldShowCTA && !updated.some((m) => m.kind === "cta")
             ? [
                 ...updated,
                 {
@@ -229,21 +234,6 @@ function ChatInner({ params }: PageProps) {
     }
   };
 
-  const decideHumanizer = async (draftText: string): Promise<boolean> => {
-    try {
-      const res = await fetch("/api/human-writing/decide", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ draft: draftText }),
-      });
-      if (!res.ok) return false;
-      const data = await res.json();
-      if (typeof data?.show === "boolean") return data.show;
-      return false;
-    } catch {
-      return false;
-    }
-  };
 
   const syncTranscript = async () => {
     try {
