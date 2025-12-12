@@ -63,14 +63,6 @@ function ChatInner({ params }: PageProps) {
     void startDraftFlow(trimmed);
   };
 
-  const shouldOfferHumanizer = (text: string) => {
-    const trimmed = text.trim();
-    const words = trimmed.split(/\s+/).filter(Boolean);
-    if (words.length < 6) return false;
-    if (trimmed.length < 40) return false;
-    return true;
-  };
-
   const startDraftFlow = async (userText: string) => {
     const priorMessages = messages
       .filter((m) => m.role === "user" || m.role === "assistant")
@@ -143,24 +135,25 @@ function ChatInner({ params }: PageProps) {
         throw new Error("Draft stream returned no content");
       }
 
-      const offerHumanizer = shouldOfferHumanizer(draft);
+      const shouldShow = await decideHumanizer(draft);
       setMessages((prev) => {
         const updated = prev.map((msg) =>
           msg.id === draftMsgId ? { ...msg, content: draft } : msg
         );
-        const next = offerHumanizer
-          ? [
-              ...updated,
-              {
-                id: `cta-${Date.now()}`,
-                role: "assistant",
-                content: "Draft ready. Want me to humanize it now? (no detector or loop yet)",
-                kind: "cta" as MessageKind,
-                draftText: draft,
-                status: "pending",
-              } as Message,
-            ]
-          : updated;
+        const next =
+          shouldShow && !updated.some((m) => m.kind === "cta")
+            ? [
+                ...updated,
+                {
+                  id: `cta-${Date.now()}`,
+                  role: "assistant",
+                  content: "Draft ready. Want me to humanize it now? (no detector or loop yet)",
+                  kind: "cta" as MessageKind,
+                  draftText: draft,
+                  status: "pending",
+                } as Message,
+              ]
+            : updated;
         void syncTranscript();
         return next;
       });
@@ -232,6 +225,22 @@ function ChatInner({ params }: PageProps) {
       setIsHumanizing(false);
       setActiveActionId(null);
       void syncTranscript();
+    }
+  };
+
+  const decideHumanizer = async (draftText: string): Promise<boolean> => {
+    try {
+      const res = await fetch("/api/human-writing/decide", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ draft: draftText }),
+      });
+      if (!res.ok) return true;
+      const data = await res.json();
+      if (typeof data?.show === "boolean") return data.show;
+      return true;
+    } catch {
+      return true;
     }
   };
 
