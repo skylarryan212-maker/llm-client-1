@@ -62,7 +62,7 @@ export default function HumanWritingAgentPage() {
           </Link>
         </div>
 
-        <div className="relative mx-auto w-full max-w-[1180px] overflow-hidden rounded-[20px] border border-white/6 bg-gradient-to-br from-amber-500/25 via-orange-500/15 to-rose-500/25 p-6 shadow-[0_24px_90px_-48px_rgba(0,0,0,0.6)] sm:p-8">
+        <div className="relative mx-auto w-full max-w-[960px] overflow-hidden rounded-[20px] border border-white/6 bg-gradient-to-br from-amber-500/25 via-orange-500/15 to-rose-500/25 p-6 shadow-[0_24px_90px_-48px_rgba(0,0,0,0.6)] sm:p-8">
           <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_20%_20%,rgba(255,255,255,0.08),transparent_35%),radial-gradient(circle_at_80%_0%,rgba(255,255,255,0.08),transparent_30%)]" />
           <div className="relative flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div className="flex items-start gap-3">
@@ -86,53 +86,52 @@ export default function HumanWritingAgentPage() {
         </div>
       </div>
 
-      <div className="mx-auto flex w-full max-w-[960px] justify-end px-4 pb-4 sm:px-6 lg:px-8">
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button
-              type="button"
-              className="flex items-center gap-2 rounded-full border border-white/10 bg-black/30 px-4 py-2 text-sm font-semibold text-white/80 shadow-md shadow-black/30 ring-1 ring-white/10 backdrop-blur transition hover:border-white/30 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
-            >
-              <span>Task history</span>
-              <span className="rounded-full bg-white/10 px-2 py-0.5 text-[11px] font-semibold text-white/70">{tasks.length}</span>
-              <ChevronDown className="size-4" />
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent className="w-72 space-y-3 border border-white/10 bg-[#101014]/95 p-3 shadow-lg">
-            <DropdownMenuLabel className="text-[11px] uppercase tracking-[0.25em] text-white/50">Recent tasks</DropdownMenuLabel>
-            <DropdownMenuSeparator />
-            <div className="space-y-2">
-              {tasks.length === 0 ? (
-                <p className="text-xs text-white/60">No tasks recorded yet.</p>
-              ) : (
-                tasks.map((task) => (
-                  <DropdownMenuItem key={task.id} className="text-sm text-white">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="truncate">{task.title}</span>
-                      <span className="text-[11px] text-white/60">{task.timestamp}</span>
-                    </div>
-                  </DropdownMenuItem>
-                ))
-              )}
-            </div>
-          </DropdownMenuContent>
-        </DropdownMenu>
+      <div className="mx-auto w-full max-w-[960px] px-4 sm:px-6 lg:px-8">
+        <div className="mt-6 mb-4 rounded-2xl border border-white/10 bg-white/5 p-4 shadow-inner shadow-black/20">
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className="text-sm font-semibold text-white">Task history</h2>
+            <span className="rounded-full bg-white/10 px-2 py-0.5 text-[11px] font-semibold text-white/70">{tasks.length}</span>
+          </div>
+          <div className="max-h-56 space-y-2 overflow-y-auto pr-1">
+            {tasks.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-white/10 px-3 py-4 text-center text-sm text-white/60">
+                No tasks yet. Send a task to start one.
+              </div>
+            ) : (
+              tasks.map((task) => (
+                <div
+                  key={task.id}
+                  className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm text-white/90"
+                >
+                  <span className="truncate">{task.title}</span>
+                  <span className="text-[11px] text-white/60">{task.timestamp}</span>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
       </div>
 
-      <div className="pointer-events-none fixed inset-x-0 bottom-0 flex justify-center pb-6">
-        <div className="pointer-events-auto relative w-full max-w-[960px] rounded-[22px] border border-white/20 bg-[#121217]/90 p-6 shadow-[0_40px_80px_rgba(0,0,0,0.6)] backdrop-blur-3xl">
+      <div className="pointer-events-none fixed inset-x-0 bottom-0 flex justify-center pb-4">
+        <div className="pointer-events-auto relative w-full max-w-[960px] rounded-[18px] border border-transparent bg-transparent p-4 shadow-none">
           <Textarea
             value={composerText}
             onChange={(event) => setComposerText(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && !event.shiftKey) {
+                event.preventDefault();
+                handleSend();
+              }
+            }}
             placeholder="Describe the essay or writing task..."
-            className="min-h-[200px] resize-none bg-transparent !bg-transparent text-white placeholder:text-white/50 shadow-none outline-none ring-0 border-0 focus-visible:ring-0 focus-visible:outline-none focus-visible:border-0 focus-visible:shadow-none pr-32 pb-28"
+            className="min-h-[160px] resize-none bg-transparent text-white placeholder:text-white/50 shadow-none outline-none ring-0 border-0 focus-visible:ring-0 focus-visible:outline-none focus-visible:border-0 focus-visible:shadow-none pr-32 pb-20"
           />
 
-          <div className="absolute bottom-4 right-4">
+          <div className="absolute bottom-3 right-3">
             <Button
               type="button"
               onClick={handleSend}
-              className={`flex h-11 w-11 items-center justify-center rounded-full text-white shadow-lg transition hover:scale-[1.03] ${
+              className={`flex h-11 w-11 items-center justify-center rounded-full text-white shadow-md transition hover:scale-[1.03] ${
                 hasText
                   ? "bg-gradient-to-r from-amber-500 via-orange-500 to-rose-500 shadow-amber-600/40 hover:shadow-amber-600/60"
                   : "bg-white/10 text-white/60 shadow-black/30"
@@ -142,7 +141,7 @@ export default function HumanWritingAgentPage() {
             </Button>
           </div>
 
-          <div className="absolute bottom-4 left-4 right-36 grid gap-3 sm:grid-cols-3 transition-opacity duration-200">
+          <div className="absolute bottom-3 left-3 right-36 grid gap-3 sm:grid-cols-3 transition-opacity duration-200">
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button type="button" className={dropdownButtonClass}>
