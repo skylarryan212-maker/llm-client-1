@@ -153,12 +153,12 @@ function ChatInner({ params }: PageProps) {
               ...updated,
               {
                 id: `cta-${Date.now()}`,
-                role: "assistant" as const,
+                role: "assistant",
                 content: "Draft ready. Want me to humanize it now? (no detector or loop yet)",
-                kind: "cta",
+                kind: "cta" as MessageKind,
                 draftText: draft,
                 status: "pending",
-              },
+              } as Message,
             ]
           : updated;
         void syncTranscript();
