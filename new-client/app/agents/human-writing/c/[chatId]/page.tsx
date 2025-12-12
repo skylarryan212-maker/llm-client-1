@@ -235,12 +235,12 @@ function ChatInner({ params }: PageProps) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ draft: draftText }),
       });
-      if (!res.ok) return true;
+      if (!res.ok) return false;
       const data = await res.json();
       if (typeof data?.show === "boolean") return data.show;
-      return true;
+      return false;
     } catch {
-      return true;
+      return false;
     }
   };
 

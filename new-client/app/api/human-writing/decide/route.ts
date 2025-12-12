@@ -18,7 +18,7 @@ export async function POST(request: NextRequest) {
 
     const apiKey = process.env.OPENAI_API_KEY;
     if (!apiKey) {
-      return NextResponse.json({ show: true, reason: "missing_openai_api_key_default_true" });
+      return NextResponse.json({ show: false, reason: "missing_openai_api_key_default_false" });
     }
 
     const client = new OpenAI({ apiKey });
@@ -28,7 +28,7 @@ export async function POST(request: NextRequest) {
         type: "function" as const,
         name: "set_humanizer_visibility",
         description:
-          "Decide whether to show the humanizer CTA. Call with show=true if the draft should be humanized; false if it is already human-quality.",
+          "Decide whether to show the humanizer CTA. Only set show=true if this text is a real draft (multi-sentence, task-focused writing). If it's a greeting, meta reply, or placeholder, set show=false.",
         parameters: {
           type: "object",
           properties: {
@@ -48,16 +48,16 @@ export async function POST(request: NextRequest) {
         {
           role: "system",
           content:
-            "You are deciding whether to show a 'Run humanizer' CTA. Call the tool with show=true if the draft reads AI-like or needs humanizing; show=false if it already reads natural/human.",
+            "You decide if a 'Run humanizer' CTA should appear. Only set show=true if the text is a substantive writing draft (e.g., paragraphs/sentences answering a task). If it's short, a greeting, meta text, or not a draft, set show=false.",
         },
         { role: "user", content: draft },
       ],
       tools,
-      tool_choice: "auto",
+      tool_choice: { type: "function", name: "set_humanizer_visibility" },
       store: false,
     });
 
-    let show = true;
+    let show = false;
     let reason: string | undefined;
 
     for (const item of response.output ?? []) {
@@ -76,7 +76,7 @@ export async function POST(request: NextRequest) {
   } catch (error: any) {
     console.error("[human-writing][decide] error:", error);
     return NextResponse.json(
-      { error: error?.message || "decide_failed", show: true },
+      { error: error?.message || "decide_failed", show: false },
       { status: 500 }
     );
   }
