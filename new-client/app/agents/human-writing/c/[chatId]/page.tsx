@@ -72,6 +72,10 @@ function ChatInner({ params }: PageProps) {
   };
 
   const startDraftFlow = async (userText: string) => {
+    const priorMessages = messages
+      .filter((m) => m.role === "user" || m.role === "assistant")
+      .map((m) => ({ role: m.role, content: m.content }));
+
     const userId = `u-${Date.now()}`;
     const draftMsgId = `draft-${Date.now()}`;
 
@@ -92,7 +96,7 @@ function ChatInner({ params }: PageProps) {
       const response = await fetch("/api/human-writing/draft", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: userText }),
+        body: JSON.stringify({ prompt: userText, history: priorMessages }),
       });
 
       if (!response.ok && response.headers.get("content-type")?.includes("application/json")) {

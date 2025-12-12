@@ -5,6 +5,7 @@ import OpenAI from "openai";
 
 type DraftRequestBody = {
   prompt?: string;
+  history?: Array<{ role: "user" | "assistant"; content: string }>;
 };
 
 export async function POST(request: NextRequest) {
@@ -18,6 +19,23 @@ export async function POST(request: NextRequest) {
 
     const apiKey = process.env.OPENAI_API_KEY;
     const encoder = new TextEncoder();
+
+    const history =
+      Array.isArray(body.history) && body.history.length
+        ? body.history
+            .filter((msg) => msg?.role && typeof msg.content === "string")
+            .map((msg) => ({ role: msg.role, content: msg.content.trim() }))
+        : [];
+
+    const input = [
+      {
+        role: "system" as const,
+        content:
+          "You are a concise writing assistant. Write in a natural human tone, avoid heavy formality, and deliver a single clean draft without meta commentary.",
+      },
+      ...history.map((msg) => ({ role: msg.role, content: msg.content })),
+      { role: "user" as const, content: prompt },
+    ];
 
     // No key: stream a demo draft so the client still gets tokens.
     if (!apiKey) {
@@ -39,19 +57,12 @@ export async function POST(request: NextRequest) {
     }
 
     const client = new OpenAI({ apiKey });
-    const stream = await client.chat.completions.create({
+    const responseStream = await client.responses.stream({
       model: "gpt-4o-mini",
+      input,
       temperature: 0.7,
-      max_tokens: 800,
-      stream: true,
-      messages: [
-        {
-          role: "system",
-          content:
-            "You are a concise writing assistant. Write in a natural human tone, avoid heavy formality, and deliver a single clean draft without meta commentary.",
-        },
-        { role: "user", content: prompt },
-      ],
+      max_output_tokens: 800,
+      store: false,
     });
 
     const readable = new ReadableStream({
@@ -59,13 +70,15 @@ export async function POST(request: NextRequest) {
         const enqueue = (obj: Record<string, unknown>) =>
           controller.enqueue(encoder.encode(JSON.stringify(obj) + "\n"));
         try {
-          for await (const chunk of stream) {
-            const delta = chunk.choices?.[0]?.delta?.content;
-            if (delta) {
-              enqueue({ token: delta });
+          for await (const event of responseStream) {
+            if (event.type === "response.output_text.delta") {
+              const delta = (event.delta as string) ?? "";
+              if (delta) enqueue({ token: delta });
+            }
+            if (event.type === "response.completed") {
+              enqueue({ done: true });
             }
           }
-          enqueue({ done: true });
         } catch (err: any) {
           enqueue({ error: err?.message || "draft_stream_error" });
         } finally {
