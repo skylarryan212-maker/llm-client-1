@@ -153,7 +153,7 @@ function ChatInner({ params }: PageProps) {
               ...updated,
               {
                 id: `cta-${Date.now()}`,
-                role: "assistant",
+                role: "assistant" as const,
                 content: "Draft ready. Want me to humanize it now? (no detector or loop yet)",
                 kind: "cta",
                 draftText: draft,
