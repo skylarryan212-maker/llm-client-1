@@ -93,8 +93,10 @@ function ChatInner({ params }: PageProps) {
         body: JSON.stringify({ prompt: userText, history: priorMessages }),
       });
 
-      if (!response.ok && response.headers.get("content-type")?.includes("application/json")) {
-        const data = await response.json();
+      if (!response.ok) {
+        const data = response.headers.get("content-type")?.includes("application/json")
+          ? await response.json()
+          : null;
         throw new Error(data?.error || "draft_failed");
       }
 
@@ -114,15 +116,15 @@ function ChatInner({ params }: PageProps) {
           try {
             const obj = JSON.parse(line);
             if (obj.error) throw new Error(obj.error);
-              if (obj.token) {
-                draft += obj.token;
-                const currentDraft = draft;
-                setMessages((prev) =>
-                  prev.map((msg) =>
-                    msg.id === draftMsgId ? { ...msg, content: currentDraft, kind: undefined } : msg
-                  )
-                );
-              }
+            if (obj.token) {
+              draft += obj.token;
+              const currentDraft = draft;
+              setMessages((prev) =>
+                prev.map((msg) =>
+                  msg.id === draftMsgId ? { ...msg, content: currentDraft, kind: undefined } : msg
+                )
+              );
+            }
             if (obj.decision) {
               if (typeof obj.decision.show === "boolean") {
                 shouldShowCTA = obj.decision.show;
@@ -139,7 +141,7 @@ function ChatInner({ params }: PageProps) {
       }
 
       if (!draft.trim()) {
-        draft = "Draft unavailable at the moment.";
+        throw new Error("draft_empty");
       }
 
       setMessages((prev) => {

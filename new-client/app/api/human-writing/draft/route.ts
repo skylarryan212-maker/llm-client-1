@@ -120,8 +120,8 @@ export async function POST(request: NextRequest) {
                 if (!aggregatedDraft.trim()) {
                   try {
                     const fallback = await client.responses.create({
-                    model: "gpt-5-nano",
-                    input,
+                      model: "gpt-5-nano",
+                      input,
                     temperature: 0.7,
                     max_output_tokens: 800,
                     store: false,
@@ -130,16 +130,32 @@ export async function POST(request: NextRequest) {
                   if (text) {
                     aggregatedDraft = text;
                     enqueue({ token: text });
+                  } else {
+                    // Try again with prompt only (no history) as a secondary fallback
+                    const promptOnly = await client.responses.create({
+                      model: "gpt-5-nano",
+                      input: input.slice(-2), // system + latest user
+                      temperature: 0.7,
+                      max_output_tokens: 800,
+                      store: false,
+                    });
+                    const text2 = promptOnly.output_text || "";
+                    if (text2) {
+                      aggregatedDraft = text2;
+                      enqueue({ token: text2 });
+                    }
                   }
                 } catch (err: any) {
                   enqueue({ error: err?.message || "draft_fallback_error" });
                 }
               }
 
-              // If still empty, provide a minimal placeholder so downstream doesn't fail
+              // If still empty, emit an error and stop
               if (!aggregatedDraft.trim()) {
-                aggregatedDraft = "Draft unavailable at the moment.";
-                enqueue({ token: aggregatedDraft });
+                enqueue({ error: "draft_empty" });
+                enqueue({ decision: { show: false, reason: "draft_empty" } });
+                enqueue({ done: true });
+                return;
               }
 
               // After streaming completes, decide CTA using llama
