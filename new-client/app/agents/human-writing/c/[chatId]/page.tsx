@@ -148,18 +148,21 @@ function ChatInner({ params }: PageProps) {
         const updated = prev.map((msg) =>
           msg.id === draftMsgId ? { ...msg, content: draft } : msg
         );
-        if (!offerHumanizer) return updated;
-        return [
-          ...updated,
-          {
-            id: `cta-${Date.now()}`,
-            role: "assistant",
-            content: "Draft ready. Want me to humanize it now? (no detector or loop yet)",
-            kind: "cta",
-            draftText: draft,
-            status: "pending",
-          },
-        ];
+        const next = offerHumanizer
+          ? [
+              ...updated,
+              {
+                id: `cta-${Date.now()}`,
+                role: "assistant",
+                content: "Draft ready. Want me to humanize it now? (no detector or loop yet)",
+                kind: "cta",
+                draftText: draft,
+                status: "pending",
+              },
+            ]
+          : updated;
+        void syncTranscript();
+        return next;
       });
     } catch (error: any) {
       const message = error?.message || "Unable to draft right now.";
@@ -172,6 +175,7 @@ function ChatInner({ params }: PageProps) {
       );
     } finally {
       setIsDrafting(false);
+      void syncTranscript();
     }
   };
 
@@ -227,6 +231,32 @@ function ChatInner({ params }: PageProps) {
     } finally {
       setIsHumanizing(false);
       setActiveActionId(null);
+      void syncTranscript();
+    }
+  };
+
+  const syncTranscript = async () => {
+    try {
+      const payload = {
+        taskId: params.chatId,
+        title:
+          messages.find((m) => m.role === "user")?.content?.slice(0, 120) ||
+          "Human Writing",
+        messages: messages
+          .filter((m) => m.role === "user" || m.role === "assistant")
+          .map((m) => ({
+            role: m.role,
+            content: m.content,
+            metadata: m.kind ? { kind: m.kind } : {},
+          })),
+      };
+      await fetch("/api/human-writing/log", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+    } catch {
+      // ignore logging errors
     }
   };
 
