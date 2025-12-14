@@ -110,6 +110,14 @@ export async function POST(request: NextRequest) {
         content: m.content ?? "",
       })) ?? [];
 
+    console.info("[human-writing][draft] start", {
+      userId,
+      taskId,
+      conversationId,
+      promptChars: prompt.length,
+      historyItems: historyItems.length,
+    });
+
     let inputItems = historyItems;
 
     const client = new OpenAI({ apiKey });
@@ -126,15 +134,20 @@ export async function POST(request: NextRequest) {
       return tokens;
     };
 
+    let tokensBeforeTrim = 0;
+    let tokensAfterTrim = 0;
+    let trimAttempts = 0;
+
     try {
       let tokens = countTokens(inputItems);
+      tokensBeforeTrim = tokens;
       // Hard trim from the oldest until under budget using real token counts
-      let attempts = 0;
-      while (tokens > MAX_TOKENS && inputItems.length > 1 && attempts < 200) {
+      while (tokens > MAX_TOKENS && inputItems.length > 1 && trimAttempts < 200) {
         inputItems = inputItems.slice(1);
         tokens = countTokens(inputItems);
-        attempts += 1;
+        trimAttempts += 1;
       }
+      tokensAfterTrim = tokens;
     } catch (err) {
       console.warn("[human-writing][tokens] counting failed, proceeding without trim", err);
     }
@@ -156,6 +169,7 @@ export async function POST(request: NextRequest) {
     const writer = writable.getWriter();
     const textEncoder = new TextEncoder();
     let draftText = "";
+    let deltaCount = 0;
 
     (async () => {
       try {
@@ -163,6 +177,7 @@ export async function POST(request: NextRequest) {
           if (event.type === "response.output_text.delta") {
             const delta = event.delta || "";
             if (delta) {
+              deltaCount += 1;
               draftText += delta;
               await writer.write(textEncoder.encode(JSON.stringify({ token: delta }) + "\n"));
             }
@@ -196,6 +211,18 @@ export async function POST(request: NextRequest) {
           textEncoder.encode(JSON.stringify({ error: err?.message || "draft_failed" }) + "\n")
         );
       } finally {
+        console.info("[human-writing][draft] completed", {
+          userId,
+          taskId,
+          conversationId,
+          promptChars: prompt.length,
+          historyItems: historyItems.length,
+          tokensBeforeTrim,
+          tokensAfterTrim,
+          trimAttempts,
+          emittedChars: draftText.length,
+          deltaCount,
+        });
         await writer.close();
       }
     })();
