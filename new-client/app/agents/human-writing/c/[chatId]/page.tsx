@@ -27,11 +27,7 @@ function ChatInner({ params }: PageProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const prompt = searchParams.get("prompt")?.trim() || "";
-  const pathTaskId =
-    typeof window !== "undefined"
-      ? (window.location.pathname.match(/\/agents\/human-writing\/c\/([^/?#]+)/i)?.[1] ?? null)
-      : null;
-  const [taskId, setTaskId] = useState<string>(params.chatId || pathTaskId || "unknown");
+  const taskId = params.chatId || "unknown";
 
   const [messages, setMessages] = useState<Message[]>([]);
   const [isDrafting, setIsDrafting] = useState(false);
@@ -42,14 +38,6 @@ function ChatInner({ params }: PageProps) {
   const [isAutoScroll, setIsAutoScroll] = useState(true);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const messagesRef = useRef<Message[]>([]);
-
-  useEffect(() => {
-    if (taskId !== "unknown" || typeof window === "undefined") return;
-    const pathMatch = window.location.pathname.match(/\/agents\/human-writing\/c\/([^/?#]+)/i);
-    if (pathMatch?.[1]) {
-      setTaskId(pathMatch[1]);
-    }
-  }, [taskId]);
 
   useEffect(() => {
     if (initialized) return;
