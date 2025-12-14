@@ -39,6 +39,7 @@ function ChatInner({ params }: PageProps) {
   const [activeActionId, setActiveActionId] = useState<string | null>(null);
   const [initialized, setInitialized] = useState(false);
   const [hasStarted, setHasStarted] = useState(false);
+  const hasStartedRef = useRef(false);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const [isAutoScroll, setIsAutoScroll] = useState(true);
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -69,8 +70,9 @@ function ChatInner({ params }: PageProps) {
 
       if (prompt) {
         setHasStarted(true);
+        hasStartedRef.current = true;
         void startDraftFlow(prompt);
-      } else if (!hasStarted && messagesRef.current.length === 0) {
+      } else if (!hasStartedRef.current && messagesRef.current.length === 0) {
         const initial: Message[] = [
           {
             id: "init-assistant",
@@ -97,6 +99,7 @@ function ChatInner({ params }: PageProps) {
     const trimmed = content.trim();
     if (!trimmed || isDrafting || isHumanizing) return;
     setHasStarted(true);
+    hasStartedRef.current = true;
     setIsAutoScroll(true);
     void startDraftFlow(trimmed);
   };
