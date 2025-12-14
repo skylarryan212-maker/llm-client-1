@@ -1,7 +1,7 @@
 "use client";
 
 import { Suspense, useEffect, useRef, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { ArrowDown, ArrowLeft, Loader2 } from "lucide-react";
 
 import { ChatComposer } from "@/components/chat-composer";
@@ -26,8 +26,12 @@ interface Message {
 function ChatInner({ params }: PageProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const urlParams = useParams();
   const prompt = searchParams.get("prompt")?.trim() || "";
-  const taskId = params.chatId || "unknown";
+  const taskId =
+    (typeof urlParams?.chatId === "string" && urlParams.chatId) ||
+    params.chatId ||
+    "unknown";
 
   const [messages, setMessages] = useState<Message[]>([]);
   const [isDrafting, setIsDrafting] = useState(false);
