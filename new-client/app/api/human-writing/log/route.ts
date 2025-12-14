@@ -23,6 +23,10 @@ export async function POST(request: NextRequest) {
     const { taskId, title, messages } = body;
 
     if (!taskId || !Array.isArray(messages) || messages.length === 0) {
+      console.warn("[human-writing][log] missing taskId or messages", {
+        taskId,
+        messagesCount: Array.isArray(messages) ? messages.length : "invalid",
+      });
       return NextResponse.json({ error: "taskId and messages required" }, { status: 400 });
     }
 
@@ -48,6 +52,11 @@ export async function POST(request: NextRequest) {
           : undefined) || tokenHeader || "";
 
       if (!supabaseUrl || !supabaseAnonKey || !accessToken) {
+        console.warn("[human-writing][log] auth missing", {
+          hasSupabaseUrl: Boolean(supabaseUrl),
+          hasSupabaseAnonKey: Boolean(supabaseAnonKey),
+          hasAccessToken: Boolean(accessToken),
+        });
         return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
       }
 
@@ -65,6 +74,7 @@ export async function POST(request: NextRequest) {
 
       const { data: userData, error: userError } = await supabaseWithToken.auth.getUser();
       if (userError || !userData?.user?.id) {
+        console.warn("[human-writing][log] auth token invalid", { userError });
         return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
       }
 
@@ -83,6 +93,7 @@ export async function POST(request: NextRequest) {
       .limit(1);
 
     if (findError) {
+      console.error("[human-writing][log] conversation lookup error", findError);
       throw findError;
     }
 
@@ -103,6 +114,7 @@ export async function POST(request: NextRequest) {
         .single();
 
       if (createError || !created) {
+        console.error("[human-writing][log] conversation create error", createError);
         throw createError ?? new Error("Failed to create conversation");
       }
       conversationId = created.id;
@@ -120,6 +132,7 @@ export async function POST(request: NextRequest) {
 
     const { error: insertError } = await supabase.from("messages").insert(rows);
     if (insertError) {
+      console.error("[human-writing][log] insert messages error", insertError);
       throw insertError;
     }
 
