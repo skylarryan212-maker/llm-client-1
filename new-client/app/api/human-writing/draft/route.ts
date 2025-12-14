@@ -102,7 +102,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "history_fetch_failed" }, { status: 500 });
     }
 
-    // Build input list and trim from the front if oversized (approx token-based trim to ~350k tokens)
+    // Build input list and trim/compact from the front if oversized (approx token-based to ~400k tokens)
     const historyItems =
       (messageRows ?? []).map((m) => ({
         role: m.role === "assistant" ? "assistant" : "user",
@@ -110,19 +110,55 @@ export async function POST(request: NextRequest) {
       })) ?? [];
 
     const APPROX_CHARS_PER_TOKEN = 4; // coarse estimate
-    const MAX_TOKENS = 350_000;
+    const MAX_TOKENS = 400_000;
     const MAX_CHARS = MAX_TOKENS * APPROX_CHARS_PER_TOKEN;
-    const trimmed: typeof historyItems = [];
-    let running = 0;
-    // accumulate from end backwards to keep most recent context within budget
-    for (let i = historyItems.length - 1; i >= 0; i--) {
-      const item = historyItems[i];
-      const len = item.content.length;
-      if (running + len > MAX_CHARS) break;
-      trimmed.push(item);
-      running += len;
+
+    const estimateTokens = (items: typeof historyItems) =>
+      Math.round(items.reduce((sum, i) => sum + i.content.length, 0) / APPROX_CHARS_PER_TOKEN);
+
+    let inputItems = historyItems;
+
+    if (estimateTokens(historyItems) > MAX_TOKENS) {
+      // Attempt compaction first to preserve latent context
+      try {
+        const compacted = await client.responses.compact({
+          model: "gpt-5-nano",
+          input: historyItems,
+          instructions: SYSTEM_PROMPT,
+        });
+        const compactedInput =
+          (compacted.output ?? []).map(({ id, ...rest }) => rest as any) ?? [];
+        if (estimateTokens(compactedInput) <= MAX_TOKENS) {
+          inputItems = compactedInput;
+        } else {
+          // Fallback to hard trim on compacted result
+          const trimmed: typeof historyItems = [];
+          let running = 0;
+          for (let i = compactedInput.length - 1; i >= 0; i--) {
+            const item = compactedInput[i];
+            const len = (item as any)?.content?.length ?? 0;
+            if (running + len > MAX_CHARS) break;
+            trimmed.push(item as any);
+            running += len;
+          }
+          trimmed.reverse();
+          inputItems = trimmed.length ? trimmed : compactedInput;
+        }
+      } catch (err) {
+        console.warn("[human-writing][compact] failed, falling back to trim", err);
+        const trimmed: typeof historyItems = [];
+        let running = 0;
+        for (let i = historyItems.length - 1; i >= 0; i--) {
+          const item = historyItems[i];
+          const len = item.content.length;
+          if (running + len > MAX_CHARS) break;
+          trimmed.push(item);
+          running += len;
+        }
+        trimmed.reverse();
+        inputItems = trimmed.length ? trimmed : historyItems.slice(-1);
+      }
     }
-    trimmed.reverse();
 
     const client = new OpenAI({ apiKey });
 
@@ -131,7 +167,7 @@ export async function POST(request: NextRequest) {
       stream: true,
       store: true,
       instructions: SYSTEM_PROMPT,
-      input: trimmed,
+      input: inputItems,
     });
 
     const { readable, writable } = new TransformStream();
