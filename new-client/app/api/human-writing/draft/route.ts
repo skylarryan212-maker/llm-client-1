@@ -118,17 +118,17 @@ export async function POST(request: NextRequest) {
       historyItems: historyItems.length,
     });
 
-    let inputItems = historyItems;
+    let inputItems: Array<{ role: string; content: any }> = historyItems;
 
     const client = new OpenAI({ apiKey });
 
     const MAX_TOKENS = 400_000;
     const tokenEncoder = encodingForModel("gpt-4o-mini"); // closest available for GPT-5 Nano tokenization
-    const countTokens = (items: typeof historyItems) => {
+    const countTokens = (items: Array<{ role: string; content: any }>) => {
       const tokens = items.reduce((sum, item) => {
-        const content = item.content ?? "";
+        const text = typeof item.content === "string" ? item.content : "";
         const rolePrefix = item.role === "assistant" ? "assistant: " : "user: ";
-        const encoded = tokenEncoder.encode(rolePrefix + content);
+        const encoded = tokenEncoder.encode(rolePrefix + text);
         return sum + encoded.length;
       }, 0);
       return tokens;
@@ -137,11 +137,42 @@ export async function POST(request: NextRequest) {
     let tokensBeforeTrim = 0;
     let tokensAfterTrim = 0;
     let trimAttempts = 0;
+    let compactApplied = false;
 
     try {
+      tokensBeforeTrim = countTokens(inputItems);
+
+      if (tokensBeforeTrim > MAX_TOKENS) {
+        // Attempt compaction via raw fetch (SDK typing doesn't expose compact)
+        try {
+          const compactRes = await fetch("https://api.openai.com/v1/responses/compact", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${apiKey}`,
+            },
+            body: JSON.stringify({
+              model: "gpt-5-nano",
+              input: inputItems.map((i) => ({ role: i.role, content: i.content })),
+              instructions: SYSTEM_PROMPT,
+            }),
+          });
+          if (compactRes.ok) {
+            const compactJson = await compactRes.json();
+            if (Array.isArray(compactJson?.output) && compactJson.output.length) {
+              inputItems = compactJson.output as any;
+              compactApplied = true;
+            }
+          } else {
+            console.warn("[human-writing][compact] non-200", await compactRes.text());
+          }
+        } catch (err) {
+          console.warn("[human-writing][compact] fetch failed", err);
+        }
+      }
+
+      // Hard trim from the oldest until under budget using best-effort token counts
       let tokens = countTokens(inputItems);
-      tokensBeforeTrim = tokens;
-      // Hard trim from the oldest until under budget using real token counts
       while (tokens > MAX_TOKENS && inputItems.length > 1 && trimAttempts < 200) {
         inputItems = inputItems.slice(1);
         tokens = countTokens(inputItems);
@@ -152,10 +183,7 @@ export async function POST(request: NextRequest) {
       console.warn("[human-writing][tokens] counting failed, proceeding without trim", err);
     }
 
-    const requestInput = inputItems.map((item) => ({
-      role: item.role,
-      content: item.content,
-    }));
+    const requestInput = inputItems as any;
 
     const stream = await client.responses.create({
       model: "gpt-5-nano",
