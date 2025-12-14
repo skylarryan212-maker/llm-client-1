@@ -95,29 +95,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "save_assistant_message_failed" }, { status: 500 });
     }
 
-    const encoder = new TextEncoder();
-    const readable = new ReadableStream({
-      start(controller) {
-        controller.enqueue(encoder.encode(JSON.stringify({ token: draftText }) + "\n"));
-        controller.enqueue(
-          encoder.encode(
-            JSON.stringify({
-              decision: { show: true, reason: "mock", taskId, conversationId },
-              taskId,
-              conversationId,
-            }) + "\n"
-          )
-        );
-        controller.enqueue(encoder.encode(JSON.stringify({ done: true }) + "\n"));
-        controller.close();
-      },
-    });
-
-    return new NextResponse(readable, {
-      headers: {
-        "Content-Type": "application/x-ndjson",
-        "Cache-Control": "no-cache",
-      },
+    return NextResponse.json({
+      draft: draftText,
+      decision: { show: true, reason: "mock" },
+      taskId,
+      conversationId,
     });
   } catch (error: any) {
     console.error("[human-writing][draft] error:", error);
@@ -127,4 +109,3 @@ export async function POST(request: NextRequest) {
     );
   }
 }
-

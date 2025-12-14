@@ -135,70 +135,10 @@ function ChatInner({ params }: PageProps) {
         throw new Error(data?.error || "draft_failed");
       }
 
-      const reader = response.body?.getReader();
-      const decoder = new TextDecoder();
-      if (!reader) {
-        throw new Error("No draft stream available");
-      }
-
-      let done = false;
-      let buffer = "";
-      while (!done) {
-        const { value, done: readerDone } = await reader.read();
-        if (readerDone) break;
-        buffer += decoder.decode(value, { stream: true });
-        const parts = buffer.split("\n");
-        buffer = parts.pop() ?? "";
-
-        for (const rawLine of parts) {
-          const line = rawLine.trim();
-          if (!line) continue;
-          try {
-            const obj = JSON.parse(line);
-            if (obj.error) throw new Error(obj.error);
-            if (obj.debug) {
-              debugInfo = obj.debug;
-            }
-            if (obj.token) {
-              draft += obj.token;
-              const currentDraft = draft;
-              setMessages((prev) =>
-                prev.map((msg) =>
-                  msg.id === draftMsgId ? { ...msg, content: currentDraft, kind: undefined } : msg
-                )
-              );
-            }
-            if (obj.decision) {
-              if (typeof obj.decision.show === "boolean") {
-                shouldShowCTA = obj.decision.show;
-              }
-            }
-            if (obj.done) {
-              done = true;
-            }
-          } catch (err) {
-            console.warn("[draft-stream] failed to parse line", line);
-          }
-        }
-      }
-
-      const leftover = buffer.trim();
-      if (leftover) {
-        try {
-          const obj = JSON.parse(leftover);
-          if (obj.error) throw new Error(obj.error);
-          if (obj.token) {
-            draft += obj.token;
-          }
-          if (obj.decision) {
-            if (typeof obj.decision.show === "boolean") {
-              shouldShowCTA = obj.decision.show;
-            }
-          }
-        } catch (err) {
-          console.warn("[draft-stream] failed to parse trailing buffer", leftover);
-        }
-      }
+      const data = await response.json().catch(() => null);
+      draft = data?.draft || "";
+      debugInfo = data?.debug ?? null;
+      shouldShowCTA = typeof data?.decision?.show === "boolean" ? data.decision.show : false;
 
       if (!draft.trim()) {
         const suffix = debugInfo ? ` (debug: ${JSON.stringify(debugInfo)})` : "";
@@ -209,23 +149,23 @@ function ChatInner({ params }: PageProps) {
           const updated = prev.map((msg) =>
             msg.id === draftMsgId ? { ...msg, content: draft } : msg
           );
-        const next =
-          shouldShowCTA && !updated.some((m) => m.kind === "cta")
-            ? [
-                ...updated,
-                {
-                  id: `cta-${Date.now()}`,
-                  role: "assistant",
-                  content: "Draft ready. Want me to humanize it now? (no detector or loop yet)",
-                  kind: "cta" as MessageKind,
-                  draftText: draft,
-                  status: "pending",
-                } as Message,
-              ]
-            : updated;
-        messagesRef.current = next;
-        return next;
-      });
+          const next =
+            shouldShowCTA && !updated.some((m) => m.kind === "cta")
+              ? [
+                  ...updated,
+                  {
+                    id: `cta-${Date.now()}`,
+                    role: "assistant",
+                    content: "Draft ready. Want me to humanize it now? (no detector or loop yet)",
+                    kind: "cta" as MessageKind,
+                    draftText: draft,
+                    status: "pending",
+                  } as Message,
+                ]
+              : updated;
+          messagesRef.current = next;
+          return next;
+        });
     } catch (error: any) {
       const message = error?.message || "Unable to draft right now.";
       setMessages((prev) =>
@@ -350,16 +290,16 @@ function ChatInner({ params }: PageProps) {
               <div className="w-full px-4 sm:px-6 lg:px-12">
                 <div className="mx-auto flex w-full max-w-3xl flex-col gap-4">
                   {messages.map((msg) => {
-                  if (msg.kind === "drafting") {
-                    return <DraftingMessage key={msg.id} text={msg.content} />;
-                  }
+                    if (msg.kind === "drafting") {
+                      return <DraftingMessage key={msg.id} text={msg.content} />;
+                    }
 
-                  if (msg.kind === "cta") {
-                    return (
-                      <PipelineActionMessage
-                        key={msg.id}
-                        content={msg.content}
-                        status={msg.status}
+                    if (msg.kind === "cta") {
+                      return (
+                        <PipelineActionMessage
+                          key={msg.id}
+                          content={msg.content}
+                          status={msg.status}
                           disabled={isHumanizing || !msg.draftText}
                           isRunning={isHumanizing && activeActionId === msg.id}
                           onConfirm={() => msg.draftText && handleRunHumanizer(msg.draftText, msg.id)}
