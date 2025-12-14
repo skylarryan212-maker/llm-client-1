@@ -215,6 +215,7 @@ export async function POST(request: NextRequest) {
     let incompleteReason: string | undefined;
     const eventTypeCounts: Record<string, number> = {};
     let openaiResponseId: string | null = null;
+    let firstOutputItem: any = null;
 
     const readable = new ReadableStream({
       async start(controller) {
@@ -235,6 +236,10 @@ export async function POST(request: NextRequest) {
 
             if (event.type === "response.output_item.done") {
               const item: any = (event as any)?.item;
+              if (!firstOutputItem) {
+                firstOutputItem = item;
+                enqueue({ debug_output_item: item });
+              }
               if (item?.type === "message" && Array.isArray(item.content)) {
                 const textParts = item.content
                   .filter((c: any) => c?.type === "output_text")
@@ -275,6 +280,29 @@ export async function POST(request: NextRequest) {
             }
           }
 
+          // If still empty, try a one-shot create as a hard fallback.
+          if (!aggregatedDraft.trim()) {
+            try {
+              const fallback = await client.responses.create({
+                model: "gpt-5-nano",
+                input,
+                max_output_tokens: 2400,
+                store: false,
+              });
+              const fallbackText =
+                (fallback as any)?.output_text?.trim?.() ||
+                extractOutputText((fallback as any)?.output)?.trim?.() ||
+                "";
+              if (fallbackText) {
+                aggregatedDraft = fallbackText;
+                enqueue({ token: fallbackText });
+                enqueue({ fallback: "single_call_fallback" });
+              }
+            } catch (err: any) {
+              console.error("[human-writing][draft][fallback-single] error", err);
+            }
+          }
+
           console.log("[human-writing][draft] completed", {
             promptChars: prompt.length,
             aggregatedChars: aggregatedDraft.length,
@@ -282,6 +310,7 @@ export async function POST(request: NextRequest) {
             eventTypes: eventTypeCounts,
             incompleteReason,
             finalOutputTextFromResponseChars: finalOutputTextFromResponse.length,
+            hadFallback: aggregatedDraft.trim().length > 0,
           });
 
           if (!aggregatedDraft.trim()) {
@@ -298,6 +327,7 @@ export async function POST(request: NextRequest) {
                 finalChars: finalText.length,
                 incompleteReason,
                 finalOutputTextFromResponseChars: finalOutputTextFromResponse.length,
+                firstOutputItem,
               },
             });
             enqueue({ decision: { show: false, reason: "draft_empty" } });
