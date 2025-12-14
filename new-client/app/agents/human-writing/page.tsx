@@ -152,7 +152,7 @@ export default function HumanWritingAgentPage() {
       </div>
 
         <div className="pointer-events-none fixed inset-x-0 bottom-0 flex justify-center pb-4">
-          <div className="pointer-events-auto relative w-full max-w-[960px] rounded-[18px] border border-white/12 bg-[#0f0d12] p-5 shadow-none">
+          <div className="pointer-events-auto relative w-full max-w-[960px] rounded-[18px] border border-white/8 bg-[#0f0d12] p-5 shadow-none">
             <Textarea
               value={composerText}
               onChange={(event) => setComposerText(event.target.value)}
