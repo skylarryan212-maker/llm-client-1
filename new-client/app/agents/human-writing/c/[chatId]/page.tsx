@@ -78,7 +78,7 @@ function ChatInner({ params }: PageProps) {
     const draftMsgId = `draft-${Date.now()}`;
 
     setMessages((prev) => {
-      const next = [
+      const next: Message[] = [
         ...prev,
         { id: userId, role: "user", content: userText },
         {
