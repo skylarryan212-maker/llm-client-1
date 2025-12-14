@@ -33,7 +33,7 @@ export default function HumanWritingAgentPage() {
   const [returnCosts, setReturnCosts] = useState<boolean>(false);
   const [detectorMode, setDetectorMode] = useState<DetectorMode>("overall");
   const [composerText, setComposerText] = useState<string>("");
-  const [tasks, setTasks] = useState<Array<{ id: string; title: string; timestamp: string }>>([]);
+  const [tasks, setTasks] = useState<Array<{ id: string; taskId: string; title: string; timestamp: string }>>([]);
 
   const dropdownButtonClass =
     "flex items-center justify-between gap-2 rounded-[14px] border border-white/10 bg-black/30 px-4 py-2 text-sm font-semibold text-white duration-200 hover:border-white/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400";
@@ -44,8 +44,7 @@ export default function HumanWritingAgentPage() {
     const trimmed = composerText.trim();
     if (!trimmed) return;
     const id = `hw-${Date.now()}`;
-    const promptParam = encodeURIComponent(trimmed);
-    router.push(`/agents/human-writing/c/${id}?prompt=${promptParam}`);
+    router.push(`/agents/human-writing/c/${id}`);
     setComposerText("");
   };
 
@@ -63,6 +62,7 @@ export default function HumanWritingAgentPage() {
         }>;
         setTasks(
           items.map((item) => {
+            const taskId = (item.metadata as any)?.task_id || item.id;
             const fallbackTitle =
               (item.metadata as any)?.task_id ||
               item.title ||
@@ -70,7 +70,7 @@ export default function HumanWritingAgentPage() {
             const ts = item.created_at
               ? new Date(item.created_at).toLocaleString()
               : "";
-            return { id: item.id, title: fallbackTitle, timestamp: ts };
+            return { id: item.id, taskId, title: fallbackTitle, timestamp: ts };
           })
         );
       } catch {
@@ -130,13 +130,14 @@ export default function HumanWritingAgentPage() {
               </div>
             ) : (
               tasks.map((task) => (
-                <div
+                <a
                   key={task.id}
-                  className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm text-white/90"
+                  href={`/agents/human-writing/c/${task.taskId}`}
+                  className="flex items-center justify-between gap-3 rounded-xl border border-white/10 bg-black/20 px-3 py-2 text-sm text-white/90 hover:border-white/30 hover:bg-white/5 transition"
                 >
                   <span className="truncate">{task.title}</span>
                   <span className="text-[11px] text-white/60">{task.timestamp}</span>
-                </div>
+                </a>
               ))
             )}
           </div>
