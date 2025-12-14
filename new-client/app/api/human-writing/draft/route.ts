@@ -54,6 +54,7 @@ export async function POST(request: NextRequest) {
     const prompt = body.prompt?.trim();
 
     if (!prompt) {
+      console.error("[human-writing][draft] missing prompt");
       return NextResponse.json({ error: "Prompt is required" }, { status: 400 });
     }
 
@@ -71,6 +72,7 @@ export async function POST(request: NextRequest) {
 
     // No key: stream a demo draft so the client still gets tokens.
     if (!apiKey) {
+      console.error("[human-writing][draft] Missing OPENAI_API_KEY");
       const demoDraft = `Draft (demo, no OPENAI_API_KEY set):\n\n${prompt}`;
       const readable = new ReadableStream({
         start(controller) {
@@ -108,7 +110,7 @@ export async function POST(request: NextRequest) {
               if (delta) enqueue({ token: delta });
               aggregatedDraft += delta;
             }
-              if (event.type === "response.completed") {
+            if (event.type === "response.completed") {
               if (!aggregatedDraft.trim()) {
                 try {
                   const fallback = await client.responses.create({
@@ -124,11 +126,13 @@ export async function POST(request: NextRequest) {
                     enqueue({ fallback: "single_call_fallback" });
                   }
                 } catch (err: any) {
+                  console.error("[human-writing][draft][fallback] error:", err);
                   enqueue({ error: err?.message || "draft_fallback_error" });
                 }
               }
 
               if (!aggregatedDraft.trim()) {
+                console.error("[human-writing][draft] draft_empty after fallback");
                 enqueue({ error: "draft_empty" });
                 enqueue({ decision: { show: false, reason: "draft_empty" } });
                 enqueue({ done: true });
@@ -139,6 +143,7 @@ export async function POST(request: NextRequest) {
                 const decision = await decideCTAWithLlama(aggregatedDraft, prompt);
                 enqueue({ decision });
               } catch (err: any) {
+                console.error("[human-writing][draft][decision] error:", err);
                 enqueue({ decision: { show: false, reason: err?.message || "decision_failed" } });
               }
               enqueue({ done: true });

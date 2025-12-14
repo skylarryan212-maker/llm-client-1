@@ -282,9 +282,15 @@ function ChatInner({ params }: PageProps) {
         },
         credentials: "include",
         body: JSON.stringify(payload),
+      }).then((res) => {
+        if (!res.ok) {
+          res.text().then((t) => {
+            console.warn("[human-writing][log] non-200", res.status, t);
+          });
+        }
       });
-    } catch (err) {
-      console.warn("[human-writing][log] sync failed", err);
+    } catch (err: any) {
+      console.warn("[human-writing][log] sync failed", err?.message || err);
     }
   };
 
