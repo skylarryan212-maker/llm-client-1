@@ -11,7 +11,7 @@ function isValidUuid(value: string | null | undefined) {
   return typeof value === "string" && uuidPattern.test(value);
 }
 
-export async function getConversationsForUser(options?: { projectId?: string | null }) {
+export async function getConversationsForUser(options?: { projectId?: string | null; includeHumanWriting?: boolean }) {
   const supabase = await supabaseServer();
   const userId = await requireUserIdServer();
 
@@ -20,6 +20,11 @@ export async function getConversationsForUser(options?: { projectId?: string | n
     .select("*")
     .eq("user_id", userId)
     .order("created_at", { ascending: false });
+
+  // Exclude human-writing agent chats from general lists unless explicitly requested
+  if (!options?.includeHumanWriting) {
+    query.neq("metadata->>agent", "human-writing");
+  }
 
   if (options) {
     if (options.projectId) {
