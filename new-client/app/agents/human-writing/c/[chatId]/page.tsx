@@ -37,6 +37,7 @@ function ChatInner({ params }: PageProps) {
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const [isAutoScroll, setIsAutoScroll] = useState(true);
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const messagesRef = useRef<Message[]>([]);
 
   useEffect(() => {
     if (initialized) return;
@@ -57,6 +58,10 @@ function ChatInner({ params }: PageProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [prompt, initialized]);
 
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
+
   const handleSubmit = (content: string) => {
     const trimmed = content.trim();
     if (!trimmed || isDrafting || isHumanizing) return;
@@ -72,16 +77,20 @@ function ChatInner({ params }: PageProps) {
     const userId = `u-${Date.now()}`;
     const draftMsgId = `draft-${Date.now()}`;
 
-    setMessages((prev) => [
-      ...prev,
-      { id: userId, role: "user", content: userText },
-      {
-        id: draftMsgId,
-        role: "assistant",
-        content: "Drafting with the model...",
-        kind: "drafting",
-      },
-    ]);
+    setMessages((prev) => {
+      const next = [
+        ...prev,
+        { id: userId, role: "user", content: userText },
+        {
+          id: draftMsgId,
+          role: "assistant",
+          content: "Drafting with the model...",
+          kind: "drafting",
+        },
+      ];
+      messagesRef.current = next;
+      return next;
+    });
 
     setIsDrafting(true);
     let draft = "";
@@ -161,7 +170,8 @@ function ChatInner({ params }: PageProps) {
                 } as Message,
               ]
             : updated;
-        void syncTranscript();
+        messagesRef.current = next;
+        void syncTranscript(next);
         return next;
       });
     } catch (error: any) {
@@ -175,7 +185,7 @@ function ChatInner({ params }: PageProps) {
       );
     } finally {
       setIsDrafting(false);
-      void syncTranscript();
+      void syncTranscript(messagesRef.current);
     }
   };
 
@@ -231,28 +241,33 @@ function ChatInner({ params }: PageProps) {
     } finally {
       setIsHumanizing(false);
       setActiveActionId(null);
-      void syncTranscript();
+      messagesRef.current = messagesRef.current.map((m) =>
+        m.id === actionId ? { ...m, status: "done" } : m
+      );
+      void syncTranscript(messagesRef.current);
     }
   };
 
 
-  const syncTranscript = async () => {
+  const syncTranscript = async (stateSnapshot?: Message[]) => {
     try {
       const { data: sessionData } = await supabaseBrowserClient.auth.getSession();
       const token = sessionData?.session?.access_token;
+      const snapshot = stateSnapshot ?? messagesRef.current;
+
+      const filtered = snapshot.filter((m) => m.role === "user" || m.role === "assistant");
+      if (!filtered.length) return;
 
       const payload = {
         taskId: params.chatId,
         title:
-          messages.find((m) => m.role === "user")?.content?.slice(0, 120) ||
+          filtered.find((m) => m.role === "user")?.content?.slice(0, 120) ||
           "Human Writing",
-        messages: messages
-          .filter((m) => m.role === "user" || m.role === "assistant")
-          .map((m) => ({
-            role: m.role,
-            content: m.content,
-            metadata: m.kind ? { kind: m.kind } : {},
-          })),
+        messages: filtered.map((m) => ({
+          role: m.role,
+          content: m.content,
+          metadata: m.kind ? { kind: m.kind } : {},
+        })),
       };
       await fetch("/api/human-writing/log", {
         method: "POST",

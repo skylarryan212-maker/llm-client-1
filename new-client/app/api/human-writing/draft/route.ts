@@ -158,8 +158,12 @@ export async function POST(request: NextRequest) {
               }
 
               // After streaming completes, decide CTA using llama
-              const decision = await decideCTAWithLlama(aggregatedDraft);
-              enqueue({ decision });
+              try {
+                const decision = await decideCTAWithLlama(aggregatedDraft);
+                enqueue({ decision });
+              } catch (err: any) {
+                enqueue({ decision: { show: false, reason: err?.message || "decision_failed" } });
+              }
               enqueue({ done: true });
             }
           }
