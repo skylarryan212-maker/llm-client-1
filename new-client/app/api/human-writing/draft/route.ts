@@ -10,7 +10,8 @@ type DraftRequestBody = {
 export async function POST(request: NextRequest) {
   const body = (await request.json().catch(() => ({}))) as DraftRequestBody;
   const prompt = body.prompt?.trim() || "";
-  const taskId = body.taskId?.trim() || `hw-${Date.now()}`;
+  const rawTask = body.taskId?.trim();
+  const taskId = rawTask && rawTask !== "unknown" ? rawTask : `hw-${Date.now()}`;
 
   const encoder = new TextEncoder();
   const draftText =
@@ -38,4 +39,3 @@ export async function POST(request: NextRequest) {
     },
   });
 }
-

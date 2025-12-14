@@ -4,7 +4,8 @@ import { NextRequest, NextResponse } from "next/server";
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
-  const taskId = searchParams.get("taskId") ?? null;
+  const raw = searchParams.get("taskId") ?? null;
+  const taskId = raw && raw !== "unknown" ? raw : null;
 
   return NextResponse.json({
     conversationId: taskId,
@@ -12,4 +13,3 @@ export async function GET(request: NextRequest) {
     mock: true,
   });
 }
-
