@@ -102,62 +102,53 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "history_fetch_failed" }, { status: 500 });
     }
 
-    // Build input list and trim/compact from the front if oversized (approx token-based to ~400k tokens)
+    // Build input list and trim/compact from the front if oversized (real token counting)
     const historyItems =
       (messageRows ?? []).map((m) => ({
         role: m.role === "assistant" ? "assistant" : "user",
         content: m.content ?? "",
       })) ?? [];
 
-    const APPROX_CHARS_PER_TOKEN = 4; // coarse estimate
-    const MAX_TOKENS = 400_000;
-    const MAX_CHARS = MAX_TOKENS * APPROX_CHARS_PER_TOKEN;
-
-    const estimateTokens = (items: typeof historyItems) =>
-      Math.round(items.reduce((sum, i) => sum + i.content.length, 0) / APPROX_CHARS_PER_TOKEN);
-
     let inputItems = historyItems;
 
-    if (estimateTokens(historyItems) > MAX_TOKENS) {
-      // Attempt compaction first to preserve latent context
-      try {
-        const compacted = await client.responses.compact({
-          model: "gpt-5-nano",
-          input: historyItems,
-          instructions: SYSTEM_PROMPT,
-        });
-        const compactedInput =
-          (compacted.output ?? []).map(({ id, ...rest }) => rest as any) ?? [];
-        if (estimateTokens(compactedInput) <= MAX_TOKENS) {
+    const MAX_TOKENS = 400_000;
+    const countTokens = async (items: typeof historyItems) => {
+      const res = await client.responses.inputTokens({
+        model: "gpt-5-nano",
+        input: items,
+      });
+      return res.input_tokens ?? 0;
+    };
+
+    try {
+      let tokens = await countTokens(inputItems);
+      if (tokens > MAX_TOKENS) {
+        // Attempt compaction first to preserve latent context
+        try {
+          const compacted = await client.responses.compact({
+            model: "gpt-5-nano",
+            input: inputItems,
+            instructions: SYSTEM_PROMPT,
+          });
+          const compactedInput =
+            (compacted.output ?? []).map(({ id, ...rest }) => rest as any) ?? [];
+          tokens = await countTokens(compactedInput);
           inputItems = compactedInput;
-        } else {
-          // Fallback to hard trim on compacted result
-          const trimmed: typeof historyItems = [];
-          let running = 0;
-          for (let i = compactedInput.length - 1; i >= 0; i--) {
-            const item = compactedInput[i];
-            const len = (item as any)?.content?.length ?? 0;
-            if (running + len > MAX_CHARS) break;
-            trimmed.push(item as any);
-            running += len;
-          }
-          trimmed.reverse();
-          inputItems = trimmed.length ? trimmed : compactedInput;
+        } catch (err) {
+          console.warn("[human-writing][compact] failed, falling back to trim", err);
+          // keep inputItems as is; will trim below
         }
-      } catch (err) {
-        console.warn("[human-writing][compact] failed, falling back to trim", err);
-        const trimmed: typeof historyItems = [];
-        let running = 0;
-        for (let i = historyItems.length - 1; i >= 0; i--) {
-          const item = historyItems[i];
-          const len = item.content.length;
-          if (running + len > MAX_CHARS) break;
-          trimmed.push(item);
-          running += len;
-        }
-        trimmed.reverse();
-        inputItems = trimmed.length ? trimmed : historyItems.slice(-1);
       }
+
+      // Hard trim from the oldest until under budget using real token counts
+      let attempts = 0;
+      while (tokens > MAX_TOKENS && inputItems.length > 1 && attempts < 50) {
+        inputItems = inputItems.slice(1);
+        tokens = await countTokens(inputItems);
+        attempts += 1;
+      }
+    } catch (err) {
+      console.warn("[human-writing][tokens] counting failed, proceeding without trim", err);
     }
 
     const client = new OpenAI({ apiKey });
