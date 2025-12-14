@@ -1,5 +1,5 @@
 {
   "dependencies": {
-    "js-tiktoken": "^1.0.21"
+    "tiktoken": "^1.0.22"
   }
 }

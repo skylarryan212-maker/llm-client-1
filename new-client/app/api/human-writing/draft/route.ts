@@ -4,7 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
 import { supabaseServer } from "@/lib/supabase/server";
 import { requireUserIdServer } from "@/lib/supabase/user";
-import { encoding_for_model } from "js-tiktoken";
+import { encoding_for_model } from "tiktoken";
 
 type DraftRequestBody = {
   prompt?: string;
@@ -153,6 +153,12 @@ export async function POST(request: NextRequest) {
       }
     } catch (err) {
       console.warn("[human-writing][tokens] counting failed, proceeding without trim", err);
+    } finally {
+      try {
+        encoder.free();
+      } catch {
+        // ignore
+      }
     }
 
     const client = new OpenAI({ apiKey });
