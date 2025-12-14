@@ -44,6 +44,13 @@ export default function HumanWritingAgentPage() {
     const trimmed = composerText.trim();
     if (!trimmed) return;
     const id = `hw-${Date.now()}`;
+    if (typeof window !== "undefined") {
+      try {
+        sessionStorage.setItem(`hw-init-${id}`, trimmed);
+      } catch {
+        // ignore storage failures
+      }
+    }
     router.push(`/agents/human-writing/c/${id}`);
     setComposerText("");
   };

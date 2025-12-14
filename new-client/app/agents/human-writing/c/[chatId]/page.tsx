@@ -44,11 +44,25 @@ function ChatInner({ params }: PageProps) {
   const [isAutoScroll, setIsAutoScroll] = useState(true);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const messagesRef = useRef<Message[]>([]);
+  const initialPromptRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (initialized) return;
 
     const init = async () => {
+      // Pull initial prompt from session storage (set on landing page)
+      if (typeof window !== "undefined") {
+        const stored = sessionStorage.getItem(`hw-init-${taskId}`);
+        if (stored) {
+          initialPromptRef.current = stored;
+          try {
+            sessionStorage.removeItem(`hw-init-${taskId}`);
+          } catch {
+            // ignore
+          }
+        }
+      }
+
       try {
         const res = await fetch(`/api/human-writing/history?taskId=${encodeURIComponent(taskId)}`);
         if (res.ok) {
@@ -68,10 +82,11 @@ function ChatInner({ params }: PageProps) {
         // ignore
       }
 
-      if (prompt) {
+      const bootPrompt = initialPromptRef.current || prompt;
+      if (bootPrompt) {
         setHasStarted(true);
         hasStartedRef.current = true;
-        void startDraftFlow(prompt);
+        void startDraftFlow(bootPrompt);
       } else if (!hasStartedRef.current && messagesRef.current.length === 0) {
         const initial: Message[] = [
           {
