@@ -113,11 +113,28 @@ export async function POST(request: NextRequest) {
 
     const MAX_TOKENS = 400_000;
     const countTokens = async (items: typeof historyItems) => {
-      const res = await client.responses.inputTokens({
-        model: "gpt-5-nano",
-        input: items,
-      });
-      return res.input_tokens ?? 0;
+      try {
+        const res = await fetch("https://api.openai.com/v1/responses/input_tokens", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${apiKey}`,
+          },
+          body: JSON.stringify({
+            model: "gpt-5-nano",
+            input: items,
+          }),
+        });
+        if (!res.ok) {
+          console.warn("[human-writing][tokens] input_tokens request failed", await res.text());
+          return 0;
+        }
+        const json = await res.json();
+        return json?.input_tokens ?? 0;
+      } catch (err) {
+        console.warn("[human-writing][tokens] input_tokens error", err);
+        return 0;
+      }
     };
 
     try {
