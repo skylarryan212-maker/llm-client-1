@@ -27,7 +27,11 @@ function ChatInner({ params }: PageProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const prompt = searchParams.get("prompt")?.trim() || "";
-  const [taskId, setTaskId] = useState<string>(params.chatId || "unknown");
+  const pathTaskId =
+    typeof window !== "undefined"
+      ? (window.location.pathname.match(/\/agents\/human-writing\/c\/([^/?#]+)/i)?.[1] ?? null)
+      : null;
+  const [taskId, setTaskId] = useState<string>(params.chatId || pathTaskId || "unknown");
 
   const [messages, setMessages] = useState<Message[]>([]);
   const [isDrafting, setIsDrafting] = useState(false);
