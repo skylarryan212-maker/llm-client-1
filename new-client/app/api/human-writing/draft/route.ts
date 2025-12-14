@@ -11,6 +11,23 @@ type DraftRequestBody = {
   taskId?: string;
 };
 
+function extractOutputText(outputs: any[] | undefined): string {
+  if (!outputs?.length) return "";
+  const texts: string[] = [];
+  for (const out of outputs) {
+    if (out?.type === "message" && Array.isArray(out.content)) {
+      for (const c of out.content) {
+        if (c?.type === "output_text" && typeof c.text === "string") {
+          texts.push(c.text);
+        } else if (typeof c?.text === "string") {
+          texts.push(c.text);
+        }
+      }
+    }
+  }
+  return texts.join("");
+}
+
 async function decideCTAWithLlama(draft: string, userPrompt: string) {
   const schema = {
     type: "object",
@@ -194,6 +211,7 @@ export async function POST(request: NextRequest) {
 
     let aggregatedDraft = "";
     let lastOutputTextFromItems = "";
+    let finalOutputTextFromResponse = "";
     let incompleteReason: string | undefined;
     const eventTypeCounts: Record<string, number> = {};
     let openaiResponseId: string | null = null;
@@ -243,13 +261,14 @@ export async function POST(request: NextRequest) {
             const finalResponse = await responseStream.finalResponse();
             finalText = (finalResponse as any)?.output_text ?? "";
             finalResponseId = (finalResponse as any)?.id ?? null;
+            finalOutputTextFromResponse = extractOutputText((finalResponse as any)?.output);
           } catch (err: any) {
             console.error("[human-writing][draft] finalResponse() failed:", err);
           }
           openaiResponseId = finalResponseId;
 
           if (!aggregatedDraft.trim()) {
-            const fallbackText = lastOutputTextFromItems || finalText;
+            const fallbackText = lastOutputTextFromItems || finalOutputTextFromResponse || finalText;
             if (fallbackText?.trim()) {
               aggregatedDraft = fallbackText;
               enqueue({ token: fallbackText });
@@ -262,6 +281,7 @@ export async function POST(request: NextRequest) {
             finalChars: finalText.length,
             eventTypes: eventTypeCounts,
             incompleteReason,
+            finalOutputTextFromResponseChars: finalOutputTextFromResponse.length,
           });
 
           if (!aggregatedDraft.trim()) {
@@ -269,10 +289,16 @@ export async function POST(request: NextRequest) {
               eventTypes: eventTypeCounts,
               finalChars: finalText.length,
               incompleteReason,
+              finalOutputTextFromResponseChars: finalOutputTextFromResponse.length,
             });
             enqueue({ error: "draft_empty" });
             enqueue({
-              debug: { eventTypes: eventTypeCounts, finalChars: finalText.length, incompleteReason },
+              debug: {
+                eventTypes: eventTypeCounts,
+                finalChars: finalText.length,
+                incompleteReason,
+                finalOutputTextFromResponseChars: finalOutputTextFromResponse.length,
+              },
             });
             enqueue({ decision: { show: false, reason: "draft_empty" } });
             enqueue({ done: true });
