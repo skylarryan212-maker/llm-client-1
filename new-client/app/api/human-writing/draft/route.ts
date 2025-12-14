@@ -102,14 +102,16 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "history_fetch_failed" }, { status: 500 });
     }
 
-    // Build input list and trim from the front if oversized (rough char-based trim to ~350k)
+    // Build input list and trim from the front if oversized (approx token-based trim to ~350k tokens)
     const historyItems =
       (messageRows ?? []).map((m) => ({
         role: m.role === "assistant" ? "assistant" : "user",
         content: m.content ?? "",
       })) ?? [];
 
-    const MAX_CHARS = 350_000;
+    const APPROX_CHARS_PER_TOKEN = 4; // coarse estimate
+    const MAX_TOKENS = 350_000;
+    const MAX_CHARS = MAX_TOKENS * APPROX_CHARS_PER_TOKEN;
     const trimmed: typeof historyItems = [];
     let running = 0;
     // accumulate from end backwards to keep most recent context within budget
