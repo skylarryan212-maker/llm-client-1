@@ -156,10 +156,67 @@ function ChatInner({ params }: PageProps) {
         throw new Error(data?.error || "draft_failed");
       }
 
-      const data = await response.json().catch(() => null);
-      draft = data?.draft || "";
-      debugInfo = data?.debug ?? null;
-      shouldShowCTA = typeof data?.decision?.show === "boolean" ? data.decision.show : false;
+      const reader = response.body?.getReader();
+      const decoder = new TextDecoder();
+
+      if (reader) {
+        let buffer = "";
+        let done = false;
+        while (!done) {
+          const { value, done: readerDone } = await reader.read();
+          if (readerDone) break;
+          buffer += decoder.decode(value, { stream: true });
+          const parts = buffer.split("\n");
+          buffer = parts.pop() ?? "";
+
+          for (const rawLine of parts) {
+            const line = rawLine.trim();
+            if (!line) continue;
+            try {
+              const obj = JSON.parse(line);
+              if (obj.error) throw new Error(obj.error);
+              if (obj.token) {
+                draft += obj.token;
+                const currentDraft = draft;
+                setMessages((prev) =>
+                  prev.map((msg) =>
+                    msg.id === draftMsgId ? { ...msg, content: currentDraft, kind: undefined } : msg
+                  )
+                );
+              }
+              if (obj.decision && typeof obj.decision.show === "boolean") {
+                shouldShowCTA = obj.decision.show;
+              }
+              if (obj.done) {
+                done = true;
+              }
+            } catch (err) {
+              console.warn("[draft-stream] failed to parse line", line);
+            }
+          }
+        }
+
+        const leftover = buffer.trim();
+        if (leftover) {
+          try {
+            const obj = JSON.parse(leftover);
+            if (obj.error) throw new Error(obj.error);
+            if (obj.token) {
+              draft += obj.token;
+            }
+            if (obj.decision && typeof obj.decision.show === "boolean") {
+              shouldShowCTA = obj.decision.show;
+            }
+          } catch (err) {
+            console.warn("[draft-stream] failed to parse trailing buffer", leftover);
+          }
+        }
+      } else {
+        const data = await response.json().catch(() => null);
+        draft = data?.draft || "";
+        debugInfo = data?.debug ?? null;
+        shouldShowCTA = typeof data?.decision?.show === "boolean" ? data.decision.show : false;
+      }
 
       if (!draft.trim()) {
         const suffix = debugInfo ? ` (debug: ${JSON.stringify(debugInfo)})` : "";

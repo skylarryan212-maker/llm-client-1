@@ -1,6 +1,7 @@
 "use server";
 
 import { NextRequest, NextResponse } from "next/server";
+import OpenAI from "openai";
 import { supabaseServer } from "@/lib/supabase/server";
 import { requireUserIdServer } from "@/lib/supabase/user";
 
@@ -8,6 +9,13 @@ type DraftRequestBody = {
   prompt?: string;
   taskId?: string;
 };
+
+const SYSTEM_PROMPT = [
+  "You are a concise human writing assistant.",
+  "Write directly to the user's request with clear, natural language.",
+  "Do not talk about being an AI. Do not add meta comments.",
+  "Keep it focused, readable, and practical.",
+].join(" ");
 
 export async function POST(request: NextRequest) {
   try {
@@ -20,6 +28,11 @@ export async function POST(request: NextRequest) {
     }
     if (!taskId) {
       return NextResponse.json({ error: "taskId is required" }, { status: 400 });
+    }
+
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) {
+      return NextResponse.json({ error: "Missing OPENAI_API_KEY" }, { status: 500 });
     }
 
     const supabase = await supabaseServer();
@@ -77,29 +90,76 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "save_user_message_failed" }, { status: 500 });
     }
 
-    // Mock draft generation
-    const draftText = `Mock draft for "${prompt}" (task ${taskId}). This is placeholder text only.`;
+    const client = new OpenAI({ apiKey });
 
-    // Insert assistant message
-    const { error: insertAssistantError } = await supabase.from("messages").insert([
-      {
-        user_id: userId,
-        conversation_id: conversationId,
-        role: "assistant",
-        content: draftText,
-        metadata: { agent: "human-writing", kind: "draft" },
+    const stream = await client.responses.create({
+      model: "gpt-5-nano",
+      stream: true,
+      store: false,
+      instructions: SYSTEM_PROMPT,
+      input: [
+        {
+          role: "user",
+          content: prompt,
+        },
+      ],
+    });
+
+    const { readable, writable } = new TransformStream();
+    const writer = writable.getWriter();
+    const encoder = new TextEncoder();
+    let draftText = "";
+
+    (async () => {
+      try {
+        for await (const event of stream) {
+          if (event.type === "response.output_text.delta") {
+            const delta = event.delta || "";
+            if (delta) {
+              draftText += delta;
+              await writer.write(encoder.encode(JSON.stringify({ token: delta }) + "\n"));
+            }
+          }
+        }
+
+        if (draftText.trim()) {
+          const { error: insertAssistantError } = await supabase.from("messages").insert([
+            {
+              user_id: userId,
+              conversation_id: conversationId,
+              role: "assistant",
+              content: draftText,
+              metadata: { agent: "human-writing", kind: "draft" },
+            },
+          ]);
+          if (insertAssistantError) {
+            console.error("[human-writing][draft] insert assistant message error", insertAssistantError);
+            await writer.write(
+              encoder.encode(JSON.stringify({ error: "save_assistant_message_failed" }) + "\n")
+            );
+          }
+        } else {
+          await writer.write(encoder.encode(JSON.stringify({ error: "draft_empty" }) + "\n"));
+        }
+
+        await writer.write(encoder.encode(JSON.stringify({ done: true, decision: { show: true } }) + "\n"));
+      } catch (err: any) {
+        console.error("[human-writing][draft] stream error", err);
+        await writer.write(
+          encoder.encode(JSON.stringify({ error: err?.message || "draft_failed" }) + "\n")
+        );
+      } finally {
+        await writer.close();
+      }
+    })();
+
+    return new NextResponse(readable, {
+      headers: {
+        "Content-Type": "application/json; charset=utf-8",
+        "Cache-Control": "no-cache",
+        Connection: "keep-alive",
+        "Transfer-Encoding": "chunked",
       },
-    ]);
-    if (insertAssistantError) {
-      console.error("[human-writing][draft] insert assistant message error", insertAssistantError);
-      return NextResponse.json({ error: "save_assistant_message_failed" }, { status: 500 });
-    }
-
-    return NextResponse.json({
-      draft: draftText,
-      decision: { show: true, reason: "mock" },
-      taskId,
-      conversationId,
     });
   } catch (error: any) {
     console.error("[human-writing][draft] error:", error);
