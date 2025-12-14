@@ -6,7 +6,6 @@ import { ArrowDown, ArrowLeft, Loader2 } from "lucide-react";
 
 import { ChatComposer } from "@/components/chat-composer";
 import { ChatMessage } from "@/components/chat-message";
-import { useUserIdentity } from "@/components/user-identity-provider";
 import { Button } from "@/components/ui/button";
 
 interface PageProps {
@@ -26,7 +25,6 @@ interface Message {
 
 function ChatInner({ params }: PageProps) {
   const router = useRouter();
-  const identity = useUserIdentity();
   const searchParams = useSearchParams();
   const prompt = searchParams.get("prompt")?.trim() || "";
   const taskId = params.chatId || searchParams.get("taskId") || `hw-${Date.now()}`;
@@ -42,12 +40,6 @@ function ChatInner({ params }: PageProps) {
   const messagesRef = useRef<Message[]>([]);
 
   useEffect(() => {
-    if (!identity.isGuest) return;
-    router.replace("/login");
-  }, [identity.isGuest, router]);
-
-  useEffect(() => {
-    if (identity.isGuest) return;
     if (initialized) return;
 
     const init = async () => {
@@ -89,7 +81,7 @@ function ChatInner({ params }: PageProps) {
 
     void init();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [prompt, initialized, identity.isGuest, taskId]);
+  }, [prompt, initialized, taskId]);
 
   useEffect(() => {
     messagesRef.current = messages;
@@ -97,16 +89,12 @@ function ChatInner({ params }: PageProps) {
 
   const handleSubmit = (content: string) => {
     const trimmed = content.trim();
-    if (!trimmed || isDrafting || isHumanizing || identity.isGuest) return;
+    if (!trimmed || isDrafting || isHumanizing) return;
     setIsAutoScroll(true);
     void startDraftFlow(trimmed);
   };
 
   const startDraftFlow = async (userText: string) => {
-    if (identity.isGuest) {
-      return;
-    }
-
     const userId = `u-${Date.now()}`;
     const draftMsgId = `draft-${Date.now()}`;
 
@@ -329,10 +317,6 @@ function ChatInner({ params }: PageProps) {
     if (!isAutoScroll) return;
     scrollToBottom("auto");
   }, [messages, isAutoScroll]);
-
-  if (identity.isGuest) {
-    return <div className="min-h-screen bg-[#0f0d12]" />;
-  }
 
   return (
     <div className="flex h-screen flex-col bg-[#0f0d12] text-foreground">
