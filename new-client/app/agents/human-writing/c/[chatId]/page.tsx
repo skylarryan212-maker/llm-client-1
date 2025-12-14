@@ -8,7 +8,6 @@ import { ChatComposer } from "@/components/chat-composer";
 import { ChatMessage } from "@/components/chat-message";
 import { useUserIdentity } from "@/components/user-identity-provider";
 import { Button } from "@/components/ui/button";
-import supabaseBrowserClient from "@/lib/supabase/browser-client";
 
 interface PageProps {
   params: { chatId: string };
@@ -50,19 +49,44 @@ function ChatInner({ params }: PageProps) {
     if (identity.isGuest) return;
     if (initialized) return;
 
-    if (prompt) {
-      void startDraftFlow(prompt);
-    } else {
-      setMessages([
-        {
-          id: "init-assistant",
-          role: "assistant",
-          content: "Tell me what to write. I'll draft it and, once you approve, I'll run the humanizer.",
-        },
-      ]);
-    }
+    const init = async () => {
+      try {
+        const res = await fetch(`/api/human-writing/history?taskId=${encodeURIComponent(params.chatId)}`);
+        if (res.ok) {
+          const data = await res.json();
+          const loaded = (data?.messages || []) as Array<{ role: "user" | "assistant"; content: string }>;
+          if (loaded.length) {
+            const mapped: Message[] = loaded.map((m, idx) => ({
+              id: `h-${idx}`,
+              role: m.role,
+              content: m.content,
+            }));
+            setMessages(mapped);
+            messagesRef.current = mapped;
+          }
+        }
+      } catch {
+        // ignore
+      }
 
-    setInitialized(true);
+      if (prompt) {
+        void startDraftFlow(prompt);
+      } else if (messagesRef.current.length === 0) {
+        const initial: Message[] = [
+          {
+            id: "init-assistant",
+            role: "assistant",
+            content: "Tell me what to write. I'll draft it and, once you approve, I'll run the humanizer.",
+          },
+        ];
+        setMessages(initial);
+        messagesRef.current = initial;
+      }
+
+      setInitialized(true);
+    };
+
+    void init();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [prompt, initialized, identity.isGuest]);
 
@@ -81,9 +105,6 @@ function ChatInner({ params }: PageProps) {
     if (identity.isGuest) {
       return;
     }
-    const priorMessages = messages
-      .filter((m) => m.role === "user" || m.role === "assistant")
-      .map((m) => ({ role: m.role, content: m.content }));
 
     const userId = `u-${Date.now()}`;
     const draftMsgId = `draft-${Date.now()}`;
@@ -106,11 +127,12 @@ function ChatInner({ params }: PageProps) {
     setIsDrafting(true);
     let draft = "";
     let shouldShowCTA = false;
+    let debugInfo: any = null;
     try {
       const response = await fetch("/api/human-writing/draft", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: userText }),
+        body: JSON.stringify({ prompt: userText, taskId: params.chatId }),
       });
 
       if (!response.ok) {
@@ -141,6 +163,9 @@ function ChatInner({ params }: PageProps) {
           try {
             const obj = JSON.parse(line);
             if (obj.error) throw new Error(obj.error);
+            if (obj.debug) {
+              debugInfo = obj.debug;
+            }
             if (obj.token) {
               draft += obj.token;
               const currentDraft = draft;
@@ -183,13 +208,14 @@ function ChatInner({ params }: PageProps) {
       }
 
       if (!draft.trim()) {
-        throw new Error("draft_empty");
+        const suffix = debugInfo ? ` (debug: ${JSON.stringify(debugInfo)})` : "";
+        throw new Error(`draft_empty${suffix}`);
       }
 
-      setMessages((prev) => {
-        const updated = prev.map((msg) =>
-          msg.id === draftMsgId ? { ...msg, content: draft } : msg
-        );
+        setMessages((prev) => {
+          const updated = prev.map((msg) =>
+            msg.id === draftMsgId ? { ...msg, content: draft } : msg
+          );
         const next =
           shouldShowCTA && !updated.some((m) => m.kind === "cta")
             ? [
@@ -205,7 +231,6 @@ function ChatInner({ params }: PageProps) {
               ]
             : updated;
         messagesRef.current = next;
-        void syncTranscript(next);
         return next;
       });
     } catch (error: any) {
@@ -219,7 +244,6 @@ function ChatInner({ params }: PageProps) {
       );
     } finally {
       setIsDrafting(false);
-      void syncTranscript(messagesRef.current);
     }
   };
 
@@ -239,6 +263,7 @@ function ChatInner({ params }: PageProps) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          taskId: params.chatId,
           text: draftText,
           model: "undetectable",
           language: "auto",
@@ -278,65 +303,6 @@ function ChatInner({ params }: PageProps) {
       messagesRef.current = messagesRef.current.map((m) =>
         m.id === actionId ? { ...m, status: "done" } : m
       );
-      void syncTranscript(messagesRef.current);
-    }
-  };
-
-
-  const syncTranscript = async (stateSnapshot?: Message[]) => {
-    try {
-      if (identity.isGuest) {
-        return;
-      }
-      if (!params.chatId) {
-        console.warn("[human-writing][log] missing chatId, skipping sync");
-        return;
-      }
-      const { data: sessionData } = await supabaseBrowserClient.auth.getSession();
-      const token = sessionData?.session?.access_token;
-      const snapshot = stateSnapshot ?? messagesRef.current;
-
-      const filtered = snapshot.filter((m) => m.role === "user" || m.role === "assistant");
-      if (!filtered.length) return;
-
-      const payload = {
-        taskId: params.chatId,
-        title:
-          filtered.find((m) => m.role === "user")?.content?.slice(0, 120) ||
-          "Human Writing",
-        messages: filtered.map((m) => ({
-          role: m.role,
-          content: m.content,
-          metadata: m.kind ? { kind: m.kind } : {},
-        })),
-      };
-
-      const headers: Record<string, string> = {
-        "Content-Type": "application/json",
-        "x-task-id": params.chatId,
-      };
-      if (token) {
-        headers.Authorization = `Bearer ${token}`;
-        headers["x-supabase-token"] = token;
-      }
-
-      await fetch("/api/human-writing/log", {
-        method: "POST",
-        headers,
-        credentials: "include",
-        body: JSON.stringify(payload),
-      })
-        .then(async (res) => {
-          if (!res.ok) {
-            const text = await res.text();
-            console.warn("[human-writing][log] non-200", res.status, text);
-          }
-        })
-        .catch((err) => {
-          console.warn("[human-writing][log] network error", err);
-        });
-    } catch (err: any) {
-      console.warn("[human-writing][log] sync failed", err?.message || err);
     }
   };
 

@@ -4,9 +4,11 @@ import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
 import { callDeepInfraLlama } from "@/lib/deepInfraLlama";
 import { requireUserIdServer } from "@/lib/supabase/user";
+import { supabaseServer } from "@/lib/supabase/server";
 
 type DraftRequestBody = {
   prompt?: string;
+  taskId?: string;
 };
 
 async function decideCTAWithLlama(draft: string, userPrompt: string) {
@@ -53,29 +55,108 @@ export async function POST(request: NextRequest) {
   try {
     const body = (await request.json()) as DraftRequestBody;
     const prompt = body.prompt?.trim();
+    const taskId = body.taskId?.trim();
 
     if (!prompt) {
       console.error("[human-writing][draft] missing prompt");
       return NextResponse.json({ error: "Prompt is required" }, { status: 400 });
     }
 
+    if (!taskId) {
+      console.error("[human-writing][draft] missing taskId");
+      return NextResponse.json({ error: "taskId is required" }, { status: 400 });
+    }
+
+    const supabase = await supabaseServer();
+    let userId: string;
     try {
-      const userId = await requireUserIdServer();
-      console.log("[human-writing][draft] user", userId, "promptChars", prompt.length);
-    } catch (err) {
+      userId = await requireUserIdServer();
+      console.log("[human-writing][draft] user", userId, "task", taskId, "promptChars", prompt.length);
+    } catch {
       return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+    }
+
+    // Ensure a dedicated conversation exists for this human-writing task.
+    const { data: existing, error: findError } = await supabase
+      .from("conversations")
+      .select("id")
+      .eq("user_id", userId)
+      .eq("metadata->>agent", "human-writing")
+      .eq("metadata->>task_id", taskId)
+      .order("created_at", { ascending: false })
+      .limit(1);
+
+    if (findError) {
+      console.error("[human-writing][draft] conversation lookup error", findError);
+      return NextResponse.json({ error: "conversation_lookup_failed" }, { status: 500 });
+    }
+
+    let conversationId: string | null = existing?.[0]?.id ?? null;
+    if (!conversationId) {
+      const title = prompt.slice(0, 120);
+      const { data: created, error: createError } = await supabase
+        .from("conversations")
+        .insert([
+          {
+            user_id: userId,
+            title: title || "Human Writing",
+            project_id: null,
+            metadata: { task_id: taskId, agent: "human-writing" },
+          },
+        ])
+        .select("id")
+        .single();
+
+      if (createError || !created) {
+        console.error("[human-writing][draft] conversation create error", createError);
+        return NextResponse.json({ error: "conversation_create_failed" }, { status: 500 });
+      }
+
+      conversationId = created.id;
+    }
+
+    // Persist the user's prompt immediately so it always shows up in Supabase.
+    const { error: insertUserError } = await supabase.from("messages").insert([
+      {
+        user_id: userId,
+        conversation_id: conversationId,
+        role: "user",
+        content: prompt,
+        metadata: { agent: "human-writing" },
+      },
+    ]);
+
+    if (insertUserError) {
+      console.error("[human-writing][draft] insert user message error", insertUserError);
+      return NextResponse.json({ error: "save_user_message_failed" }, { status: 500 });
     }
 
     const apiKey = process.env.OPENAI_API_KEY;
     const encoder = new TextEncoder();
 
+    // Load full conversation history for simple context injection.
+    const { data: history, error: historyError } = await supabase
+      .from("messages")
+      .select("role, content")
+      .eq("conversation_id", conversationId)
+      .order("created_at", { ascending: true })
+      .limit(200);
+
+    if (historyError) {
+      console.error("[human-writing][draft] history load error", historyError);
+      return NextResponse.json({ error: "history_load_failed" }, { status: 500 });
+    }
+
     const input = [
       {
         role: "system" as const,
         content:
-          "You are a concise writing assistant. Write in a natural human tone, avoid heavy formality, and deliver a single clean draft without meta commentary.",
+          "You are a writing assistant. Follow the user's request precisely (including word count/format/tone). Return only the draft itself—no meta commentary, no preface, no follow-up questions unless explicitly asked.",
       },
-      { role: "user" as const, content: prompt },
+      ...(history ?? []).map((m) => ({
+        role: (m.role === "assistant" ? "assistant" : "user") as "assistant" | "user",
+        content: m.content ?? "",
+      })),
     ];
 
     // No key: stream a demo draft so the client still gets tokens.
@@ -85,6 +166,14 @@ export async function POST(request: NextRequest) {
       const readable = new ReadableStream({
         start(controller) {
           controller.enqueue(encoder.encode(JSON.stringify({ token: demoDraft }) + "\n"));
+          controller.enqueue(
+            encoder.encode(
+              JSON.stringify({
+                decision: { show: true, reason: "demo" },
+                conversationId,
+              }) + "\n"
+            )
+          );
           controller.enqueue(encoder.encode(JSON.stringify({ done: true }) + "\n"));
           controller.close();
         },
@@ -102,12 +191,13 @@ export async function POST(request: NextRequest) {
     const responseStream = await client.responses.stream({
       model: "gpt-5-nano",
       input,
-      max_output_tokens: 800,
+      max_output_tokens: 2400,
       store: false,
     });
 
     let aggregatedDraft = "";
     const eventTypeCounts: Record<string, number> = {};
+    let openaiResponseId: string | null = null;
 
     const readable = new ReadableStream({
       async start(controller) {
@@ -128,12 +218,15 @@ export async function POST(request: NextRequest) {
           }
 
           let finalText = "";
+          let finalResponseId: string | null = null;
           try {
             const finalResponse = await responseStream.finalResponse();
             finalText = (finalResponse as any)?.output_text ?? "";
+            finalResponseId = (finalResponse as any)?.id ?? null;
           } catch (err: any) {
             console.error("[human-writing][draft] finalResponse() failed:", err);
           }
+          openaiResponseId = finalResponseId;
 
           if (!aggregatedDraft.trim() && finalText.trim()) {
             aggregatedDraft = finalText;
@@ -148,7 +241,12 @@ export async function POST(request: NextRequest) {
           });
 
           if (!aggregatedDraft.trim()) {
+            console.error("[human-writing][draft] draft_empty", {
+              eventTypes: eventTypeCounts,
+              finalChars: finalText.length,
+            });
             enqueue({ error: "draft_empty" });
+            enqueue({ debug: { eventTypes: eventTypeCounts, finalChars: finalText.length } });
             enqueue({ decision: { show: false, reason: "draft_empty" } });
             enqueue({ done: true });
             return;
@@ -156,10 +254,25 @@ export async function POST(request: NextRequest) {
 
           try {
             const decision = await decideCTAWithLlama(aggregatedDraft, prompt);
-            enqueue({ decision });
+            enqueue({ decision, conversationId, openaiResponseId });
           } catch (err: any) {
             console.error("[human-writing][draft][decision] error:", err);
             enqueue({ decision: { show: false, reason: err?.message || "decision_failed" } });
+          }
+
+          // Persist assistant draft after successful generation.
+          const { error: insertAssistantError } = await supabase.from("messages").insert([
+            {
+              user_id: userId,
+              conversation_id: conversationId,
+              role: "assistant",
+              content: aggregatedDraft,
+              openai_response_id: openaiResponseId,
+              metadata: { agent: "human-writing", kind: "draft" },
+            },
+          ]);
+          if (insertAssistantError) {
+            console.error("[human-writing][draft] insert assistant message error", insertAssistantError);
           }
 
           enqueue({ done: true });
