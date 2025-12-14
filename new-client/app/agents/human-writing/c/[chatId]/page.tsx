@@ -99,7 +99,7 @@ function ChatInner({ params }: PageProps) {
       const response = await fetch("/api/human-writing/draft", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: userText, history: priorMessages }),
+        body: JSON.stringify({ prompt: userText }),
       });
 
       if (!response.ok) {
@@ -269,11 +269,16 @@ function ChatInner({ params }: PageProps) {
           metadata: m.kind ? { kind: m.kind } : {},
         })),
       };
+      if (!token) {
+        return;
+      }
+
       await fetch("/api/human-writing/log", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          ...(token ? { "x-supabase-token": token } : {}),
+          Authorization: `Bearer ${token}`,
+          "x-supabase-token": token,
         },
         credentials: "include",
         body: JSON.stringify(payload),

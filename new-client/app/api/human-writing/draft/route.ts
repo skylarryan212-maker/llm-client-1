@@ -6,7 +6,6 @@ import { callDeepInfraLlama } from "@/lib/deepInfraLlama";
 
 type DraftRequestBody = {
   prompt?: string;
-  history?: Array<{ role: "user" | "assistant"; content: string }>;
 };
 
 async function decideCTAWithLlama(draft: string, userPrompt: string) {
@@ -61,20 +60,12 @@ export async function POST(request: NextRequest) {
     const apiKey = process.env.OPENAI_API_KEY;
     const encoder = new TextEncoder();
 
-    const history =
-      Array.isArray(body.history) && body.history.length
-        ? body.history
-            .filter((msg) => msg?.role && typeof msg.content === "string")
-            .map((msg) => ({ role: msg.role, content: msg.content.trim() }))
-        : [];
-
     const input = [
       {
         role: "system" as const,
         content:
           "You are a concise writing assistant. Write in a natural human tone, avoid heavy formality, and deliver a single clean draft without meta commentary.",
       },
-      ...history.map((msg) => ({ role: msg.role, content: msg.content })),
       { role: "user" as const, content: prompt },
     ];
 
@@ -118,12 +109,11 @@ export async function POST(request: NextRequest) {
               aggregatedDraft += delta;
             }
               if (event.type === "response.completed") {
-                // If the stream produced no text, fall back to a non-streaming call
-                if (!aggregatedDraft.trim()) {
-                  try {
-                    const fallback = await client.responses.create({
-                      model: "gpt-5-nano",
-                      input,
+              if (!aggregatedDraft.trim()) {
+                try {
+                  const fallback = await client.responses.create({
+                    model: "gpt-5-nano",
+                    input,
                     max_output_tokens: 800,
                     store: false,
                   });
@@ -131,28 +121,13 @@ export async function POST(request: NextRequest) {
                   if (text) {
                     aggregatedDraft = text;
                     enqueue({ token: text });
-                    enqueue({ fallback: "full_history" });
-                  } else {
-                    // Try again with prompt only (no history) as a secondary fallback
-                    const promptOnly = await client.responses.create({
-                      model: "gpt-5-nano",
-                      input: input.slice(-2), // system + latest user
-                      max_output_tokens: 800,
-                      store: false,
-                    });
-                    const text2 = promptOnly.output_text || "";
-                    if (text2) {
-                      aggregatedDraft = text2;
-                      enqueue({ token: text2 });
-                      enqueue({ fallback: "prompt_only" });
-                    }
+                    enqueue({ fallback: "single_call_fallback" });
                   }
                 } catch (err: any) {
                   enqueue({ error: err?.message || "draft_fallback_error" });
                 }
               }
 
-              // If still empty, emit an error and stop
               if (!aggregatedDraft.trim()) {
                 enqueue({ error: "draft_empty" });
                 enqueue({ decision: { show: false, reason: "draft_empty" } });
@@ -160,7 +135,6 @@ export async function POST(request: NextRequest) {
                 return;
               }
 
-              // After streaming completes, decide CTA using llama
               try {
                 const decision = await decideCTAWithLlama(aggregatedDraft, prompt);
                 enqueue({ decision });
