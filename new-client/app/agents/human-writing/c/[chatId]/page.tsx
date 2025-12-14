@@ -251,6 +251,10 @@ function ChatInner({ params }: PageProps) {
 
   const syncTranscript = async (stateSnapshot?: Message[]) => {
     try {
+      if (!params.chatId) {
+        console.warn("[human-writing][log] missing chatId, skipping sync");
+        return;
+      }
       const { data: sessionData } = await supabaseBrowserClient.auth.getSession();
       const token = sessionData?.session?.access_token;
       const snapshot = stateSnapshot ?? messagesRef.current;
