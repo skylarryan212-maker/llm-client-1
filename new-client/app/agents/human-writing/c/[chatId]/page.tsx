@@ -38,6 +38,7 @@ function ChatInner({ params }: PageProps) {
   const [isHumanizing, setIsHumanizing] = useState(false);
   const [activeActionId, setActiveActionId] = useState<string | null>(null);
   const [initialized, setInitialized] = useState(false);
+  const [hasStarted, setHasStarted] = useState(false);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const [isAutoScroll, setIsAutoScroll] = useState(true);
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -67,8 +68,9 @@ function ChatInner({ params }: PageProps) {
       }
 
       if (prompt) {
+        setHasStarted(true);
         void startDraftFlow(prompt);
-      } else if (messagesRef.current.length === 0) {
+      } else if (!hasStarted && messagesRef.current.length === 0) {
         const initial: Message[] = [
           {
             id: "init-assistant",
@@ -85,7 +87,7 @@ function ChatInner({ params }: PageProps) {
 
     void init();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [prompt, initialized, taskId]);
+  }, [prompt, initialized, taskId, hasStarted]);
 
   useEffect(() => {
     messagesRef.current = messages;
@@ -94,6 +96,7 @@ function ChatInner({ params }: PageProps) {
   const handleSubmit = (content: string) => {
     const trimmed = content.trim();
     if (!trimmed || isDrafting || isHumanizing) return;
+    setHasStarted(true);
     setIsAutoScroll(true);
     void startDraftFlow(trimmed);
   };
@@ -147,7 +150,7 @@ function ChatInner({ params }: PageProps) {
 
         setMessages((prev) => {
           const updated = prev.map((msg) =>
-            msg.id === draftMsgId ? { ...msg, content: draft } : msg
+            msg.id === draftMsgId ? { ...msg, content: draft, kind: undefined } : msg
           );
           const next =
             shouldShowCTA && !updated.some((m) => m.kind === "cta")
