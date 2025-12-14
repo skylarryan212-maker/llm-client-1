@@ -53,7 +53,11 @@ export default async function RootLayout({
   const isGuest = identity.isGuest;
 
   const projects = isGuest ? [] : await getProjectsForUser();
-  const conversations = isGuest ? [] : await getConversationsForUser();
+  const conversations = isGuest
+    ? []
+    : (await getConversationsForUser()).filter(
+        (c) => (c as any)?.metadata?.agent !== "human-writing"
+      );
   const userPreferences = isGuest ? null : await getUserPreferences();
   let usageSnapshot = null;
   if (!isGuest) {
