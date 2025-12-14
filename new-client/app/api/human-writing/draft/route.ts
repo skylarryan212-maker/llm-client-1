@@ -90,13 +90,13 @@ export async function POST(request: NextRequest) {
 
     let conversationId: string | null = existing?.[0]?.id ?? null;
     if (!conversationId) {
-      const title = prompt.slice(0, 120);
+      const title = "Human Writing";
       const { data: created, error: createError } = await supabase
         .from("conversations")
         .insert([
           {
             user_id: userId,
-            title: title || "Human Writing",
+            title,
             project_id: null,
             metadata: { task_id: taskId, agent: "human-writing" },
           },
@@ -193,6 +193,8 @@ export async function POST(request: NextRequest) {
     });
 
     let aggregatedDraft = "";
+    let lastOutputTextFromItems = "";
+    let incompleteReason: string | undefined;
     const eventTypeCounts: Record<string, number> = {};
     let openaiResponseId: string | null = null;
 
@@ -212,6 +214,27 @@ export async function POST(request: NextRequest) {
                 aggregatedDraft += delta;
               }
             }
+
+            if (event.type === "response.output_item.done") {
+              const item: any = (event as any)?.item;
+              if (item?.type === "message" && Array.isArray(item.content)) {
+                const textParts = item.content
+                  .filter((c: any) => c?.type === "output_text")
+                  .map((c: any) => c?.text ?? "")
+                  .join("");
+                if (textParts) {
+                  lastOutputTextFromItems = textParts;
+                  if (!aggregatedDraft) {
+                    aggregatedDraft = textParts;
+                  }
+                  enqueue({ token: textParts });
+                }
+              }
+            }
+
+            if (event.type === "response.incomplete") {
+              incompleteReason = (event as any)?.reason;
+            }
           }
 
           let finalText = "";
@@ -225,9 +248,12 @@ export async function POST(request: NextRequest) {
           }
           openaiResponseId = finalResponseId;
 
-          if (!aggregatedDraft.trim() && finalText.trim()) {
-            aggregatedDraft = finalText;
-            enqueue({ token: finalText });
+          if (!aggregatedDraft.trim()) {
+            const fallbackText = lastOutputTextFromItems || finalText;
+            if (fallbackText?.trim()) {
+              aggregatedDraft = fallbackText;
+              enqueue({ token: fallbackText });
+            }
           }
 
           console.log("[human-writing][draft] completed", {
@@ -235,15 +261,19 @@ export async function POST(request: NextRequest) {
             aggregatedChars: aggregatedDraft.length,
             finalChars: finalText.length,
             eventTypes: eventTypeCounts,
+            incompleteReason,
           });
 
           if (!aggregatedDraft.trim()) {
             console.error("[human-writing][draft] draft_empty", {
               eventTypes: eventTypeCounts,
               finalChars: finalText.length,
+              incompleteReason,
             });
             enqueue({ error: "draft_empty" });
-            enqueue({ debug: { eventTypes: eventTypeCounts, finalChars: finalText.length } });
+            enqueue({
+              debug: { eventTypes: eventTypeCounts, finalChars: finalText.length, incompleteReason },
+            });
             enqueue({ decision: { show: false, reason: "draft_empty" } });
             enqueue({ done: true });
             return;
