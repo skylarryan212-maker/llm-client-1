@@ -4,7 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
 import { supabaseServer } from "@/lib/supabase/server";
 import { requireUserIdServer } from "@/lib/supabase/user";
-import { encoding_for_model } from "tiktoken";
+import { encoding_for_model } from "js-tiktoken";
 
 type DraftRequestBody = {
   prompt?: string;
@@ -125,7 +125,7 @@ export async function POST(request: NextRequest) {
     };
 
     try {
-      let tokens = await countTokens(inputItems);
+      let tokens = countTokens(inputItems);
       if (tokens > MAX_TOKENS) {
         // Attempt compaction first to preserve latent context
         try {
@@ -136,7 +136,7 @@ export async function POST(request: NextRequest) {
           });
           const compactedInput =
             (compacted.output ?? []).map(({ id, ...rest }) => rest as any) ?? [];
-          tokens = await countTokens(compactedInput);
+          tokens = countTokens(compactedInput);
           inputItems = compactedInput;
         } catch (err) {
           console.warn("[human-writing][compact] failed, falling back to trim", err);
@@ -148,7 +148,7 @@ export async function POST(request: NextRequest) {
       let attempts = 0;
       while (tokens > MAX_TOKENS && inputItems.length > 1 && attempts < 50) {
         inputItems = inputItems.slice(1);
-        tokens = await countTokens(inputItems);
+        tokens = countTokens(inputItems);
         attempts += 1;
       }
     } catch (err) {
