@@ -4,7 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
 import { supabaseServer } from "@/lib/supabase/server";
 import { requireUserIdServer } from "@/lib/supabase/user";
-import { encoding_for_model } from "js-tiktoken";
+import { encodingForModel } from "js-tiktoken";
 
 type DraftRequestBody = {
   prompt?: string;
@@ -112,13 +112,15 @@ export async function POST(request: NextRequest) {
 
     let inputItems = historyItems;
 
+    const client = new OpenAI({ apiKey });
+
     const MAX_TOKENS = 400_000;
-    const encoder = encoding_for_model("gpt-4o-mini"); // closest available for GPT-5 Nano tokenization
+    const tokenEncoder = encodingForModel("gpt-4o-mini"); // closest available for GPT-5 Nano tokenization
     const countTokens = (items: typeof historyItems) => {
       const tokens = items.reduce((sum, item) => {
         const content = item.content ?? "";
         const rolePrefix = item.role === "assistant" ? "assistant: " : "user: ";
-        const encoded = encoder.encode(rolePrefix + content);
+        const encoded = tokenEncoder.encode(rolePrefix + content);
         return sum + encoded.length;
       }, 0);
       return tokens;
@@ -126,54 +128,33 @@ export async function POST(request: NextRequest) {
 
     try {
       let tokens = countTokens(inputItems);
-      if (tokens > MAX_TOKENS) {
-        // Attempt compaction first to preserve latent context
-        try {
-          const compacted = await client.responses.compact({
-            model: "gpt-5-nano",
-            input: inputItems,
-            instructions: SYSTEM_PROMPT,
-          });
-          const compactedInput =
-            (compacted.output ?? []).map(({ id, ...rest }) => rest as any) ?? [];
-          tokens = countTokens(compactedInput);
-          inputItems = compactedInput;
-        } catch (err) {
-          console.warn("[human-writing][compact] failed, falling back to trim", err);
-          // keep inputItems as is; will trim below
-        }
-      }
-
       // Hard trim from the oldest until under budget using real token counts
       let attempts = 0;
-      while (tokens > MAX_TOKENS && inputItems.length > 1 && attempts < 50) {
+      while (tokens > MAX_TOKENS && inputItems.length > 1 && attempts < 200) {
         inputItems = inputItems.slice(1);
         tokens = countTokens(inputItems);
         attempts += 1;
       }
     } catch (err) {
       console.warn("[human-writing][tokens] counting failed, proceeding without trim", err);
-    } finally {
-      try {
-        encoder.free();
-      } catch {
-        // ignore
-      }
     }
 
-    const client = new OpenAI({ apiKey });
+    const requestInput = inputItems.map((item) => ({
+      role: item.role,
+      content: item.content,
+    }));
 
     const stream = await client.responses.create({
       model: "gpt-5-nano",
       stream: true,
       store: true,
       instructions: SYSTEM_PROMPT,
-      input: inputItems,
+      input: requestInput as any,
     });
 
     const { readable, writable } = new TransformStream();
     const writer = writable.getWriter();
-    const encoder = new TextEncoder();
+    const textEncoder = new TextEncoder();
     let draftText = "";
 
     (async () => {
@@ -183,7 +164,7 @@ export async function POST(request: NextRequest) {
             const delta = event.delta || "";
             if (delta) {
               draftText += delta;
-              await writer.write(encoder.encode(JSON.stringify({ token: delta }) + "\n"));
+              await writer.write(textEncoder.encode(JSON.stringify({ token: delta }) + "\n"));
             }
           }
         }
@@ -201,18 +182,18 @@ export async function POST(request: NextRequest) {
           if (insertAssistantError) {
             console.error("[human-writing][draft] insert assistant message error", insertAssistantError);
             await writer.write(
-              encoder.encode(JSON.stringify({ error: "save_assistant_message_failed" }) + "\n")
+              textEncoder.encode(JSON.stringify({ error: "save_assistant_message_failed" }) + "\n")
             );
           }
         } else {
-          await writer.write(encoder.encode(JSON.stringify({ error: "draft_empty" }) + "\n"));
+          await writer.write(textEncoder.encode(JSON.stringify({ error: "draft_empty" }) + "\n"));
         }
 
-        await writer.write(encoder.encode(JSON.stringify({ done: true, decision: { show: true } }) + "\n"));
+        await writer.write(textEncoder.encode(JSON.stringify({ done: true, decision: { show: true } }) + "\n"));
       } catch (err: any) {
         console.error("[human-writing][draft] stream error", err);
         await writer.write(
-          encoder.encode(JSON.stringify({ error: err?.message || "draft_failed" }) + "\n")
+          textEncoder.encode(JSON.stringify({ error: err?.message || "draft_failed" }) + "\n")
         );
       } finally {
         await writer.close();
