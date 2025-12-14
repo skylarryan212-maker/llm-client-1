@@ -70,7 +70,9 @@ function ChatInner({ params }: PageProps) {
         // ignore
       }
 
-      if (messagesRef.current.length === 0) {
+      if (prompt) {
+        void startDraftFlow(prompt);
+      } else if (messagesRef.current.length === 0) {
         const initial: Message[] = [
           {
             id: "init-assistant",
