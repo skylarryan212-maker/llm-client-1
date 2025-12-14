@@ -55,17 +55,14 @@ export async function POST(request: NextRequest) {
   try {
     const body = (await request.json()) as DraftRequestBody;
     const prompt = body.prompt?.trim();
-    const taskId = body.taskId?.trim();
+    const taskId = body.taskId?.trim() || `hw-${Date.now()}`;
 
     if (!prompt) {
       console.error("[human-writing][draft] missing prompt");
       return NextResponse.json({ error: "Prompt is required" }, { status: 400 });
     }
 
-    if (!taskId) {
-      console.error("[human-writing][draft] missing taskId");
-      return NextResponse.json({ error: "taskId is required" }, { status: 400 });
-    }
+    // taskId is generated if missing; returned in stream metadata for transparency.
 
     const supabase = await supabaseServer();
     let userId: string;

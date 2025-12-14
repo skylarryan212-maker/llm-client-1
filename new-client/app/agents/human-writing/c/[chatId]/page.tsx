@@ -29,6 +29,7 @@ function ChatInner({ params }: PageProps) {
   const identity = useUserIdentity();
   const searchParams = useSearchParams();
   const prompt = searchParams.get("prompt")?.trim() || "";
+  const taskId = params.chatId || searchParams.get("taskId") || `hw-${Date.now()}`;
 
   const [messages, setMessages] = useState<Message[]>([]);
   const [isDrafting, setIsDrafting] = useState(false);
@@ -51,7 +52,7 @@ function ChatInner({ params }: PageProps) {
 
     const init = async () => {
       try {
-        const res = await fetch(`/api/human-writing/history?taskId=${encodeURIComponent(params.chatId)}`);
+        const res = await fetch(`/api/human-writing/history?taskId=${encodeURIComponent(taskId)}`);
         if (res.ok) {
           const data = await res.json();
           const loaded = (data?.messages || []) as Array<{ role: "user" | "assistant"; content: string }>;
@@ -88,7 +89,7 @@ function ChatInner({ params }: PageProps) {
 
     void init();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [prompt, initialized, identity.isGuest]);
+  }, [prompt, initialized, identity.isGuest, taskId]);
 
   useEffect(() => {
     messagesRef.current = messages;
@@ -132,7 +133,7 @@ function ChatInner({ params }: PageProps) {
       const response = await fetch("/api/human-writing/draft", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ prompt: userText, taskId: params.chatId }),
+        body: JSON.stringify({ prompt: userText, taskId }),
       });
 
       if (!response.ok) {
@@ -263,7 +264,7 @@ function ChatInner({ params }: PageProps) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          taskId: params.chatId,
+          taskId,
           text: draftText,
           model: "undetectable",
           language: "auto",
@@ -346,7 +347,7 @@ function ChatInner({ params }: PageProps) {
         </Button>
         <div className="flex flex-col">
           <p className="text-xs uppercase tracking-[0.25em] text-white/40">Human Writing Agent</p>
-          <p className="text-sm text-white/80 truncate">Session: {params.chatId}</p>
+          <p className="text-sm text-white/80 truncate">Session: {taskId}</p>
         </div>
       </header>
 
