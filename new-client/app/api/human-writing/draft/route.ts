@@ -11,7 +11,7 @@ export async function POST(request: NextRequest) {
   const body = (await request.json().catch(() => ({}))) as DraftRequestBody;
   const prompt = body.prompt?.trim() || "";
   const rawTask = body.taskId?.trim();
-  const taskId = rawTask && rawTask !== "unknown" ? rawTask : `hw-${Date.now()}`;
+  const taskId = rawTask || "unknown";
 
   const encoder = new TextEncoder();
   const draftText =
