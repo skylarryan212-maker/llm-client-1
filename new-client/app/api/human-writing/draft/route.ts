@@ -9,7 +9,7 @@ type DraftRequestBody = {
   history?: Array<{ role: "user" | "assistant"; content: string }>;
 };
 
-async function decideCTAWithLlama(draft: string) {
+async function decideCTAWithLlama(draft: string, userPrompt: string) {
   const schema = {
     type: "object",
     properties: {
@@ -24,9 +24,12 @@ async function decideCTAWithLlama(draft: string) {
     {
       role: "system" as const,
       content:
-        "Return JSON {\"show\": boolean, \"reason\": string?}. show=true only if this text is a substantive writing draft (multi-sentence, task-focused). If it's short, a greeting, meta text, or not a draft, set show=false.",
+        "Return JSON {\"show\": boolean, \"reason\": string?}. You are judging if the assistant text is a substantive draft/answer to the user's writing request. Only set show=true if it looks like a real draft (multi-sentence/paragraph content that responds to the user's ask). Set show=false for greetings, menus, questions back, meta responses, or very short/non-draft text.",
     },
-    { role: "user" as const, content: draft },
+    {
+      role: "user" as const,
+      content: `User request: ${userPrompt || "(none)"}\n\nAssistant text:\n${draft}`,
+    },
   ];
 
   try {
@@ -159,7 +162,7 @@ export async function POST(request: NextRequest) {
 
               // After streaming completes, decide CTA using llama
               try {
-                const decision = await decideCTAWithLlama(aggregatedDraft);
+                const decision = await decideCTAWithLlama(aggregatedDraft, prompt);
                 enqueue({ decision });
               } catch (err: any) {
                 enqueue({ decision: { show: false, reason: err?.message || "decision_failed" } });
