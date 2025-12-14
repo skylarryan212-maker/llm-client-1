@@ -6,6 +6,7 @@ import { ArrowDown, ArrowLeft, Loader2 } from "lucide-react";
 
 import { ChatComposer } from "@/components/chat-composer";
 import { ChatMessage } from "@/components/chat-message";
+import { useUserIdentity } from "@/components/user-identity-provider";
 import { Button } from "@/components/ui/button";
 import supabaseBrowserClient from "@/lib/supabase/browser-client";
 
@@ -26,6 +27,7 @@ interface Message {
 
 function ChatInner({ params }: PageProps) {
   const router = useRouter();
+  const identity = useUserIdentity();
   const searchParams = useSearchParams();
   const prompt = searchParams.get("prompt")?.trim() || "";
 
@@ -40,6 +42,12 @@ function ChatInner({ params }: PageProps) {
   const messagesRef = useRef<Message[]>([]);
 
   useEffect(() => {
+    if (!identity.isGuest) return;
+    router.replace("/login");
+  }, [identity.isGuest, router]);
+
+  useEffect(() => {
+    if (identity.isGuest) return;
     if (initialized) return;
 
     if (prompt) {
@@ -56,7 +64,7 @@ function ChatInner({ params }: PageProps) {
 
     setInitialized(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [prompt, initialized]);
+  }, [prompt, initialized, identity.isGuest]);
 
   useEffect(() => {
     messagesRef.current = messages;
@@ -64,12 +72,15 @@ function ChatInner({ params }: PageProps) {
 
   const handleSubmit = (content: string) => {
     const trimmed = content.trim();
-    if (!trimmed || isDrafting || isHumanizing) return;
+    if (!trimmed || isDrafting || isHumanizing || identity.isGuest) return;
     setIsAutoScroll(true);
     void startDraftFlow(trimmed);
   };
 
   const startDraftFlow = async (userText: string) => {
+    if (identity.isGuest) {
+      return;
+    }
     const priorMessages = messages
       .filter((m) => m.role === "user" || m.role === "assistant")
       .map((m) => ({ role: m.role, content: m.content }));
@@ -116,12 +127,17 @@ function ChatInner({ params }: PageProps) {
       }
 
       let done = false;
+      let buffer = "";
       while (!done) {
         const { value, done: readerDone } = await reader.read();
         if (readerDone) break;
-        const chunk = decoder.decode(value, { stream: true });
-        const lines = chunk.split("\n").filter((line) => line.trim().length > 0);
-        for (const line of lines) {
+        buffer += decoder.decode(value, { stream: true });
+        const parts = buffer.split("\n");
+        buffer = parts.pop() ?? "";
+
+        for (const rawLine of parts) {
+          const line = rawLine.trim();
+          if (!line) continue;
           try {
             const obj = JSON.parse(line);
             if (obj.error) throw new Error(obj.error);
@@ -145,6 +161,24 @@ function ChatInner({ params }: PageProps) {
           } catch (err) {
             console.warn("[draft-stream] failed to parse line", line);
           }
+        }
+      }
+
+      const leftover = buffer.trim();
+      if (leftover) {
+        try {
+          const obj = JSON.parse(leftover);
+          if (obj.error) throw new Error(obj.error);
+          if (obj.token) {
+            draft += obj.token;
+          }
+          if (obj.decision) {
+            if (typeof obj.decision.show === "boolean") {
+              shouldShowCTA = obj.decision.show;
+            }
+          }
+        } catch (err) {
+          console.warn("[draft-stream] failed to parse trailing buffer", leftover);
         }
       }
 
@@ -251,6 +285,9 @@ function ChatInner({ params }: PageProps) {
 
   const syncTranscript = async (stateSnapshot?: Message[]) => {
     try {
+      if (identity.isGuest) {
+        return;
+      }
       if (!params.chatId) {
         console.warn("[human-writing][log] missing chatId, skipping sync");
         return;
@@ -273,17 +310,19 @@ function ChatInner({ params }: PageProps) {
           metadata: m.kind ? { kind: m.kind } : {},
         })),
       };
-      if (!token) {
-        return;
+
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json",
+        "x-task-id": params.chatId,
+      };
+      if (token) {
+        headers.Authorization = `Bearer ${token}`;
+        headers["x-supabase-token"] = token;
       }
 
       await fetch("/api/human-writing/log", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-          "x-supabase-token": token,
-        },
+        headers,
         credentials: "include",
         body: JSON.stringify(payload),
       })
@@ -323,6 +362,10 @@ function ChatInner({ params }: PageProps) {
     if (!isAutoScroll) return;
     scrollToBottom("auto");
   }, [messages, isAutoScroll]);
+
+  if (identity.isGuest) {
+    return <div className="min-h-screen bg-[#0f0d12]" />;
+  }
 
   return (
     <div className="flex h-screen flex-col bg-[#0f0d12] text-foreground">

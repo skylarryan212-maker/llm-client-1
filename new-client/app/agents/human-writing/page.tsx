@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { useUserIdentity } from "@/components/user-identity-provider";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -25,6 +26,7 @@ type DetectorMode = "overall" | "depth";
 
 export default function HumanWritingAgentPage() {
   const router = useRouter();
+  const identity = useUserIdentity();
 
   const [modelChoice, setModelChoice] = useState<ModelChoice>("undetectable");
   const [language, setLanguage] = useState<string>("auto");
@@ -39,6 +41,15 @@ export default function HumanWritingAgentPage() {
     "flex items-center justify-between gap-2 rounded-[14px] border border-white/10 bg-black/30 px-4 py-2 text-sm font-semibold text-white duration-200 hover:border-white/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400";
 
   const hasText = composerText.trim().length > 0;
+
+  useEffect(() => {
+    if (!identity.isGuest) return;
+    router.replace("/login");
+  }, [identity.isGuest, router]);
+
+  if (identity.isGuest) {
+    return <div className="min-h-screen bg-[#0f0d12]" />;
+  }
 
   const handleSend = () => {
     const trimmed = composerText.trim();

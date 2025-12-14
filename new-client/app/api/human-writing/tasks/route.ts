@@ -24,9 +24,11 @@ export async function GET() {
     return NextResponse.json({ tasks: data ?? [] });
   } catch (error: any) {
     console.error("[human-writing][tasks] error:", error);
+    const message = error?.message || "failed_to_fetch_tasks";
+    const status = message === "Not authenticated" ? 401 : 500;
     return NextResponse.json(
-      { error: error?.message || "failed_to_fetch_tasks" },
-      { status: 500 }
+      { error: message },
+      { status }
     );
   }
 }

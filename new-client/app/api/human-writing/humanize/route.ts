@@ -1,6 +1,7 @@
 "use server";
 
 import { NextRequest, NextResponse } from "next/server";
+import { requireUserIdServer } from "@/lib/supabase/user";
 
 const HUMANIZER_URL = "https://v2-humanizer.rephrasy.ai/api";
 
@@ -14,6 +15,12 @@ type HumanizeRequestBody = {
 
 export async function POST(request: NextRequest) {
   try {
+    try {
+      await requireUserIdServer();
+    } catch {
+      return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+    }
+
     const body = (await request.json()) as HumanizeRequestBody;
     const text = body.text?.trim();
     if (!text) {

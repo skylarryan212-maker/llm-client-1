@@ -19,16 +19,47 @@ type LogRequest = {
 
 export async function POST(request: NextRequest) {
   try {
-    const body = (await request.json()) as LogRequest;
-    const { taskId, title, messages } = body;
+    const body = (await request.json()) as Partial<LogRequest> & {
+      chatId?: string;
+      task_id?: string;
+    };
+
+    const title = body.title;
+    const messages = body.messages ?? [];
+    let taskId =
+      body.taskId ??
+      body.chatId ??
+      (body.task_id as string | undefined) ??
+      request.headers.get("x-task-id") ??
+      request.headers.get("x-human-writing-task-id") ??
+      undefined;
+
+    if (!taskId) {
+      const referer = request.headers.get("referer") || "";
+      const match = referer.match(/\/agents\/human-writing\/c\/([^/?#]+)/i);
+      if (match?.[1]) {
+        taskId = match[1];
+        console.warn("[human-writing][log] inferred taskId from referer", { taskId });
+      }
+    }
 
     if (!taskId || !Array.isArray(messages) || messages.length === 0) {
       console.warn("[human-writing][log] missing taskId or messages", {
         taskId,
         messagesCount: Array.isArray(messages) ? messages.length : "invalid",
+        bodyKeys: body && typeof body === "object" ? Object.keys(body) : "invalid",
       });
       return NextResponse.json({ error: "taskId and messages required" }, { status: 400 });
     }
+
+    const cookieHeader = request.headers.get("cookie") || "";
+    console.log("[human-writing][log] request", {
+      taskId,
+      messages: messages.length,
+      hasCookie: cookieHeader.length > 0,
+      hasAuthHeader: Boolean(request.headers.get("authorization")),
+      hasTokenHeader: Boolean(request.headers.get("x-supabase-token")),
+    });
 
     // Try cookie-based auth first
     let userId: string | null = null;
