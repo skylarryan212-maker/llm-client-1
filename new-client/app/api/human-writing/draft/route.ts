@@ -90,19 +90,46 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "save_user_message_failed" }, { status: 500 });
     }
 
+    // Load full chat history (after inserting the latest user message)
+    const { data: messageRows, error: historyError } = await supabase
+      .from("messages")
+      .select("role, content, created_at")
+      .eq("conversation_id", conversationId)
+      .order("created_at", { ascending: true });
+
+    if (historyError) {
+      console.error("[human-writing][draft] history fetch error", historyError);
+      return NextResponse.json({ error: "history_fetch_failed" }, { status: 500 });
+    }
+
+    // Build input list and trim from the front if oversized (rough char-based trim to ~350k)
+    const historyItems =
+      (messageRows ?? []).map((m) => ({
+        role: m.role === "assistant" ? "assistant" : "user",
+        content: m.content ?? "",
+      })) ?? [];
+
+    const MAX_CHARS = 350_000;
+    const trimmed: typeof historyItems = [];
+    let running = 0;
+    // accumulate from end backwards to keep most recent context within budget
+    for (let i = historyItems.length - 1; i >= 0; i--) {
+      const item = historyItems[i];
+      const len = item.content.length;
+      if (running + len > MAX_CHARS) break;
+      trimmed.push(item);
+      running += len;
+    }
+    trimmed.reverse();
+
     const client = new OpenAI({ apiKey });
 
     const stream = await client.responses.create({
       model: "gpt-5-nano",
       stream: true,
-      store: false,
+      store: true,
       instructions: SYSTEM_PROMPT,
-      input: [
-        {
-          role: "user",
-          content: prompt,
-        },
-      ],
+      input: trimmed,
     });
 
     const { readable, writable } = new TransformStream();
