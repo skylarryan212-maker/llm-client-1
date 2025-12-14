@@ -286,13 +286,16 @@ function ChatInner({ params }: PageProps) {
         },
         credentials: "include",
         body: JSON.stringify(payload),
-      }).then((res) => {
-        if (!res.ok) {
-          res.text().then((t) => {
-            console.warn("[human-writing][log] non-200", res.status, t);
-          });
-        }
-      });
+      })
+        .then(async (res) => {
+          if (!res.ok) {
+            const text = await res.text();
+            console.warn("[human-writing][log] non-200", res.status, text);
+          }
+        })
+        .catch((err) => {
+          console.warn("[human-writing][log] network error", err);
+        });
     } catch (err: any) {
       console.warn("[human-writing][log] sync failed", err?.message || err);
     }

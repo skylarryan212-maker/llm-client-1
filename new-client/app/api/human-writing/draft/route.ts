@@ -92,7 +92,7 @@ export async function POST(request: NextRequest) {
 
     const client = new OpenAI({ apiKey });
     const responseStream = await client.responses.stream({
-      model: "gpt-5-nano",
+      model: "gpt-4o-mini",
       input,
       max_output_tokens: 800,
       store: false,
@@ -114,7 +114,7 @@ export async function POST(request: NextRequest) {
               if (!aggregatedDraft.trim()) {
                 try {
                   const fallback = await client.responses.create({
-                    model: "gpt-5-nano",
+                    model: "gpt-4o-mini",
                     input,
                     max_output_tokens: 800,
                     store: false,

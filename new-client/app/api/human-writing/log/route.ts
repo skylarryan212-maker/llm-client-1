@@ -81,6 +81,7 @@ export async function POST(request: NextRequest) {
       userId = userData.user.id;
       supabase = supabaseWithToken;
     }
+    console.log("[human-writing][log] user", userId, "task", taskId, "messages", messages.length);
 
     // Find or create conversation
     const { data: existing, error: findError } = await supabase
