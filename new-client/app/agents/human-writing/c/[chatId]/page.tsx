@@ -27,7 +27,7 @@ function ChatInner({ params }: PageProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const prompt = searchParams.get("prompt")?.trim() || "";
-  const taskId = params.chatId || searchParams.get("taskId") || `hw-${Date.now()}`;
+  const taskId = params.chatId || searchParams.get("taskId") || "unknown";
 
   const [messages, setMessages] = useState<Message[]>([]);
   const [isDrafting, setIsDrafting] = useState(false);
