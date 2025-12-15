@@ -131,8 +131,9 @@ function ChatInner({ params }: PageProps) {
     const draftMsgId = `draft-${Date.now()}`;
 
     setMessages((prev) => {
+      const withoutCTA = prev.filter((m) => m.kind !== "cta");
       const next: Message[] = [
-        ...prev,
+        ...withoutCTA,
         { id: userId, role: "user", content: userText },
         {
           id: draftMsgId,
