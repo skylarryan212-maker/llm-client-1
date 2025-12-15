@@ -84,10 +84,40 @@ export async function decideRoutingForMessage(
   const routerPrompt = buildRouterPrompt(payload, userMessage);
 
   try {
-    const parsed = await callRouterWithSchema(routerPrompt, userMessage, {
+    const raw = await callRouterWithSchema(routerPrompt, userMessage, {
       userId,
       conversationId,
     });
+    // Normalize common LLM quirks (null -> defaults) before final schema pass
+    const parsed = routerDecisionSchema.parse({
+      ...raw,
+      primaryTopicId:
+        typeof raw?.primaryTopicId === "string"
+          ? raw.primaryTopicId
+          : raw?.primaryTopicId === null
+            ? null
+            : null,
+      secondaryTopicIds: Array.isArray(raw?.secondaryTopicIds) ? raw.secondaryTopicIds : [],
+      artifactsToLoad: Array.isArray(raw?.artifactsToLoad) ? raw.artifactsToLoad : [],
+      newTopicLabel:
+        typeof raw?.newTopicLabel === "string" && raw.newTopicLabel.trim().length > 0
+          ? raw.newTopicLabel
+          : null,
+      newTopicDescription:
+        typeof raw?.newTopicDescription === "string" && raw.newTopicDescription.trim().length > 0
+          ? raw.newTopicDescription
+          : null,
+      newTopicSummary:
+        typeof raw?.newTopicSummary === "string" && raw.newTopicSummary.trim().length > 0
+          ? raw.newTopicSummary
+          : null,
+      newParentTopicId:
+        typeof raw?.newParentTopicId === "string"
+          ? raw.newParentTopicId
+          : raw?.newParentTopicId === null
+            ? null
+            : null,
+    }) as RouterDecision;
     const resolvedDecision = await ensureTopicAssignment({
       supabase,
       conversationId,
@@ -388,12 +418,12 @@ Return EXACTLY one JSON object with these keys and types:
 {
   "topicAction": "continue_active" | "new" | "reopen_existing",
   "primaryTopicId": string | null,
-  "secondaryTopicIds": string[],        // always an array, may be empty
-  "newTopicLabel": string | null,       // 3–5 title-case words when used
-  "newTopicDescription": string | null, // <= 120 chars
-  "newTopicSummary": string | null,     // <= 160 chars
+  "secondaryTopicIds": string[],        // always an array, may be empty (NEVER null)
+  "newTopicLabel": string | null,       // 3–5 title-case words when used, otherwise null (NEVER empty string)
+  "newTopicDescription": string | null, // <= 120 chars when used, otherwise null
+  "newTopicSummary": string | null,     // <= 160 chars when used, otherwise null
   "newParentTopicId": string | null,    // existing topic id or null
-  "artifactsToLoad": string[]           // artifact ids, array, may be empty
+  "artifactsToLoad": string[]           // artifact ids, array, may be empty (NEVER null)
 }
 
 Hard invariants:
@@ -757,10 +787,6 @@ function repairRouterDecisionCandidate(candidate: any, userMessage: string) {
 
   return candidate;
 }
-
-
-
-
 
 
 
