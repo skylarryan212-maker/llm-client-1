@@ -921,12 +921,12 @@ export default function ChatPageShell({
     if (isGuest) {
       // Local-only guest chat; not persisted.
       let chatId = selectedChatId;
-      // Build a trimmed history (last 12 turns) including the new user message for model context.
+      // Build full history including the new user message for model context.
       const existingMessages = chats.find((c) => c.id === selectedChatId)?.messages ?? [];
       const historyForModel = [...existingMessages, userMessage]
         .filter((m) => m.role === "user" || m.role === "assistant")
         .map((m) => ({ role: m.role, content: m.content }))
-        .slice(-12);
+        .filter((m) => m.content && m.content.trim().length > 0);
       if (!chatId) {
         chatId = createChat({
           id: `guest-${Date.now()}`,
