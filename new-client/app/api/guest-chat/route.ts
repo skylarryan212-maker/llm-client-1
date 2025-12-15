@@ -16,6 +16,7 @@ export async function POST(request: NextRequest) {
     message: string;
     model?: string;
     previousResponseId?: string;
+    history?: { role: "user" | "assistant"; content: string }[];
   };
 
   try {
@@ -61,6 +62,17 @@ export async function POST(request: NextRequest) {
 
     console.log("[guest-chat] Creating OpenAI stream");
     const client = new OpenAI({ apiKey });
+    const historyInput =
+      Array.isArray(body.history) && body.history.length
+        ? body.history.filter(
+            (item) =>
+              item &&
+              typeof item === "object" &&
+              (item.role === "user" || item.role === "assistant") &&
+              typeof item.content === "string"
+          )
+        : [];
+
     const stream = (await client.responses.create({
       model,
       stream: true,
@@ -69,6 +81,7 @@ export async function POST(request: NextRequest) {
       instructions:
         "You are a helpful AI assistant. The user is in guest mode; keep answers concise and do not include links.",
       input: [
+        ...historyInput,
         { role: "user", content: message },
       ],
     } as any)) as any;
