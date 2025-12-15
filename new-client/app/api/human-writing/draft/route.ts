@@ -232,7 +232,9 @@ export async function POST(request: NextRequest) {
           await writer.write(textEncoder.encode(JSON.stringify({ error: "draft_empty" }) + "\n"));
         }
 
-        await writer.write(textEncoder.encode(JSON.stringify({ done: true, decision: { show: true } }) + "\n"));
+        await writer.write(
+          textEncoder.encode(JSON.stringify({ done: true, decision: { show: false } }) + "\n")
+        );
       } catch (err: any) {
         console.error("[human-writing][draft] stream error", err);
         await writer.write(

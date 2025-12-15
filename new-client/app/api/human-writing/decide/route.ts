@@ -28,7 +28,7 @@ export async function POST(request: NextRequest) {
         type: "function" as const,
         name: "set_humanizer_visibility",
         description:
-          "Decide whether to show the humanizer CTA. Only set show=true if this text is a real draft (multi-sentence, task-focused writing). If it's a greeting, meta reply, or placeholder, set show=false.",
+          "Decide whether to show the humanizer CTA. Set show=true only when the text is an essay: multi-sentence, paragraph-style, task-focused writing (not bullets/outline). If it's short, a greeting, meta reply, bullet list, placeholder, or otherwise not an essay, set show=false.",
         parameters: {
           type: "object",
           properties: {
@@ -48,7 +48,12 @@ export async function POST(request: NextRequest) {
         {
           role: "system",
           content:
-            "You decide if a 'Run humanizer' CTA should appear. Only set show=true if the text is a substantive writing draft (e.g., paragraphs/sentences answering a task). If it's short, a greeting, meta text, or not a draft, set show=false.",
+            [
+              "You gate the 'Run humanizer' CTA.",
+              "Set show=true only when the text is an essay: multi-sentence, paragraph-form, task-focused writing that answers the user's ask.",
+              "Always set show=false for greetings, meta/status replies, placeholders, instructions to the model, outlines, bullet lists, fragments, or anything that is not essay-style prose.",
+              "If it clearly is an essay, respond with show=true; otherwise show=false.",
+            ].join(" "),
         },
         { role: "user", content: draft },
       ],
