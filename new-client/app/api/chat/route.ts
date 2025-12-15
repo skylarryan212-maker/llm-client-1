@@ -45,6 +45,8 @@ import type { PermanentInstructionToWrite } from "@/lib/llm-router";
 import { updateTopicSnapshot } from "@/lib/topics/updateTopicSnapshot";
 import { refreshTopicMetadata } from "@/lib/topics/refreshTopicMetadata";
 
+const CONTEXT_LIMIT_TOKENS = 350_000;
+
 // Utility: convert a data URL (base64) to a Buffer
 function dataUrlToBuffer(dataUrl: string): Buffer {
   // Expected format: data:<mime>;base64,<data>
@@ -1766,6 +1768,16 @@ export async function POST(request: NextRequest) {
           });
         };
         let doneSent = false;
+        let contextUsage:
+          | {
+              percent: number;
+              limit: number;
+              inputTokens: number;
+              cachedTokens: number;
+              outputTokens: number;
+              model?: string;
+            }
+          | null = null;
 
         const ensureAssistantPlaceholder = (initialContent: string) => {
           if (assistantInsertPromise) {
@@ -1931,6 +1943,23 @@ export async function POST(request: NextRequest) {
 
           console.log("[usage] Calculated cost:", estimatedCost);
 
+          // Compute context usage (input + cached tokens) against the 350k limit
+          const totalContextTokens = inputTokens + cachedTokens;
+          if (totalContextTokens > 0) {
+            const percent = Math.min(
+              100,
+              Math.max(0, (totalContextTokens / CONTEXT_LIMIT_TOKENS) * 100)
+            );
+            contextUsage = {
+              percent,
+              limit: CONTEXT_LIMIT_TOKENS,
+              inputTokens,
+              cachedTokens,
+              outputTokens,
+              model: modelConfig.model,
+            };
+          }
+
           // Log usage to database
           if (inputTokens > 0 || outputTokens > 0) {
             try {
@@ -2050,6 +2079,7 @@ export async function POST(request: NextRequest) {
                 resolvedFamily: modelConfig.resolvedFamily,
                 speedModeUsed: speedMode,
                 metadata: metadataPayload,
+                ...(contextUsage ? { contextUsage } : {}),
               },
             });
           } else {
@@ -2098,6 +2128,7 @@ export async function POST(request: NextRequest) {
                 metadata:
                   (assistantRowForMeta.metadata as AssistantMessageMetadata | null) ??
                   metadataPayload,
+                ...(contextUsage ? { contextUsage } : {}),
               },
             });
 

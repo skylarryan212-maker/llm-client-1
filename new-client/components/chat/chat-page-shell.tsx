@@ -85,6 +85,15 @@ type ThinkingTimingInfo = {
   effort?: ReasoningEffort | null;
 };
 
+type ContextUsageSnapshot = {
+  percent: number;
+  limit: number;
+  inputTokens: number;
+  cachedTokens: number;
+  outputTokens: number;
+  model?: string;
+};
+
 const AUTO_STREAM_KEY_PREFIX = "llm-client-auto-stream:";
 const getAutoStreamKey = (conversationId: string) =>
   `${AUTO_STREAM_KEY_PREFIX}${conversationId}`;
@@ -179,6 +188,7 @@ export default function ChatPageShell({
   const [composerLiftPx, setComposerLiftPx] = useState(0);
   const [showOtherModels, setShowOtherModels] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
+  const [contextUsageByChat, setContextUsageByChat] = useState<Record<string, ContextUsageSnapshot>>({});
   const [messagesWithFirstToken, setMessagesWithFirstToken] = useState<Set<string>>(new Set());
   const [thinkingStatus, setThinkingStatus] = useState<{ variant: "thinking" | "extended"; label: string } | null>(null);
   // Force re-render while thinking so a live duration chip can update
@@ -257,6 +267,7 @@ export default function ChatPageShell({
     }
   }
   conversationRenderKeyRef.current = currentConversationKey;
+  const currentContextUsage = selectedChatId ? contextUsageByChat[selectedChatId] : null;
 
   useEffect(() => {
     setMessagesWithFirstToken(new Set());
@@ -1350,6 +1361,15 @@ export default function ChatPageShell({
                 
                 pendingThinkingInfoRef.current = null;
                 messageMetadata = metadataWithTiming;
+                if (parsed.meta.contextUsage && chatId) {
+                  const usage = parsed.meta.contextUsage as ContextUsageSnapshot;
+                  if (typeof usage.percent === "number") {
+                    setContextUsageByChat((prev) => ({
+                      ...prev,
+                      [chatId]: usage,
+                    }));
+                  }
+                }
                 const newId = parsed.meta.assistantMessageRowId;
                 setActiveIndicatorMessageId(newId);
                 // Clear thinking indicator when metadata arrives
@@ -1705,6 +1725,15 @@ export default function ChatPageShell({
                 );
                 pendingThinkingInfoRef.current = null;
                 messageMetadata = metadataWithTiming;
+                if (parsed.meta.contextUsage && selectedChatId) {
+                  const usage = parsed.meta.contextUsage as ContextUsageSnapshot;
+                  if (typeof usage.percent === "number") {
+                    setContextUsageByChat((prev) => ({
+                      ...prev,
+                      [selectedChatId]: usage,
+                    }));
+                  }
+                }
                 const newId = parsed.meta.assistantMessageRowId;
                 setActiveIndicatorMessageId(newId);
                 // Clear thinking indicator when metadata arrives
@@ -1960,7 +1989,7 @@ export default function ChatPageShell({
       <div className="flex flex-1 flex-col w-full min-w-0 min-h-0 overflow-hidden">
         {/* Header bar */}
         <div className="sticky top-0 z-20 flex h-[53px] items-center justify-between border-b border-border bg-background px-3 lg:px-6">
-          <div className="flex items-center gap-2 min-w-0">
+          <div className="flex items-center gap-2 min-w-0 flex-1">
             {!isGuest && (
               <Button
                 variant="ghost"
@@ -1998,6 +2027,12 @@ export default function ChatPageShell({
               <ApiUsageBadge />
             </div>
 
+          </div>
+
+          <div className="flex items-center gap-3">
+            {currentContextUsage ? (
+              <ContextUsageIndicator usage={currentContextUsage} />
+            ) : null}
             <DropdownMenu
               onOpenChange={(open) => {
                 if (!open) {
@@ -2480,6 +2515,27 @@ export default function ChatPageShell({
         limit={usageLimitModal.limit}
         planType={usageLimitModal.planType}
       />
+    </div>
+  );
+}
+
+function ContextUsageIndicator({ usage }: { usage: ContextUsageSnapshot }) {
+  const percent = Math.min(100, Math.max(0, Math.round(usage.percent ?? 0)));
+  const arc = `${percent * 3.6}deg`;
+  const tooltip = `Context: ${percent}% of ${usage.limit.toLocaleString()} tokens • input ${usage.inputTokens.toLocaleString()} + cached ${usage.cachedTokens.toLocaleString()} • output ${usage.outputTokens.toLocaleString()}`;
+
+  return (
+    <div className="flex items-center gap-2 text-xs text-muted-foreground" title={tooltip}>
+      <div className="relative h-7 w-7">
+        <div
+          className="absolute inset-0 rounded-full bg-white/10"
+          style={{
+            backgroundImage: `conic-gradient(#7dd3fc ${arc}, rgba(255,255,255,0.08) ${arc})`,
+          }}
+        />
+        <div className="absolute inset-[3px] rounded-full bg-background" />
+      </div>
+      <span className="text-sm font-semibold text-foreground">{percent}%</span>
     </div>
   );
 }
