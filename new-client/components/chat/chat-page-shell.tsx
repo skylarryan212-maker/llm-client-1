@@ -528,6 +528,12 @@ export default function ChatPageShell({
       pendingThinking: pendingThinkingInfoRef.current,
     };
 
+    // If we're not switching conversations (e.g., guest mode with no active conversation id),
+    // avoid resetting the selected chat id back to null when streaming state changes.
+    if (prevActiveConversationIdRef.current === activeConversationId) {
+      return;
+    }
+
     setSelectedChatId(activeConversationId ?? null);
     const key = activeConversationId ?? "__no_conversation__";
     const saved = conversationUiStateRef.current[key];
