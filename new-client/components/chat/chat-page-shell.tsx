@@ -531,7 +531,7 @@ export default function ChatPageShell({
       pendingThinking: pendingThinkingInfoRef.current,
     };
 
-    // If we're not switching conversations (e.g., guest mode with no active conversation id),
+    // If we're not switching conversations (e.g., tab visibility change causing re-render),
     // avoid resetting the selected chat id back to null when streaming state changes.
     if (prevActiveConversationIdRef.current === activeConversationId) {
       return;
@@ -1476,6 +1476,11 @@ export default function ChatPageShell({
 
       // Mark as auto-streamed before triggering
       autoStreamedConversations.current.add(activeConversationId);
+      if (typeof window !== "undefined") {
+        try {
+          sessionStorage.setItem(getAutoStreamKey(activeConversationId), "1");
+        } catch {}
+      }
 
       const initialAttachments = buildAttachmentsFromMetadata(userMessage.metadata);
 
