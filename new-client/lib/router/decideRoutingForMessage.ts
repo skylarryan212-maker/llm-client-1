@@ -54,7 +54,8 @@ const newTopicPayload = z.object({
   ...baseRouterFields,
   newTopicLabel: z.string().min(1).max(240),
   newTopicDescription: z.string().max(500).optional().default(""),
-  newTopicSummary: z.string().max(500).optional().default(""),
+  // Router models occasionally emit null; accept and normalize downstream.
+  newTopicSummary: z.string().max(500).nullable().optional().default(""),
 });
 
 const existingTopicPayload = z.object({
@@ -612,7 +613,7 @@ async function callRouterWithSchema(
       newTopicLabel: { type: "string" },
       newTopicDescription: { type: "string" },
       newParentTopicId: { type: ["string", "null"], format: "uuid" },
-      newTopicSummary: { type: "string" },
+      newTopicSummary: { type: ["string", "null"] },
       artifactsToLoad: {
         type: "array",
         items: { type: "string", format: "uuid" },
@@ -717,8 +718,6 @@ function parseJsonLoose(raw: string) {
     throw new Error("No JSON object found");
   }
 }
-
-
 
 
 
