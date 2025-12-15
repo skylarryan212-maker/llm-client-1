@@ -368,9 +368,10 @@ export async function getModelAndReasoningConfigWithLLM(
   userId?: string,
   conversationId?: string,
   routerOptions?: RouterRequestOptions,
-  recentMessages?: Array<{ role?: string | null; content?: string | null }>
+  recentMessages?: Array<{ role?: string | null; content?: string | null }>,
+  allowLLMRouter: boolean = true
 ): Promise<ModelConfig> {
-  const shouldUseLLMRouter = modelFamily === "auto";
+  const shouldUseLLMRouter = allowLLMRouter && modelFamily === "auto";
 
   let availableMemoryTypes: string[] = [];
   if (userId) {

@@ -959,6 +959,7 @@ export async function POST(request: NextRequest) {
       projectName: projectMeta?.name ?? null,
     });
 
+    const allowLLMRouter = !(modelFamily === "auto" && speedMode === "thinking");
     const modelConfigPromise = getModelAndReasoningConfigWithLLM(
       modelFamily,
       speedMode,
@@ -975,7 +976,8 @@ export async function POST(request: NextRequest) {
       (recentMessages || []).slice(-5).map((m: any) => ({
         role: m.role,
         content: m.content,
-      }))
+      })),
+      allowLLMRouter
     );
 
     let resolvedTopicDecision: RouterDecision;
