@@ -196,6 +196,8 @@ export default function ChatPageShell({
   const animatedMessageIdsRef = useRef<Set<string>>(new Set());
   const lastCreatedConversationIdRef = useRef<string | null>(null);
   const autoStreamedConversations = useRef<Set<string>>(new Set());
+  // Track the last OpenAI response id per chat so guest mode can pass previous_response_id
+  const guestResponseIdsRef = useRef<Record<string, string | undefined>>({});
   const inFlightRequests = useRef<Set<string>>(new Set());
   const streamAbortControllerRef = useRef<AbortController | null>(null);
   const thinkingTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -554,6 +556,10 @@ export default function ChatPageShell({
       setActiveIndicatorMessageId(null);
       responseTimingRef.current = { start: null, firstToken: null, assistantMessageId: null };
       pendingThinkingInfoRef.current = null;
+      // Reset guest response chain when switching to a chat we haven't seen
+      if (activeConversationId) {
+        guestResponseIdsRef.current[activeConversationId] = undefined;
+      }
     }
     prevActiveConversationIdRef.current = activeConversationId ?? null;
   }, [
@@ -794,7 +800,11 @@ export default function ChatPageShell({
       const response = await fetch("/api/guest-chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: userMessage, model: currentModel }),
+        body: JSON.stringify({
+          message: userMessage,
+          model: currentModel,
+          previousResponseId: guestResponseIdsRef.current[chatId],
+        }),
       });
       if (!response.ok || !response.body) {
         let warning = "Guest mode: failed to reach model. Sign in for full access.";
@@ -827,6 +837,9 @@ export default function ChatPageShell({
         for (const line of lines) {
           try {
             const parsed = JSON.parse(line);
+            if (parsed.response_id) {
+              guestResponseIdsRef.current[chatId] = parsed.response_id as string;
+            }
             if (parsed.token) {
               assistantContent += parsed.token;
               if (!firstTokenSeen) {
@@ -912,6 +925,7 @@ export default function ChatPageShell({
           initialMessages: [userMessage],
           title: "Guest chat",
         });
+        guestResponseIdsRef.current[chatId] = undefined;
         setSelectedChatId(chatId);
         setSelectedProjectId("");
       } else {
@@ -1953,6 +1967,7 @@ export default function ChatPageShell({
                     timestamp: new Date().toISOString(),
                     messages: [],
                   });
+                  guestResponseIdsRef.current = {};
                   router.replace("/");
                 }}
               >

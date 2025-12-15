@@ -15,6 +15,7 @@ export async function POST(request: NextRequest) {
   type GuestChatRequest = {
     message: string;
     model?: string;
+    previousResponseId?: string;
   };
 
   try {
@@ -49,6 +50,7 @@ export async function POST(request: NextRequest) {
 
     const model =
       !body.model || body.model.toLowerCase() === "auto" ? "gpt-4o-mini" : body.model;
+    const previousResponseId = body.previousResponseId;
 
     console.log("[guest-chat] Using model:", model);
     const apiKey = process.env.OPENAI_API_KEY;
@@ -70,6 +72,9 @@ export async function POST(request: NextRequest) {
         { role: "user", content: message },
       ],
       stream: true,
+      // Enable temporary memory for guests without persisting their chat to our DB.
+      store: true,
+      previous_response_id: previousResponseId,
     });
 
     const encoder = new TextEncoder();
@@ -79,7 +84,12 @@ export async function POST(request: NextRequest) {
           controller.enqueue(encoder.encode(JSON.stringify(obj) + "\n"));
         try {
           console.log("[guest-chat] Starting to stream chunks");
+          let responseIdEmitted = false;
           for await (const chunk of stream) {
+            if (!responseIdEmitted && (chunk as any)?.id) {
+              enqueue({ response_id: (chunk as any).id });
+              responseIdEmitted = true;
+            }
             const delta = chunk.choices?.[0]?.delta?.content;
             if (delta) enqueue({ token: delta });
           }
