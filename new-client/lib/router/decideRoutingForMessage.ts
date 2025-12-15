@@ -53,9 +53,8 @@ const newTopicPayload = z.object({
   topicAction: z.literal("new"),
   ...baseRouterFields,
   newTopicLabel: z.string().min(1).max(240),
-  newTopicDescription: z.string().max(500).optional().default(""),
-  // Router models occasionally emit null; accept and normalize downstream.
-  newTopicSummary: z.string().max(500).nullable().optional().default(""),
+  newTopicDescription: z.string().min(1).max(500),
+  newTopicSummary: z.string().min(1).max(500),
 });
 
 const existingTopicPayload = z.object({
@@ -85,7 +84,7 @@ export async function decideRoutingForMessage(
   const routerPrompt = buildRouterPrompt(payload, userMessage);
 
   try {
-    const parsed = await callRouterWithSchema(routerPrompt, {
+    const parsed = await callRouterWithSchema(routerPrompt, userMessage, {
       userId,
       conversationId,
     });
@@ -598,6 +597,7 @@ function buildAutoTopicDescription(message: string): string | null {
 }
 async function callRouterWithSchema(
   routerPrompt: string,
+  userMessage: string,
   ctx?: { userId?: string; conversationId?: string }
 ): Promise<RouterDecision> {
   const schema = {
@@ -613,7 +613,7 @@ async function callRouterWithSchema(
       newTopicLabel: { type: "string" },
       newTopicDescription: { type: "string" },
       newParentTopicId: { type: ["string", "null"], format: "uuid" },
-      newTopicSummary: { type: ["string", "null"] },
+      newTopicSummary: { type: "string" },
       artifactsToLoad: {
         type: "array",
         items: { type: "string", format: "uuid" },
@@ -670,7 +670,8 @@ async function callRouterWithSchema(
         const cleaned = text.trim();
         console.warn("[topic-router] RAW OUTPUT:", cleaned);
         const parsed = parseJsonLoose(cleaned);
-        validatedData = routerDecisionSchema.parse(parsed);
+        const repaired = repairRouterDecisionCandidate(parsed, userMessage);
+        validatedData = routerDecisionSchema.parse(repaired);
       } catch (err) {
         console.error("[topic-router] SCHEMA ERROR:", err);
         console.error("[topic-router] RAW OUTPUT THAT FAILED:", text);
@@ -719,7 +720,43 @@ function parseJsonLoose(raw: string) {
   }
 }
 
+function buildAutoTopicSummary(message: string) {
+  const clean = message.replace(/\s+/g, " ").trim();
+  if (!clean) return "New topic started.";
+  const snippet = clean.length > 140 ? `${clean.slice(0, 140).trim()}…` : clean;
+  return `User message: ${snippet}`.slice(0, 500);
+}
 
+function repairRouterDecisionCandidate(candidate: any, userMessage: string) {
+  if (!candidate || typeof candidate !== "object") return candidate;
+  const topicAction = candidate.topicAction;
+
+  if (topicAction === "new") {
+    const label =
+      typeof candidate.newTopicLabel === "string" ? candidate.newTopicLabel.trim() : "";
+    const description =
+      typeof candidate.newTopicDescription === "string"
+        ? candidate.newTopicDescription.trim()
+        : "";
+    const summary =
+      typeof candidate.newTopicSummary === "string" ? candidate.newTopicSummary.trim() : "";
+
+    if (!label) {
+      candidate.newTopicLabel = buildAutoTopicLabel(userMessage);
+    }
+    if (!description) {
+      candidate.newTopicDescription =
+        buildAutoTopicDescription(userMessage) ?? "New topic started.";
+    }
+    if (!summary) {
+      candidate.newTopicSummary = buildAutoTopicSummary(userMessage);
+    }
+    // Enforce invariants for new topics
+    candidate.primaryTopicId = null;
+  }
+
+  return candidate;
+}
 
 
 
