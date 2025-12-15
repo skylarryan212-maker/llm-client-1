@@ -74,11 +74,8 @@ export async function POST(request: NextRequest) {
           )
         : [];
 
-    // Allow the same built-in tools as authenticated users (web search + file search).
-    const tools: Tool[] = [
-      { type: "web_search" as any },
-      { type: "file_search" as any },
-    ];
+    // Allow built-in tools. File search requires a vector store id; guests don't create one here, so keep web search only.
+    const tools: Tool[] = [{ type: "web_search" as any }];
 
     const stream = (await client.responses.create({
       model,
