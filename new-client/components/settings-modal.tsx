@@ -27,6 +27,7 @@ import { getUserPlanDetails, cancelSubscription } from '@/app/actions/plan-actio
 import { getUserTotalSpending, getMonthlySpending } from '@/app/actions/usage-actions'
 import { getUsageStatus } from '@/lib/usage-limits'
 import { PersonalizationPanel } from '@/components/personalization-panel'
+import { useChatStore } from '@/components/chat/chat-provider'
 
 interface SettingsModalProps {
   isOpen: boolean
@@ -42,6 +43,7 @@ export function SettingsModal({ isOpen, onClose, initialTab = 'personalization' 
   const [accentColor, setAccentColor] = useState('white')
   const { plan, refreshPlan } = useUserPlan()
   const { fullName, email } = useUserIdentity()
+  const { refreshChats } = useChatStore()
   const cachedUsage = typeof window !== 'undefined' ? (() => {
     try {
       const raw = window.localStorage.getItem('settingsUsageCache')
@@ -225,6 +227,11 @@ export function SettingsModal({ isOpen, onClose, initialTab = 'personalization' 
     try {
       const { deleteAllConversationsAction } = await import('@/app/actions/chat-actions')
       await deleteAllConversationsAction()
+      try {
+        await refreshChats()
+      } catch (refreshErr) {
+        console.error('Failed to refresh chats after deletion:', refreshErr)
+      }
       
       // Close modal and redirect to home
       onClose()
