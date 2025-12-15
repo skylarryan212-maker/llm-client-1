@@ -88,6 +88,31 @@ export async function incrementGuestSessionRequest(
   }
 }
 
+export async function addGuestUsage(
+  supabase: SupabaseClient,
+  sessionId: string,
+  currentTokenCount: number | null | undefined,
+  currentEstimatedCost: number | null | undefined,
+  tokenDelta: number,
+  costDelta: number
+) {
+  if (!tokenDelta && !costDelta) return;
+  const nowIso = new Date().toISOString();
+  const newTokenCount = (currentTokenCount ?? 0) + Math.max(0, tokenDelta);
+  const newEstimatedCost = (currentEstimatedCost ?? 0) + Math.max(0, costDelta);
+  const { error } = await (supabase as any)
+    .from("guest_sessions")
+    .update({
+      token_count: newTokenCount,
+      estimated_cost: newEstimatedCost,
+      last_seen: nowIso,
+    })
+    .eq("id", sessionId);
+
+  if (error) {
+    console.error("[guestSession] Failed to record guest usage:", error);
+  }
+}
 export function attachGuestCookie(response: NextResponse, value?: string) {
   if (!value) return;
   response.cookies.set(GUEST_SESSION_COOKIE, value, {

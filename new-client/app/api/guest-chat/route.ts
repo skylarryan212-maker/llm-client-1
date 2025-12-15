@@ -9,7 +9,9 @@ import {
   attachGuestCookie,
   shouldResetDailyCounter,
   GUEST_PROMPT_LIMIT_PER_DAY,
+  addGuestUsage,
 } from "@/lib/guest-session";
+import { calculateCost } from "@/lib/pricing";
 import type { Tool } from "openai/resources/responses/responses";
 
 export async function POST(request: NextRequest) {
@@ -99,40 +101,73 @@ export async function POST(request: NextRequest) {
         const enqueue = (obj: Record<string, unknown>) =>
           controller.enqueue(encoder.encode(JSON.stringify(obj) + "\n"));
         try {
-          console.log("[guest-chat] Starting to stream chunks");
-          let responseId: string | undefined;
-          let emittedToken = false;
-          // Responses SDK stream supports async iteration at runtime; cast to keep TS happy.
-          const asyncStream = stream as unknown as AsyncIterable<any>;
-          for await (const event of asyncStream) {
-            // Capture response id for chaining
-            const maybeId = (event as any)?.response?.id ?? (event as any)?.id;
-            if (maybeId && !responseId) {
-              responseId = maybeId as string;
-              enqueue({ response_id: responseId });
-            }
+      console.log("[guest-chat] Starting to stream chunks");
+      let responseId: string | undefined;
+      let emittedToken = false;
+      let inputTokens = 0;
+      let cachedTokens = 0;
+      let outputTokens = 0;
+      // Responses SDK stream supports async iteration at runtime; cast to keep TS happy.
+      const asyncStream = stream as unknown as AsyncIterable<any>;
+      for await (const event of asyncStream) {
+        // Capture response id for chaining
+        const maybeId = (event as any)?.response?.id ?? (event as any)?.id;
+        if (maybeId && !responseId) {
+          responseId = maybeId as string;
+          enqueue({ response_id: responseId });
+        }
 
-            // Stream text deltas
-            if ((event as any)?.type === "response.output_text.delta" && (event as any)?.delta) {
-              emittedToken = true;
-              enqueue({ token: (event as any).delta });
-            }
+        // Capture usage if available
+        const usage = (event as any)?.response?.usage;
+        if (usage) {
+          inputTokens =
+            usage.input_tokens ??
+            usage.prompt_tokens ??
+            usage.total_tokens ??
+            inputTokens;
+          cachedTokens =
+            usage.input_tokens_details?.cached_tokens ??
+            usage.input_tokens_details?.cache_read_input_tokens ??
+            usage.cached_input_tokens ??
+            cachedTokens;
+          outputTokens = usage.output_tokens ?? usage.completion_tokens ?? outputTokens;
+        }
 
-            // Fallback: if completed and we never emitted tokens, send the full text
-            if (
-              (event as any)?.type === "response.completed" &&
-              !emittedToken &&
-              (event as any)?.response?.output_text
-            ) {
-              emittedToken = true;
-              enqueue({ token: (event as any).response.output_text });
-            }
+        // Stream text deltas
+        if ((event as any)?.type === "response.output_text.delta" && (event as any)?.delta) {
+          emittedToken = true;
+          enqueue({ token: (event as any).delta });
+        }
 
-            if ((event as any)?.type === "response.completed") {
-              enqueue({ done: true });
-              console.log("[guest-chat] Stream completed successfully");
-              return;
-            }
+        // Fallback: if completed and we never emitted tokens, send the full text
+        if (
+          (event as any)?.type === "response.completed" &&
+          !emittedToken &&
+          (event as any)?.response?.output_text
+        ) {
+          emittedToken = true;
+          enqueue({ token: (event as any).response.output_text });
+        }
+
+        if ((event as any)?.type === "response.completed") {
+          try {
+            const estimatedCost = calculateCost(model, inputTokens, cachedTokens, outputTokens);
+            const totalTokens = (inputTokens || 0) + (cachedTokens || 0) + (outputTokens || 0);
+            await addGuestUsage(
+              supabase,
+              session.id,
+              (session as any)?.token_count,
+              (session as any)?.estimated_cost,
+              totalTokens,
+              estimatedCost
+            );
+          } catch (usageErr) {
+            console.error("[guest-chat] Failed to log guest usage:", usageErr);
+          }
+          enqueue({ done: true });
+          console.log("[guest-chat] Stream completed successfully");
+          return;
+        }
 
             if ((event as any)?.type === "response.error" && (event as any)?.error?.message) {
               enqueue({ error: (event as any).error.message });
