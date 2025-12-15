@@ -196,6 +196,7 @@ export default function ChatPageShell({
   const animatedMessageIdsRef = useRef<Set<string>>(new Set());
   const lastCreatedConversationIdRef = useRef<string | null>(null);
   const autoStreamedConversations = useRef<Set<string>>(new Set());
+  const streamModelResponseRef = useRef<typeof streamModelResponse | null>(null);
   // Track the last OpenAI response id per chat so guest mode can pass previous_response_id
   const guestResponseIdsRef = useRef<Record<string, string | undefined>>({});
   const inFlightRequests = useRef<Set<string>>(new Set());
@@ -1424,6 +1425,11 @@ export default function ChatPageShell({
     updateMessage,
   ]);
 
+  // Keep the latest streamModelResponse without retriggering effects that shouldn't re-run on dropdown changes
+  useEffect(() => {
+    streamModelResponseRef.current = streamModelResponse;
+  }, [streamModelResponse]);
+
   const handleStopGeneration = useCallback(() => {
     const controller = streamAbortControllerRef.current;
     if (!controller) return;
@@ -1473,7 +1479,8 @@ export default function ChatPageShell({
 
       const initialAttachments = buildAttachmentsFromMetadata(userMessage.metadata);
 
-      streamModelResponse(
+      // Use ref to avoid retriggering on model dropdown changes
+      streamModelResponseRef.current?.(
         activeConversationId,
         projectId,
         userMessage.content,
@@ -1492,7 +1499,6 @@ export default function ChatPageShell({
     initialMessages,
     isConversationAutoStreamed,
     projectId,
-    streamModelResponse,
   ]); // Run when conversation changes or message count changes
 
   const handleRetryWithModel = async (retryModelName: string, messageId: string) => {
