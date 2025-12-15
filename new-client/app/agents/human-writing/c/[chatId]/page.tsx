@@ -67,12 +67,19 @@ function ChatInner({ params }: PageProps) {
         const res = await fetch(`/api/human-writing/history?taskId=${encodeURIComponent(taskId)}`);
         if (res.ok) {
           const data = await res.json();
-          const loaded = (data?.messages || []) as Array<{ role: "user" | "assistant"; content: string }>;
+          const loaded = (data?.messages || []) as Array<{
+            role: "user" | "assistant";
+            content: string;
+            metadata?: any;
+          }>;
           if (loaded.length) {
             const mapped: Message[] = loaded.map((m, idx) => ({
               id: `h-${idx}`,
               role: m.role,
               content: m.content,
+              kind: m.metadata?.kind === "cta" ? "cta" : undefined,
+              draftText: m.metadata?.draftText,
+              status: m.metadata?.status,
             }));
             setMessages(mapped);
             messagesRef.current = mapped;
@@ -142,6 +149,7 @@ function ChatInner({ params }: PageProps) {
     let draft = "";
     let shouldShowCTA = false;
     let debugInfo: any = null;
+    let decisionReason: string | undefined;
     try {
       const response = await fetch("/api/human-writing/draft", {
         method: "POST",
@@ -223,10 +231,28 @@ function ChatInner({ params }: PageProps) {
         throw new Error(`draft_empty${suffix}`);
       }
 
-        setMessages((prev) => {
-          const updated = prev.map((msg) =>
-            msg.id === draftMsgId ? { ...msg, content: draft, kind: undefined } : msg
-          );
+      // Ask llama decider whether to show CTA
+      try {
+        const decideRes = await fetch("/api/human-writing/decide", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ draft }),
+        });
+        if (decideRes.ok) {
+          const decideJson = await decideRes.json();
+          if (typeof decideJson?.show === "boolean") {
+            shouldShowCTA = decideJson.show;
+            decisionReason = decideJson.reason;
+          }
+        }
+      } catch (err) {
+        console.warn("[human-writing][decide] failed", err);
+      }
+
+      setMessages((prev) => {
+        const updated = prev.map((msg) =>
+          msg.id === draftMsgId ? { ...msg, content: draft, kind: undefined } : msg
+        );
           const next =
             shouldShowCTA && !updated.some((m) => m.kind === "cta")
               ? [
@@ -234,16 +260,34 @@ function ChatInner({ params }: PageProps) {
                   {
                     id: `cta-${Date.now()}`,
                     role: "assistant",
-                    content: "Draft ready. Want me to humanize it now? (no detector or loop yet)",
-                    kind: "cta" as MessageKind,
-                    draftText: draft,
-                    status: "pending",
-                  } as Message,
-                ]
-              : updated;
-          messagesRef.current = next;
-          return next;
-        });
+                  content: "Draft ready. Want me to humanize it now? (no detector or loop yet)",
+                  kind: "cta" as MessageKind,
+                  draftText: draft,
+                  status: "pending",
+                } as Message,
+              ]
+            : updated;
+        messagesRef.current = next;
+        return next;
+      });
+
+      // Persist CTA state if shown
+      if (shouldShowCTA) {
+        try {
+          await fetch("/api/human-writing/cta", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              taskId,
+              draftText: draft,
+              content: "Draft ready. Want me to humanize it now? (no detector or loop yet)",
+              reason: decisionReason,
+            }),
+          });
+        } catch (err) {
+          console.warn("[human-writing][cta][persist] failed", err);
+        }
+      }
     } catch (error: any) {
       const message = error?.message || "Unable to draft right now.";
       setMessages((prev) =>
