@@ -82,6 +82,7 @@ export async function POST(request: NextRequest) {
       stream: true,
       store: true,
       previous_response_id: previousResponseId,
+      reasoning: { effort: "minimal" },
       instructions:
         "You are a helpful AI assistant. The user is in guest mode; keep answers concise and do not include links.",
       input: [
