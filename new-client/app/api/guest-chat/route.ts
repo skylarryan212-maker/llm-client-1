@@ -10,6 +10,7 @@ import {
   shouldResetDailyCounter,
   GUEST_PROMPT_LIMIT_PER_DAY,
 } from "@/lib/guest-session";
+import type { Tool } from "openai/resources/responses/responses";
 
 export async function POST(request: NextRequest) {
   type GuestChatRequest = {
@@ -73,6 +74,12 @@ export async function POST(request: NextRequest) {
           )
         : [];
 
+    // Allow the same built-in tools as authenticated users (web search + file search).
+    const tools: Tool[] = [
+      { type: "web_search" as any },
+      { type: "file_search" as any },
+    ];
+
     const stream = (await client.responses.create({
       model,
       stream: true,
@@ -84,6 +91,8 @@ export async function POST(request: NextRequest) {
         ...historyInput,
         { role: "user", content: message },
       ],
+      tools,
+      tool_choice: "auto",
     } as any)) as any;
 
     const encoder = new TextEncoder();
