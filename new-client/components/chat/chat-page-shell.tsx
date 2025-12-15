@@ -1989,7 +1989,7 @@ export default function ChatPageShell({
       <div className="flex flex-1 flex-col w-full min-w-0 min-h-0 overflow-hidden">
         {/* Header bar */}
         <div className="sticky top-0 z-20 flex h-[53px] items-center justify-between border-b border-border bg-background px-3 lg:px-6">
-          <div className="flex items-center gap-2 min-w-0 flex-1">
+          <div className="flex items-center gap-3 min-w-0">
             {!isGuest && (
               <Button
                 variant="ghost"
@@ -2023,16 +2023,7 @@ export default function ChatPageShell({
               </Button>
             )}
 
-            <div className="flex-1 flex items-center justify-center">
-              <ApiUsageBadge />
-            </div>
-
-          </div>
-
-          <div className="flex items-center gap-3">
-            {currentContextUsage ? (
-              <ContextUsageIndicator usage={currentContextUsage} />
-            ) : null}
+            <ApiUsageBadge />
             <DropdownMenu
               onOpenChange={(open) => {
                 if (!open) {
@@ -2259,7 +2250,8 @@ export default function ChatPageShell({
             </DropdownMenu>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
+            {currentContextUsage ? <ContextUsageIndicator usage={currentContextUsage} /> : null}
             {isGuest ? (
               <>
                 <Button
@@ -2523,6 +2515,7 @@ function ContextUsageIndicator({ usage }: { usage: ContextUsageSnapshot }) {
   const percent = Math.min(100, Math.max(0, Math.round(usage.percent ?? 0)));
   const arc = `${percent * 3.6}deg`;
   const tooltip = `Context: ${percent}% of ${usage.limit.toLocaleString()} tokens • input ${usage.inputTokens.toLocaleString()} + cached ${usage.cachedTokens.toLocaleString()} • output ${usage.outputTokens.toLocaleString()}`;
+  const accent = "var(--user-accent-color, #7dd3fc)";
 
   return (
     <div className="flex items-center gap-2 text-xs text-muted-foreground" title={tooltip}>
@@ -2530,7 +2523,7 @@ function ContextUsageIndicator({ usage }: { usage: ContextUsageSnapshot }) {
         <div
           className="absolute inset-0 rounded-full bg-white/10"
           style={{
-            backgroundImage: `conic-gradient(#7dd3fc ${arc}, rgba(255,255,255,0.08) ${arc})`,
+            backgroundImage: `conic-gradient(${accent} ${arc}, rgba(255,255,255,0.08) ${arc})`,
           }}
         />
         <div className="absolute inset-[3px] rounded-full bg-background" />

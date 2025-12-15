@@ -72,6 +72,11 @@ export function applyAccentColor(accentColor: string) {
       background-color: ${colors.hover} !important;
     }
   `
+
+  // Expose accent colors as CSS variables for other UI elements (read-only usage)
+  const root = document.documentElement
+  root.style.setProperty('--user-accent-color', colors.base)
+  root.style.setProperty('--user-accent-color-hover', colors.hover)
 }
 
 export function AccentColorProvider({ 
