@@ -51,7 +51,7 @@ export async function POST(request: NextRequest) {
     await incrementGuestSessionRequest(supabase, session.id, requestCount + 1);
 
     const model =
-      !body.model || body.model.toLowerCase() === "auto" ? "gpt-4o-mini" : body.model;
+      !body.model || body.model.toLowerCase() === "auto" ? "gpt-5-nano" : body.model;
     const previousResponseId = body.previousResponseId;
 
     console.log("[guest-chat] Using model:", model);
