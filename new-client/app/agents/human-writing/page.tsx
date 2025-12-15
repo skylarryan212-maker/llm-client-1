@@ -154,7 +154,7 @@ export default function HumanWritingAgentPage() {
                 }
               }}
               placeholder="Describe the essay or writing task..."
-              className="min-h-[180px] resize-none rounded-[12px] border-0 bg-[#1A191C] text-white placeholder:text-white/50 shadow-none outline-none ring-0 focus-visible:ring-0 focus-visible:outline-none focus-visible:border-0 focus-visible:shadow-none pr-32 pb-20"
+              className="min-h-[180px] resize-none rounded-[12px] border-0 bg-transparent text-white placeholder:text-white/50 shadow-none outline-none ring-0 focus-visible:ring-0 focus-visible:outline-none focus-visible:border-0 focus-visible:shadow-none pr-32 pb-20"
             />
 
           <div className="absolute bottom-3 right-3">
