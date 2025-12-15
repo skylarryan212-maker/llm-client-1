@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, ArrowUp, PenLine, Repeat, ShieldCheck, Sparkles, ChevronDown } from "lucide-react";
+import useSWR from "swr";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -25,6 +26,12 @@ type DetectorMode = "overall" | "depth";
 
 export default function HumanWritingAgentPage() {
   const router = useRouter();
+  const fetcher = (url: string) => fetch(url).then((res) => res.json());
+
+  const { data: tasksResponse } = useSWR("/api/human-writing/tasks", fetcher, {
+    revalidateOnFocus: false,
+    dedupingInterval: 60_000,
+  });
 
   const [modelChoice, setModelChoice] = useState<ModelChoice>("undetectable");
   const [language, setLanguage] = useState<string>("auto");
@@ -33,7 +40,23 @@ export default function HumanWritingAgentPage() {
   const [returnCosts, setReturnCosts] = useState<boolean>(false);
   const [detectorMode, setDetectorMode] = useState<DetectorMode>("overall");
   const [composerText, setComposerText] = useState<string>("");
-  const [tasks, setTasks] = useState<Array<{ id: string; taskId: string; title: string; timestamp: string }>>([]);
+
+  const tasks = useMemo(() => {
+    const items =
+      (tasksResponse?.tasks as Array<{
+        id: string;
+        title: string | null;
+        created_at: string | null;
+        metadata?: Record<string, unknown> | null;
+      }>) || [];
+    return items.map((item) => {
+      const taskId = (item.metadata as any)?.task_id || item.id;
+      const fallbackTitle =
+        (item.metadata as any)?.task_id || item.title || "Human Writing Task";
+      const ts = item.created_at ? new Date(item.created_at).toLocaleString() : "";
+      return { id: item.id, taskId, title: fallbackTitle, timestamp: ts };
+    });
+  }, [tasksResponse]);
 
   const dropdownButtonClass =
     "flex items-center justify-between gap-2 rounded-[14px] border border-white/10 bg-black/30 px-4 py-2 text-sm font-semibold text-white duration-200 hover:border-white/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400";
@@ -54,38 +77,6 @@ export default function HumanWritingAgentPage() {
     router.push(`/agents/human-writing/c/${id}`);
     setComposerText("");
   };
-
-  useEffect(() => {
-    const loadTasks = async () => {
-      try {
-        const res = await fetch("/api/human-writing/tasks");
-        if (!res.ok) return;
-        const data = await res.json();
-        const items = (data?.tasks || []) as Array<{
-          id: string;
-          title: string | null;
-          created_at: string | null;
-          metadata?: Record<string, unknown> | null;
-        }>;
-        setTasks(
-          items.map((item) => {
-            const taskId = (item.metadata as any)?.task_id || item.id;
-            const fallbackTitle =
-              (item.metadata as any)?.task_id ||
-              item.title ||
-              "Human Writing Task";
-            const ts = item.created_at
-              ? new Date(item.created_at).toLocaleString()
-              : "";
-            return { id: item.id, taskId, title: fallbackTitle, timestamp: ts };
-          })
-        );
-      } catch {
-        // ignore
-      }
-    };
-    loadTasks();
-  }, []);
 
   return (
     <div className="relative min-h-screen overflow-hidden bg-[#0f0d12] text-foreground">
