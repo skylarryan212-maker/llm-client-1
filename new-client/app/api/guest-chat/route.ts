@@ -61,7 +61,7 @@ export async function POST(request: NextRequest) {
 
     console.log("[guest-chat] Creating OpenAI stream");
     const client = new OpenAI({ apiKey });
-    const stream = await client.responses.create({
+    const stream = (await client.responses.create({
       model,
       stream: true,
       store: true,
@@ -71,7 +71,7 @@ export async function POST(request: NextRequest) {
       input: [
         { role: "user", content: message },
       ],
-    } as any);
+    } as any)) as any;
 
     const encoder = new TextEncoder();
     const readable = new ReadableStream({
@@ -82,7 +82,9 @@ export async function POST(request: NextRequest) {
           console.log("[guest-chat] Starting to stream chunks");
           let responseId: string | undefined;
           let emittedToken = false;
-          for await (const event of stream as AsyncIterable<any>) {
+          // Responses SDK stream supports async iteration at runtime; cast to keep TS happy.
+          const asyncStream = stream as unknown as AsyncIterable<any>;
+          for await (const event of asyncStream) {
             // Capture response id for chaining
             const maybeId = (event as any)?.response?.id ?? (event as any)?.id;
             if (maybeId && !responseId) {
