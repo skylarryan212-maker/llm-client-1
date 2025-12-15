@@ -96,11 +96,11 @@ function mergeThinkingTimingIntoMetadata(
   if (!timing) {
     return metadata;
   }
-  const skipEfforts = new Set<ReasoningEffort | "minimal">(["low", "none", "minimal"]);
-  if (metadata && skipEfforts.has(metadata.reasoningEffort as ReasoningEffort | "minimal")) {
+  const skipEfforts = new Set<ReasoningEffort>(["low", "none", "minimal"]);
+  if (metadata && metadata.reasoningEffort && skipEfforts.has(metadata.reasoningEffort)) {
     return metadata;
   }
-  if (timing.effort && skipEfforts.has(timing.effort as ReasoningEffort | "minimal")) {
+  if (timing.effort && skipEfforts.has(timing.effort)) {
     return metadata;
   }
   // CRITICAL: Only merge if metadata has absolutely NO timing information
