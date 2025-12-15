@@ -50,8 +50,8 @@ export async function POST(request: NextRequest) {
 
     await incrementGuestSessionRequest(supabase, session.id, requestCount + 1);
 
-    const model =
-      !body.model || body.model.toLowerCase() === "auto" ? "gpt-5-nano" : body.model;
+    // Guest mode always uses a single model to keep behavior predictable.
+    const model = "gpt-5-nano";
     const previousResponseId = body.previousResponseId;
 
     console.log("[guest-chat] Using model:", model);
