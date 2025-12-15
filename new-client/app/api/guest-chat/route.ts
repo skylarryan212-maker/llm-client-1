@@ -61,21 +61,17 @@ export async function POST(request: NextRequest) {
 
     console.log("[guest-chat] Creating OpenAI stream");
     const client = new OpenAI({ apiKey });
-    const stream = await client.chat.completions.create({
+    const stream = await client.responses.create({
       model,
-      messages: [
-        {
-          role: "system",
-          content:
-            "You are a helpful AI assistant. The user is in guest mode; keep answers concise and do not include links.",
-        },
-        { role: "user", content: message },
-      ],
       stream: true,
-      // Enable temporary memory for guests without persisting their chat to our DB.
       store: true,
       previous_response_id: previousResponseId,
-    });
+      instructions:
+        "You are a helpful AI assistant. The user is in guest mode; keep answers concise and do not include links.",
+      input: [
+        { role: "user", content: message },
+      ],
+    } as any);
 
     const encoder = new TextEncoder();
     const readable = new ReadableStream({
@@ -84,17 +80,43 @@ export async function POST(request: NextRequest) {
           controller.enqueue(encoder.encode(JSON.stringify(obj) + "\n"));
         try {
           console.log("[guest-chat] Starting to stream chunks");
-          let responseIdEmitted = false;
-          for await (const chunk of stream) {
-            if (!responseIdEmitted && (chunk as any)?.id) {
-              enqueue({ response_id: (chunk as any).id });
-              responseIdEmitted = true;
+          let responseId: string | undefined;
+          let emittedToken = false;
+          for await (const event of stream as AsyncIterable<any>) {
+            // Capture response id for chaining
+            const maybeId = (event as any)?.response?.id ?? (event as any)?.id;
+            if (maybeId && !responseId) {
+              responseId = maybeId as string;
+              enqueue({ response_id: responseId });
             }
-            const delta = chunk.choices?.[0]?.delta?.content;
-            if (delta) enqueue({ token: delta });
+
+            // Stream text deltas
+            if ((event as any)?.type === "response.output_text.delta" && (event as any)?.delta) {
+              emittedToken = true;
+              enqueue({ token: (event as any).delta });
+            }
+
+            // Fallback: if completed and we never emitted tokens, send the full text
+            if (
+              (event as any)?.type === "response.completed" &&
+              !emittedToken &&
+              (event as any)?.response?.output_text
+            ) {
+              emittedToken = true;
+              enqueue({ token: (event as any).response.output_text });
+            }
+
+            if ((event as any)?.type === "response.completed") {
+              enqueue({ done: true });
+              console.log("[guest-chat] Stream completed successfully");
+              return;
+            }
+
+            if ((event as any)?.type === "response.error" && (event as any)?.error?.message) {
+              enqueue({ error: (event as any).error.message });
+            }
           }
           enqueue({ done: true });
-          console.log("[guest-chat] Stream completed successfully");
         } catch (err: any) {
           console.error("[guest-chat] Stream error:", err);
           enqueue({ error: err?.message || "guest_chat_error" });
