@@ -23,6 +23,12 @@ export async function POST(request: NextRequest) {
     const body = (await request.json().catch(() => ({}))) as DraftRequestBody;
     const prompt = body.prompt?.trim();
     const taskId = body.taskId?.trim();
+    const requestStart = Date.now();
+    console.info("[human-writing][draft] request received", {
+      taskId,
+      promptChars: prompt?.length ?? 0,
+      ts: requestStart,
+    });
 
     if (!prompt) {
       return NextResponse.json({ error: "Prompt is required" }, { status: 400 });
@@ -38,6 +44,7 @@ export async function POST(request: NextRequest) {
 
     const supabase = await supabaseServer();
     const userId = await requireUserIdServer();
+    console.info("[human-writing][draft] user resolved", { userId });
 
     // Find or create conversation for this task
     const { data: existing, error: findError } = await supabase
@@ -184,6 +191,13 @@ export async function POST(request: NextRequest) {
     }
 
     const requestInput = inputItems as any;
+    console.info("[human-writing][draft] calling OpenAI", {
+      model: "gpt-5-nano",
+      inputItems: requestInput.length,
+      tokensBeforeTrim,
+      tokensAfterTrim,
+      trimAttempts,
+    });
 
     const stream = await client.responses.create({
       model: "gpt-5-nano",
@@ -198,6 +212,7 @@ export async function POST(request: NextRequest) {
     const textEncoder = new TextEncoder();
     let draftText = "";
     let deltaCount = 0;
+    let firstDeltaAt: number | null = null;
 
     (async () => {
       try {
@@ -207,6 +222,10 @@ export async function POST(request: NextRequest) {
             if (delta) {
               deltaCount += 1;
               draftText += delta;
+              if (!firstDeltaAt) {
+                firstDeltaAt = Date.now();
+                console.info("[human-writing][draft] first delta received", { ts: firstDeltaAt });
+              }
               await writer.write(textEncoder.encode(JSON.stringify({ token: delta }) + "\n"));
             }
           }
@@ -227,6 +246,8 @@ export async function POST(request: NextRequest) {
             await writer.write(
               textEncoder.encode(JSON.stringify({ error: "save_assistant_message_failed" }) + "\n")
             );
+          } else {
+            console.info("[human-writing][draft] draft message saved", { conversationId });
           }
         } else {
           await writer.write(textEncoder.encode(JSON.stringify({ error: "draft_empty" }) + "\n"));
@@ -252,6 +273,7 @@ export async function POST(request: NextRequest) {
           trimAttempts,
           emittedChars: draftText.length,
           deltaCount,
+          firstDeltaMs: firstDeltaAt ? firstDeltaAt - requestStart : null,
         });
         await writer.close();
       }
