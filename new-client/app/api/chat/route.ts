@@ -44,6 +44,7 @@ import { buildContextForMainModel } from "@/lib/context/buildContextForMainModel
 import type { PermanentInstructionToWrite } from "@/lib/llm-router";
 import { updateTopicSnapshot } from "@/lib/topics/updateTopicSnapshot";
 import { refreshTopicMetadata } from "@/lib/topics/refreshTopicMetadata";
+import { toFile } from "openai/uploads";
 
 const CONTEXT_LIMIT_TOKENS = 350_000;
 
@@ -1233,11 +1234,11 @@ export async function POST(request: NextRequest) {
   if (attachmentLines.length) {
     expandedMessageWithAttachments += "\n\n" + attachmentLines.join("\n");
   }
-  const openaiFileIds: string[] = [];
   let totalFileUploadSize = 0;
   // Try to reuse an existing vector store from recent messages
   let vectorStoreId: string | undefined;
   let vectorStoreOpenAI: OpenAIClient | null = null;
+  const inputFileParts: Array<{ type: "input_file"; file_id: string }> = [];
   const deferredAttachmentTasks: Promise<void>[] = []; // Run after stream starts to avoid delaying initial response
   try {
     const priorVectorIds: string[] = [];
@@ -1267,6 +1268,7 @@ export async function POST(request: NextRequest) {
         const fileSize = buffer.length;
         const isImage = typeof att.mime === 'string' && att.mime.startsWith('image/');
         const shouldUpload = !isImage || fileSize > 100 * 1024;
+        const withinFileApiLimit = fileSize <= 50 * 1024 * 1024; // 50 MB per OpenAI file input
         // Upload to OpenAI for file_search when not a small image
         if (shouldUpload) {
           const uploadTask = async () => {
@@ -1293,7 +1295,6 @@ export async function POST(request: NextRequest) {
                 console.log(`Created vector store ${vectorStoreId}`);
               }
               await vectorStoreOpenAI.vectorStores.files.uploadAndPoll(vectorStoreId!, file);
-              openaiFileIds.push(att.name || 'file');
               totalFileUploadSize += fileSize;
               console.log(`Uploaded to vector store: ${att.name} (${fileSize} bytes)`);
             } catch (uploadErr) {
@@ -1307,6 +1308,31 @@ export async function POST(request: NextRequest) {
           } else {
             await uploadTask();
           }
+        }
+
+        // Upload to OpenAI Files API for direct input_file consumption (skip images; require <=50MB)
+        if (!isImage && withinFileApiLimit) {
+          try {
+            if (!vectorStoreOpenAI) {
+              const OpenAIConstructor = await getOpenAIConstructor();
+              vectorStoreOpenAI = new OpenAIConstructor({
+                apiKey: process.env.OPENAI_API_KEY,
+              });
+            }
+            const uploadable = await toFile(buffer, att.name || "file", {
+              contentType: att.mime || "application/octet-stream",
+            });
+            const uploaded = await vectorStoreOpenAI.files.create({
+              file: uploadable,
+              purpose: "user_data",
+            });
+            inputFileParts.push({ type: "input_file", file_id: uploaded.id });
+            console.log(`Uploaded input_file to OpenAI: ${att.name} (${uploaded.id})`);
+          } catch (fileUploadErr) {
+            console.error(`Failed to upload ${att.name} as input_file:`, fileUploadErr);
+          }
+        } else if (!isImage && !withinFileApiLimit) {
+          console.warn(`Skipping input_file upload for ${att.name} (>50MB)`);
         }
       } catch (sizeErr) {
         console.warn(`Failed to process ${att.name}:`, sizeErr);
@@ -1486,6 +1512,9 @@ export async function POST(request: NextRequest) {
           userContentParts.push({ type: "input_image", image_url: imageUrl });
         }
       }
+    }
+    if (inputFileParts.length) {
+      userContentParts.push(...inputFileParts);
     }
     // If no current attachments, attempt to reuse the most recent user message's image attachments
     if (!Array.isArray(body.attachments) || body.attachments.length === 0) {
