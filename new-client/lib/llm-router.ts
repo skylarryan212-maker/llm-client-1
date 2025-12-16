@@ -89,7 +89,7 @@ Hard rules:
    - "xhigh": only when the task is extremely complex/high stakes and warrants maximum reasoning budget (only with 5.2/5.2-pro).
    - When in doubt between two effort levels, choose the lower level that is still safe. NEVER emit synonyms like "med"—use one of the exact strings above.
 4) memoryTypesToLoad: pick the minimal set of categories needed; array may be empty; maximum 3 entries.
-5) memoriesToWrite: only when the user clearly provides durable personal info/preferences/project details that help future turns. Keep entries concise (<= 200 chars content). Maximum 2 entries. Do NOT include directives like "always do X" here.
+5) memoriesToWrite: whenever the user provides durable personal info/preferences/project details (e.g., their name, pronouns, role, product, goal). Keep entries concise (<= 200 chars content). Maximum 2 entries. Do NOT include directives like "always do X" here.
 6) memoriesToDelete: only when the user clearly revokes or corrects a prior memory; include id and brief reason. If none, use [].
 7) permanentInstructionsToWrite: ONLY when the user explicitly requests a rule that should apply across future chats (phrases like "ALWAYS", "every time", "from now on", "never do X", "in all future conversations"). Each title should be a short stable identifier; content <= 240 chars. Maximum 2 entries. If no explicit cross-chat rule, use [].
 8) permanentInstructionsToDelete: only when the user explicitly cancels/overrides prior instructions; provide ids. If none, use [].
@@ -121,8 +121,10 @@ export async function routeWithLLM(
   }
   const memoryTypeHint =
     context?.availableMemoryTypes && context.availableMemoryTypes.length
-      ? `\nAvailable memory categories: ${context.availableMemoryTypes.join(", ")}. Choose only the categories you need in memoryTypesToLoad.`
-      : "";
+      ? `\nAvailable memory categories: ${context.availableMemoryTypes.join(
+          ", "
+        )}. You MUST choose memoryTypesToLoad as a subset of these (or [] if none are needed). Never invent new types.`
+      : "\nNo memory categories are available. Set memoryTypesToLoad to [].";
 
   const recentSnippet =
     recentMessages && recentMessages.length

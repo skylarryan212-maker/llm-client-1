@@ -411,14 +411,12 @@ export async function getModelAndReasoningConfigWithLLM(
           Array.isArray((decision as any).memoryTypesToLoad) && (decision as any).memoryTypesToLoad.length
             ? (decision as any).memoryTypesToLoad
             : [];
-        // Only allow memory types that actually exist for this user; fall back to the DB list if none survive
-        const filteredTypes = availableMemoryTypes.length
-          ? routerTypes.filter((t: string) => availableMemoryTypes.includes(t))
-          : routerTypes;
-        const selectedTypes =
-          filteredTypes.length > 0
-            ? filteredTypes
-            : availableMemoryTypes;
+        // Only allow memory types that actually exist for this user. If none exist, disable loading.
+        const filteredTypes =
+          availableMemoryTypes.length > 0
+            ? routerTypes.filter((t: string) => availableMemoryTypes.includes(t))
+            : [];
+        const selectedTypes = filteredTypes.length > 0 ? filteredTypes : availableMemoryTypes;
         config.availableMemoryTypes = selectedTypes;
         return config;
       }
