@@ -1114,7 +1114,7 @@ export async function POST(request: NextRequest) {
       model: decision.model,
       resolvedFamily: decision.model,
       reasoning: { effort: decision.effort },
-      routedBy: "decision-router" as const,
+      routedBy: "code" as const,
       availableMemoryTypes: decision.memoryTypesToLoad,
       memoriesToWrite: writer.memoriesToWrite,
       memoriesToDelete: writer.memoriesToDelete,
