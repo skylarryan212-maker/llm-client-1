@@ -70,7 +70,8 @@ function parseJsonLoose(raw: string) {
 }
 
 export async function runWriterRouter(input: WriterRouterInput, topicAction: "continue_active" | "new" | "reopen_existing"): Promise<WriterRouterOutput> {
-  const systemPrompt = `You decide topic metadata updates and memory/permanent instruction writes. Respond with ONE JSON object only:
+  const systemPrompt = `You decide topic metadata updates and memory/permanent instruction writes. Respond with ONE JSON object only.
+CRITICAL: Return STRICT JSON matching the schema. No prose, no markdown, no comments.
 {
   "topicWrite": {
     "action": "create" | "update" | "skip",
@@ -216,6 +217,8 @@ Rules:
       ],
       schemaName: "writer_router",
       schema,
+      maxTokens: 200,
+      enforceJson: true,
     });
     const cleaned = (text || "").trim();
     const parsed = parseJsonLoose(cleaned);
