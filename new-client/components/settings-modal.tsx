@@ -274,15 +274,17 @@ export function SettingsModal({ isOpen, onClose, initialTab = 'personalization' 
         style={panelHeightPx ? { height: `${panelHeightPx}px` } : undefined}
       >
         {/* Sidebar */}
-        <div ref={sidebarRef} className="w-full sm:w-56 border-b sm:border-b-0 sm:border-r border-border bg-muted/30 p-3">
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={onClose}
-            className="mb-3 h-8 w-8"
-          >
-            <X className="h-4 w-4" />
-          </Button>
+        <div ref={sidebarRef} className="w-full sm:w-56 border-b sm:border-b-0 sm:border-r border-border bg-muted/30 px-3 pt-3 pb-3">
+          <div className="mb-3 flex h-8 items-center">
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={onClose}
+              className="h-8 w-8"
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
 
           <div className="grid grid-cols-2 sm:grid-cols-1 gap-2">
             {tabs.map((tab) => {
@@ -300,6 +302,8 @@ export function SettingsModal({ isOpen, onClose, initialTab = 'personalization' 
               )
             })}
           </div>
+
+          <div aria-hidden="true" className="mt-3 h-8" />
         </div>
 
         {/* Content */}
