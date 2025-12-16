@@ -1,9 +1,10 @@
 // Monthly API usage limits per plan tier (in USD)
 export const PLAN_LIMITS = {
-  free: 2.0,    // $2/month
-  plus: 5.0,    // Basic
-  pro: 15.0,    // Plus
-  dev: 150.0,   // Dev
+  free: 2.0,     // $2/month
+  basic: 5.0,    // Basic
+  plus: 15.0,    // Plus
+  pro: 30.0,     // Pro
+  dev: 150.0,    // Dev
 } as const;
 
 export type PlanType = keyof typeof PLAN_LIMITS;

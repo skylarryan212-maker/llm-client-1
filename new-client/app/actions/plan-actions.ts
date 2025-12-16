@@ -3,9 +3,10 @@
 import { supabaseServer } from "@/lib/supabase/server";
 import { getCurrentUserIdServer } from "@/lib/supabase/user";
 
-export type PlanType = "free" | "plus" | "pro" | "dev";
+export type PlanType = "free" | "basic" | "plus" | "pro" | "dev";
 
 const UNLOCK_CODES: Record<Exclude<PlanType, "free">, string> = {
+  basic: "basicadmin",
   plus: "plusadmin",
   pro: "proadmin",
   dev: "devadmin",
@@ -124,12 +125,13 @@ export async function upgradeToPlan(
     }
 
     // Determine if this is an upgrade or downgrade
-    const planHierarchy: Record<PlanType, number> = {
-      free: 0,
-      plus: 1,
-      pro: 2,
-      dev: 3,
-    };
+  const planHierarchy: Record<PlanType, number> = {
+    free: 0,
+    basic: 1,
+    plus: 2,
+    pro: 3,
+    dev: 4,
+  };
 
     const isDowngrade = currentPlan && planHierarchy[planType] < planHierarchy[currentPlan];
     const action = isDowngrade ? "switched" : "upgraded";

@@ -10,7 +10,7 @@ import { useUserPlan } from "@/lib/hooks/use-user-plan";
 
 const plans = [
   {
-    id: "plus" as PlanType,
+    id: "basic" as PlanType,
     name: "Basic",
     price: 10,
     description: "Essential access with light usage limits.",
@@ -20,7 +20,7 @@ const plans = [
     gradientTo: "to-indigo-700/5",
   },
   {
-    id: "pro" as PlanType,
+    id: "plus" as PlanType,
     name: "Plus",
     price: 20,
     description: "Higher limits for growing workloads.",
@@ -30,7 +30,7 @@ const plans = [
     gradientTo: "to-fuchsia-700/5",
   },
   {
-    id: "dev" as PlanType,
+    id: "pro" as PlanType,
     name: "Pro",
     price: 50,
     description: "Advanced tier with expanded headroom.",
@@ -102,9 +102,10 @@ function UpgradePageContent() {
 
   // Helper to determine plan hierarchy
   const planHierarchy: Record<string, number> = {
-    plus: 1, // Basic
-    pro: 2,  // Plus
-    dev: 3,  // Pro / Dev (highest)
+    basic: 1,
+    plus: 2,
+    pro: 3,
+    dev: 4,
   };
 
   const isLowerTier = (planId: string) => {
