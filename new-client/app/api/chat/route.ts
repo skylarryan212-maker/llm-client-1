@@ -1084,13 +1084,6 @@ export async function POST(request: NextRequest) {
               content: m.content,
             }))
           : [];
-        const typeSet = new Set<string>();
-        for (const m of memoriesForDecision) {
-          if (m?.type && typeof m.type === "string" && m.type.trim()) {
-            typeSet.add(m.type);
-          }
-        }
-        availableMemoryTypesForDecision.push(...Array.from(typeSet));
       } catch (memListErr) {
         console.error("[decision-router] Failed to load memories for router:", memListErr);
       }
