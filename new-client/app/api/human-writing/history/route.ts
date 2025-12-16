@@ -45,14 +45,39 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "messages_fetch_failed" }, { status: 500 });
     }
 
+    let hydrated = (messages ?? []).map((m) => ({
+      role: m.role === "assistant" ? "assistant" : "user",
+      content: m.content ?? "",
+      created_at: m.created_at,
+      metadata: m.metadata ?? {},
+    }));
+
+    // Fallback: if no CTA found, attempt to fetch the latest CTA message explicitly
+    const hasCTA = hydrated.some((m) => (m.metadata as any)?.kind === "cta");
+    if (!hasCTA) {
+      const { data: ctaRows } = await supabase
+        .from("messages")
+        .select("role, content, created_at, metadata")
+        .eq("conversation_id", conversationId)
+        .eq("metadata->>kind", "cta")
+        .order("created_at", { ascending: true });
+      if (ctaRows && ctaRows.length) {
+        hydrated = hydrated.concat(
+          ctaRows.map((m) => ({
+            role: m.role === "assistant" ? "assistant" : "user",
+            content: m.content ?? "",
+            created_at: m.created_at,
+            metadata: m.metadata ?? {},
+          }))
+        );
+        // Keep chronological order
+        hydrated.sort((a, b) => (a.created_at || "").localeCompare(b.created_at || ""));
+      }
+    }
+
     return NextResponse.json({
       conversationId,
-      messages: (messages ?? []).map((m) => ({
-        role: m.role === "assistant" ? "assistant" : "user",
-        content: m.content ?? "",
-        created_at: m.created_at,
-        metadata: m.metadata ?? {},
-      })),
+      messages: hydrated,
     });
   } catch (error: any) {
     console.error("[human-writing][history] error:", error);
@@ -62,4 +87,3 @@ export async function GET(request: NextRequest) {
     );
   }
 }
-
