@@ -43,40 +43,13 @@ export async function POST(request: NextRequest) {
     }
 
     const conversationId = convo?.[0]?.id ?? null;
-    const apiKey = process.env.REPHRASY_API_KEY;
-    if (!apiKey) {
-      return NextResponse.json({ error: "missing_rephrasy_api_key" }, { status: 500 });
-    }
-
-    const payload = {
-      text,
-      model: body.model || "undetectable",
-      language: body.language || undefined,
-      words: true,
-      costs: true,
+    // Temporarily disable live Rephrasy calls; return a mock humanized response
+    const json = {
+      output: `Humanized draft (mock): ${text}`,
+      new_flesch_score: 70,
+      costs: null,
     };
-
-    const response = await fetch(REPHRASY_URL, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(payload),
-    });
-
-    if (!response.ok) {
-      const errorJson = await response.json().catch(() => null);
-      const message = errorJson?.error || errorJson?.message || `rephrasy_http_${response.status}`;
-      throw new Error(message);
-    }
-
-    const json = (await response.json().catch(() => ({}))) as {
-      output?: string;
-      new_flesch_score?: number;
-      costs?: unknown;
-    };
-    const output = json.output || text || "";
+    const output = json.output;
 
     if (conversationId) {
       const { error: insertError } = await supabase.from("messages").insert([
