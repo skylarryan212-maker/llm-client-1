@@ -45,42 +45,21 @@ export function SettingsModal({ isOpen, onClose, initialTab = 'personalization' 
   const [contextModeGlobal, setContextModeGlobal] = useState<"advanced" | "simple">("advanced")
   const { fullName, email } = useUserIdentity()
   const { refreshChats } = useChatStore()
-  const cachedUsage = typeof window !== 'undefined' ? (() => {
-    try {
-      const raw = window.localStorage.getItem('settingsUsageCache')
-      if (!raw) return null
-      const parsed = JSON.parse(raw) as {
-        planDetails: { planType: string; renewalDate: string | null; isActive: boolean } | null
-        totalSpending: number | null
-        monthlySpending: number | null
-        usageStatus: {
-          exceeded: boolean
-          warning: boolean
-          percentage: number
-          remaining: number
-          limit: number
-        } | null
-      }
-      return parsed
-    } catch {
-      return null
-    }
-  })() : null
 
   const [planDetails, setPlanDetails] = useState<{
     planType: string
     renewalDate: string | null
     isActive: boolean
-  } | null>(cachedUsage?.planDetails ?? null)
-  const [totalSpending, setTotalSpending] = useState<number | null>(cachedUsage?.totalSpending ?? null)
-  const [monthlySpending, setMonthlySpending] = useState<number | null>(cachedUsage?.monthlySpending ?? null)
+  } | null>(null)
+  const [totalSpending, setTotalSpending] = useState<number | null>(null)
+  const [monthlySpending, setMonthlySpending] = useState<number | null>(null)
   const [usageStatus, setUsageStatus] = useState<{
     exceeded: boolean
     warning: boolean
     percentage: number
     remaining: number
     limit: number
-  } | null>(cachedUsage?.usageStatus ?? null)
+  } | null>(null)
   const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false)
   const [cancelProcessing, setCancelProcessing] = useState(false)
   const [cancelResultDialog, setCancelResultDialog] = useState<{ open: boolean; message: string; success: boolean }>({ open: false, message: "", success: false })
@@ -102,16 +81,6 @@ export function SettingsModal({ isOpen, onClose, initialTab = 'personalization' 
       const status = details ? getUsageStatus(monthly, details.planType) : null
       setUsageStatus(status)
 
-      try {
-        window.localStorage.setItem('settingsUsageCache', JSON.stringify({
-          planDetails: details,
-          totalSpending: total,
-          monthlySpending: monthly,
-          usageStatus: status
-        }))
-      } catch {
-        // ignore storage failures
-      }
     } catch (error) {
       console.error('Failed to load account data', error)
     }
@@ -146,6 +115,9 @@ export function SettingsModal({ isOpen, onClose, initialTab = 'personalization' 
         else if (content.includes('oklch(0.75 0.22 50)')) setAccentColor('orange')
         else if (content.includes('oklch(0.70 0.26 25)')) setAccentColor('red')
       }
+      // Always refresh plan and usage when opening to avoid stale cache
+      refreshPlan().catch(() => {})
+      fetchAccountData().catch(() => {})
       try {
         const storedMode = window.localStorage.getItem("context-mode-global")
         if (storedMode === "simple" || storedMode === "advanced") {
@@ -189,6 +161,9 @@ export function SettingsModal({ isOpen, onClose, initialTab = 'personalization' 
       try {
         window.localStorage.removeItem('user_plan_cache')
       } catch {}
+      try {
+        window.dispatchEvent(new CustomEvent('api-usage-updated'))
+      } catch {}
       
       // Refresh plan status everywhere
       await refreshPlan()
@@ -206,16 +181,6 @@ export function SettingsModal({ isOpen, onClose, initialTab = 'personalization' 
       if (details) {
         const status = getUsageStatus(monthly, details.planType)
         setUsageStatus(status)
-        try {
-          window.localStorage.setItem('settingsUsageCache', JSON.stringify({
-            planDetails: details,
-            totalSpending: total,
-            monthlySpending: monthly,
-            usageStatus: status
-          }))
-        } catch {
-          // ignore storage failures
-        }
       }
     }
     
