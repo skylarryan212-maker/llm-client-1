@@ -2569,6 +2569,7 @@ function formatTokenCount(tokens: number) {
 
 function ContextUsageIndicator({ usage }: { usage: ContextUsageSnapshot }) {
   const [isOpen, setIsOpen] = useState(false);
+  const [isPinned, setIsPinned] = useState(false);
   const percent = Math.min(100, Math.max(0, Math.round(usage.percent ?? 0)));
   const remainingPercent = Math.max(0, 100 - percent);
   const arc = `${percent * 3.6}deg`;
@@ -2585,13 +2586,30 @@ function ContextUsageIndicator({ usage }: { usage: ContextUsageSnapshot }) {
     <div
       className="relative flex items-center gap-2 text-xs text-muted-foreground"
       onMouseEnter={() => setIsOpen(true)}
-      onMouseLeave={() => setIsOpen(false)}
+      onMouseLeave={() => {
+        if (!isPinned) setIsOpen(false);
+      }}
       onFocus={() => setIsOpen(true)}
-      onBlur={() => setIsOpen(false)}
+      onBlur={() => {
+        if (!isPinned) setIsOpen(false);
+      }}
       tabIndex={0}
       aria-label="Context window usage"
     >
-      <div className="relative h-7 w-7">
+      <div
+        className="relative h-7 w-7 cursor-pointer"
+        onClick={() => {
+          setIsPinned((prev) => {
+            const next = !prev;
+            if (!next) {
+              setIsOpen(false);
+            } else {
+              setIsOpen(true);
+            }
+            return next;
+          });
+        }}
+      >
         <div
           className="absolute inset-0 rounded-full bg-white/10"
           style={{
@@ -2604,7 +2622,6 @@ function ContextUsageIndicator({ usage }: { usage: ContextUsageSnapshot }) {
 
       {isOpen ? (
         <div className="absolute right-0 top-[115%] z-30 w-64 rounded-lg border border-border/80 bg-card/95 text-foreground shadow-xl backdrop-blur-sm">
-          <div className="absolute right-6 -top-2 h-3 w-3 rotate-45 border border-border/80 bg-card/95" />
           <div className="relative space-y-1.5 p-3">
             <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
               Context window
@@ -2615,14 +2632,6 @@ function ContextUsageIndicator({ usage }: { usage: ContextUsageSnapshot }) {
             <div className="text-xs text-muted-foreground">
               {formatTokenCount(usedTokens)} / {formatTokenCount(limitTokens)} tokens used
             </div>
-            <div className="text-[11px] text-muted-foreground">
-              Input {formatTokenCount(safeNumber(usage.inputTokens))} / Cached{" "}
-              {formatTokenCount(safeNumber(usage.cachedTokens))} / Output{" "}
-              {formatTokenCount(safeNumber(usage.outputTokens))}
-            </div>
-            {usage.model ? (
-              <div className="text-[11px] text-muted-foreground">Model: {usage.model}</div>
-            ) : null}
           </div>
         </div>
       ) : null}
