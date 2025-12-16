@@ -33,7 +33,7 @@ function autoLabelFromMessage(message: string): string {
 function autoSummaryFromMessage(message: string): string {
   const clean = (message || "").replace(/\s+/g, " ").trim();
   if (!clean) return "New topic started.";
-  const slice = clean.length > 200 ? `${clean.slice(0, 200)}…` : clean;
+  const slice = clean.length > 200 ? `${clean.slice(0, 200)}...` : clean;
   return slice;
 }
 function normalizeNullableText(value: string | null | undefined): string | null {
@@ -89,6 +89,8 @@ Rules:
 - Use action="create" only if topicAction=new; otherwise "update" only if you truly need to refresh summary/description, else "skip".
 - Never emit placeholder text like "none"/"null"/"n/a".
 - label is only for create; set null for update/skip.
+- Permanent instructions: only write when the user explicitly requests a persistent rule (phrases like "always", "every time", "from now on", "never do X"). Otherwise leave permanentInstructionsToWrite empty.
+- Memories: only write useful, factual items that could help future turns (facts, data, decisions, preferences, names, steps). Do NOT log random chat fluff or generic conversation summaries.
 - Arrays must be arrays (never null). No extra fields.`;
 
   const recentSection =
@@ -105,7 +107,7 @@ Rules:
     `Current summary: ${input.currentTopic.summary || "none"}`,
     `Current description: ${input.currentTopic.description || "none"}`,
     "",
-    "Recent messages (oldest→newest):",
+    "Recent messages (oldest->newest):",
     recentSection,
     "",
     "User message:",
