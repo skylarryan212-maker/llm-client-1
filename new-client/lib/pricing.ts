@@ -43,11 +43,10 @@ export const MODEL_PRICING = {
     cached: 0,
     output: 0.08, // $0.08 per 1M output tokens
   },
-  // TODO: fill real pricing for this model when available
   "mistralai/Mistral-Small-24B-Instruct-2501": {
-    input: 0,
-    cached: 0,
-    output: 0,
+    input: 0.05,
+    cached: 0, // no cached token pricing provided
+    output: 0.08,
   },
   "gpt-4o-mini": {
     input: 0.6,
