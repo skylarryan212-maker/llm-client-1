@@ -39,7 +39,6 @@ import { callDeepInfraLlama } from "@/lib/deepInfraLlama";
 import type { RouterDecision } from "@/lib/router/types";
 import { buildContextForMainModel } from "@/lib/context/buildContextForMainModel";
 import { updateTopicSnapshot } from "@/lib/topics/updateTopicSnapshot";
-import { refreshTopicMetadata } from "@/lib/topics/refreshTopicMetadata";
 import { toFile } from "openai/uploads";
 import { runDecisionRouter } from "@/lib/router/decision-router";
 import { runWriterRouter } from "@/lib/router/write-router";
@@ -2232,22 +2231,6 @@ export async function POST(request: NextRequest) {
               } catch (snapshotErr) {
                 console.error("[topic-router] Failed to refresh topic snapshot for assistant:", snapshotErr);
               }
-              // Refresh topic metadata asynchronously to avoid blocking the stream completion
-              (async () => {
-                try {
-                  const topicId = assistantRowForMeta.topic_id;
-                  if (topicId) {
-                    await refreshTopicMetadata({
-                      supabase: supabaseAny,
-                      topicId,
-                      conversationId,
-                      userId,
-                    });
-                  }
-                } catch (metaErr) {
-                  console.error("[topic-router] Failed to refresh topic metadata summary:", metaErr);
-                }
-              })();
             }
 
             // Kick off artifact extraction in the background so UI is not blocked
