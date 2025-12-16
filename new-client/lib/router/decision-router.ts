@@ -9,7 +9,6 @@ export type DecisionRouterInput = {
   currentConversationId: string;
   speedMode: "auto" | "instant" | "thinking";
   modelPreference: "auto" | "gpt-5-nano" | "gpt-5-mini" | "gpt-5.2" | "gpt-5.2-pro";
-  availableMemoryTypes: string[];
   memories?: Array<{
     id: string;
     type: string;
@@ -146,7 +145,6 @@ Rules:
       current_conversation_id: input.currentConversationId,
       speedMode: input.speedMode,
       modelPreference: input.modelPreference,
-      availableMemoryTypes: input.availableMemoryTypes,
       memories: input.memories ?? [],
       topics: input.topics,
       artifacts: input.artifacts,
@@ -199,7 +197,7 @@ Return only the "labels" object matching the output schema.`;
     const modelConfig = getModelAndReasoningConfig(input.modelPreference, input.speedMode, input.userMessage);
     const memoryTypesToLoad: string[] = Array.isArray(modelConfig.availableMemoryTypes)
       ? modelConfig.availableMemoryTypes
-      : input.availableMemoryTypes ?? [];
+      : memoryTypesFromMemories;
     return {
       topicAction: fallbackTopicAction,
       primaryTopicId: fallbackPrimary,
