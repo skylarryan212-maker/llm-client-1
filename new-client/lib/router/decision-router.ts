@@ -51,6 +51,15 @@ export async function runDecisionRouter(params: {
     !/\b(code|debug|optimize|architecture|legal|financial|contract|regulation|compliance|safety|medical|diagnosis|research|analysis|proof|algorithm|design|strategy|roadmap)\b/i.test(
       input.userMessage || ""
     );
+  const isHighStakes =
+    /\b(legal|contract|financial|investment|trading|tax|regulation|compliance|safety|security|privacy|medical|diagnosis|clinical|pharma|liability|risk)\b/i.test(
+      input.userMessage || ""
+    );
+  const isHeavyReasoning =
+    cleanMessage.length > 500 ||
+    /\b(system design|architecture|performance|optimi[sz]e|scalability|benchmark|proof|algorithm|research|whitepaper|longform|multi-step|debug|stack\s?trace|crash)\b/i.test(
+      input.userMessage || ""
+    );
 
   // Build prompt context
   const recentSection =
@@ -89,17 +98,18 @@ Fields must match exactly:
   "memoryTypesToLoad": string[]
 }
 Rules:
+- Never invent placeholder strings like "none"/"null" for IDs.
 - If topicAction="new": primaryTopicId MUST be null.
 - If topicAction="continue_active": primaryTopicId MUST equal activeTopicId (if provided).
 - If topicAction="reopen_existing": primaryTopicId MUST be one of the provided topics.
 - secondaryTopicIds: subset of provided topic ids, exclude primary; may be empty.
 - newParentTopicId: null or a provided topic id.
 - Model selection:
-  * Use gpt-5-nano for greetings, short factual answers, simple rewrites/classifications, short summaries, and quick yes/no/definition questions.
-  * Use gpt-5-mini for medium tasks: multi-step reasoning, moderate code/math, medium-length writing/editing.
-  * Use gpt-5.2 for long/complex asks, heavy code/debug, longer reasoning or when higher quality is clearly needed.
-  * ONLY use gpt-5.2-pro if the user explicitly prefers it OR the task is extremely high-stakes (legal/financial/safety) with deep complexity. Otherwise downgrade to gpt-5.2 or smaller.
-  * When unsure, choose the cheapest model that is still safe.
+  * Default to the cheapest safe model: gpt-5-nano for greetings, short factual answers, quick rewrites/classifications, short summaries, or yes/no/definition questions.
+  * Use gpt-5-mini for typical multi-step reasoning, moderate code/math, and medium-length writing/editing.
+  * Use gpt-5.2 only for clearly complex/long tasks (heavy code/debugging, research, system design) OR high-stakes domains (legal/financial/safety/security/privacy).
+  * ONLY use gpt-5.2-pro if the user explicitly prefers it AND the task is extremely high-stakes + complex. Otherwise downgrade to gpt-5.2/mini/nano.
+  * When unsure, choose the cheaper model.
 - Effort selection:
   * "none" only with gpt-5.2/gpt-5.2-pro for trivial asks.
   * "minimal"/"low" for simple/short tasks.
@@ -211,21 +221,49 @@ Rules:
     if (model === "gpt-5.2-pro" && !userRequestedPro) {
       model = "gpt-5.2";
     }
-    // Downgrade simple prompts to nano/mini.
-    if (isSimple && model !== "gpt-5-nano") {
+
+    // Downgrade for simple/low-stakes tasks.
+    if (isSimple) {
       model = cleanMessage.length < 120 ? "gpt-5-nano" : "gpt-5-mini";
       effort = effort === "high" || effort === "xhigh" ? "minimal" : effort;
       if (effort === "none") effort = "minimal";
+    } else {
+      // If not explicitly high-stakes/heavy, bias to mini unless complexity is clear.
+      const allowHeavyModel = isHighStakes || isHeavyReasoning;
+      if (!allowHeavyModel && model === "gpt-5.2-pro" && !userRequestedPro) {
+        model = "gpt-5.2";
+      }
+      if (!allowHeavyModel && model === "gpt-5.2" && input.modelPreference === "auto") {
+        model = "gpt-5-mini";
+      }
+      if (!allowHeavyModel && model === "gpt-5-mini" && cleanMessage.length < 140) {
+        model = "gpt-5-nano";
+      }
+
+      // Effort sanity for small models
+      if ((model === "gpt-5-nano" || model === "gpt-5-mini") && effort === "high") {
+        effort = "medium";
+      }
+    }
+    // Enforce new topic invariants
+    let secondaryTopicIds =
+      Array.isArray(parsed.secondaryTopicIds)
+        ? parsed.secondaryTopicIds.filter((id: string) => topicIds.has(id) && id !== primaryTopicId).slice(0, 3)
+        : [];
+    let newParentTopicId =
+      parsed.newParentTopicId && topicIds.has(parsed.newParentTopicId) ? parsed.newParentTopicId : null;
+    let topicAction: DecisionRouterOutput["topicAction"] = parsed.topicAction;
+    if (topicAction === "new") {
+      primaryTopicId = null;
+      secondaryTopicIds = [];
+      newParentTopicId = null;
     }
 
     return {
-      topicAction: parsed.topicAction,
+      topicAction,
       primaryTopicId,
-      secondaryTopicIds: Array.isArray(parsed.secondaryTopicIds)
-        ? parsed.secondaryTopicIds.filter((id: string) => topicIds.has(id) && id !== primaryTopicId).slice(0, 3)
-        : [],
-      newParentTopicId:
-        parsed.newParentTopicId && topicIds.has(parsed.newParentTopicId) ? parsed.newParentTopicId : null,
+      secondaryTopicIds,
+      newParentTopicId,
       model,
       effort,
       memoryTypesToLoad: Array.isArray(parsed.memoryTypesToLoad) ? parsed.memoryTypesToLoad : [],

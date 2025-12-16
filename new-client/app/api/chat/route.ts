@@ -45,6 +45,8 @@ import { runDecisionRouter } from "@/lib/router/decision-router";
 import { runWriterRouter } from "@/lib/router/write-router";
 
 const CONTEXT_LIMIT_TOKENS = 350_000;
+const VECTOR_MEMORIES_SUPPORTED = process.env.SUPABASE_VECTOR_SUPPORTED === "true";
+const MEMORY_WRITES_ENABLED = process.env.ENABLE_VECTOR_MEMORIES === "true" && VECTOR_MEMORIES_SUPPORTED;
 
 // Utility: convert a data URL (base64) to a Buffer
 function dataUrlToBuffer(dataUrl: string): Buffer {
@@ -1011,6 +1013,12 @@ export async function POST(request: NextRequest) {
     const availableMemoryTypesForDecision: string[] = [];
 
     // Unified decision router (model + topic + memory types)
+    const activeTopicId = userMessageRow?.topic_id ?? null;
+    const currentTopicMeta =
+      Array.isArray(topicsForRouter) && activeTopicId
+        ? topicsForRouter.find((t: any) => t.id === activeTopicId) || null
+        : null;
+
     const decision = await runDecisionRouter({
       input: {
         userMessage: message,
@@ -1019,7 +1027,7 @@ export async function POST(request: NextRequest) {
           content: m.content,
           topic_id: (m as any).topic_id ?? null,
         })),
-        activeTopicId: userMessageRow?.topic_id ?? null,
+        activeTopicId,
         currentConversationId: conversationId,
         speedMode,
         modelPreference: modelFamily,
@@ -1039,9 +1047,9 @@ export async function POST(request: NextRequest) {
           content: m.content ?? "",
         })),
         currentTopic: {
-          id: userMessageRow?.topic_id ?? null,
-          summary: null,
-          description: null,
+          id: activeTopicId,
+          summary: currentTopicMeta?.summary ?? null,
+          description: currentTopicMeta?.description ?? null,
         },
       },
       decision.topicAction
@@ -1051,9 +1059,17 @@ export async function POST(request: NextRequest) {
     // Execute topic create/update based on writer output
     let resolvedPrimaryTopicId: string | null = decision.primaryTopicId ?? null;
     if (writer.topicWrite.action === "create") {
-      const label = writer.topicWrite.label || buildAutoTopicLabel(message);
-      const description = writer.topicWrite.description || buildAutoTopicDescription(message);
-      const summary = writer.topicWrite.summary || buildAutoTopicSummary(message);
+      const normalizeTopicText = (value?: string | null) => {
+        if (!value) return null;
+        const trimmed = value.trim();
+        if (!trimmed) return null;
+        const lower = trimmed.toLowerCase();
+        if (["none", "null", "n/a", "na", "skip"].includes(lower)) return null;
+        return trimmed;
+      };
+      const label = normalizeTopicText(writer.topicWrite.label) || buildAutoTopicLabel(message);
+      const description = normalizeTopicText(writer.topicWrite.description) || buildAutoTopicDescription(message);
+      const summary = normalizeTopicText(writer.topicWrite.summary) || buildAutoTopicSummary(message);
       const { data: insertedTopic, error: topicErr } = await supabaseAny
         .from("conversation_topics")
         .insert([
@@ -2131,10 +2147,18 @@ export async function POST(request: NextRequest) {
                       memory.content.trim().length > 0
                   )
                 : [];
-              if (personalizationSettings.allowSavingMemory && memoriesToWrite.length > 0) {
+              const canWriteMemories =
+                personalizationSettings.allowSavingMemory && MEMORY_WRITES_ENABLED && memoriesToWrite.length > 0;
+              if (!canWriteMemories && personalizationSettings.allowSavingMemory && memoriesToWrite.length > 0) {
+                console.warn(
+                  "[router-memory] Memory writes skipped (vector support disabled). Set SUPABASE_VECTOR_SUPPORTED=true to enable."
+                );
+              }
+              if (canWriteMemories) {
                 console.log(`[router-memory] Writing ${memoriesToWrite.length} memories from router decision`);
-
+                let vectorWritesBlocked = false;
                 for (const memory of memoriesToWrite) {
+                  if (vectorWritesBlocked) break;
                   try {
                     await writeMemory({
                       type: memory.type,
@@ -2146,7 +2170,8 @@ export async function POST(request: NextRequest) {
                     console.log(`[router-memory] Wrote memory: ${memory.title} (type: ${memory.type})`);
                   } catch (err: any) {
                     const msg = String(err?.message || err || "");
-                    if (msg.toLowerCase().includes('vector') || String(err?.code || "").includes("42704")) {
+                    if (msg.toLowerCase().includes("vector") || String(err?.code || "").includes("42704")) {
+                      vectorWritesBlocked = true;
                       console.warn("[router-memory] Skipping memory writes; vector extension/column missing");
                       break;
                     } else {

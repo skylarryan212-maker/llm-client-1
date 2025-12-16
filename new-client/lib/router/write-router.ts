@@ -36,6 +36,21 @@ function autoSummaryFromMessage(message: string): string {
   const slice = clean.length > 200 ? `${clean.slice(0, 200)}…` : clean;
   return slice;
 }
+function normalizeNullableText(value: string | null | undefined): string | null {
+  if (value === null || value === undefined) return null;
+  const trimmed = value.toString().trim();
+  if (!trimmed) return null;
+  const lower = trimmed.toLowerCase();
+  if (["none", "null", "n/a", "na", "skip"].includes(lower)) return null;
+  return trimmed;
+}
+
+function normalizeNullableId(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const trimmed = value.toString().trim();
+  if (!trimmed || ["none", "null", "n/a", "na", "skip"].includes(trimmed.toLowerCase())) return null;
+  return trimmed;
+}
 
 export async function runWriterRouter(input: WriterRouterInput, topicAction: "continue_active" | "new" | "reopen_existing"): Promise<WriterRouterOutput> {
   const systemPrompt = `You decide topic metadata updates and memory/permanent instruction writes. Respond with ONE JSON object only:
@@ -54,6 +69,7 @@ export async function runWriterRouter(input: WriterRouterInput, topicAction: "co
 }
 Rules:
 - Use action="create" only if topicAction=new; otherwise "update" only if you truly need to refresh summary/description, else "skip".
+- Never emit placeholder text like "none"/"null"/"n/a".
 - label is only for create; set null for update/skip.
 - Arrays must be arrays (never null). No extra fields.`;
 
@@ -194,14 +210,20 @@ Rules:
     if (topicAction !== "new" && action === "create") {
       action = "skip";
     }
-    const targetTopicId = action === "create" ? null : topicWrite.targetTopicId ?? input.currentTopic.id;
-    const label = action === "create" ? topicWrite.label ?? autoLabelFromMessage(input.userMessageText) : null;
+    const targetTopicId =
+      action === "create" ? null : normalizeNullableId(topicWrite.targetTopicId ?? input.currentTopic.id);
+    const label =
+      action === "create"
+        ? normalizeNullableText(topicWrite.label) ?? autoLabelFromMessage(input.userMessageText)
+        : null;
     const summary =
-      action === "create" ? topicWrite.summary ?? autoSummaryFromMessage(input.userMessageText) : topicWrite.summary ?? null;
+      action === "create"
+        ? normalizeNullableText(topicWrite.summary) ?? autoSummaryFromMessage(input.userMessageText)
+        : normalizeNullableText(topicWrite.summary);
     const description =
       action === "create"
-        ? topicWrite.description ?? autoSummaryFromMessage(input.userMessageText)
-        : topicWrite.description ?? null;
+        ? normalizeNullableText(topicWrite.description) ?? autoSummaryFromMessage(input.userMessageText)
+        : normalizeNullableText(topicWrite.description);
 
     return {
       topicWrite: {
