@@ -10,6 +10,12 @@ export type DecisionRouterInput = {
   speedMode: "auto" | "instant" | "thinking";
   modelPreference: "auto" | "gpt-5-nano" | "gpt-5-mini" | "gpt-5.2" | "gpt-5.2-pro";
   availableMemoryTypes: string[];
+  memories?: Array<{
+    id: string;
+    type: string;
+    title: string;
+    content: string;
+  }>;
   topics: Array<{
     id: string;
     conversation_id: string;
@@ -86,6 +92,14 @@ export async function runDecisionRouter(params: {
           .join("\n")
       : "No artifacts.";
 
+  const memorySection =
+    input.memories && input.memories.length
+      ? input.memories
+          .slice(0, 30)
+          .map((m) => `- [${m.type}] ${m.title}: ${(m.content || "").replace(/\s+/g, " ").slice(0, 120)}`)
+          .join("\n")
+      : "No memories.";
+
   const systemPrompt = `You are a single decision router. All inputs are provided as JSON. You MUST output ONE JSON object with a "labels" field only, matching the schema below. Do not include the input in your response.
 
 Output shape:
@@ -133,6 +147,7 @@ Rules:
       speedMode: input.speedMode,
       modelPreference: input.modelPreference,
       availableMemoryTypes: input.availableMemoryTypes,
+      memories: input.memories ?? [],
       topics: input.topics,
       artifacts: input.artifacts,
     },
@@ -140,6 +155,9 @@ Rules:
 
   const userPrompt = `Input JSON:
 ${JSON.stringify(inputPayload, null, 2)}
+
+Memory summary:
+${memorySection}
 
 Return only the "labels" object matching the output schema.`;
 

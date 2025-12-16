@@ -1067,6 +1067,35 @@ export async function POST(request: NextRequest) {
     }
 
     const availableMemoryTypesForDecision: string[] = [];
+    let memoriesForDecision: Array<{ id: string; type: string; title: string; content: string }> = [];
+    if (userId) {
+      try {
+        const { data: memRows } = await supabaseAny
+          .from("memories")
+          .select("id, type, title, content")
+          .eq("user_id", userId)
+          .eq("enabled", true)
+          .order("created_at", { ascending: false })
+          .limit(50);
+        memoriesForDecision = Array.isArray(memRows)
+          ? (memRows as any[]).map((m) => ({
+              id: m.id,
+              type: m.type,
+              title: m.title,
+              content: m.content,
+            }))
+          : [];
+        const typeSet = new Set<string>();
+        for (const m of memoriesForDecision) {
+          if (m?.type && typeof m.type === "string" && m.type.trim()) {
+            typeSet.add(m.type);
+          }
+        }
+        availableMemoryTypesForDecision.push(...Array.from(typeSet));
+      } catch (memListErr) {
+        console.error("[decision-router] Failed to load memories for router:", memListErr);
+      }
+    }
 
     // Unified decision router (model + topic + memory types)
     const activeTopicId = userMessageRow?.topic_id ?? null;
@@ -1088,6 +1117,7 @@ export async function POST(request: NextRequest) {
         speedMode,
         modelPreference: modelFamily,
         availableMemoryTypes: availableMemoryTypesForDecision || [],
+        memories: memoriesForDecision,
         topics: Array.isArray(topicsForRouter) ? topicsForRouter : [],
         artifacts: Array.isArray(artifactsForRouter) ? artifactsForRouter : [],
       },
