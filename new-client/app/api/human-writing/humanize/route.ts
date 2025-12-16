@@ -4,6 +4,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase/server";
 import { requireUserIdServer } from "@/lib/supabase/user";
 
+const REPHRASY_URL = "https://v2-humanizer.rephrasy.ai/api";
+
 export async function POST(request: NextRequest) {
   try {
     const body = (await request.json().catch(() => ({}))) as {
@@ -41,7 +43,40 @@ export async function POST(request: NextRequest) {
     }
 
     const conversationId = convo?.[0]?.id ?? null;
-    const output = `Mock humanized: ${text}`;
+    const apiKey = process.env.REPHRASY_API_KEY;
+    if (!apiKey) {
+      return NextResponse.json({ error: "missing_rephrasy_api_key" }, { status: 500 });
+    }
+
+    const payload = {
+      text,
+      model: body.model || "undetectable",
+      language: body.language || undefined,
+      words: true,
+      costs: true,
+    };
+
+    const response = await fetch(REPHRASY_URL, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      const errorJson = await response.json().catch(() => null);
+      const message = errorJson?.error || errorJson?.message || `rephrasy_http_${response.status}`;
+      throw new Error(message);
+    }
+
+    const json = (await response.json().catch(() => ({}))) as {
+      output?: string;
+      new_flesch_score?: number;
+      costs?: unknown;
+    };
+    const output = json.output || text || "";
 
     if (conversationId) {
       const { error: insertError } = await supabase.from("messages").insert([
@@ -60,8 +95,8 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       output,
-      flesch: 70,
-      raw: { mock: true, model: body.model || "undetectable", language: body.language || "auto" },
+      flesch: json.new_flesch_score,
+      raw: { rephrasy: true, costs: json.costs },
     });
   } catch (error: any) {
     console.error("[human-writing][humanize] error:", error);
@@ -71,4 +106,3 @@ export async function POST(request: NextRequest) {
     );
   }
 }
-

@@ -148,7 +148,7 @@ function ChatInner({ params }: PageProps) {
 
     setIsDrafting(true);
     let draft = "";
-    let shouldShowCTA = false;
+    let shouldShowCTA = true;
     let debugInfo: any = null;
     let decisionReason: string | undefined;
     try {
@@ -224,7 +224,7 @@ function ChatInner({ params }: PageProps) {
         const data = await response.json().catch(() => null);
         draft = data?.draft || "";
         debugInfo = data?.debug ?? null;
-        shouldShowCTA = typeof data?.decision?.show === "boolean" ? data.decision.show : false;
+        shouldShowCTA = typeof data?.decision?.show === "boolean" ? data.decision.show : true;
       }
 
       if (!draft.trim()) {
@@ -232,30 +232,12 @@ function ChatInner({ params }: PageProps) {
         throw new Error(`draft_empty${suffix}`);
       }
 
-      // Ask llama decider whether to show CTA
-      try {
-        const decideRes = await fetch("/api/human-writing/decide", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ draft }),
-        });
-        if (decideRes.ok) {
-          const decideJson = await decideRes.json();
-          if (typeof decideJson?.show === "boolean") {
-            shouldShowCTA = decideJson.show;
-            decisionReason = decideJson.reason;
-          }
-        }
-      } catch (err) {
-        console.warn("[human-writing][decide] failed", err);
-      }
-
       setMessages((prev) => {
         const updated = prev.map((msg) =>
           msg.id === draftMsgId ? { ...msg, content: draft, kind: undefined } : msg
         );
           const next =
-            shouldShowCTA && !updated.some((m) => m.kind === "cta")
+            true && !updated.some((m) => m.kind === "cta")
               ? [
                   ...updated,
                   {
