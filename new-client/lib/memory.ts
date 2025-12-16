@@ -2,6 +2,9 @@ import { supabaseServerAdmin } from "@/lib/supabase/server";
 import { getCurrentUserIdServer } from "@/lib/supabase/user";
 import { logUsageRecord } from "@/lib/usage";
 
+// Toggle vector support. Leave off by default unless SUPABASE_VECTOR_SUPPORTED=true is set.
+const VECTOR_SUPPORTED = process.env.SUPABASE_VECTOR_SUPPORTED === "true";
+
 // Dynamic type system - can be any category name
 export type MemoryType = string;
 
@@ -103,6 +106,11 @@ export async function fetchMemories({
   userId?: string;
   conversationId?: string;
 }) {
+  // If vector search is not supported, force semantic search off
+  if (!VECTOR_SUPPORTED) {
+    useSemanticSearch = false;
+  }
+
   // Normalize types to array for consistent handling
   const typeArray = types === 'all' ? null : (Array.isArray(types) ? types : [types]);
   
@@ -274,78 +282,105 @@ export async function writeMemory(memory: {
     }
     const ensuredUserId = userId as string;
 
-    // Generate embedding for the content
-    const embedding = await generateEmbedding(memory.content, {
-      userId: ensuredUserId,
-      conversationId: memory.conversationId,
-    });
-    console.log(`[memory] Generated embedding with ${embedding.length} dimensions for: "${memory.title}"`);
-    // Check for similar existing memories to avoid duplicates
-    const admin = await supabaseServerAdmin();
-    const { data: similarMemories, error: searchError } = await (admin as any).rpc('match_memories', {
-      // Supabase JS automatically converts number[] to vector when function expects vector type
-      query_embedding: embedding,
-      match_threshold: 0.85, // High threshold for detecting duplicates
-      match_count: 3,
-      filter_type: safeType,
-      p_user_id: ensuredUserId,
-    });
-    
-    if (!searchError && similarMemories && similarMemories.length > 0) {
-      const topMatch = similarMemories[0];
-      console.log(`[memory] Found similar memory (similarity: ${topMatch.similarity.toFixed(3)}): "${topMatch.title}"`);
+    // If vector support is enabled, use embeddings and duplicate detection. Otherwise, store plain text only.
+    if (VECTOR_SUPPORTED) {
+      const embedding = await generateEmbedding(memory.content, {
+        userId: ensuredUserId,
+        conversationId: memory.conversationId,
+      });
+      console.log(`[memory] Generated embedding with ${embedding.length} dimensions for: "${memory.title}"`);
+
+      // Check for similar existing memories to avoid duplicates
+      const admin = await supabaseServerAdmin();
+      const { data: similarMemories, error: searchError } = await (admin as any).rpc('match_memories', {
+        // Supabase JS automatically converts number[] to vector when function expects vector type
+        query_embedding: embedding,
+        match_threshold: 0.85, // High threshold for detecting duplicates
+        match_count: 3,
+        filter_type: safeType,
+        p_user_id: ensuredUserId,
+      });
       
-      // If very similar (>0.90), skip creating duplicate
-      if (topMatch.similarity > 0.90) {
-        console.log(`[memory] Skipping duplicate memory: "${memory.title}"`);
-        return topMatch as MemoryItem;
-      }
-      
-      // If somewhat similar (0.85-0.90), update existing instead of creating new
-      if (topMatch.similarity > 0.85) {
-        console.log(`[memory] Updating existing memory instead of creating duplicate`);
-        const { data: updated, error: updateError } = await (admin as any)
-          .from('memories')
-          .update({
-            content: memory.content,
-            title: memory.title,
-            embedding_raw: embedding, // Supabase will handle float8[] type
-            updated_at: new Date().toISOString(),
-          } as any)
-          .eq('id', topMatch.id)
-          .select()
-          .single();
+      if (!searchError && similarMemories && similarMemories.length > 0) {
+        const topMatch = similarMemories[0];
+        console.log(`[memory] Found similar memory (similarity: ${topMatch.similarity.toFixed(3)}): "${topMatch.title}"`);
         
-        if (!updateError && updated) {
-          console.log(`[memory] Updated existing memory: "${memory.title}"`);
-          return updated as MemoryItem;
+        // If very similar (>0.90), skip creating duplicate
+        if (topMatch.similarity > 0.90) {
+          console.log(`[memory] Skipping duplicate memory: "${memory.title}"`);
+          return topMatch as MemoryItem;
+        }
+        
+        // If somewhat similar (0.85-0.90), update existing instead of creating new
+        if (topMatch.similarity > 0.85) {
+          console.log(`[memory] Updating existing memory instead of creating duplicate`);
+          const { data: updated, error: updateError } = await (admin as any)
+            .from('memories')
+            .update({
+              content: memory.content,
+              title: memory.title,
+              embedding_raw: embedding, // Supabase will handle float8[] type
+              updated_at: new Date().toISOString(),
+            } as any)
+            .eq('id', topMatch.id)
+            .select()
+            .single();
+          
+          if (!updateError && updated) {
+            console.log(`[memory] Updated existing memory: "${memory.title}"`);
+            return updated as MemoryItem;
+          }
         }
       }
-    }
 
-    // No duplicates found, insert new memory
-    const { data, error } = await admin
-      .from('memories')
-      .insert({
-        user_id: ensuredUserId,
-        type: safeType,
-        title: memory.title,
-        content: memory.content,
-        embedding_raw: embedding, // Supabase will handle float8[] type
-        enabled: memory.enabled ?? true,
-        importance: memory.importance ?? 50,
-        created_at: new Date().toISOString(),
-      } as any)
-      .select()
-      .single();
+      // No duplicates found, insert new memory
+      const { data, error } = await admin
+        .from('memories')
+        .insert({
+          user_id: ensuredUserId,
+          type: safeType,
+          title: memory.title,
+          content: memory.content,
+          embedding_raw: embedding, // Supabase will handle float8[] type
+          enabled: memory.enabled ?? true,
+          importance: memory.importance ?? 50,
+          created_at: new Date().toISOString(),
+        } as any)
+        .select()
+        .single();
 
-    if (error) {
-      console.error(`[memory] Insert error:`, error);
-      throw error;
+      if (error) {
+        console.error(`[memory] Insert error:`, error);
+        throw error;
+      }
+      
+      console.log(`[memory] Successfully wrote memory: "${memory.title}" (${embedding.length} dims, type: ${safeType})`);
+      return data as MemoryItem;
+    } else {
+      // Vector not supported: plain insert without embeddings or RPC
+      console.warn("[memory] Vector not supported; writing memory without embeddings");
+      const admin = await supabaseServerAdmin();
+      const { data, error } = await admin
+        .from('memories')
+        .insert({
+          user_id: ensuredUserId,
+          type: safeType,
+          title: memory.title,
+          content: memory.content,
+          enabled: memory.enabled ?? true,
+          importance: memory.importance ?? 50,
+          created_at: new Date().toISOString(),
+        } as any)
+        .select()
+        .single();
+
+      if (error) {
+        console.error(`[memory] Insert error (no vector):`, error);
+        throw error;
+      }
+      console.log(`[memory] Successfully wrote memory (no vector): "${memory.title}" (type: ${safeType})`);
+      return data as MemoryItem;
     }
-    
-    console.log(`[memory] Successfully wrote memory: "${memory.title}" (${embedding.length} dims, type: ${safeType})`);
-    return data as MemoryItem;
   } catch (error) {
     console.error("[memory] Failed to write memory:", error);
     throw error;
