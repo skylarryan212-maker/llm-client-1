@@ -118,7 +118,6 @@ Rules:
   * Default to minimal/low; use medium for normal multi-step work.
   * High or xhigh only when the request is clearly rare, intricate, or high-stakes, and you are confident it needs extra depth.
   * For gpt-5-nano/gpt-5-mini: never emit "none"/"high"/"xhigh"; stay at minimal/low/medium.
-- Arrays must be arrays (never null). No extra fields. No markdown.`;
   * Speed mode:
     - instant → effort MUST be one of: none, minimal, low (choose the lowest that fits the task).
     - thinking → effort MUST be one of: medium, high, xhigh (choose the lowest that fits the task).
