@@ -2570,6 +2570,7 @@ function formatTokenCount(tokens: number) {
 function ContextUsageIndicator({ usage }: { usage: ContextUsageSnapshot }) {
   const [isOpen, setIsOpen] = useState(false);
   const [isPinned, setIsPinned] = useState(false);
+  const [useSimpleContext, setUseSimpleContext] = useState(false);
   const percent = Math.min(100, Math.max(0, Math.round(usage.percent ?? 0)));
   const remainingPercent = Math.max(0, 100 - percent);
   const arc = `${percent * 3.6}deg`;
@@ -2631,6 +2632,22 @@ function ContextUsageIndicator({ usage }: { usage: ContextUsageSnapshot }) {
             </div>
             <div className="text-xs text-muted-foreground">
               {formatTokenCount(usedTokens)} / {formatTokenCount(limitTokens)} tokens used
+            </div>
+            <div className="pt-2">
+              <div className="flex items-center justify-between gap-2 text-xs">
+                <span className="text-muted-foreground">Context mode</span>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 px-2 text-xs"
+                  onClick={() => setUseSimpleContext((prev) => !prev)}
+                >
+                  {useSimpleContext ? "Simple" : "Advanced"}
+                </Button>
+              </div>
+              <div className="text-[11px] text-muted-foreground mt-1">
+                Toggle between simple and advanced context (placeholder; coming soon).
+              </div>
             </div>
           </div>
         </div>
