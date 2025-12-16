@@ -2,7 +2,7 @@
 
 import { Suspense, useEffect, useRef, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
-import { ArrowDown, ArrowLeft, Loader2 } from "lucide-react";
+import { ArrowDown, ArrowLeft, Loader2, X } from "lucide-react";
 
 import { ChatComposer } from "@/components/chat-composer";
 import { ChatMessage } from "@/components/chat-message";
@@ -38,6 +38,7 @@ function ChatInner({ params }: PageProps) {
   const [isHumanizing, setIsHumanizing] = useState(false);
   const [activeActionId, setActiveActionId] = useState<string | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const sidebarDismissedRef = useRef(false);
   const [initialized, setInitialized] = useState(false);
   const [hasStarted, setHasStarted] = useState(false);
   const hasStartedRef = useRef(false);
@@ -290,6 +291,7 @@ function ChatInner({ params }: PageProps) {
   const handleRunHumanizer = async (draftText: string, actionId: string) => {
     if (!draftText || isHumanizing) return;
 
+    sidebarDismissedRef.current = false;
     const runId = `humanize-${Date.now()}`;
     setIsHumanizing(true);
     setActiveActionId(actionId);
@@ -391,7 +393,7 @@ function ChatInner({ params }: PageProps) {
   useEffect(() => {
     if (isSidebarOpen) return;
     const hasCompletedCTA = messages.some((m) => m.kind === "cta" && m.status === "done");
-    if (hasCompletedCTA) {
+    if (hasCompletedCTA && !sidebarDismissedRef.current) {
       setIsSidebarOpen(true);
     }
   }, [messages, isSidebarOpen]);
@@ -491,9 +493,25 @@ function ChatInner({ params }: PageProps) {
         </div>
 
         {isSidebarOpen && (
-          <aside className="hidden w-[320px] flex-none flex-col border-l border-white/10 bg-black/50 px-5 py-6 text-white/60 md:flex">
-            <div className="text-xs uppercase tracking-[0.25em] text-white/35">Sidebar</div>
-            <div className="mt-3 flex-1 rounded-xl border border-dashed border-white/10 bg-white/5" />
+          <aside className="hidden w-[380px] flex-none flex-col border-l border-white/10 bg-black/50 px-5 py-6 text-white/60 shadow-[0_12px_40px_rgba(0,0,0,0.45)] animate-[hw-sidebar-in_260ms_cubic-bezier(0.16,1,0.3,1)] md:flex">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="text-xs uppercase tracking-[0.25em] text-white/35">Sidebar</div>
+                <p className="text-sm text-white/70">Placeholder — coming soon</p>
+              </div>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 text-white/70 hover:text-white"
+                onClick={() => {
+                  sidebarDismissedRef.current = true;
+                  setIsSidebarOpen(false);
+                }}
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+            <div className="mt-4 flex-1 rounded-xl border border-dashed border-white/10 bg-white/5" />
           </aside>
         )}
       </div>
@@ -563,6 +581,17 @@ export default function HumanWritingChatPage(props: PageProps) {
           }
           100% {
             background-position: 200% 50%;
+          }
+        }
+
+        @keyframes hw-sidebar-in {
+          0% {
+            opacity: 0;
+            transform: translateX(24px);
+          }
+          100% {
+            opacity: 1;
+            transform: translateX(0);
           }
         }
       `}</style>
