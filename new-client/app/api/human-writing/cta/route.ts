@@ -9,6 +9,7 @@ type CTARequest = {
   content?: string;
   draftText?: string;
   reason?: string;
+  status?: "pending" | "done";
 };
 
 export async function POST(request: NextRequest) {
@@ -18,6 +19,7 @@ export async function POST(request: NextRequest) {
     const content = body.content?.trim() || "Draft ready. Want me to humanize it now? (no detector or loop yet)";
     const draftText = body.draftText?.trim() || "";
     const reason = body.reason;
+    const status = body.status === "done" ? "done" : "pending";
 
     if (!taskId) {
       return NextResponse.json({ error: "taskId is required" }, { status: 400 });
@@ -58,7 +60,7 @@ export async function POST(request: NextRequest) {
         conversation_id: conversationId,
         role: "assistant",
         content,
-        metadata: { agent: "human-writing", kind: "cta", draftText, reason },
+        metadata: { agent: "human-writing", kind: "cta", draftText, reason, status },
       },
     ]);
 

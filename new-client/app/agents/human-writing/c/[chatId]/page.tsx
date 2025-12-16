@@ -265,6 +265,7 @@ function ChatInner({ params }: PageProps) {
               draftText: draft,
               content: "Draft ready. Want me to humanize it now? (no detector or loop yet)",
               reason: decisionReason,
+              status: "pending",
             }),
           });
         } catch (err) {
@@ -328,6 +329,25 @@ function ChatInner({ params }: PageProps) {
           return msg;
         })
       );
+
+      // Persist CTA state as completed
+      try {
+        const ctaMessage =
+          messagesRef.current.find((m) => m.id === actionId) ||
+          messagesRef.current.find((m) => m.kind === "cta");
+        await fetch("/api/human-writing/cta", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            taskId,
+            draftText: ctaMessage?.draftText || draftText,
+            content: ctaMessage?.content || "Draft ready. Want me to humanize it now? (no detector or loop yet)",
+            status: "done",
+          }),
+        });
+      } catch (err) {
+        console.warn("[human-writing][cta][persist-status] failed", err);
+      }
     } catch (error: any) {
       const message = error?.message || "Humanizer failed.";
       setMessages((prev) =>
