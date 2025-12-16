@@ -1008,7 +1008,7 @@ export async function POST(request: NextRequest) {
       console.error("[permanent-instructions] Failed to preload instructions:", permInitErr);
     }
 
-    const availableMemoryTypes: string[] = [];
+    const availableMemoryTypesForDecision: string[] = [];
 
     // Unified decision router (model + topic + memory types)
     const decision = await runDecisionRouter({
@@ -1024,7 +1024,7 @@ export async function POST(request: NextRequest) {
         currentConversationId: conversationId,
         speedMode,
         modelPreference: modelFamily,
-        availableMemoryTypes: availableMemoryTypes || [],
+        availableMemoryTypes: availableMemoryTypesForDecision || [],
         topics: Array.isArray(topicsForRouter) ? topicsForRouter : [],
         artifacts: Array.isArray(artifactsForRouter) ? artifactsForRouter : [],
       },
