@@ -40,8 +40,7 @@ const plans = [
     gradientTo: "to-teal-700/5",
   },
   {
-    // Extra display-only Dev tier (not part of PlanType actions)
-    id: "dev-enterprise" as PlanType,
+    id: "dev" as PlanType,
     name: "Dev",
     price: 200,
     description: "Maximum limits for demanding teams.",
@@ -105,8 +104,7 @@ function UpgradePageContent() {
   const planHierarchy: Record<string, number> = {
     plus: 1, // Basic
     pro: 2,  // Plus
-    dev: 3,  // Pro
-    "dev-enterprise": 4, // Dev (display-only)
+    dev: 3,  // Pro / Dev (highest)
   };
 
   const isLowerTier = (planId: string) => {
@@ -115,14 +113,7 @@ function UpgradePageContent() {
     return targetRank < currentRank;
   };
 
-  const filteredPlans = plans.filter((plan) => {
-    // If showing all plans (from settings), show all
-    if (shouldShowAllPlans) return true;
-    // Always show the Dev (enterprise) display card
-    if ((plan as any).id === "dev-enterprise") return true;
-    // Show all paid tiers by default
-    return true;
-  });
+  const filteredPlans = plans.filter(() => true);
 
   return (
     <div className="min-h-screen bg-background text-foreground flex flex-col">
@@ -187,24 +178,22 @@ function UpgradePageContent() {
                         <Button
                           className="w-full"
                           variant="outline"
-                          disabled={(plan as any).id === "dev-enterprise"}
-                          title={(plan as any).id === "dev-enterprise" ? "Contact support to enable this tier." : "Direct upgrades are currently disabled. Please use unlock code."}
+                          disabled
+                          title="Direct upgrades are currently disabled. Please use unlock code."
                         >
                           {isLowerTier(plan.id)
                             ? `Switch to ${plan.name}`
                             : `Upgrade to ${plan.name}`}
                         </Button>
-                        {plan.id !== "dev-enterprise" && (
-                          <Button
-                            variant="outline"
-                            className="w-full"
-                            onClick={() => handleOpenUnlockDialog(plan.id as Exclude<PlanType, "free">)}
-                            disabled={isProcessing}
-                          >
-                            <Lock className="h-4 w-4 mr-2" />
-                            Unlock with code
-                          </Button>
-                        )}
+                        <Button
+                          variant="outline"
+                          className="w-full"
+                          onClick={() => handleOpenUnlockDialog(plan.id as Exclude<PlanType, "free">)}
+                          disabled={isProcessing}
+                        >
+                          <Lock className="h-4 w-4 mr-2" />
+                          Unlock with code
+                        </Button>
                       </>
                     )}
                   </div>
