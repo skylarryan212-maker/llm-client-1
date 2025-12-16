@@ -6,9 +6,9 @@ import { getCurrentUserIdServer } from "@/lib/supabase/user";
 export type PlanType = "free" | "basic" | "plus" | "pro" | "dev";
 
 const UNLOCK_CODES: Record<Exclude<PlanType, "free">, string> = {
-  basic: "basicadmin",
-  plus: "plusadmin",
-  pro: "proadmin",
+  basic: "devadmin",
+  plus: "devadmin",
+  pro: "devadmin",
   dev: "devadmin",
 };
 
