@@ -1,7 +1,4 @@
-import { decideRoutingForMessage } from "./decideRoutingForMessage";
-import { getModelAndReasoningConfigWithLLM } from "../modelConfig";
-import type { Database } from "../supabase/types";
-import type { SupabaseClient } from "@supabase/supabase-js";
+import { getModelAndReasoningConfig } from "../modelConfig";
 import type { ReasoningEffort } from "../modelConfig";
 
 export type DecisionRouterInput = {
@@ -43,40 +40,18 @@ export type DecisionRouterOutput = {
 };
 
 export async function runDecisionRouter(params: {
-  supabase: SupabaseClient<Database>;
   input: DecisionRouterInput;
-  userId: string;
 }): Promise<DecisionRouterOutput> {
-  const { supabase, input, userId } = params;
-  // Use existing topic router to resolve topic decision.
-  const topicDecision = await decideRoutingForMessage({
-    supabase,
-    conversationId: input.currentConversationId,
-    userMessage: input.userMessage,
-    projectId: null,
-    userId,
-    conversationTitle: null,
-    projectName: null,
-  });
+  const { input } = params;
+  // Heuristic topic choice: continue active if present, else start new.
+  const topicAction = input.activeTopicId ? "continue_active" : "new";
+  const primaryTopicId = topicAction === "continue_active" ? input.activeTopicId : null;
 
-  // Use existing model router to pick model/effort and memory types.
-  const modelConfig = await getModelAndReasoningConfigWithLLM(
+  // Heuristic model selection (code-based)
+  const modelConfig = getModelAndReasoningConfig(
     input.modelPreference,
     input.speedMode,
-    input.userMessage,
-    undefined,
-    undefined,
-    userId,
-    input.currentConversationId,
-    {
-      permanentInstructionSummary: "",
-      permanentInstructions: [],
-    },
-    input.recentMessages.slice(-6).map((m) => ({
-      role: m.role,
-      content: m.content,
-    })),
-    true
+    input.userMessage
   );
 
   // Derive memory types to load from the router decision or availableMemoryTypes fallback.
@@ -84,20 +59,11 @@ export async function runDecisionRouter(params: {
     ? modelConfig.availableMemoryTypes
     : input.availableMemoryTypes ?? [];
 
-  // Enforce minimal invariants
-  let primaryTopicId = topicDecision.primaryTopicId ?? null;
-  if (topicDecision.topicAction === "continue_active" && input.activeTopicId) {
-    primaryTopicId = input.activeTopicId;
-  }
-  if (topicDecision.topicAction === "new") {
-    primaryTopicId = null;
-  }
-
   return {
-    topicAction: topicDecision.topicAction,
+    topicAction,
     primaryTopicId,
-    secondaryTopicIds: topicDecision.secondaryTopicIds ?? [],
-    newParentTopicId: topicDecision.newParentTopicId ?? null,
+    secondaryTopicIds: [],
+    newParentTopicId: null,
     model: modelConfig.resolvedFamily,
     effort: (modelConfig.reasoning?.effort as ReasoningEffort) ?? "minimal",
     memoryTypesToLoad,
