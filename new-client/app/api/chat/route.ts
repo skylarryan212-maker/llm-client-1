@@ -1028,6 +1028,7 @@ export async function POST(request: NextRequest) {
         artifacts: Array.isArray(artifactsForRouter) ? artifactsForRouter : [],
       },
     });
+    console.log("[decision-router] output:", JSON.stringify(decision, null, 2));
 
     // Writer router for topic metadata and memory/permanent instructions
     const writer = await runWriterRouter(
@@ -1045,6 +1046,7 @@ export async function POST(request: NextRequest) {
       },
       decision.topicAction
     );
+    console.log("[writer-router] output:", JSON.stringify(writer, null, 2));
 
     // Execute topic create/update based on writer output
     let resolvedPrimaryTopicId: string | null = decision.primaryTopicId ?? null;
