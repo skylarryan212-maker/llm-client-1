@@ -1066,7 +1066,6 @@ export async function POST(request: NextRequest) {
       console.error("[permanent-instructions] Failed to preload instructions:", permInitErr);
     }
 
-    const availableMemoryTypesForDecision: string[] = [];
     let memoriesForDecision: Array<{ id: string; type: string; title: string; content: string }> = [];
     if (userId) {
       try {
@@ -1116,7 +1115,6 @@ export async function POST(request: NextRequest) {
         currentConversationId: conversationId,
         speedMode,
         modelPreference: modelFamily,
-        availableMemoryTypes: availableMemoryTypesForDecision || [],
         memories: memoriesForDecision,
         topics: Array.isArray(topicsForRouter) ? topicsForRouter : [],
         artifacts: Array.isArray(artifactsForRouter) ? artifactsForRouter : [],
