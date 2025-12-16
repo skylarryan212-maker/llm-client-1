@@ -864,7 +864,7 @@ export async function POST(request: NextRequest) {
       .select("*")
       .eq("conversation_id", conversationId)
       .order("created_at", { ascending: true })
-      .limit(10);
+      .limit(6);
 
     if (messagesError) {
       console.error("Failed to load messages:", messagesError);
@@ -974,7 +974,7 @@ export async function POST(request: NextRequest) {
         permanentInstructions:
           (permanentInstructionState?.instructions as unknown as PermanentInstructionToWrite[] | undefined),
       },
-      (recentMessages || []).slice(-5).map((m: any) => ({
+      (recentMessages || []).slice(-6).map((m: any) => ({
         role: m.role,
         content: m.content,
       })),

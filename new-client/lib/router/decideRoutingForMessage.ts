@@ -14,7 +14,7 @@ import { callDeepInfraLlama } from "@/lib/deepInfraLlama";
 
 const TOPIC_ROUTER_MODEL = "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo";
 const ALLOWED_ROUTER_MODELS = new Set(["meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo"]);
-const MAX_RECENT_MESSAGES = 10;
+const MAX_RECENT_MESSAGES = 6;
 const MAX_ARTIFACTS = 10;
 
 interface DecideRoutingParams {
@@ -787,7 +787,6 @@ function repairRouterDecisionCandidate(candidate: any, userMessage: string) {
 
   return candidate;
 }
-
 
 
 
