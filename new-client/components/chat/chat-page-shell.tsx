@@ -98,6 +98,7 @@ const CONTEXT_USAGE_STORAGE_KEY = "llm-client-context-usage";
 const AUTO_STREAM_KEY_PREFIX = "llm-client-auto-stream:";
 const getAutoStreamKey = (conversationId: string) =>
   `${AUTO_STREAM_KEY_PREFIX}${conversationId}`;
+const CONTEXT_MODE_BY_CHAT_KEY = "llm-client-context-mode-by-chat";
 
 function mergeThinkingTimingIntoMetadata(
   metadata: AssistantMessageMetadata | null,
@@ -314,6 +315,37 @@ export default function ChatPageShell({
     window.addEventListener("contextModeGlobalChange", handler as EventListener);
     return () => window.removeEventListener("contextModeGlobalChange", handler as EventListener);
   }, []);
+
+  // Load per-chat context modes
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const raw = window.localStorage.getItem(CONTEXT_MODE_BY_CHAT_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+          setContextModeByChat(parsed as Record<string, "advanced" | "simple">);
+        }
+      }
+    } catch (err) {
+      console.error("Failed to load per-chat context modes", err);
+    }
+  }, []);
+
+  // Persist per-chat context modes
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const hasEntries = Object.keys(contextModeByChat).length > 0;
+      if (!hasEntries) {
+        window.localStorage.removeItem(CONTEXT_MODE_BY_CHAT_KEY);
+        return;
+      }
+      window.localStorage.setItem(CONTEXT_MODE_BY_CHAT_KEY, JSON.stringify(contextModeByChat));
+    } catch (err) {
+      console.error("Failed to persist per-chat context modes", err);
+    }
+  }, [contextModeByChat]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
