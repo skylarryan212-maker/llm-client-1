@@ -133,8 +133,10 @@ Rules:
     ],
   };
 
-  const fallback = () => {
-    const fallbackTopicAction = input.activeTopicId ? "continue_active" : "new";
+  const fallback = (): DecisionRouterOutput => {
+    const fallbackTopicAction: DecisionRouterOutput["topicAction"] = input.activeTopicId
+      ? "continue_active"
+      : "new";
     const fallbackPrimary = fallbackTopicAction === "continue_active" ? input.activeTopicId : null;
     const modelConfig = getModelAndReasoningConfig(input.modelPreference, input.speedMode, input.userMessage);
     const memoryTypesToLoad: string[] = Array.isArray(modelConfig.availableMemoryTypes)
@@ -143,7 +145,7 @@ Rules:
     return {
       topicAction: fallbackTopicAction,
       primaryTopicId: fallbackPrimary,
-      secondaryTopicIds: [],
+      secondaryTopicIds: [] as string[],
       newParentTopicId: null,
       model: modelConfig.resolvedFamily,
       effort: (modelConfig.reasoning?.effort as ReasoningEffort) ?? "minimal",
