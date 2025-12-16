@@ -47,29 +47,60 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "conversation_not_found" }, { status: 404 });
     }
 
-    // Remove existing CTA messages for this conversation to avoid duplicates
+    const { data: existingCTA } = await supabase
+      .from("messages")
+      .select("id, created_at")
+      .eq("conversation_id", conversationId)
+      .eq("metadata->>kind", "cta")
+      .order("created_at", { ascending: false })
+      .limit(1);
+
+    const existingCtaId = existingCTA?.[0]?.id as string | undefined;
+
+    if (status === "done" && existingCtaId) {
+      const { error: updateError } = await supabase
+        .from("messages")
+        .update({
+          content,
+          metadata: { agent: "human-writing", kind: "cta", draftText, reason, status },
+        })
+        .eq("id", existingCtaId);
+
+      if (updateError) {
+        console.error("[human-writing][cta] update error", updateError);
+        return NextResponse.json({ error: "update_cta_failed" }, { status: 500 });
+      }
+
+      return NextResponse.json({ ok: true, messageId: existingCtaId });
+    }
+
+    // For new or pending CTAs, replace any prior CTA to keep a single record but let created_at set ordering.
     await supabase
       .from("messages")
       .delete()
       .eq("conversation_id", conversationId)
       .eq("metadata->>kind", "cta");
 
-    const { error: insertError } = await supabase.from("messages").insert([
-      {
-        user_id: userId,
-        conversation_id: conversationId,
-        role: "assistant",
-        content,
-        metadata: { agent: "human-writing", kind: "cta", draftText, reason, status },
-      },
-    ]);
+    const { data: inserted, error: insertError } = await supabase
+      .from("messages")
+      .insert([
+        {
+          user_id: userId,
+          conversation_id: conversationId,
+          role: "assistant",
+          content,
+          metadata: { agent: "human-writing", kind: "cta", draftText, reason, status },
+        },
+      ])
+      .select("id")
+      .single();
 
     if (insertError) {
       console.error("[human-writing][cta] insert error", insertError);
       return NextResponse.json({ error: "save_cta_failed" }, { status: 500 });
     }
 
-    return NextResponse.json({ ok: true });
+    return NextResponse.json({ ok: true, messageId: inserted?.id });
   } catch (error: any) {
     console.error("[human-writing][cta] error:", error);
     return NextResponse.json(
