@@ -52,6 +52,23 @@ function normalizeNullableId(value: string | null | undefined): string | null {
   return trimmed;
 }
 
+function parseJsonLoose(raw: string) {
+  const withoutFences = raw.replace(/```json|```/gi, "").trim();
+  try {
+    return JSON.parse(withoutFences);
+  } catch {
+    const match = withoutFences.match(/\{[\s\S]*\}/);
+    if (match) {
+      try {
+        return JSON.parse(match[0]);
+      } catch {
+        return null;
+      }
+    }
+    return null;
+  }
+}
+
 export async function runWriterRouter(input: WriterRouterInput, topicAction: "continue_active" | "new" | "reopen_existing"): Promise<WriterRouterOutput> {
   const systemPrompt = `You decide topic metadata updates and memory/permanent instruction writes. Respond with ONE JSON object only:
 {
@@ -200,10 +217,13 @@ Rules:
       schemaName: "writer_router",
       schema,
     });
-    const cleaned = (text || "").replace(/```json|```/g, "").trim();
-    const parsed = JSON.parse(cleaned);
+    const cleaned = (text || "").trim();
+    const parsed = parseJsonLoose(cleaned);
+    if (!parsed || typeof parsed !== "object") {
+      throw new Error("Invalid JSON from writer router");
+    }
 
-    const topicWrite = parsed.topicWrite || {};
+    const topicWrite = (parsed as any).topicWrite || {};
     // Enforce action logic
     let action: "create" | "update" | "skip" =
       topicAction === "new" ? "create" : topicWrite.action || "skip";

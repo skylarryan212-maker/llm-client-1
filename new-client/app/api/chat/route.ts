@@ -2467,10 +2467,25 @@ async function maybeGenerateArtifactsWithLLM({
 
   const parsedText = responseText || "";
   let parsed: any = null;
-  try {
-    parsed = parsedText ? JSON.parse(parsedText) : null;
-  } catch (err) {
-    console.error("[artifacts] Failed to parse artifacts JSON:", err);
+  const parseJsonLoose = (raw: string) => {
+    const withoutFences = raw.replace(/```json|```/gi, "").trim();
+    try {
+      return JSON.parse(withoutFences);
+    } catch {
+      const match = withoutFences.match(/\{[\s\S]*\}/);
+      if (match) {
+        try {
+          return JSON.parse(match[0]);
+        } catch {
+          return null;
+        }
+      }
+      return null;
+    }
+  };
+  parsed = parsedText ? parseJsonLoose(parsedText) : null;
+  if (!parsed) {
+    console.error("[artifacts] Failed to parse artifacts JSON: invalid structure");
     return;
   }
   let artifacts: Array<{ type: string; title: string; content: string }> =
