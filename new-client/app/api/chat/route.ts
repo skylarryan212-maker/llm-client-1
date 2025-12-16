@@ -2119,7 +2119,18 @@ export async function POST(request: NextRequest) {
             });
           } else {
             try {
-              const memoriesToWrite = (modelConfig as any).memoriesToWrite || [];
+              const memoriesToWrite = Array.isArray((modelConfig as any).memoriesToWrite)
+                ? (modelConfig as any).memoriesToWrite.filter(
+                    (memory: any) =>
+                      memory &&
+                      typeof memory.type === "string" &&
+                      memory.type.trim().length > 0 &&
+                      typeof memory.title === "string" &&
+                      memory.title.trim().length > 0 &&
+                      typeof memory.content === "string" &&
+                      memory.content.trim().length > 0
+                  )
+                : [];
               if (personalizationSettings.allowSavingMemory && memoriesToWrite.length > 0) {
                 console.log(`[router-memory] Writing ${memoriesToWrite.length} memories from router decision`);
 
@@ -2135,7 +2146,16 @@ export async function POST(request: NextRequest) {
                 }
               }
 
-              const memoriesToDelete = (modelConfig as any).memoriesToDelete || [];
+              const memoriesToDelete = Array.isArray((modelConfig as any).memoriesToDelete)
+                ? (modelConfig as any).memoriesToDelete.filter(
+                    (m: any) =>
+                      m &&
+                      typeof m.id === "string" &&
+                      m.id.trim().length > 0 &&
+                      typeof m.reason === "string" &&
+                      m.reason.trim().length > 0
+                  )
+                : [];
               if (memoriesToDelete.length > 0) {
                 console.log(`[router-memory] Deleting ${memoriesToDelete.length} memories from router decision`);
 
