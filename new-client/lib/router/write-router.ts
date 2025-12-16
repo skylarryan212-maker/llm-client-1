@@ -217,7 +217,6 @@ Rules:
       ],
       schemaName: "writer_router",
       schema,
-      maxTokens: 200,
       enforceJson: true,
     });
     const cleaned = (text || "").trim();
