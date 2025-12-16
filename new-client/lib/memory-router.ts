@@ -7,7 +7,6 @@ export interface PersonalizationMemorySettings {
 
 export interface MemoryStrategy {
   types: MemoryType[] | "all";
-  useSemanticSearch: boolean;
   query?: string;
   limit: number;
 }
@@ -36,14 +35,13 @@ export async function getRelevantMemories(
     return [];
   }
   
-  const { types, useSemanticSearch, query, limit } = strategy;
+  const { types, query, limit } = strategy;
   
   // Load memories according to strategy
   const memories = await fetchMemories({
     query: query || "",
     types,
     limit,
-    useSemanticSearch,
     userId,
     conversationId,
   });

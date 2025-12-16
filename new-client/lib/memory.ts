@@ -1,9 +1,5 @@
 import { supabaseServerAdmin } from "@/lib/supabase/server";
 import { getCurrentUserIdServer } from "@/lib/supabase/user";
-import { logUsageRecord } from "@/lib/usage";
-
-// Toggle vector support. Leave off by default unless SUPABASE_VECTOR_SUPPORTED=true is set.
-const VECTOR_SUPPORTED = process.env.SUPABASE_VECTOR_SUPPORTED === "true";
 
 // Dynamic type system - can be any category name
 export type MemoryType = string;
@@ -36,54 +32,6 @@ export interface MemoryItem {
   content: string;
   enabled: boolean;
   created_at?: string;
-  embedding?: number[];
-}
-
-interface EmbeddingContext {
-  userId?: string;
-  conversationId?: string;
-}
-
-/**
- * Generate embedding vector for text using OpenAI
- */
-async function generateEmbedding(
-  text: string,
-  ctx: EmbeddingContext = {},
-): Promise<number[]> {
-  try {
-    const OpenAI = (await import("openai")).default;
-    
-    if (!process.env.OPENAI_API_KEY) {
-      throw new Error("OPENAI_API_KEY not set");
-    }
-
-    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-    
-    const response = await openai.embeddings.create({
-      model: "text-embedding-3-small",
-      input: text,
-    });
-    const promptTokens =
-      (response as { usage?: { prompt_tokens?: number; total_tokens?: number } })
-        .usage?.prompt_tokens ??
-      (response as { usage?: { total_tokens?: number } }).usage?.total_tokens ??
-      0;
-    if (ctx.userId && promptTokens > 0) {
-      await logUsageRecord({
-        userId: ctx.userId,
-        conversationId: ctx.conversationId ?? null,
-        model: "text-embedding-3-small",
-        inputTokens: promptTokens,
-        cachedTokens: 0,
-        outputTokens: 0,
-      });
-    }
-    return response.data[0].embedding;
-  } catch (error) {
-    console.error("[memory] Failed to generate embedding:", error);
-    throw error;
-  }
 }
 
 /**
@@ -95,101 +43,20 @@ export async function fetchMemories({
   query = '',
   types = 'all',
   limit = 50,
-  useSemanticSearch = true,
   userId,
   conversationId,
 }: { 
   query?: string; 
   types?: MemoryType | MemoryType[] | 'all'; 
   limit?: number;
-  useSemanticSearch?: boolean;
   userId?: string;
   conversationId?: string;
 }) {
-  // If vector search is not supported, force semantic search off
-  if (!VECTOR_SUPPORTED) {
-    useSemanticSearch = false;
-  }
-
   // Normalize types to array for consistent handling
   const typeArray = types === 'all' ? null : (Array.isArray(types) ? types : [types]);
   
-  // If we have a query and semantic search is enabled, use vector search
-  if (query && useSemanticSearch) {
-    try {
-      const queryEmbedding = await generateEmbedding(query, {
-        userId,
-        conversationId,
-      });
-      
-      // Use server admin client when userId is provided (server-side call)
-      // Otherwise use browser client (client-side call with auth)
-      let client;
-      if (userId) {
-        const admin = await supabaseServerAdmin();
-        client = admin as any;
-      } else {
-        const { default: browserClient } = await import("@/lib/supabase/browser-client");
-        client = browserClient as any;
-      }
-      
-      console.log(`[memory] Calling match_memories with embedding length: ${queryEmbedding.length}, threshold: 0.3, types: ${JSON.stringify(typeArray)}, userId: ${userId || 'client-auth'}`);
-      
-      // For vector search with multiple types, we'll need to handle differently
-      // For now, if multiple types specified, we'll do multiple searches and merge
-      let allResults: MemoryItem[] = [];
-      
-      if (typeArray && typeArray.length > 0) {
-        // Search each type separately and merge results
-        for (const singleType of typeArray) {
-          const { data, error } = await client.rpc('match_memories', {
-            query_embedding: queryEmbedding,
-            match_threshold: 0.3,
-            match_count: limit,
-            filter_type: singleType,
-            p_user_id: userId,
-          });
-          if (!error && data) {
-            allResults.push(...(data as MemoryItem[]));
-          }
-        }
-        // Deduplicate and sort by similarity
-        const seen = new Set<string>();
-        allResults = allResults
-          .filter(m => {
-            if (seen.has(m.id)) return false;
-            seen.add(m.id);
-            return true;
-          })
-          .slice(0, limit);
-      } else {
-        // Search all types
-        const { data, error } = await client.rpc('match_memories', {
-          query_embedding: queryEmbedding,
-          match_threshold: 0.3,
-          match_count: limit,
-          filter_type: 'all',
-          p_user_id: userId,
-        });
-        if (error) {
-          console.error("[memory] RPC error:", error);
-          throw error;
-        }
-        allResults = (data as MemoryItem[]) || [];
-      }
-
-      
-      console.log(`[memory] Vector search found ${allResults.length} matches, first result:`, allResults[0]?.title);
-      return allResults;
-    } catch (error) {
-      console.error("[memory] Vector search failed, falling back to keyword search:", error);
-      // Fall through to keyword search
-    }
-  }
-
-  // Fallback: keyword search or no query
-  // For server-side calls with userId, use admin client
-  // Otherwise use browser client (client-side call with auth)
+  // Keyword search only (vector search removed)
+  // For server-side calls with userId, use admin client; otherwise use browser client
   let client;
   if (userId) {
     const admin = await supabaseServerAdmin();
@@ -282,105 +149,27 @@ export async function writeMemory(memory: {
     }
     const ensuredUserId = userId as string;
 
-    // If vector support is enabled, use embeddings and duplicate detection. Otherwise, store plain text only.
-    if (VECTOR_SUPPORTED) {
-      const embedding = await generateEmbedding(memory.content, {
-        userId: ensuredUserId,
-        conversationId: memory.conversationId,
-      });
-      console.log(`[memory] Generated embedding with ${embedding.length} dimensions for: "${memory.title}"`);
+    const admin = await supabaseServerAdmin();
+    const { data, error } = await admin
+      .from('memories')
+      .insert({
+        user_id: ensuredUserId,
+        type: safeType,
+        title: memory.title,
+        content: memory.content,
+        enabled: memory.enabled ?? true,
+        importance: memory.importance ?? 50,
+        created_at: new Date().toISOString(),
+      } as any)
+      .select()
+      .single();
 
-      // Check for similar existing memories to avoid duplicates
-      const admin = await supabaseServerAdmin();
-      const { data: similarMemories, error: searchError } = await (admin as any).rpc('match_memories', {
-        // Supabase JS automatically converts number[] to vector when function expects vector type
-        query_embedding: embedding,
-        match_threshold: 0.85, // High threshold for detecting duplicates
-        match_count: 3,
-        filter_type: safeType,
-        p_user_id: ensuredUserId,
-      });
-      
-      if (!searchError && similarMemories && similarMemories.length > 0) {
-        const topMatch = similarMemories[0];
-        console.log(`[memory] Found similar memory (similarity: ${topMatch.similarity.toFixed(3)}): "${topMatch.title}"`);
-        
-        // If very similar (>0.90), skip creating duplicate
-        if (topMatch.similarity > 0.90) {
-          console.log(`[memory] Skipping duplicate memory: "${memory.title}"`);
-          return topMatch as MemoryItem;
-        }
-        
-        // If somewhat similar (0.85-0.90), update existing instead of creating new
-        if (topMatch.similarity > 0.85) {
-          console.log(`[memory] Updating existing memory instead of creating duplicate`);
-          const { data: updated, error: updateError } = await (admin as any)
-            .from('memories')
-            .update({
-              content: memory.content,
-              title: memory.title,
-              embedding_raw: embedding, // Supabase will handle float8[] type
-              updated_at: new Date().toISOString(),
-            } as any)
-            .eq('id', topMatch.id)
-            .select()
-            .single();
-          
-          if (!updateError && updated) {
-            console.log(`[memory] Updated existing memory: "${memory.title}"`);
-            return updated as MemoryItem;
-          }
-        }
-      }
-
-      // No duplicates found, insert new memory
-      const { data, error } = await admin
-        .from('memories')
-        .insert({
-          user_id: ensuredUserId,
-          type: safeType,
-          title: memory.title,
-          content: memory.content,
-          embedding_raw: embedding, // Supabase will handle float8[] type
-          enabled: memory.enabled ?? true,
-          importance: memory.importance ?? 50,
-          created_at: new Date().toISOString(),
-        } as any)
-        .select()
-        .single();
-
-      if (error) {
-        console.error(`[memory] Insert error:`, error);
-        throw error;
-      }
-      
-      console.log(`[memory] Successfully wrote memory: "${memory.title}" (${embedding.length} dims, type: ${safeType})`);
-      return data as MemoryItem;
-    } else {
-      // Vector not supported: plain insert without embeddings or RPC
-      console.warn("[memory] Vector not supported; writing memory without embeddings");
-      const admin = await supabaseServerAdmin();
-      const { data, error } = await admin
-        .from('memories')
-        .insert({
-          user_id: ensuredUserId,
-          type: safeType,
-          title: memory.title,
-          content: memory.content,
-          enabled: memory.enabled ?? true,
-          importance: memory.importance ?? 50,
-          created_at: new Date().toISOString(),
-        } as any)
-        .select()
-        .single();
-
-      if (error) {
-        console.error(`[memory] Insert error (no vector):`, error);
-        throw error;
-      }
-      console.log(`[memory] Successfully wrote memory (no vector): "${memory.title}" (type: ${safeType})`);
-      return data as MemoryItem;
+    if (error) {
+      console.error(`[memory] Insert error:`, error);
+      throw error;
     }
+    console.log(`[memory] Successfully wrote memory: "${memory.title}" (type: ${safeType})`);
+    return data as MemoryItem;
   } catch (error) {
     console.error("[memory] Failed to write memory:", error);
     throw error;

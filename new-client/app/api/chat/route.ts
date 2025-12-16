@@ -1327,7 +1327,6 @@ export async function POST(request: NextRequest) {
             : ["identity"];
         const memoryStrategy: MemoryStrategy = {
           types: memoryTypes,
-          useSemanticSearch: false,
           limit: 10,
         };
 
