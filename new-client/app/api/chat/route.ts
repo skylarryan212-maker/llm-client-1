@@ -45,8 +45,7 @@ import { runWriterRouter } from "@/lib/router/write-router";
 import { estimateTokens } from "@/lib/tokens/estimateTokens";
 
 const CONTEXT_LIMIT_TOKENS = 350_000;
-const VECTOR_MEMORIES_SUPPORTED = process.env.SUPABASE_VECTOR_SUPPORTED === "true";
-const MEMORY_WRITES_ENABLED = process.env.ENABLE_VECTOR_MEMORIES === "true" && VECTOR_MEMORIES_SUPPORTED;
+const MEMORY_WRITES_ENABLED = true;
 
 async function buildSimpleContextMessages(
   supabase: any,
@@ -2222,11 +2221,6 @@ export async function POST(request: NextRequest) {
                 : [];
               const canWriteMemories =
                 personalizationSettings.allowSavingMemory && MEMORY_WRITES_ENABLED && memoriesToWrite.length > 0;
-              if (!canWriteMemories && personalizationSettings.allowSavingMemory && memoriesToWrite.length > 0) {
-                console.warn(
-                  "[router-memory] Memory writes skipped (vector support disabled). Set SUPABASE_VECTOR_SUPPORTED=true to enable."
-                );
-              }
               if (canWriteMemories) {
                 console.log(`[router-memory] Writing ${memoriesToWrite.length} memories from router decision`);
                 let vectorWritesBlocked = false;
