@@ -87,7 +87,19 @@ Rules:
 - If topicAction="reopen_existing": primaryTopicId MUST be one of the provided topics.
 - secondaryTopicIds: subset of provided topic ids, exclude primary; may be empty.
 - newParentTopicId: null or a provided topic id.
-- Effort "none"/"xhigh" only with models gpt-5.2/gpt-5.2-pro.
+- Model selection:
+  * Use gpt-5-nano for greetings, short factual answers, simple rewrites/classifications, short summaries.
+  * Use gpt-5-mini for medium tasks: multi-step reasoning, moderate code/math, medium-length writing/editing.
+  * Use gpt-5.2 for long/complex asks, heavy code/debug, longer reasoning or when higher quality is clearly needed.
+  * gpt-5.2-pro only for the most complex/high-stakes tasks (legal/financial/safety/very deep analysis).
+  * When unsure, choose the cheaper model that is still safe.
+- Effort selection:
+  * "none" only with gpt-5.2/gpt-5.2-pro for trivial asks.
+  * "minimal"/"low" for simple/short tasks.
+  * "medium" for multi-step reasoning, moderate code/math, or medium-length writing.
+  * "high" for complex tasks, long-form reasoning, or high-stakes queries (use gpt-5.2/5.2-pro).
+  * "xhigh" only with gpt-5.2/5.2-pro and only for extremely complex/high-stakes work.
+  * For nano/mini, never use "none" or "xhigh"; prefer "minimal"/"low"/"medium".
 - Arrays must be arrays (never null). No extra fields. No markdown.`;
 
   const userPrompt = [
