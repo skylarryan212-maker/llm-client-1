@@ -80,11 +80,14 @@ async function buildSimpleContextMessages(
     selected.push(rows[i]);
   }
   selected.reverse();
-  const messages = selected.map((msg) => ({
-    role: msg.role === "assistant" ? "assistant" : "user",
-    content: msg.content ?? "",
-    type: "message" as const,
-  }));
+  const messages = selected.map((msg) => {
+    const role: "user" | "assistant" = msg.role === "assistant" ? "assistant" : "user";
+    return {
+      role,
+      content: msg.content ?? "",
+      type: "message" as const,
+    };
+  });
 
   return {
     messages,
