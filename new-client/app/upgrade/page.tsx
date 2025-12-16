@@ -10,42 +10,45 @@ import { useUserPlan } from "@/lib/hooks/use-user-plan";
 
 const plans = [
   {
-    id: "free" as PlanType,
-    name: "Free",
-    price: 0,
-    description: "Get started with basic features and explore the platform",
-    features: ["Details coming soon"],
-    gradientFrom: "from-slate-500/5",
-    gradientTo: "to-zinc-800/5",
-  },
-  {
     id: "plus" as PlanType,
-    name: "Plus",
-    price: 15,
-    description: "Enhanced limits and premium features",
-    features: ["Details coming soon"],
+    name: "Basic",
+    price: 10,
+    description: "Essential access with light usage limits.",
+    features: ["API limit: $5 usage per month"],
     recommended: false,
     gradientFrom: "from-blue-400/5",
     gradientTo: "to-indigo-700/5",
   },
   {
     id: "pro" as PlanType,
-    name: "Pro",
-    price: 25,
-    description: "Professional-grade capabilities with higher limits",
-    features: ["Details coming soon"],
-    recommended: true,
+    name: "Plus",
+    price: 20,
+    description: "Higher limits for growing workloads.",
+    features: ["API limit: $15 usage per month"],
+    recommended: false,
     gradientFrom: "from-purple-400/5",
     gradientTo: "to-fuchsia-700/5",
   },
   {
     id: "dev" as PlanType,
-    name: "Dev",
-    price: 100,
-    description: "Maximum limits and advanced developer tools",
-    features: ["Details coming soon"],
+    name: "Pro",
+    price: 50,
+    description: "Advanced tier with expanded headroom.",
+    features: ["API limit: $30 usage per month"],
+    recommended: true,
     gradientFrom: "from-green-400/5",
     gradientTo: "to-teal-700/5",
+  },
+  {
+    // Extra display-only Dev tier (not part of PlanType actions)
+    id: "dev-enterprise" as PlanType,
+    name: "Dev",
+    price: 200,
+    description: "Maximum limits for demanding teams.",
+    features: ["API limit: $150 usage per month"],
+    recommended: false,
+    gradientFrom: "from-amber-400/5",
+    gradientTo: "to-orange-700/5",
   },
 ];
 
@@ -99,37 +102,25 @@ function UpgradePageContent() {
   const shouldShowAllPlans = showAllPlans;
 
   // Helper to determine plan hierarchy
-  const planHierarchy: Record<PlanType, number> = {
-    free: 0,
-    plus: 1,
-    pro: 2,
-    dev: 3,
+  const planHierarchy: Record<string, number> = {
+    plus: 1, // Basic
+    pro: 2,  // Plus
+    dev: 3,  // Pro
+    "dev-enterprise": 4, // Dev (display-only)
   };
 
-  const isLowerTier = (planId: PlanType) => {
-    return planHierarchy[planId] < planHierarchy[currentPlan];
+  const isLowerTier = (planId: string) => {
+    const targetRank = planHierarchy[planId] ?? -1;
+    const currentRank = planHierarchy[currentPlan] ?? 0;
+    return targetRank < currentRank;
   };
 
   const filteredPlans = plans.filter((plan) => {
     // If showing all plans (from settings), show all
     if (shouldShowAllPlans) return true;
-    
-    // Hide free plan if user has any paid plan
-    if (plan.id === "free" && currentPlan !== "free") {
-      return false;
-    }
-    // Hide plus plan if user has pro or dev plan
-    if (plan.id === "plus" && (currentPlan === "pro" || currentPlan === "dev")) {
-      return false;
-    }
-    // Hide pro plan if user has dev plan
-    if (plan.id === "pro" && currentPlan === "dev") {
-      return false;
-    }
-    // Only show dev plan if user has dev plan
-    if (currentPlan === "dev" && plan.id !== "dev") {
-      return false;
-    }
+    // Always show the Dev (enterprise) display card
+    if (plan.id === "dev-enterprise") return true;
+    // Show all paid tiers by default
     return true;
   });
 
@@ -186,7 +177,7 @@ function UpgradePageContent() {
                     ))}
                   </div>
 
-                  <div className="mt-4 space-y-2">
+                    <div className="mt-4 space-y-2">
                     {isCurrent ? (
                       <Button variant="outline" className="w-full" disabled>
                         Your current plan
@@ -196,16 +187,14 @@ function UpgradePageContent() {
                         <Button
                           className="w-full"
                           variant="outline"
-                          disabled
-                          title="Direct upgrades are currently disabled. Please use unlock code."
+                          disabled={plan.id === "dev-enterprise"}
+                          title={plan.id === "dev-enterprise" ? "Contact support to enable this tier." : "Direct upgrades are currently disabled. Please use unlock code."}
                         >
-                          {plan.id === "free" 
-                            ? "Free Plan" 
-                            : isLowerTier(plan.id)
+                          {isLowerTier(plan.id)
                             ? `Switch to ${plan.name}`
                             : `Upgrade to ${plan.name}`}
                         </Button>
-                        {plan.id !== "free" && (
+                        {plan.id !== "dev-enterprise" && (
                           <Button
                             variant="outline"
                             className="w-full"
