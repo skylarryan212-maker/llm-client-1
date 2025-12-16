@@ -44,6 +44,7 @@ export function ChatComposer({
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [recordingError, setRecordingError] = useState<string | null>(null);
   const [waveformLevels, setWaveformLevels] = useState<number[]>(Array(120).fill(0));
+  const [attachmentError, setAttachmentError] = useState<string | null>(null);
   
   // Voice recording refs
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -332,9 +333,11 @@ export function ChatComposer({
         return att;
       });
       setAttachments(merged);
+      setAttachmentError(null);
       return merged;
     } catch (error) {
       console.error("Attachment upload failed", error);
+      setAttachmentError("File upload failed. Please retry.");
       return attachments;
     } finally {
       setIsUploading(false);
@@ -346,9 +349,24 @@ export function ChatComposer({
     if (!trimmed || isUploading) return;
 
     const attachmentsWithUrls = await uploadPendingAttachments();
-    const attachmentsToSend = attachmentsWithUrls?.map((att) =>
-      att.url ? { ...att, dataUrl: undefined } : att
-    );
+    const pendingWithoutUrl =
+      attachmentsWithUrls?.filter((att) => att.file && !att.url) ?? [];
+
+    if (pendingWithoutUrl.length) {
+      setAttachmentError("Please wait for uploads to finish, then try again.");
+      return;
+    }
+
+    const attachmentsToSend = attachmentsWithUrls
+      ?.filter((att) => att.url)
+      .map((att) => ({
+        id: att.id,
+        name: att.name,
+        url: att.url,
+        mime: att.mime,
+        size: att.size,
+      }));
+    setAttachmentError(null);
 
     if (onSubmit) onSubmit(trimmed, attachmentsToSend);
     else if (onSendMessage) onSendMessage(trimmed);
@@ -598,6 +616,9 @@ export function ChatComposer({
       {/* Recording/transcription error display */}
       {recordingError && (
         <div className="mt-2 text-xs text-red-400">{recordingError}</div>
+      )}
+      {attachmentError && !recordingError && (
+        <div className="mt-2 text-xs text-red-400">{attachmentError}</div>
       )}
       
       {/* Hidden file input for attachments */}

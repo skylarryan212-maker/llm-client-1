@@ -61,8 +61,7 @@ export async function createGlobalConversationWithFirstMessage(params: {
                 files: params.attachments.map((file) => ({
                   name: file.name,
                   mimeType: file.mime,
-                  url: file.url ?? file.dataUrl,
-                  dataUrl: file.dataUrl,
+                  url: file.url,
                 })),
               }
             : {},
@@ -131,8 +130,7 @@ export async function createProjectConversationWithFirstMessage(params: {
                 files: params.attachments.map((file) => ({
                   name: file.name,
                   mimeType: file.mime,
-                  url: file.url ?? file.dataUrl,
-                  dataUrl: file.dataUrl,
+                  url: file.url,
                 })),
               }
             : {},

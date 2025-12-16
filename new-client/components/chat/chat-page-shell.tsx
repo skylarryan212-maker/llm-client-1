@@ -924,7 +924,7 @@ export default function ChatPageShell({
             files: attachments.map(a => ({
               name: a.name,
               mimeType: a.mime,
-              url: a.url ?? a.dataUrl,
+              url: a.url,
             })),
           }
         : undefined,
@@ -989,7 +989,6 @@ export default function ChatPageShell({
                   files: attachments.map((a) => ({
                     name: a.name,
                     mimeType: a.mime,
-                    dataUrl: a.dataUrl,
                     url: a.url,
                   })),
                 }
@@ -1029,7 +1028,6 @@ export default function ChatPageShell({
                   files: attachments.map((a) => ({
                     name: a.name,
                     mimeType: a.mime,
-                    dataUrl: a.dataUrl,
                     url: a.url,
                   })),
                 }
@@ -1468,7 +1466,6 @@ export default function ChatPageShell({
         .map((file: any, idx: number) => ({
           id: file?.id || `initial-file-${idx}`,
           name: file?.name || file?.url || `Attachment ${idx + 1}`,
-          dataUrl: file?.dataUrl,
           url: file?.url,
           mime: file?.mimeType || file?.mime,
         }))

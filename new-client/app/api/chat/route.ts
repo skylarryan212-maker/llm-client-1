@@ -887,7 +887,7 @@ export async function POST(request: NextRequest) {
           role: "user",
           content: message,
           metadata: attachments && attachments.length
-            ? { files: attachments.map(a => ({ name: a.name, mimeType: a.mime, url: a.url ?? a.dataUrl })) }
+            ? { files: attachments.map(a => ({ name: a.name, mimeType: a.mime, url: a.url })) }
             : {},
         })
         .select()
@@ -914,7 +914,7 @@ export async function POST(request: NextRequest) {
       if (!latestErr && latestUser) {
         const nextMeta = {
           ...(latestUser.metadata || {}),
-          files: attachments.map(a => ({ name: a.name, mimeType: a.mime, url: a.url ?? a.dataUrl })),
+          files: attachments.map(a => ({ name: a.name, mimeType: a.mime, url: a.url })),
         } as Record<string, unknown>;
         const { error: updateErr } = await supabaseAny
           .from("messages")
