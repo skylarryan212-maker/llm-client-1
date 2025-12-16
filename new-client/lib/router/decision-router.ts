@@ -86,16 +86,19 @@ export async function runDecisionRouter(params: {
           .join("\n")
       : "No artifacts.";
 
-  const systemPrompt = `You are a single decision router. Respond with ONE JSON object only.
-Fields must match exactly:
+  const systemPrompt = `You are a single decision router. All inputs are provided as JSON. You MUST output ONE JSON object with a "labels" field only, matching the schema below. Do not include the input in your response.
+
+Output shape:
 {
-  "topicAction": "continue_active" | "new" | "reopen_existing",
-  "primaryTopicId": string | null,
-  "secondaryTopicIds": string[],         // array, never null
-  "newParentTopicId": string | null,
-  "model": "gpt-5-nano" | "gpt-5-mini" | "gpt-5.2" | "gpt-5.2-pro",
-  "effort": "none" | "minimal" | "low" | "medium" | "high" | "xhigh",
-  "memoryTypesToLoad": string[]
+  "labels": {
+    "topicAction": "continue_active" | "new" | "reopen_existing",
+    "primaryTopicId": string | null,
+    "secondaryTopicIds": string[],         // array, never null
+    "newParentTopicId": string | null,
+    "model": "gpt-5-nano" | "gpt-5-mini" | "gpt-5.2" | "gpt-5.2-pro",
+    "effort": "none" | "minimal" | "low" | "medium" | "high" | "xhigh",
+    "memoryTypesToLoad": string[]
+  }
 }
 Rules:
 - Never invent placeholder strings like "none"/"null" for IDs.
@@ -116,48 +119,59 @@ Rules:
   * High or xhigh only when the request is clearly rare, intricate, or high-stakes, and you are confident it needs extra depth.
   * For gpt-5-nano/gpt-5-mini: never emit "none"/"high"/"xhigh"; stay at minimal/low/medium.
 - Arrays must be arrays (never null). No extra fields. No markdown.`;
+  * Speed mode:
+    - instant → effort MUST be one of: none, minimal, low (choose the lowest that fits the task).
+    - thinking → effort MUST be one of: medium, high, xhigh (choose the lowest that fits the task).
+  * Model preference: if modelPreference is not "auto", you MUST return that exact model.
+- Arrays must be arrays (never null). No extra fields. No markdown.`;
 
-  const userPrompt = [
-    `Active topic: ${input.activeTopicId || "none"}`,
-    `Conversation: ${input.currentConversationId}`,
-    `Speed mode: ${input.speedMode}`,
-    `Model preference: ${input.modelPreference}`,
-    `Available memory types: ${input.availableMemoryTypes.join(", ") || "none"}`,
-    "",
-    "Recent messages (oldest→newest):",
-    recentSection,
-    "",
-    "Topics:",
-    topicSection,
-    "",
-    "Artifacts:",
-    artifactSection,
-    "",
-    "User message:",
-    input.userMessage,
-  ].join("\n");
+  const inputPayload = {
+    input: {
+      userMessage: input.userMessage,
+      recentMessages: input.recentMessages,
+      activeTopicId: input.activeTopicId,
+      current_conversation_id: input.currentConversationId,
+      speedMode: input.speedMode,
+      modelPreference: input.modelPreference,
+      availableMemoryTypes: input.availableMemoryTypes,
+      topics: input.topics,
+      artifacts: input.artifacts,
+    },
+  };
+
+  const userPrompt = `Input JSON:
+${JSON.stringify(inputPayload, null, 2)}
+
+Return only the "labels" object matching the output schema.`;
 
   const schema = {
     type: "object",
     additionalProperties: false,
     properties: {
-      topicAction: { type: "string", enum: ["continue_active", "new", "reopen_existing"] },
-      primaryTopicId: { type: ["string", "null"] },
-      secondaryTopicIds: { type: "array", items: { type: "string" }, default: [] },
-      newParentTopicId: { type: ["string", "null"] },
-      model: { type: "string", enum: ["gpt-5-nano", "gpt-5-mini", "gpt-5.2", "gpt-5.2-pro"] },
-      effort: { type: "string", enum: ["none", "minimal", "low", "medium", "high", "xhigh"] },
-      memoryTypesToLoad: { type: "array", items: { type: "string" }, default: [] },
+      labels: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          topicAction: { type: "string", enum: ["continue_active", "new", "reopen_existing"] },
+          primaryTopicId: { type: ["string", "null"] },
+          secondaryTopicIds: { type: "array", items: { type: "string" }, default: [] },
+          newParentTopicId: { type: ["string", "null"] },
+          model: { type: "string", enum: ["gpt-5-nano", "gpt-5-mini", "gpt-5.2", "gpt-5.2-pro"] },
+          effort: { type: "string", enum: ["none", "minimal", "low", "medium", "high", "xhigh"] },
+          memoryTypesToLoad: { type: "array", items: { type: "string" }, default: [] },
+        },
+        required: [
+          "topicAction",
+          "primaryTopicId",
+          "secondaryTopicIds",
+          "newParentTopicId",
+          "model",
+          "effort",
+          "memoryTypesToLoad",
+        ],
+      },
     },
-    required: [
-      "topicAction",
-      "primaryTopicId",
-      "secondaryTopicIds",
-      "newParentTopicId",
-      "model",
-      "effort",
-      "memoryTypesToLoad",
-    ],
+    required: ["labels"],
   };
 
   const fallback = (): DecisionRouterOutput => {
@@ -191,66 +205,86 @@ Rules:
     });
     const cleaned = (text || "").replace(/```json|```/g, "").trim();
     const parsed = JSON.parse(cleaned);
+    const labels = parsed?.labels || {};
 
     // Basic validation/enforcement
     const topicIds = new Set((input.topics || []).map((t) => t.id));
-    let primaryTopicId = parsed.primaryTopicId ?? null;
-    if (parsed.topicAction === "continue_active") {
+    let primaryTopicId = labels.primaryTopicId ?? null;
+    if (labels.topicAction === "continue_active") {
       primaryTopicId = input.activeTopicId ?? null;
       if (!primaryTopicId) {
-        parsed.topicAction = "new";
+        labels.topicAction = "new";
       }
-    } else if (parsed.topicAction === "reopen_existing" && primaryTopicId && !topicIds.has(primaryTopicId)) {
+    } else if (labels.topicAction === "reopen_existing" && primaryTopicId && !topicIds.has(primaryTopicId)) {
       primaryTopicId = null;
-    } else if (parsed.topicAction === "new") {
+    } else if (labels.topicAction === "new") {
       primaryTopicId = null;
     }
 
     const validEfforts: ReasoningEffort[] = ["none", "minimal", "low", "medium", "high", "xhigh"];
-    let effort: ReasoningEffort = validEfforts.includes(parsed.effort) ? parsed.effort : "minimal";
-    const fullModel = parsed.model === "gpt-5.2" || parsed.model === "gpt-5.2-pro";
+    let effort: ReasoningEffort = validEfforts.includes(labels.effort) ? labels.effort : "minimal";
+    const fullModel = labels.model === "gpt-5.2" || labels.model === "gpt-5.2-pro";
     if (!fullModel && (effort === "none" || effort === "xhigh")) {
       effort = effort === "none" ? "minimal" : "high";
     }
 
+    // Enforce model preference if provided
+    const userForcedModel = input.modelPreference !== "auto";
+    let model: DecisionRouterOutput["model"] = userForcedModel
+      ? (input.modelPreference as DecisionRouterOutput["model"])
+      : (labels.model as DecisionRouterOutput["model"]);
+
     // Clamp model: never auto-select 5.2-pro unless user explicitly preferred it.
-    let model = parsed.model as DecisionRouterOutput["model"];
     const userRequestedPro = input.modelPreference === "gpt-5.2-pro";
-    if (model === "gpt-5.2-pro" && !userRequestedPro) {
+    if (!userForcedModel && model === "gpt-5.2-pro" && !userRequestedPro) {
       model = "gpt-5.2";
     }
 
-    // Downgrade for simple/low-stakes tasks.
-    if (isSimple) {
-      model = cleanMessage.length < 120 ? "gpt-5-nano" : "gpt-5-mini";
-      effort = effort === "high" || effort === "xhigh" ? "minimal" : effort;
-      if (effort === "none") effort = "minimal";
-    } else {
-      // If not explicitly high-stakes/heavy, bias to mini unless complexity is clear.
-      const allowHeavyModel = isHighStakes || isHeavyReasoning;
-      if (!allowHeavyModel && model === "gpt-5.2-pro" && !userRequestedPro) {
-        model = "gpt-5.2";
+    // Downgrade for simple/low-stakes tasks only when user didn't force a model.
+    if (!userForcedModel) {
+      if (isSimple) {
+        model = cleanMessage.length < 120 ? "gpt-5-nano" : "gpt-5-mini";
+        effort = effort === "high" || effort === "xhigh" ? "minimal" : effort;
+        if (effort === "none") effort = "minimal";
+      } else {
+        // If not explicitly high-stakes/heavy, bias to mini unless complexity is clear.
+        const allowHeavyModel = isHighStakes || isHeavyReasoning;
+        if (!allowHeavyModel && model === "gpt-5.2-pro" && !userRequestedPro) {
+          model = "gpt-5.2";
+        }
+        if (!allowHeavyModel && model === "gpt-5.2" && input.modelPreference === "auto") {
+          model = "gpt-5-mini";
+        }
+        if (!allowHeavyModel && model === "gpt-5-mini" && cleanMessage.length < 140) {
+          model = "gpt-5-nano";
+        }
       }
-      if (!allowHeavyModel && model === "gpt-5.2" && input.modelPreference === "auto") {
-        model = "gpt-5-mini";
-      }
-      if (!allowHeavyModel && model === "gpt-5-mini" && cleanMessage.length < 140) {
-        model = "gpt-5-nano";
-      }
+    }
 
-      // Effort sanity for small models
-      if ((model === "gpt-5-nano" || model === "gpt-5-mini") && effort === "high") {
+    // Force effort ranges by speed mode
+    if (input.speedMode === "instant") {
+      if (!["none", "minimal", "low"].includes(effort)) {
+        effort = "minimal";
+      }
+    } else if (input.speedMode === "thinking") {
+      if (!["medium", "high", "xhigh"].includes(effort)) {
         effort = "medium";
       }
     }
+
+    // Effort sanity for small models
+    if ((model === "gpt-5-nano" || model === "gpt-5-mini")) {
+      if (effort === "none") effort = "minimal";
+      if (effort === "high" || effort === "xhigh") effort = "medium";
+    }
     // Enforce new topic invariants
     let secondaryTopicIds =
-      Array.isArray(parsed.secondaryTopicIds)
-        ? parsed.secondaryTopicIds.filter((id: string) => topicIds.has(id) && id !== primaryTopicId).slice(0, 3)
+      Array.isArray(labels.secondaryTopicIds)
+        ? labels.secondaryTopicIds.filter((id: string) => topicIds.has(id) && id !== primaryTopicId).slice(0, 3)
         : [];
     let newParentTopicId =
-      parsed.newParentTopicId && topicIds.has(parsed.newParentTopicId) ? parsed.newParentTopicId : null;
-    let topicAction: DecisionRouterOutput["topicAction"] = parsed.topicAction;
+      labels.newParentTopicId && topicIds.has(labels.newParentTopicId) ? labels.newParentTopicId : null;
+    let topicAction: DecisionRouterOutput["topicAction"] = labels.topicAction;
     if (topicAction === "new") {
       primaryTopicId = null;
       secondaryTopicIds = [];
@@ -264,7 +298,7 @@ Rules:
       newParentTopicId,
       model,
       effort,
-      memoryTypesToLoad: Array.isArray(parsed.memoryTypesToLoad) ? parsed.memoryTypesToLoad : [],
+      memoryTypesToLoad: Array.isArray(labels.memoryTypesToLoad) ? labels.memoryTypesToLoad : [],
     };
   } catch (err) {
     console.error("[decision-router] LLM routing failed, using fallback:", err);
