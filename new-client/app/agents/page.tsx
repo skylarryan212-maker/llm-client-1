@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Code2, Database, Menu, PenLine, TrendingUp, Workflow } from "lucide-react";
 
@@ -56,65 +56,6 @@ export default function AgentsPage() {
   const [isSidebarOpen, setIsSidebarOpen] = usePersistentSidebarOpen(true);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [settingsTab, setSettingsTab] = useState<'general' | 'personalization'>('personalization');
-  const [blob1, setBlob1] = useState({ x: 0, y: 0, scale: 1.05 });
-  const [blob2, setBlob2] = useState({ x: 0, y: 0, scale: 1.1 });
-  const [blob3, setBlob3] = useState({ x: 0, y: 0, scale: 1.0 });
-  const [gridOffset, setGridOffset] = useState({ x: 0, y: 0 });
-  const [radialOffset, setRadialOffset] = useState({ x: 0, y: 0 });
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-
-    const reducedMotionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
-    if (reducedMotionQuery.matches) return;
-
-    const clamp = (value: number, min: number, max: number) =>
-      Math.min(max, Math.max(min, value));
-    const rand = (min: number, max: number) => min + Math.random() * (max - min);
-
-    const pickTargets = () => {
-      const w = window.innerWidth;
-      const h = window.innerHeight;
-      const padding = 220;
-      const maxX = Math.max(0, w / 2 - padding);
-      const maxY = Math.max(0, h / 2 - padding);
-      const rangeX = clamp(maxX, 120, 800);
-      const rangeY = clamp(maxY, 100, 700);
-
-      setBlob1({
-        x: rand(-rangeX, rangeX),
-        y: rand(-rangeY, rangeY),
-        scale: rand(0.95, 1.15),
-      });
-      setBlob2({
-        x: rand(-rangeX * 1.05, rangeX * 1.05),
-        y: rand(-rangeY * 1.05, rangeY * 1.05),
-        scale: rand(1.0, 1.25),
-      });
-      setBlob3({
-        x: rand(-rangeX * 0.9, rangeX * 0.9),
-        y: rand(-rangeY * 0.9, rangeY * 0.9),
-        scale: rand(0.9, 1.1),
-      });
-      setGridOffset({
-        x: rand(-160, 160),
-        y: rand(-160, 160),
-      });
-      setRadialOffset({
-        x: rand(-240, 240),
-        y: rand(-240, 240),
-      });
-    };
-
-    pickTargets();
-    const interval = window.setInterval(pickTargets, 5200);
-    window.addEventListener("resize", pickTargets);
-
-    return () => {
-      window.clearInterval(interval);
-      window.removeEventListener("resize", pickTargets);
-    };
-  }, []);
 
   const sidebarConversations = useMemo(
     () =>
@@ -159,42 +100,7 @@ export default function AgentsPage() {
         className="pointer-events-none absolute inset-0 z-0 overflow-hidden"
         aria-hidden="true"
       >
-        <div
-          className="agent-blob absolute left-1/2 top-1/2 h-[30rem] w-[30rem] rounded-full bg-gradient-to-br from-sky-400/45 via-cyan-400/25 to-transparent blur-3xl"
-          style={{
-            transform: `translate(-50%, -50%) translate3d(${blob1.x}px, ${blob1.y}px, 0) scale(${blob1.scale})`,
-          }}
-        />
-        <div
-          className="agent-blob agent-blob-slow absolute left-1/2 top-1/2 h-[36rem] w-[36rem] rounded-full bg-gradient-to-br from-purple-500/45 via-indigo-500/22 to-transparent blur-3xl"
-          style={{
-            transform: `translate(-50%, -50%) translate3d(${blob2.x}px, ${blob2.y}px, 0) scale(${blob2.scale})`,
-          }}
-        />
-        <div
-          className="agent-blob agent-blob-fast absolute left-1/2 top-1/2 h-[26rem] w-[26rem] rounded-full bg-gradient-to-br from-emerald-400/30 via-teal-400/15 to-transparent blur-3xl"
-          style={{
-            transform: `translate(-50%, -50%) translate3d(${blob3.x}px, ${blob3.y}px, 0) scale(${blob3.scale})`,
-          }}
-        />
-        <div
-          className="agent-radial absolute inset-0"
-          style={{
-            backgroundImage:
-              "radial-gradient(circle at 20% 15%, rgba(125,211,252,0.10), transparent 28%), radial-gradient(circle at 75% 10%, rgba(167,139,250,0.10), transparent 26%), radial-gradient(circle at 50% 85%, rgba(56,189,248,0.10), transparent 32%)",
-            backgroundPosition: `${radialOffset.x}px ${radialOffset.y}px`,
-            backgroundSize: "120% 120%",
-          }}
-        />
-        <div
-          className="agent-grid absolute inset-0"
-          style={{
-            backgroundImage:
-              "linear-gradient(115deg, rgba(255,255,255,0.05) 1px, transparent 1px), linear-gradient(295deg, rgba(255,255,255,0.04) 1px, transparent 1px)",
-            backgroundSize: "180px 180px",
-            backgroundPosition: `${gridOffset.x}px ${gridOffset.y}px`,
-          }}
-        />
+        <div className="agents-bg absolute inset-0" />
       </div>
 
       <div className="relative z-10 flex h-full">
@@ -281,28 +187,131 @@ export default function AgentsPage() {
       />
 
       <style jsx global>{`
-        .agent-blob {
-          transition: transform 5.2s cubic-bezier(0.2, 0.9, 0.2, 1);
-          will-change: transform;
-          filter: saturate(1.15);
+        .agents-bg {
+          --g1: rgba(56, 189, 248, 0.16);
+          --g2: rgba(167, 139, 250, 0.16);
+          --g3: rgba(16, 185, 129, 0.11);
+          --g4: rgba(244, 114, 182, 0.10);
+          background:
+            radial-gradient(900px 600px at 10% 15%, var(--g1), transparent 60%),
+            radial-gradient(800px 650px at 85% 20%, var(--g2), transparent 60%),
+            radial-gradient(900px 700px at 55% 90%, var(--g3), transparent 62%),
+            radial-gradient(850px 650px at 30% 70%, var(--g4), transparent 62%),
+            conic-gradient(
+              from 210deg at 50% 50%,
+              rgba(56, 189, 248, 0.08),
+              rgba(167, 139, 250, 0.07),
+              rgba(16, 185, 129, 0.06),
+              rgba(56, 189, 248, 0.08)
+            );
+          background-size: 160% 160%, 160% 160%, 160% 160%, 160% 160%, 240% 240%;
+          background-position: 0% 0%, 100% 0%, 30% 100%, 70% 80%, 50% 50%;
+          filter: blur(46px) saturate(1.2);
+          transform: scale(1.15);
+          animation: agents-flow 18s linear infinite;
+          will-change: background-position, filter;
         }
-        .agent-blob-slow {
-          transition-duration: 6.6s;
+
+        .agents-bg::before {
+          content: "";
+          position: absolute;
+          inset: -20%;
+          background:
+            radial-gradient(700px 520px at 22% 30%, rgba(56, 189, 248, 0.10), transparent 62%),
+            radial-gradient(720px 520px at 78% 65%, rgba(167, 139, 250, 0.10), transparent 62%),
+            radial-gradient(650px 520px at 45% 55%, rgba(16, 185, 129, 0.07), transparent 62%);
+          background-size: 180% 180%;
+          animation: agents-flow-2 14s ease-in-out infinite;
+          filter: blur(54px);
+          opacity: 0.9;
+          mix-blend-mode: screen;
+          will-change: transform, opacity, filter;
         }
-        .agent-blob-fast {
-          transition-duration: 4.2s;
+
+        .agents-bg::after {
+          content: "";
+          position: absolute;
+          inset: 0;
+          background:
+            repeating-linear-gradient(
+              0deg,
+              rgba(255, 255, 255, 0.02),
+              rgba(255, 255, 255, 0.02) 1px,
+              transparent 1px,
+              transparent 7px
+            ),
+            repeating-linear-gradient(
+              90deg,
+              rgba(255, 255, 255, 0.015),
+              rgba(255, 255, 255, 0.015) 1px,
+              transparent 1px,
+              transparent 9px
+            );
+          opacity: 0.12;
+          mix-blend-mode: overlay;
+          animation: agents-grain 9s ease-in-out infinite;
+          will-change: transform, opacity;
         }
-        .agent-grid,
-        .agent-radial {
-          transition: background-position 5.2s cubic-bezier(0.2, 0.9, 0.2, 1);
-          will-change: background-position;
+
+        @keyframes agents-flow {
+          0% {
+            background-position: 0% 0%, 100% 0%, 30% 100%, 70% 80%, 50% 50%;
+            filter: blur(46px) saturate(1.2) hue-rotate(0deg);
+          }
+          25% {
+            background-position: 20% 10%, 80% 20%, 45% 90%, 65% 65%, 45% 55%;
+          }
+          50% {
+            background-position: 40% 25%, 60% 35%, 60% 80%, 55% 50%, 55% 45%;
+            filter: blur(52px) saturate(1.25) hue-rotate(18deg);
+          }
+          75% {
+            background-position: 25% 45%, 75% 55%, 40% 60%, 40% 70%, 48% 58%;
+          }
+          100% {
+            background-position: 0% 0%, 100% 0%, 30% 100%, 70% 80%, 50% 50%;
+            filter: blur(46px) saturate(1.2) hue-rotate(0deg);
+          }
+        }
+
+        @keyframes agents-flow-2 {
+          0% {
+            transform: translate3d(-2%, -1%, 0) rotate(0deg) scale(1.02);
+            filter: blur(54px) hue-rotate(0deg);
+          }
+          33% {
+            transform: translate3d(3%, -2%, 0) rotate(6deg) scale(1.05);
+          }
+          66% {
+            transform: translate3d(-1%, 3%, 0) rotate(-4deg) scale(1.08);
+            filter: blur(60px) hue-rotate(22deg);
+          }
+          100% {
+            transform: translate3d(-2%, -1%, 0) rotate(0deg) scale(1.02);
+            filter: blur(54px) hue-rotate(0deg);
+          }
+        }
+
+        @keyframes agents-grain {
+          0% {
+            transform: translate3d(0, 0, 0);
+            opacity: 0.10;
+          }
+          50% {
+            transform: translate3d(18px, -12px, 0);
+            opacity: 0.14;
+          }
+          100% {
+            transform: translate3d(0, 0, 0);
+            opacity: 0.10;
+          }
         }
 
         @media (prefers-reduced-motion: reduce) {
-          .agent-blob,
-          .agent-grid,
-          .agent-radial {
-            transition: none !important;
+          .agents-bg,
+          .agents-bg::before,
+          .agents-bg::after {
+            animation: none !important;
           }
         }
       `}</style>
