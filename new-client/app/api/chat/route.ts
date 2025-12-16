@@ -1309,7 +1309,10 @@ export async function POST(request: NextRequest) {
         }
 
         // Upload to OpenAI Files API for direct input_file consumption (skip images; require <=50MB)
-        if (!isImage && withinFileApiLimit) {
+        const isPdf =
+          (typeof att.mime === "string" && att.mime.toLowerCase().includes("pdf")) ||
+          (typeof att.name === "string" && att.name.toLowerCase().endsWith(".pdf"));
+        if (!isImage && withinFileApiLimit && isPdf) {
           try {
             if (!vectorStoreOpenAI) {
               const OpenAIConstructor = await getOpenAIConstructor();
@@ -1329,8 +1332,10 @@ export async function POST(request: NextRequest) {
           } catch (fileUploadErr) {
             console.error(`Failed to upload ${att.name} as input_file:`, fileUploadErr);
           }
-        } else if (!isImage && !withinFileApiLimit) {
+        } else if (!isImage && !withinFileApiLimit && isPdf) {
           console.warn(`Skipping input_file upload for ${att.name} (>50MB)`);
+        } else if (!isImage && !isPdf) {
+          console.log(`Skipped input_file upload for ${att.name} (non-PDF; use vector store + file_search)`);
         }
       } catch (sizeErr) {
         console.warn(`Failed to process ${att.name}:`, sizeErr);
