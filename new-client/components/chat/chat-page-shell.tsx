@@ -271,6 +271,9 @@ export default function ChatPageShell({
   }
   conversationRenderKeyRef.current = currentConversationKey;
   const currentContextUsage = selectedChatId ? contextUsageByChat[selectedChatId] : null;
+  const currentContextMode =
+    (selectedChatId && contextModeByChat[selectedChatId]) || contextModeGlobal;
+  const useSimpleContext = currentContextMode === "simple";
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -289,6 +292,27 @@ export default function ChatPageShell({
     } catch (error) {
       console.error("Failed to load context usage cache", error);
     }
+  }, []);
+
+  // Load global context mode preference
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const raw = window.localStorage.getItem("context-mode-global");
+      if (raw === "simple" || raw === "advanced") {
+        setContextModeGlobal(raw);
+      }
+    } catch (err) {
+      console.error("Failed to load context mode preference", err);
+    }
+    const handler = (event: Event) => {
+      const detail = (event as CustomEvent).detail;
+      if (detail === "simple" || detail === "advanced") {
+        setContextModeGlobal(detail);
+      }
+    };
+    window.addEventListener("contextModeGlobalChange", handler as EventListener);
+    return () => window.removeEventListener("contextModeGlobalChange", handler as EventListener);
   }, []);
 
   useEffect(() => {
@@ -2294,8 +2318,20 @@ export default function ChatPageShell({
             {currentContextUsage ? (
               <ContextUsageIndicator
                 usage={currentContextUsage}
-                simpleMode={useSimpleContext}
-                onToggleSimpleMode={setUseSimpleContext}
+                contextMode={currentContextMode}
+                onToggleMode={(next) => {
+                  if (!selectedChatId) {
+                    setContextModeGlobal(next);
+                    try {
+                      window.localStorage.setItem("context-mode-global", next);
+                    } catch {}
+                    return;
+                  }
+                  setContextModeByChat((prev) => ({
+                    ...prev,
+                    [selectedChatId]: next,
+                  }));
+                }}
               />
             ) : null}
             {isGuest ? (
@@ -2579,12 +2615,12 @@ function formatTokenCount(tokens: number) {
 
 function ContextUsageIndicator({
   usage,
-  simpleMode,
-  onToggleSimpleMode,
+  contextMode,
+  onToggleMode,
 }: {
   usage: ContextUsageSnapshot;
-  simpleMode: boolean;
-  onToggleSimpleMode: (next: boolean) => void;
+  contextMode: "advanced" | "simple";
+  onToggleMode: (next: "advanced" | "simple") => void;
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const [isPinned, setIsPinned] = useState(false);
@@ -2657,9 +2693,9 @@ function ContextUsageIndicator({
                   size="sm"
                   variant="outline"
                   className="h-7 px-2 text-xs"
-                  onClick={() => onToggleSimpleMode(!simpleMode)}
+                  onClick={() => onToggleMode(contextMode === "simple" ? "advanced" : "simple")}
                 >
-                  {simpleMode ? "Simple" : "Advanced"}
+                  {contextMode === "simple" ? "Simple" : "Advanced"}
                 </Button>
               </div>
               <div className="text-[11px] text-muted-foreground mt-1">

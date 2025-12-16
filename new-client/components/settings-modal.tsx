@@ -42,6 +42,7 @@ export function SettingsModal({ isOpen, onClose, initialTab = 'personalization' 
   const [activeTab, setActiveTab] = useState<TabType>(initialTab)
   const [accentColor, setAccentColor] = useState('white')
   const { plan, refreshPlan } = useUserPlan()
+  const [contextModeGlobal, setContextModeGlobal] = useState<"advanced" | "simple">("advanced")
   const { fullName, email } = useUserIdentity()
   const { refreshChats } = useChatStore()
   const cachedUsage = typeof window !== 'undefined' ? (() => {
@@ -145,6 +146,12 @@ export function SettingsModal({ isOpen, onClose, initialTab = 'personalization' 
         else if (content.includes('oklch(0.75 0.22 50)')) setAccentColor('orange')
         else if (content.includes('oklch(0.70 0.26 25)')) setAccentColor('red')
       }
+      try {
+        const storedMode = window.localStorage.getItem("context-mode-global")
+        if (storedMode === "simple" || storedMode === "advanced") {
+          setContextModeGlobal(storedMode)
+        }
+      } catch {}
     }
   }, [isOpen, initialTab])
 
@@ -342,6 +349,27 @@ export function SettingsModal({ isOpen, onClose, initialTab = 'personalization' 
                       />
                     ))}
                   </div>
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <Label className="text-base">Context mode (global default)</Label>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-9 px-3 text-sm"
+                    onClick={() => {
+                      const next = contextModeGlobal === "simple" ? "advanced" : "simple"
+                      setContextModeGlobal(next)
+                      try {
+                        window.localStorage.setItem("context-mode-global", next)
+                        window.dispatchEvent(
+                          new CustomEvent("contextModeGlobalChange", { detail: next })
+                        )
+                      } catch {}
+                    }}
+                  >
+                    {contextModeGlobal === "simple" ? "Simple" : "Advanced"}
+                  </Button>
                 </div>
 
                 
