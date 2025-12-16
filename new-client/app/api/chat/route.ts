@@ -895,6 +895,44 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Load topics for this conversation (used by decision router)
+    const { data: topicRows } = await supabaseAny
+      .from("conversation_topics")
+      .select("id, conversation_id, label, summary, description, parent_topic_id")
+      .eq("conversation_id", conversationId)
+      .order("created_at", { ascending: true })
+      .limit(50);
+    const topicsForRouter =
+      Array.isArray(topicRows) &&
+      topicRows.map((t: any) => ({
+        id: t.id,
+        conversation_id: t.conversation_id,
+        label: t.label,
+        summary: t.summary,
+        description: t.description,
+        parent_topic_id: t.parent_topic_id,
+      }));
+
+    // Load artifacts for this conversation (used by decision router)
+    const { data: artifactRows } = await supabaseAny
+      .from("artifacts")
+      .select("id, conversation_id, topic_id, type, title, summary, keywords")
+      .eq("conversation_id", conversationId)
+      .order("created_at", { ascending: false })
+      .limit(50);
+    const artifactsForRouter =
+      Array.isArray(artifactRows) &&
+      artifactRows.map((a: any) => ({
+        id: a.id,
+        conversation_id: a.conversation_id,
+        topic_id: a.topic_id,
+        type: a.type,
+        title: a.title,
+        summary: a.summary,
+        keywords: Array.isArray(a.keywords) ? a.keywords : [],
+        snippet: typeof a.summary === "string" ? a.summary.slice(0, 200) : "",
+      }));
+
     // Optionally insert the user message unless the client indicates it's already persisted (e.g., first send via server action, or retry)
     let userMessageRow: MessageRow | null = null;
     let permanentInstructionState: { instructions: PermanentInstructionCacheItem[]; metadata: ConversationRow["metadata"] } | null = null;
@@ -987,8 +1025,8 @@ export async function POST(request: NextRequest) {
         speedMode,
         modelPreference: modelFamily,
         availableMemoryTypes: availableMemoryTypes || [],
-        topics: [],
-        artifacts: [],
+        topics: Array.isArray(topicsForRouter) ? topicsForRouter : [],
+        artifacts: Array.isArray(artifactsForRouter) ? artifactsForRouter : [],
       },
       userId,
     });
