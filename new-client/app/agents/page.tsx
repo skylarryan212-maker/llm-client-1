@@ -102,8 +102,8 @@ export default function AgentsPage() {
       >
         <div className="absolute -left-24 top-[-8%] h-[28rem] w-[28rem] rounded-full bg-gradient-to-br from-sky-400/35 via-cyan-400/20 to-transparent blur-3xl animate-agent-blob" />
         <div className="absolute right-[-18%] bottom-[-12%] h-[32rem] w-[32rem] rounded-full bg-gradient-to-br from-purple-500/35 via-indigo-500/18 to-transparent blur-3xl animate-agent-blob-slow" />
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_15%,rgba(125,211,252,0.08),transparent_28%),radial-gradient(circle_at_75%_10%,rgba(167,139,250,0.08),transparent_26%),radial-gradient(circle_at_50%_85%,rgba(56,189,248,0.08),transparent_32%)]" />
-        <div className="absolute inset-0 bg-[linear-gradient(115deg,rgba(255,255,255,0.045)_1px,transparent_1px),linear-gradient(295deg,rgba(255,255,255,0.035)_1px,transparent_1px)] bg-[size:180px_180px]" />
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_15%,rgba(125,211,252,0.08),transparent_28%),radial-gradient(circle_at_75%_10%,rgba(167,139,250,0.08),transparent_26%),radial-gradient(circle_at_50%_85%,rgba(56,189,248,0.08),transparent_32%)] animate-agent-grid-slow" />
+        <div className="absolute inset-0 bg-[linear-gradient(115deg,rgba(255,255,255,0.045)_1px,transparent_1px),linear-gradient(295deg,rgba(255,255,255,0.035)_1px,transparent_1px)] bg-[size:180px_180px] animate-agent-grid" />
       </div>
 
       <div className="relative z-10 flex h-full">
@@ -195,7 +195,7 @@ export default function AgentsPage() {
             transform: translate3d(0, 0, 0) scale(1);
           }
           50% {
-            transform: translate3d(24px, -18px, 0) scale(1.05);
+            transform: translate3d(32px, -26px, 0) scale(1.06);
           }
           100% {
             transform: translate3d(0, 0, 0) scale(1);
@@ -206,10 +206,21 @@ export default function AgentsPage() {
             transform: translate3d(0, 0, 0) scale(1);
           }
           50% {
-            transform: translate3d(-18px, 28px, 0) scale(1.08);
+            transform: translate3d(-26px, 36px, 0) scale(1.1);
           }
           100% {
             transform: translate3d(0, 0, 0) scale(1);
+          }
+        }
+        @keyframes agent-grid-drift {
+          0% {
+            transform: translate3d(0, 0, 0);
+          }
+          50% {
+            transform: translate3d(18px, -14px, 0);
+          }
+          100% {
+            transform: translate3d(0, 0, 0);
           }
         }
         .animate-agent-blob {
@@ -217,6 +228,12 @@ export default function AgentsPage() {
         }
         .animate-agent-blob-slow {
           animation: agent-blob-slow 26s ease-in-out infinite;
+        }
+        .animate-agent-grid {
+          animation: agent-grid-drift 28s ease-in-out infinite;
+        }
+        .animate-agent-grid-slow {
+          animation: agent-grid-drift 36s ease-in-out infinite reverse;
         }
       `}</style>
     </div>
