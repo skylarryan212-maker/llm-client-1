@@ -37,6 +37,7 @@ function ChatInner({ params }: PageProps) {
   const [isDrafting, setIsDrafting] = useState(false);
   const [isHumanizing, setIsHumanizing] = useState(false);
   const [activeActionId, setActiveActionId] = useState<string | null>(null);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [initialized, setInitialized] = useState(false);
   const [hasStarted, setHasStarted] = useState(false);
   const hasStartedRef = useRef(false);
@@ -387,6 +388,14 @@ function ChatInner({ params }: PageProps) {
     scrollToBottom("auto");
   }, [messages, isAutoScroll]);
 
+  useEffect(() => {
+    if (isSidebarOpen) return;
+    const hasCompletedCTA = messages.some((m) => m.kind === "cta" && m.status === "done");
+    if (hasCompletedCTA) {
+      setIsSidebarOpen(true);
+    }
+  }, [messages, isSidebarOpen]);
+
   return (
     <div className="flex h-screen flex-col bg-[#0f0d12] text-foreground">
       <header className="flex h-[56px] items-center gap-3 border-b border-white/10 bg-black/60 px-4 backdrop-blur">
@@ -404,80 +413,89 @@ function ChatInner({ params }: PageProps) {
         </div>
       </header>
 
-      <div className="flex flex-1 min-h-0 flex-col">
-        <main className="flex flex-1 min-h-0 flex-col overflow-hidden">
-          <div
-            ref={scrollRef}
-            className="flex-1 min-h-0 overflow-y-auto"
-            onScroll={handleScroll}
-          >
-            <div className="py-4">
-              <div className="w-full px-4 sm:px-6 lg:px-12">
-                <div className="mx-auto flex w-full max-w-3xl flex-col gap-4">
-                  {messages.map((msg) => {
-                    if (msg.kind === "drafting") {
-                      return <DraftingMessage key={msg.id} text={msg.content} />;
-                    }
+      <div className="flex flex-1 min-h-0">
+        <div className="flex flex-1 min-h-0 flex-col">
+          <main className="flex flex-1 min-h-0 flex-col overflow-hidden">
+            <div
+              ref={scrollRef}
+              className="flex-1 min-h-0 overflow-y-auto"
+              onScroll={handleScroll}
+            >
+              <div className="py-4">
+                <div className="w-full px-4 sm:px-6 lg:px-12">
+                  <div className="mx-auto flex w-full max-w-3xl flex-col gap-4">
+                    {messages.map((msg) => {
+                      if (msg.kind === "drafting") {
+                        return <DraftingMessage key={msg.id} text={msg.content} />;
+                      }
 
-                    if (msg.kind === "cta") {
+                      if (msg.kind === "cta") {
+                        return (
+                          <PipelineActionMessage
+                            key={msg.id}
+                            content={msg.content}
+                            status={msg.status}
+                            disabled={isHumanizing || !msg.draftText}
+                            isRunning={isHumanizing && activeActionId === msg.id}
+                            onConfirm={() => msg.draftText && handleRunHumanizer(msg.draftText, msg.id)}
+                          />
+                        );
+                      }
+
                       return (
-                        <PipelineActionMessage
+                        <ChatMessage
                           key={msg.id}
+                          role={msg.role}
                           content={msg.content}
-                          status={msg.status}
-                          disabled={isHumanizing || !msg.draftText}
-                          isRunning={isHumanizing && activeActionId === msg.id}
-                          onConfirm={() => msg.draftText && handleRunHumanizer(msg.draftText, msg.id)}
+                          showInsightChips={false}
+                          showModelActions={false}
+                          enableEntryAnimation={false}
+                          suppressPreStreamAnimation
                         />
                       );
-                    }
-
-                    return (
-                      <ChatMessage
-                        key={msg.id}
-                        role={msg.role}
-                        content={msg.content}
-                        showInsightChips={false}
-                        showModelActions={false}
-                        enableEntryAnimation={false}
-                        suppressPreStreamAnimation
-                      />
-                    );
-                  })}
-                  <div className="h-24" aria-hidden="true" />
+                    })}
+                    <div className="h-24" aria-hidden="true" />
+                  </div>
                 </div>
               </div>
+              {showScrollToBottom && (
+                <div className="pointer-events-none fixed inset-x-0 bottom-[120px] z-20">
+                  <div className="flex w-full justify-center">
+                    <Button
+                      type="button"
+                      size="icon"
+                      className="pointer-events-auto h-10 w-10 rounded-full border border-white/15 bg-black/60 text-white shadow-md backdrop-blur hover:bg-black/80"
+                      onClick={() => {
+                        setIsAutoScroll(true);
+                        setShowScrollToBottom(false);
+                        scrollToBottom("smooth");
+                      }}
+                    >
+                      <ArrowDown className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              )}
             </div>
-            {showScrollToBottom && (
-              <div className="pointer-events-none fixed inset-x-0 bottom-[120px] z-20">
-                <div className="flex w-full justify-center">
-                  <Button
-                    type="button"
-                    size="icon"
-                    className="pointer-events-auto h-10 w-10 rounded-full border border-white/15 bg-black/60 text-white shadow-md backdrop-blur hover:bg-black/80"
-                    onClick={() => {
-                      setIsAutoScroll(true);
-                      setShowScrollToBottom(false);
-                      scrollToBottom("smooth");
-                    }}
-                  >
-                    <ArrowDown className="h-4 w-4" />
-                  </Button>
-                </div>
-              </div>
-            )}
-          </div>
-        </main>
+          </main>
 
-        <div className="flex-none bg-[#0f0d12] px-4 pb-4 pt-3 sm:px-6 lg:px-12">
-          <div className="mx-auto w-full max-w-3xl">
-            <ChatComposer
-              onSendMessage={handleSubmit}
-              placeholder="Send a prompt, I'll draft, then ask before running the humanizer..."
-              isStreaming={isDrafting || isHumanizing}
-            />
+          <div className="flex-none bg-[#0f0d12] px-4 pb-4 pt-3 sm:px-6 lg:px-12">
+            <div className="mx-auto w-full max-w-3xl">
+              <ChatComposer
+                onSendMessage={handleSubmit}
+                placeholder="Send a prompt, I'll draft, then ask before running the humanizer..."
+                isStreaming={isDrafting || isHumanizing}
+              />
+            </div>
           </div>
         </div>
+
+        {isSidebarOpen && (
+          <aside className="hidden w-[320px] flex-none flex-col border-l border-white/10 bg-black/50 px-5 py-6 text-white/60 md:flex">
+            <div className="text-xs uppercase tracking-[0.25em] text-white/35">Sidebar</div>
+            <div className="mt-3 flex-1 rounded-xl border border-dashed border-white/10 bg-white/5" />
+          </aside>
+        )}
       </div>
     </div>
   );
@@ -496,17 +514,19 @@ function PipelineActionMessage({
   isRunning?: boolean;
   onConfirm: () => void;
 }) {
+  const isDone = status === "done";
+  const headline = isDone ? "Humanizer completed" : "Run the humanizer now?";
   return (
     <div className="rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-white/80 shadow-inner shadow-black/20">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <p className="text-sm font-semibold text-white">Run the humanizer now?</p>
+          <p className="text-sm font-semibold text-white">{headline}</p>
           <p className="text-xs text-white/60">
-            {content || "No detector or loop yet - just humanize the draft and show it."}
+            {isDone ? "Completed" : content || "No detector or loop yet - just humanize the draft and show it."}
           </p>
         </div>
         <div className="flex items-center gap-2">
-          {status === "done" ? (
+          {isDone ? (
             <span className="text-xs font-semibold text-emerald-300">Completed</span>
           ) : (
             <Button
