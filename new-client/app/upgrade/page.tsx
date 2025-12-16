@@ -119,7 +119,7 @@ function UpgradePageContent() {
     // If showing all plans (from settings), show all
     if (shouldShowAllPlans) return true;
     // Always show the Dev (enterprise) display card
-    if (plan.id === "dev-enterprise") return true;
+    if ((plan as any).id === "dev-enterprise") return true;
     // Show all paid tiers by default
     return true;
   });
