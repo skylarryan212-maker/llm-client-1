@@ -5,7 +5,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { Buffer } from "buffer";
 import { supabaseServer } from "@/lib/supabase/server";
 import { getCurrentUserIdServer } from "@/lib/supabase/user";
-import { getModelAndReasoningConfigWithLLM } from "@/lib/modelConfig";
 import type {
   ModelFamily,
   ReasoningEffort,
@@ -36,14 +35,14 @@ import {
   loadPermanentInstructions,
   type PermanentInstructionCacheItem,
 } from "@/lib/permanentInstructions";
-import { decideRoutingForMessage } from "@/lib/router/decideRoutingForMessage";
 import { callDeepInfraLlama } from "@/lib/deepInfraLlama";
 import type { RouterDecision } from "@/lib/router/types";
 import { buildContextForMainModel } from "@/lib/context/buildContextForMainModel";
-import type { PermanentInstructionToWrite } from "@/lib/llm-router";
 import { updateTopicSnapshot } from "@/lib/topics/updateTopicSnapshot";
 import { refreshTopicMetadata } from "@/lib/topics/refreshTopicMetadata";
 import { toFile } from "openai/uploads";
+import { runDecisionRouter } from "@/lib/router/decision-router";
+import { runWriterRouter } from "@/lib/router/write-router";
 
 const CONTEXT_LIMIT_TOKENS = 350_000;
 
@@ -251,6 +250,28 @@ function extractKeywords(text: string, topicLabel?: string | null): string[] {
     .map(([k]) => k);
 
   return sorted;
+}
+
+function buildAutoTopicLabel(message: string): string {
+  const clean = (message || "").replace(/\s+/g, " ").trim();
+  const words = clean.split(" ").slice(0, 5);
+  const label = words
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ")
+    .trim();
+  return label || "New Topic";
+}
+
+function buildAutoTopicDescription(message: string): string | null {
+  const clean = (message || "").replace(/\s+/g, " ").trim();
+  if (!clean) return null;
+  return clean.length > 240 ? `${clean.slice(0, 240)}…` : clean;
+}
+
+function buildAutoTopicSummary(message: string): string | null {
+  const clean = (message || "").replace(/\s+/g, " ").trim();
+  if (!clean) return null;
+  return clean.length > 240 ? `${clean.slice(0, 240)}…` : clean;
 }
 
 const BASE_SYSTEM_PROMPT =
@@ -949,68 +970,87 @@ export async function POST(request: NextRequest) {
       console.error("[permanent-instructions] Failed to preload instructions:", permInitErr);
     }
 
-    // Launch topic router and model router in parallel to save latency.
-    const topicRouterPromise = decideRoutingForMessage({
+    const availableMemoryTypes: string[] = [];
+
+    // Unified decision router (model + topic + memory types)
+    const decision = await runDecisionRouter({
       supabase: supabaseAny,
-      conversationId,
-      userMessage: message,
-      projectId: conversation.project_id,
+      input: {
+        userMessage: message,
+        recentMessages: (recentMessages || []).slice(-6).map((m: any) => ({
+          role: m.role,
+          content: m.content,
+          topic_id: (m as any).topic_id ?? null,
+        })),
+        activeTopicId: userMessageRow?.topic_id ?? null,
+        currentConversationId: conversationId,
+        speedMode,
+        modelPreference: modelFamily,
+        availableMemoryTypes: availableMemoryTypes || [],
+        topics: [],
+        artifacts: [],
+      },
       userId,
-      conversationTitle: conversation.title,
-      projectName: projectMeta?.name ?? null,
     });
 
-    const allowLLMRouter = !(modelFamily === "auto" && speedMode === "thinking");
-    const modelConfigPromise = getModelAndReasoningConfigWithLLM(
-      modelFamily,
-      speedMode,
-      message,
-      reasoningEffortHint,
-      usagePercentage,
-      userId,
-      conversationId,
+    // Writer router for topic metadata and memory/permanent instructions
+    const writer = await runWriterRouter(
       {
-        permanentInstructionSummary: permanentInstructionSummaryForRouter,
-        permanentInstructions:
-          (permanentInstructionState?.instructions as unknown as PermanentInstructionToWrite[] | undefined),
+        userMessageText: message,
+        recentMessages: (recentMessages || []).slice(-6).map((m: any) => ({
+          role: (m.role as "user" | "assistant" | "system") ?? "user",
+          content: m.content ?? "",
+        })),
+        currentTopic: {
+          id: userMessageRow?.topic_id ?? null,
+          summary: null,
+          description: null,
+        },
       },
-      (recentMessages || []).slice(-6).map((m: any) => ({
-        role: m.role,
-        content: m.content,
-      })),
-      allowLLMRouter
+      decision.topicAction
     );
 
-    let resolvedTopicDecision: RouterDecision;
-    try {
-      resolvedTopicDecision = await topicRouterPromise;
-    } catch (topicErr) {
-      console.error("[topic-router] Failed to route message:", topicErr);
-      return NextResponse.json(
-        { error: "Failed to route conversation topic" },
-        { status: 500 }
-      );
+    // Execute topic create/update based on writer output
+    let resolvedPrimaryTopicId: string | null = decision.primaryTopicId ?? null;
+    if (writer.topicWrite.action === "create") {
+      const label = writer.topicWrite.label || buildAutoTopicLabel(message);
+      const description = writer.topicWrite.description || buildAutoTopicDescription(message);
+      const summary = writer.topicWrite.summary || buildAutoTopicSummary(message);
+      const { data: insertedTopic, error: topicErr } = await supabaseAny
+        .from("conversation_topics")
+        .insert([
+          {
+            conversation_id: conversationId,
+            label: label.slice(0, 120),
+            description: description?.slice(0, 500) ?? null,
+            summary: summary?.slice(0, 500) ?? null,
+            parent_topic_id: decision.newParentTopicId ?? null,
+          },
+        ])
+        .select()
+        .single();
+      if (topicErr || !insertedTopic) {
+        console.error("[topic-router] Failed to create topic:", topicErr);
+      } else {
+        resolvedPrimaryTopicId = insertedTopic.id;
+        console.log(`[topic-router] Created topic ${insertedTopic.id} label="${insertedTopic.label}"`);
+      }
     }
-    console.log(
-      `[topic-router] Decision action=${resolvedTopicDecision.topicAction} primary=${resolvedTopicDecision.primaryTopicId ?? "none"} secondary=${resolvedTopicDecision.secondaryTopicIds.length} artifacts=${resolvedTopicDecision.artifactsToLoad.length}`
-    );
 
-    if (
-      userMessageRow &&
-      resolvedTopicDecision.primaryTopicId &&
-      userMessageRow.topic_id !== resolvedTopicDecision.primaryTopicId
-    ) {
+    // Tag user message with topic if available
+    if (userMessageRow && resolvedPrimaryTopicId && userMessageRow.topic_id !== resolvedPrimaryTopicId) {
       try {
         await supabaseAny
           .from("messages")
-          .update({ topic_id: resolvedTopicDecision.primaryTopicId })
+          .update({ topic_id: resolvedPrimaryTopicId })
           .eq("id", userMessageRow.id);
-        userMessageRow = { ...userMessageRow, topic_id: resolvedTopicDecision.primaryTopicId };
+        userMessageRow = { ...userMessageRow, topic_id: resolvedPrimaryTopicId };
       } catch (topicUpdateErr) {
         console.error("[topic-router] Failed to tag user message topic:", topicUpdateErr);
       }
     }
 
+    // Refresh topic snapshot if we have a topic
     if (userMessageRow?.topic_id) {
       try {
         await updateTopicSnapshot({
@@ -1023,37 +1063,29 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Get model config using LLM-based routing (with code-based fallback)
-      const modelConfig = await modelConfigPromise;
-    const reasoningEffort = modelConfig.reasoning?.effort ?? "none";
+    const resolvedTopicDecision: RouterDecision = {
+      topicAction: decision.topicAction,
+      primaryTopicId: resolvedPrimaryTopicId,
+      secondaryTopicIds: decision.secondaryTopicIds ?? [],
+      newTopicLabel: "",
+      newTopicDescription: "",
+      newTopicSummary: "",
+      newParentTopicId: decision.newParentTopicId ?? null,
+      artifactsToLoad: [],
+    };
 
-    // Log router usage if LLM routing was used
-    if (modelConfig.routedBy === "llm") {
-      try {
-        const { getRouterUsageEstimate } = await import("@/lib/llm-router");
-        const routerUsage = getRouterUsageEstimate();
-        const routerCost = calculateCost(
-          routerUsage.model,
-          routerUsage.inputTokens,
-          0, // no cached tokens for router
-          routerUsage.outputTokens
-        );
-
-        await logUsageRecord({
-          userId,
-          conversationId,
-          model: routerUsage.model,
-          inputTokens: routerUsage.inputTokens,
-          cachedTokens: 0,
-          outputTokens: routerUsage.outputTokens,
-          estimatedCost: routerCost,
-        });
-
-        console.log(`[router-usage] Logged LLM router cost: $${routerCost.toFixed(6)}`);
-      } catch (routerUsageErr) {
-        console.error("[router-usage] Failed to log router usage:", routerUsageErr);
-      }
-    }
+    const modelConfig = {
+      model: decision.model,
+      resolvedFamily: decision.model,
+      reasoning: { effort: decision.effort },
+      routedBy: "decision-router" as const,
+      availableMemoryTypes: decision.memoryTypesToLoad,
+      memoriesToWrite: writer.memoriesToWrite,
+      memoriesToDelete: writer.memoriesToDelete,
+      permanentInstructionsToWrite: writer.permanentInstructionsToWrite,
+      permanentInstructionsToDelete: writer.permanentInstructionsToDelete,
+    };
+    const reasoningEffort = decision.effort ?? "none";
 
     const {
       messages: contextMessages,
