@@ -58,7 +58,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Generate title using Cloudflare llama (non-streaming single call)
+    // Generate title using Mistral Small (non-streaming single call)
     console.log(
       `[titleDebug] generating quick title for conversation ${conversationId}`
     );
@@ -81,6 +81,7 @@ export async function POST(req: NextRequest) {
             ],
             enforceJson: false,
             maxTokens: 100,
+            model: "mistralai/Mistral-Small-24B-Instruct-2501",
           });
 
           const normalizedTitle = normalizeGeneratedTitle(text.trim());
@@ -104,7 +105,7 @@ export async function POST(req: NextRequest) {
               const cachedTokens = 0;
 
               const cost = calculateCost(
-                "google/gemma-3-4b-it",
+                "mistralai/Mistral-Small-24B-Instruct-2501",
                 inputTokens,
                 cachedTokens,
                 outputTokens
@@ -113,7 +114,7 @@ export async function POST(req: NextRequest) {
               await logUsageRecord({
                 userId,
                 conversationId,
-                model: "google/gemma-3-4b-it",
+                model: "mistralai/Mistral-Small-24B-Instruct-2501",
                 inputTokens,
                 cachedTokens,
                 outputTokens,
