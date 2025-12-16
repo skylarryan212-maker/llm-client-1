@@ -58,6 +58,10 @@ export const pdfExtractor: Extractor = async (buffer, _name, _mime, ctx) => {
   try {
     ensureDomPolyfills();
     const pdfjsLib = await loadPdfJs();
+    // Force no-worker mode to avoid missing pdf.worker assets in server/runtime bundles
+    if (pdfjsLib?.GlobalWorkerOptions) {
+      pdfjsLib.GlobalWorkerOptions.workerSrc = null;
+    }
     const loadingTask = pdfjsLib.getDocument({ data: new Uint8Array(buffer), useWorker: false });
     const pdf = await loadingTask.promise;
     const maxPages = Math.min(pdf.numPages, PDF_MAX_PAGES);

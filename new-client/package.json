@@ -68,7 +68,7 @@
     "typescript": "^5"
   },
   "optionalDependencies": {
-    "@napi-rs/canvas": "^0.1.83",
+    "@napi-rs/canvas": "^0.1.84",
     "canvas": "^3.2.0"
   }
 }
