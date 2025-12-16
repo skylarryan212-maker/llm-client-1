@@ -36,7 +36,7 @@ export async function GET(request: NextRequest) {
 
     const { data: messages, error: messagesError } = await supabase
       .from("messages")
-      .select("role, content, created_at, metadata")
+      .select("id, role, content, created_at, metadata")
       .eq("conversation_id", conversationId)
       .order("created_at", { ascending: true });
 
@@ -45,39 +45,41 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "messages_fetch_failed" }, { status: 500 });
     }
 
-    let hydrated = (messages ?? []).map((m) => ({
+    const baseMessages = (messages ?? []).map((m) => ({
+      id: m.id,
       role: m.role === "assistant" ? "assistant" : "user",
       content: m.content ?? "",
       created_at: m.created_at,
       metadata: m.metadata ?? {},
     }));
 
-    // Fallback: if no CTA found, attempt to fetch the latest CTA message explicitly
-    const hasCTA = hydrated.some((m) => (m.metadata as any)?.kind === "cta");
-    if (!hasCTA) {
-      const { data: ctaRows } = await supabase
-        .from("messages")
-        .select("role, content, created_at, metadata")
-        .eq("conversation_id", conversationId)
-        .eq("metadata->>kind", "cta")
-        .order("created_at", { ascending: true });
-      if (ctaRows && ctaRows.length) {
-        hydrated = hydrated.concat(
-          ctaRows.map((m) => ({
-            role: m.role === "assistant" ? "assistant" : "user",
-            content: m.content ?? "",
-            created_at: m.created_at,
-            metadata: m.metadata ?? {},
-          }))
-        );
-        // Keep chronological order
-        hydrated.sort((a, b) => (a.created_at || "").localeCompare(b.created_at || ""));
-      }
-    }
+    // Always pull any CTA messages explicitly and merge (prevents loss if not in main list)
+    const { data: ctaRows } = await supabase
+      .from("messages")
+      .select("id, role, content, created_at, metadata")
+      .eq("conversation_id", conversationId)
+      .eq("metadata->>kind", "cta")
+      .order("created_at", { ascending: true });
+
+    const mergedMap = new Map<string, typeof baseMessages[number]>();
+    baseMessages.forEach((m) => mergedMap.set(m.id, m));
+    (ctaRows ?? []).forEach((m) =>
+      mergedMap.set(m.id, {
+        id: m.id,
+        role: m.role === "assistant" ? "assistant" : "user",
+        content: m.content ?? "",
+        created_at: m.created_at,
+        metadata: m.metadata ?? {},
+      })
+    );
+
+    const hydrated = Array.from(mergedMap.values()).sort((a, b) =>
+      (a.created_at || "").localeCompare(b.created_at || "")
+    );
 
     return NextResponse.json({
       conversationId,
-      messages: hydrated,
+      messages: hydrated.map(({ id: _id, ...rest }) => rest),
     });
   } catch (error: any) {
     console.error("[human-writing][history] error:", error);
