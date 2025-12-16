@@ -1,9 +1,9 @@
 // Monthly API usage limits per plan tier (in USD)
 export const PLAN_LIMITS = {
-  free: 2.00,    // $2/month - ~330 messages with flex pricing
-  plus: 10.00,   // $10/month - ~1,650 messages
-  pro: 20.00,    // $20/month - ~3,300 messages  
-  dev: 80.00,    // $80/month - ~13,300 messages
+  free: 2.0,    // $2/month
+  plus: 5.0,    // Basic
+  pro: 15.0,    // Plus
+  dev: 150.0,   // Dev
 } as const;
 
 export type PlanType = keyof typeof PLAN_LIMITS;
