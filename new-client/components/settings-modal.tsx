@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useLayoutEffect, useRef } from 'react'
 import { X, Settings, Bell, User, Grid3x3, Calendar, ShoppingCart, Database, Shield, Users2, UserCircle, ChevronDown } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
@@ -65,6 +65,8 @@ export function SettingsModal({ isOpen, onClose, initialTab = 'personalization' 
   const [cancelResultDialog, setCancelResultDialog] = useState<{ open: boolean; message: string; success: boolean }>({ open: false, message: "", success: false })
   const [deleteAllChatsConfirmOpen, setDeleteAllChatsConfirmOpen] = useState(false)
   const [deleteAllChatsProcessing, setDeleteAllChatsProcessing] = useState(false)
+  const sidebarRef = useRef<HTMLDivElement | null>(null)
+  const [panelHeightPx, setPanelHeightPx] = useState<number | null>(null)
 
   const fetchAccountData = useCallback(async () => {
     try {
@@ -126,6 +128,29 @@ export function SettingsModal({ isOpen, onClose, initialTab = 'personalization' 
       } catch {}
     }
   }, [isOpen, initialTab])
+
+  const recomputePanelHeight = useCallback(() => {
+    if (typeof window === 'undefined') return
+    const sidebarEl = sidebarRef.current
+    if (!sidebarEl) return
+
+    const desktop = window.matchMedia('(min-width: 640px)').matches
+    if (!desktop) {
+      setPanelHeightPx(null)
+      return
+    }
+
+    const sidebarHeight = Math.ceil(sidebarEl.scrollHeight)
+    const maxHeight = Math.floor(window.innerHeight * 0.82)
+    setPanelHeightPx(Math.min(sidebarHeight, maxHeight))
+  }, [])
+
+  useLayoutEffect(() => {
+    if (!isOpen) return
+    recomputePanelHeight()
+    window.addEventListener('resize', recomputePanelHeight)
+    return () => window.removeEventListener('resize', recomputePanelHeight)
+  }, [isOpen, recomputePanelHeight])
 
   const handleAccentColorChange = (newColor: string) => {
     // Only save when user explicitly changes the color
@@ -244,9 +269,12 @@ export function SettingsModal({ isOpen, onClose, initialTab = 'personalization' 
 
   return (
     <div className="modal-overlay fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm pointer-events-none">
-      <div className="modal-panel relative flex flex-col sm:flex-row h-[clamp(560px,68vh,720px)] max-h-[82vh] w-full max-w-[min(520px,95vw)] sm:max-w-4xl overflow-hidden rounded-xl border border-border bg-card shadow-2xl pointer-events-auto">
+      <div
+        className="modal-panel relative flex flex-col sm:flex-row h-[82vh] sm:h-auto max-h-[82vh] w-full max-w-[min(520px,95vw)] sm:max-w-4xl overflow-hidden rounded-xl border border-border bg-card shadow-2xl pointer-events-auto"
+        style={panelHeightPx ? { height: `${panelHeightPx}px` } : undefined}
+      >
         {/* Sidebar */}
-        <div className="w-full sm:w-56 border-b sm:border-b-0 sm:border-r border-border bg-muted/30 p-3">
+        <div ref={sidebarRef} className="w-full sm:w-56 border-b sm:border-b-0 sm:border-r border-border bg-muted/30 p-3">
           <Button
             variant="ghost"
             size="icon"
