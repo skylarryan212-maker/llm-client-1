@@ -111,12 +111,10 @@ Rules:
   * ONLY use gpt-5.2-pro if the user explicitly prefers it AND the task is extremely high-stakes + complex. Otherwise downgrade to gpt-5.2/mini/nano.
   * When unsure, choose the cheaper model.
 - Effort selection:
-  * "none" only with gpt-5.2/gpt-5.2-pro for trivial asks.
-  * "minimal"/"low" for simple/short tasks.
-  * "medium" for multi-step reasoning, moderate code/math, or medium-length writing.
-  * "high" for complex tasks, long-form reasoning, or high-stakes queries (use gpt-5.2/5.2-pro).
-  * "xhigh" only with gpt-5.2/5.2-pro and only for extremely complex/high-stakes work.
-  * For nano/mini, never use "none" or "xhigh"; prefer "minimal"/"low"/"medium".
+  * Higher reasoning efforts are for uncommon, highly nuanced tasks only.
+  * Default to minimal/low; use medium for normal multi-step work.
+  * High or xhigh only when the request is clearly rare, intricate, or high-stakes, and you are confident it needs extra depth.
+  * For gpt-5-nano/gpt-5-mini: never emit "none"/"high"/"xhigh"; stay at minimal/low/medium.
 - Arrays must be arrays (never null). No extra fields. No markdown.`;
 
   const userPrompt = [
