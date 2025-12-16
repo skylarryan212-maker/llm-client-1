@@ -5,7 +5,7 @@ import { ArrowLeft, Check, Lock, X } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { unlockPlanWithCode, type PlanType } from "@/app/actions/plan-actions";
+import { unlockPlanWithCode, upgradeToPlan, type PlanType } from "@/app/actions/plan-actions";
 import { useUserPlan } from "@/lib/hooks/use-user-plan";
 
 const plans = [

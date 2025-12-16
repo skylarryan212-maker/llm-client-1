@@ -190,7 +190,8 @@ export default function ChatPageShell({
   const [showOtherModels, setShowOtherModels] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
   const [contextUsageByChat, setContextUsageByChat] = useState<Record<string, ContextUsageSnapshot>>({});
-  const [useSimpleContext, setUseSimpleContext] = useState(false);
+  const [contextModeGlobal, setContextModeGlobal] = useState<"advanced" | "simple">("advanced");
+  const [contextModeByChat, setContextModeByChat] = useState<Record<string, "advanced" | "simple">>({});
   const [messagesWithFirstToken, setMessagesWithFirstToken] = useState<Set<string>>(new Set());
   const [thinkingStatus, setThinkingStatus] = useState<{ variant: "thinking" | "extended"; label: string } | null>(null);
   // Force re-render while thinking so a live duration chip can update
