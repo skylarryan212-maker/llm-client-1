@@ -187,8 +187,8 @@ function UpgradePageContent() {
                         <Button
                           className="w-full"
                           variant="outline"
-                          disabled={plan.id === "dev-enterprise"}
-                          title={plan.id === "dev-enterprise" ? "Contact support to enable this tier." : "Direct upgrades are currently disabled. Please use unlock code."}
+                          disabled={(plan as any).id === "dev-enterprise"}
+                          title={(plan as any).id === "dev-enterprise" ? "Contact support to enable this tier." : "Direct upgrades are currently disabled. Please use unlock code."}
                         >
                           {isLowerTier(plan.id)
                             ? `Switch to ${plan.name}`
