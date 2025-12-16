@@ -2522,7 +2522,7 @@ async function maybeGenerateArtifactsWithLLM({
       await logUsageRecord({
         userId,
         conversationId: message.conversation_id ?? null,
-        model: "google/gemma-3-4b-it",
+        model: "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
         inputTokens: usageInfo.input_tokens ?? 0,
         cachedTokens: 0,
         outputTokens: usageInfo.output_tokens ?? 0,
