@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { X } from "lucide-react";
 import { fetchMemories, updateMemoryEnabled, deleteMemory, MemoryType, MemoryItem } from "@/lib/memory";
 
 import { Dialog } from "@/components/ui/dialog";
@@ -51,8 +52,16 @@ export default function ManageMemoriesModal({ open, onOpenChange }: { open: bool
       contentClassName="w-full max-w-[min(520px,95vw)] sm:max-w-4xl max-h-[90vh] overflow-hidden p-0"
     >
       <div className="flex h-full flex-col">
-        <div className="px-5 pt-5 pb-3 border-b border-border">
+        <div className="px-5 pt-5 pb-3 border-b border-border flex items-start justify-between gap-3">
           <h2 className="text-lg font-semibold">Saved memories</h2>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={() => onOpenChange(false)}
+            aria-label="Close saved memories"
+          >
+            <X className="h-4 w-4" />
+          </Button>
         </div>
         <div className="flex-1 overflow-hidden p-5 space-y-4">
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
