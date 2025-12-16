@@ -179,22 +179,40 @@ function UpgradePageContent() {
                         <Button
                           className="w-full"
                           variant="outline"
-                          disabled
-                          title="Direct upgrades are currently disabled. Please use unlock code."
+                          disabled={!isLowerTier(plan.id) || isProcessing}
+                          title={
+                            isLowerTier(plan.id)
+                              ? `Switch to ${plan.name}`
+                              : "Direct upgrades are currently disabled. Please use unlock code."
+                          }
+                          onClick={async () => {
+                            if (!isLowerTier(plan.id)) return;
+                            setIsProcessing(true);
+                            const result = await upgradeToPlan(plan.id, currentPlan);
+                            await refreshPlan();
+                            setIsProcessing(false);
+                            setSuccessDialog({
+                              open: true,
+                              message: result.message,
+                              title: `Switched to ${plan.name}`,
+                            });
+                          }}
                         >
                           {isLowerTier(plan.id)
                             ? `Switch to ${plan.name}`
                             : `Upgrade to ${plan.name}`}
                         </Button>
-                        <Button
-                          variant="outline"
-                          className="w-full"
-                          onClick={() => handleOpenUnlockDialog(plan.id as Exclude<PlanType, "free">)}
-                          disabled={isProcessing}
-                        >
-                          <Lock className="h-4 w-4 mr-2" />
-                          Unlock with code
-                        </Button>
+                        {!isLowerTier(plan.id) && (
+                          <Button
+                            variant="outline"
+                            className="w-full"
+                            onClick={() => handleOpenUnlockDialog(plan.id as Exclude<PlanType, "free">)}
+                            disabled={isProcessing}
+                          >
+                            <Lock className="h-4 w-4 mr-2" />
+                            Unlock with code
+                          </Button>
+                        )}
                       </>
                     )}
                   </div>
