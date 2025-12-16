@@ -94,6 +94,7 @@ type ContextUsageSnapshot = {
   model?: string;
 };
 
+const CONTEXT_USAGE_STORAGE_KEY = "llm-client-context-usage";
 const AUTO_STREAM_KEY_PREFIX = "llm-client-auto-stream:";
 const getAutoStreamKey = (conversationId: string) =>
   `${AUTO_STREAM_KEY_PREFIX}${conversationId}`;
@@ -268,6 +269,44 @@ export default function ChatPageShell({
   }
   conversationRenderKeyRef.current = currentConversationKey;
   const currentContextUsage = selectedChatId ? contextUsageByChat[selectedChatId] : null;
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    try {
+      const raw = window.localStorage.getItem(CONTEXT_USAGE_STORAGE_KEY);
+      if (!raw) return;
+
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        setContextUsageByChat((prev) => ({
+          ...parsed,
+          ...prev,
+        }));
+      }
+    } catch (error) {
+      console.error("Failed to load context usage cache", error);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    try {
+      const hasEntries = Object.keys(contextUsageByChat).length > 0;
+      if (!hasEntries) {
+        window.localStorage.removeItem(CONTEXT_USAGE_STORAGE_KEY);
+        return;
+      }
+
+      window.localStorage.setItem(
+        CONTEXT_USAGE_STORAGE_KEY,
+        JSON.stringify(contextUsageByChat)
+      );
+    } catch (error) {
+      console.error("Failed to persist context usage cache", error);
+    }
+  }, [contextUsageByChat]);
 
   useEffect(() => {
     setMessagesWithFirstToken(new Set());
@@ -2508,14 +2547,50 @@ export default function ChatPageShell({
   );
 }
 
+function formatTokenCount(tokens: number) {
+  if (!Number.isFinite(tokens)) return "0";
+  if (tokens >= 1_000_000_000) {
+    const value = tokens / 1_000_000_000;
+    return `${value >= 10 ? Math.round(value) : value.toFixed(1)}b`;
+  }
+  if (tokens >= 1_000_000) {
+    const value = tokens / 1_000_000;
+    return `${value >= 10 ? Math.round(value) : value.toFixed(1)}m`;
+  }
+  if (tokens >= 10000) {
+    return `${Math.round(tokens / 1000)}k`;
+  }
+  if (tokens >= 1000) {
+    const value = tokens / 1000;
+    return `${value % 1 === 0 ? value.toFixed(0) : value.toFixed(1)}k`;
+  }
+  return Math.max(0, Math.round(tokens)).toLocaleString();
+}
+
 function ContextUsageIndicator({ usage }: { usage: ContextUsageSnapshot }) {
+  const [isOpen, setIsOpen] = useState(false);
   const percent = Math.min(100, Math.max(0, Math.round(usage.percent ?? 0)));
+  const remainingPercent = Math.max(0, 100 - percent);
   const arc = `${percent * 3.6}deg`;
-  const tooltip = `Context: ${percent}% of ${usage.limit.toLocaleString()} tokens • input ${usage.inputTokens.toLocaleString()} + cached ${usage.cachedTokens.toLocaleString()} • output ${usage.outputTokens.toLocaleString()}`;
   const accent = "var(--user-accent-color, #7dd3fc)";
+  const safeNumber = (value?: number) =>
+    typeof value === "number" && Number.isFinite(value) ? value : 0;
+  const usedTokens =
+    safeNumber(usage.inputTokens) +
+    safeNumber(usage.cachedTokens) +
+    safeNumber(usage.outputTokens);
+  const limitTokens = Math.max(0, safeNumber(usage.limit));
 
   return (
-    <div className="flex items-center gap-2 text-xs text-muted-foreground" title={tooltip}>
+    <div
+      className="relative flex items-center gap-2 text-xs text-muted-foreground"
+      onMouseEnter={() => setIsOpen(true)}
+      onMouseLeave={() => setIsOpen(false)}
+      onFocus={() => setIsOpen(true)}
+      onBlur={() => setIsOpen(false)}
+      tabIndex={0}
+      aria-label="Context window usage"
+    >
       <div className="relative h-7 w-7">
         <div
           className="absolute inset-0 rounded-full bg-white/10"
@@ -2526,6 +2601,31 @@ function ContextUsageIndicator({ usage }: { usage: ContextUsageSnapshot }) {
         <div className="absolute inset-[3px] rounded-full bg-background" />
       </div>
       <span className="text-sm font-semibold text-foreground">{percent}%</span>
+
+      {isOpen ? (
+        <div className="absolute right-0 top-[115%] z-30 w-64 rounded-lg border border-border/80 bg-card/95 text-foreground shadow-xl backdrop-blur-sm">
+          <div className="absolute right-6 -top-2 h-3 w-3 rotate-45 border border-border/80 bg-card/95" />
+          <div className="relative space-y-1.5 p-3">
+            <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+              Context window
+            </div>
+            <div className="text-sm font-semibold">
+              {percent}% used ({remainingPercent}% left)
+            </div>
+            <div className="text-xs text-muted-foreground">
+              {formatTokenCount(usedTokens)} / {formatTokenCount(limitTokens)} tokens used
+            </div>
+            <div className="text-[11px] text-muted-foreground">
+              Input {formatTokenCount(safeNumber(usage.inputTokens))} / Cached{" "}
+              {formatTokenCount(safeNumber(usage.cachedTokens))} / Output{" "}
+              {formatTokenCount(safeNumber(usage.outputTokens))}
+            </div>
+            {usage.model ? (
+              <div className="text-[11px] text-muted-foreground">Model: {usage.model}</div>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
