@@ -134,26 +134,6 @@ export default function AgentsPage() {
             <Menu className="h-4 w-4" />
           </Button>
 
-          {!isSidebarOpen && (
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => setIsSidebarOpen(true)}
-              className="mb-4 h-8 w-8 hidden lg:block"
-              aria-label="Expand sidebar"
-            >
-              <svg
-                className="h-4 w-4"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-              >
-                <rect x="3" y="3" width="18" height="18" rx="2" strokeWidth="2" />
-                <line x1="9" y1="3" x2="9" y2="21" strokeWidth="2" />
-              </svg>
-            </Button>
-          )}
-
           <div className="mb-8 sm:mb-12 space-y-3 sm:space-y-4">
             <h1 className="text-3xl sm:text-4xl lg:text-5xl font-bold tracking-tight text-foreground">
               Choose Your AI Agent
