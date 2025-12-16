@@ -52,6 +52,27 @@ function normalizeNullableId(value: string | null | undefined): string | null {
   return trimmed;
 }
 
+function normalizeMemoryType(type: string | null | undefined, title: string | null | undefined, content: string | null | undefined): string {
+  const fallback = "other";
+  const raw = (type || "").toString().trim();
+  const lowered = raw.toLowerCase();
+  const tooGeneric = ["fact", "info", "general", "misc", "note", "memory", "other", "data", "text"];
+  let base = lowered.replace(/[^a-z0-9]+/g, " ").trim();
+  if (!base || tooGeneric.includes(base)) {
+    const source = ((title || "") || (content || "")).toString();
+    const slug = source
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, " ")
+      .trim()
+      .split(" ")
+      .slice(0, 3)
+      .join("_");
+    base = slug || fallback;
+  }
+  if (base.length > 32) base = base.slice(0, 32);
+  return base || fallback;
+}
+
 function parseJsonLoose(raw: string) {
   const withoutFences = raw.replace(/```json|```/gi, "").trim();
   try {
@@ -91,6 +112,7 @@ Rules:
 - label is only for create; set null for update/skip.
 - Permanent instructions: only write when the user explicitly requests a persistent rule (phrases like "always", "every time", "from now on", "never do X"). Otherwise leave permanentInstructionsToWrite empty.
 - Memories: only write useful, factual items that could help future turns (facts, data, decisions, preferences, names, steps). Do NOT log random chat fluff or generic conversation summaries.
+- Memory type: choose a specific, descriptive type that matches the content (e.g., "name", "preference", "instruction", "task", "location", "code-snippet", "project-note"). Avoid generic types like "fact", "note", or "other".
 - Arrays must be arrays (never null). No extra fields.`;
 
   const recentSection =
@@ -257,7 +279,12 @@ Rules:
         summary,
         description,
       },
-      memoriesToWrite: Array.isArray(parsed.memoriesToWrite) ? parsed.memoriesToWrite : [],
+      memoriesToWrite: Array.isArray(parsed.memoriesToWrite)
+        ? parsed.memoriesToWrite.map((m: any) => ({
+            ...m,
+            type: normalizeMemoryType(m?.type, m?.title, m?.content),
+          }))
+        : [],
       memoriesToDelete: Array.isArray(parsed.memoriesToDelete) ? parsed.memoriesToDelete : [],
       permanentInstructionsToWrite: Array.isArray(parsed.permanentInstructionsToWrite)
         ? parsed.permanentInstructionsToWrite
