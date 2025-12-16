@@ -19,7 +19,6 @@ import {
   extractDomainFromUrl,
   formatSearchSiteLabel,
 } from "@/lib/metadata";
-import { dispatchExtract } from "@/lib/extraction/dispatcher";
 import type {
   Tool,
   ToolChoiceOptions,
@@ -279,9 +278,8 @@ const BASE_SYSTEM_PROMPT =
   "- Do not send capability or identity questions to `web_search`; answer those directly.\\n\\n" +
   "**General Rules:**\\n" +
   "- Keep answers clear and grounded, blending background context with any live data you retrieved.\\n" +
-  "- When the user provides attachment URLs (marked as 'Attachment: name -> url'), fetch and read those documents directly from the URL without asking the user to re-upload. Use their contents in your reasoning and summarize as requested.\\n" +
-  "- If an attachment preview is marked as '[Preview truncated; full content searchable via file_search tool]', you can use the `file_search` tool to query specific information from the full document (e.g., 'find pricing section', 'extract all dates', 'summarize chapter 3').\\n" +
-  "- If an attachment is an image, extract any visible text (OCR) and use it in your reasoning along with a description if helpful.\\n" +
+  "- Attachments (uploads or URLs) are provided to you via `file_search`/vector stores and `input_file` for documents, and `input_image` for images. Use `file_search` to read and quote from attached documents; do not ask the user to re-upload.\\n" +
+  "- If an attachment is an image, it is sent as a vision input; describe it and extract visible text when helpful.\\n" +
   "- If guidelines feel ambiguous or overly strict, use your best judgment to provide a helpful, age-appropriate answer rather than defaulting to refusal.\\n" +
   "- Balance safety with usefulness: apply policies with nuance, offer safer alternatives when needed, and avoid unnecessary refusals when you can still help responsibly.\\n" +
   "- IMPORTANT: When a user asks to 'list my prompts' or 'show my messages', only list the TEXT they typed. Do NOT list file contents, document excerpts, or attachment names as if they were prompts. The marker '[Files attached]' indicates files were included but is not part of the prompt.";
@@ -1402,74 +1400,7 @@ export async function POST(request: NextRequest) {
       }
     }
     
-    const extractionResults = await Promise.all(
-      body.attachments.map(async att => {
-        if (!att?.dataUrl && !att?.url) return null;
-        const isImage = typeof att.mime === "string" && att.mime.startsWith("image/");
-        const buffer = await attachmentToBuffer(att).catch((err) => {
-          console.warn(`[chatApi] Failed to load buffer for ${att.name}:`, err);
-          return null;
-        });
-        if (!buffer) return null;
-
-        if (isImage) {
-          // Vision models can read the image directly; defer heavy OCR to background so we can start streaming faster
-          deferredAttachmentTasks.push(
-            (async () => {
-              try {
-                const extraction = await dispatchExtract(
-                  buffer,
-                  att.name ?? "attachment",
-                  att.mime ?? null,
-                  { userId, conversationId },
-                );
-                console.log(
-                  `[chatApi] Deferred extraction for ${att.name}: ${
-                    extraction.preview ? extraction.preview.length + " chars" : "null"
-                  }`
-                );
-              } catch (deferredErr) {
-                console.warn(`[chatApi] Deferred image extraction failed for ${att.name}:`, deferredErr);
-              }
-            })()
-          );
-          return null;
-        }
-
-        console.log(`[chatApi] Extracting content from: ${att.name} (${att.mime})`);
-        const extraction = await dispatchExtract(
-          buffer,
-          att.name ?? "attachment",
-          att.mime ?? null,
-          { userId, conversationId },
-        );
-        const { preview, meta } = extraction;
-        console.log(
-          `[chatApi] Extraction result for ${att.name}: ${preview ? preview.length + " chars" : "null"}`,
-        );
-        const label = att.name || "attachment";
-        const fileSize = buffer.length;
-        const isLargeFile = fileSize > 100 * 1024;
-        const truncationNote = isLargeFile
-          ? " [Preview truncated; full content searchable via file_search tool]"
-          : "";
-        return {
-          label,
-          preview,
-          notes: meta?.notes ?? [],
-          truncationNote,
-        };
-      })
-    );
-
-    for (const result of extractionResults) {
-      if (!result) continue;
-      const previewText = typeof result.preview === "string" ? result.preview : "null";
-      expandedMessageWithAttachments += `\n\n[Attachment preview: ${result.label}${result.truncationNote}]\n${previewText}\n`;
-      if (result.notes.length) {
-        expandedMessageWithAttachments += `Notes: ${result.notes.join(" | ")}\n`;
-      }
-    }
+    // Skipping server-side extraction; rely on OpenAI vector store/file inputs for content access.
   }
 
   console.log(`[chatApi] Final message length: ${expandedMessageWithAttachments.length} chars`);
