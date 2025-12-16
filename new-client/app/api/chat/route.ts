@@ -1320,7 +1320,7 @@ export async function POST(request: NextRequest) {
               });
             }
             const uploadable = await toFile(buffer, att.name || "file", {
-              contentType: att.mime || "application/octet-stream",
+              type: att.mime || "application/octet-stream",
             });
             const uploaded = await vectorStoreOpenAI.files.create({
               file: uploadable,
