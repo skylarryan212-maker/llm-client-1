@@ -176,7 +176,8 @@ Rules:
       primaryTopicId = null;
     }
 
-    let effort: ReasoningEffort = parsed.effort;
+    const validEfforts: ReasoningEffort[] = ["none", "minimal", "low", "medium", "high", "xhigh"];
+    let effort: ReasoningEffort = validEfforts.includes(parsed.effort) ? parsed.effort : "minimal";
     const fullModel = parsed.model === "gpt-5.2" || parsed.model === "gpt-5.2-pro";
     if (!fullModel && (effort === "none" || effort === "xhigh")) {
       effort = effort === "none" ? "minimal" : "high";
