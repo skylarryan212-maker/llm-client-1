@@ -42,10 +42,64 @@ import { updateTopicSnapshot } from "@/lib/topics/updateTopicSnapshot";
 import { toFile } from "openai/uploads";
 import { runDecisionRouter } from "@/lib/router/decision-router";
 import { runWriterRouter } from "@/lib/router/write-router";
+import { estimateTokens } from "@/lib/tokens/estimateTokens";
 
 const CONTEXT_LIMIT_TOKENS = 350_000;
 const VECTOR_MEMORIES_SUPPORTED = process.env.SUPABASE_VECTOR_SUPPORTED === "true";
 const MEMORY_WRITES_ENABLED = process.env.ENABLE_VECTOR_MEMORIES === "true" && VECTOR_MEMORIES_SUPPORTED;
+
+async function buildSimpleContextMessages(
+  supabase: any,
+  conversationId: string,
+  maxTokens: number
+): Promise<{
+  messages: Array<{ role: "user" | "assistant"; content: string; type: "message" }>;
+  source: "simple";
+  includedTopicIds: string[];
+  summaryCount: number;
+  artifactCount: number;
+  debug?: { keptMessages: number; totalMessages: number; tokensUsed: number; budget: number };
+}> {
+  const { data } = await supabase
+    .from("messages")
+    .select("id, role, content, created_at")
+    .eq("conversation_id", conversationId)
+    .order("created_at", { ascending: true });
+
+  const rows: MessageRow[] = Array.isArray(data) ? (data as MessageRow[]) : [];
+  let tokensUsed = 0;
+  const selected: MessageRow[] = [];
+  // Walk from newest to oldest, keeping within budget, then reverse to send oldest->newest
+  for (let i = rows.length - 1; i >= 0; i--) {
+    const content = rows[i].content ?? "";
+    const tok = Math.max(0, estimateTokens(content));
+    if (tokensUsed + tok > maxTokens) {
+      continue;
+    }
+    tokensUsed += tok;
+    selected.push(rows[i]);
+  }
+  selected.reverse();
+  const messages = selected.map((msg) => ({
+    role: msg.role === "assistant" ? "assistant" : "user",
+    content: msg.content ?? "",
+    type: "message" as const,
+  }));
+
+  return {
+    messages,
+    source: "simple",
+    includedTopicIds: [],
+    summaryCount: 0,
+    artifactCount: 0,
+    debug: {
+      keptMessages: selected.length,
+      totalMessages: rows.length,
+      tokensUsed,
+      budget: maxTokens,
+    },
+  };
+}
 
 // Utility: convert a data URL (base64) to a Buffer
 function dataUrlToBuffer(dataUrl: string): Buffer {
@@ -170,6 +224,7 @@ interface ChatRequestBody {
   reasoningEffortOverride?: ReasoningEffort;
   forceWebSearch?: boolean;
   skipUserInsert?: boolean;
+  simpleContextMode?: boolean;
   attachments?: Array<{ name?: string; mime?: string; dataUrl?: string; url?: string }>;
   location?: { lat: number; lng: number; city: string };
 }
@@ -780,7 +835,7 @@ export async function POST(request: NextRequest) {
       skipUserInsert: body.skipUserInsert,
       timestamp: Date.now(),
     });
-    const { conversationId, projectId, message, modelFamilyOverride, speedModeOverride, reasoningEffortOverride, skipUserInsert, forceWebSearch = false, attachments, location } = body;
+    const { conversationId, projectId, message, modelFamilyOverride, speedModeOverride, reasoningEffortOverride, skipUserInsert, forceWebSearch = false, attachments, location, simpleContextMode = false } = body;
 
     if (!conversationId || !message?.trim()) {
       return NextResponse.json(
@@ -1140,22 +1195,38 @@ export async function POST(request: NextRequest) {
     };
     const reasoningEffort = decision.effort ?? "none";
 
-    const {
-      messages: contextMessages,
-      source: contextSource,
-      includedTopicIds,
-      summaryCount,
-      artifactCount: artifactMessagesCount,
-    } = await buildContextForMainModel({
-      supabase: supabaseAny,
-      conversationId,
-      routerDecision: resolvedTopicDecision,
-    });
-    console.log(
-      `[context-builder] ${contextSource} mode - context ${contextMessages.length} msgs (summaries: ${summaryCount}, artifacts: ${artifactMessagesCount}, topics: ${
-        includedTopicIds.length ? includedTopicIds.join(", ") : "none"
-      })`
-    );
+    let contextMessages;
+    let contextSource: string;
+    let includedTopicIds: string[] = [];
+    let summaryCount = 0;
+    let artifactMessagesCount = 0;
+    if (simpleContextMode) {
+      const simpleContext = await buildSimpleContextMessages(supabaseAny, conversationId, CONTEXT_LIMIT_TOKENS);
+      contextMessages = simpleContext.messages;
+      contextSource = simpleContext.source;
+      includedTopicIds = simpleContext.includedTopicIds;
+      summaryCount = simpleContext.summaryCount;
+      artifactMessagesCount = simpleContext.artifactCount;
+      console.log(
+        `[context-builder] simple mode - context ${contextMessages.length} msgs (tokens: ${simpleContext.debug?.tokensUsed ?? "n/a"}/${simpleContext.debug?.budget ?? CONTEXT_LIMIT_TOKENS})`
+      );
+    } else {
+      const contextResult = await buildContextForMainModel({
+        supabase: supabaseAny,
+        conversationId,
+        routerDecision: resolvedTopicDecision,
+      });
+      contextMessages = contextResult.messages;
+      contextSource = contextResult.source;
+      includedTopicIds = contextResult.includedTopicIds;
+      summaryCount = contextResult.summaryCount;
+      artifactMessagesCount = contextResult.artifactCount;
+      console.log(
+        `[context-builder] ${contextSource} mode - context ${contextMessages.length} msgs (summaries: ${summaryCount}, artifacts: ${artifactMessagesCount}, topics: ${
+          includedTopicIds.length ? includedTopicIds.join(", ") : "none"
+        })`
+      );
+    }
 
     const allowWebSearch = true;
     const requireWebSearch = forceWebSearch;

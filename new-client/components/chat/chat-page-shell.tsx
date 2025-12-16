@@ -190,6 +190,7 @@ export default function ChatPageShell({
   const [showOtherModels, setShowOtherModels] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
   const [contextUsageByChat, setContextUsageByChat] = useState<Record<string, ContextUsageSnapshot>>({});
+  const [useSimpleContext, setUseSimpleContext] = useState(false);
   const [messagesWithFirstToken, setMessagesWithFirstToken] = useState<Set<string>>(new Set());
   const [thinkingStatus, setThinkingStatus] = useState<{ variant: "thinking" | "extended"; label: string } | null>(null);
   // Force re-render while thinking so a live duration chip can update
@@ -1214,6 +1215,7 @@ export default function ChatPageShell({
           skipUserInsert,
           attachments,
           location: locationData,
+          simpleContextMode: useSimpleContext,
         }),
         signal: controller.signal,
       });
@@ -1650,6 +1652,7 @@ export default function ChatPageShell({
           reasoningEffortOverride: undefined, // Let API auto-calculate
           skipUserInsert: true,
           location: locationData,
+          simpleContextMode: useSimpleContext,
         }),
       });
 
@@ -2287,7 +2290,13 @@ export default function ChatPageShell({
           </div>
 
           <div className="flex items-center gap-3">
-            {currentContextUsage ? <ContextUsageIndicator usage={currentContextUsage} /> : null}
+            {currentContextUsage ? (
+              <ContextUsageIndicator
+                usage={currentContextUsage}
+                simpleMode={useSimpleContext}
+                onToggleSimpleMode={setUseSimpleContext}
+              />
+            ) : null}
             {isGuest ? (
               <>
                 <Button
@@ -2567,10 +2576,17 @@ function formatTokenCount(tokens: number) {
   return Math.max(0, Math.round(tokens)).toLocaleString();
 }
 
-function ContextUsageIndicator({ usage }: { usage: ContextUsageSnapshot }) {
+function ContextUsageIndicator({
+  usage,
+  simpleMode,
+  onToggleSimpleMode,
+}: {
+  usage: ContextUsageSnapshot;
+  simpleMode: boolean;
+  onToggleSimpleMode: (next: boolean) => void;
+}) {
   const [isOpen, setIsOpen] = useState(false);
   const [isPinned, setIsPinned] = useState(false);
-  const [useSimpleContext, setUseSimpleContext] = useState(false);
   const percent = Math.min(100, Math.max(0, Math.round(usage.percent ?? 0)));
   const remainingPercent = Math.max(0, 100 - percent);
   const arc = `${percent * 3.6}deg`;
@@ -2640,9 +2656,9 @@ function ContextUsageIndicator({ usage }: { usage: ContextUsageSnapshot }) {
                   size="sm"
                   variant="outline"
                   className="h-7 px-2 text-xs"
-                  onClick={() => setUseSimpleContext((prev) => !prev)}
+                  onClick={() => onToggleSimpleMode(!simpleMode)}
                 >
-                  {useSimpleContext ? "Simple" : "Advanced"}
+                  {simpleMode ? "Simple" : "Advanced"}
                 </Button>
               </div>
               <div className="text-[11px] text-muted-foreground mt-1">
