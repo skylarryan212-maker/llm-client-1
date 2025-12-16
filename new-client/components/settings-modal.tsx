@@ -244,7 +244,7 @@ export function SettingsModal({ isOpen, onClose, initialTab = 'personalization' 
 
   return (
     <div className="modal-overlay fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm pointer-events-none">
-      <div className="modal-panel relative flex flex-col sm:flex-row h-[clamp(620px,72vh,820px)] w-full max-w-[min(520px,95vw)] sm:max-w-4xl overflow-hidden rounded-xl border border-border bg-card shadow-2xl pointer-events-auto">
+      <div className="modal-panel relative flex flex-col sm:flex-row h-[clamp(560px,68vh,720px)] max-h-[82vh] w-full max-w-[min(520px,95vw)] sm:max-w-4xl overflow-hidden rounded-xl border border-border bg-card shadow-2xl pointer-events-auto">
         {/* Sidebar */}
         <div className="w-full sm:w-56 border-b sm:border-b-0 sm:border-r border-border bg-muted/30 p-3">
           <Button
