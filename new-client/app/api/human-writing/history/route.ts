@@ -45,13 +45,21 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "messages_fetch_failed" }, { status: 500 });
     }
 
-    const baseMessages = (messages ?? []).map((m) => ({
-      id: m.id,
-      role: m.role === "assistant" ? "assistant" : "user",
-      content: m.content ?? "",
-      created_at: m.created_at,
-      metadata: m.metadata ?? {},
-    }));
+    const baseMessages = (messages ?? []).map((m) => {
+      const meta = m.metadata ?? {};
+      const orderTs =
+        (meta as any)?.order_ts ||
+        m.created_at ||
+        "";
+      return {
+        id: m.id,
+        role: m.role === "assistant" ? "assistant" : "user",
+        content: m.content ?? "",
+        created_at: m.created_at,
+        metadata: meta,
+        order_ts: orderTs,
+      };
+    });
 
     // Always pull any CTA messages explicitly and merge (prevents loss if not in main list)
     const { data: ctaRows } = await supabase
@@ -63,23 +71,33 @@ export async function GET(request: NextRequest) {
 
     const mergedMap = new Map<string, typeof baseMessages[number]>();
     baseMessages.forEach((m) => mergedMap.set(m.id, m));
-    (ctaRows ?? []).forEach((m) =>
+    (ctaRows ?? []).forEach((m) => {
+      const meta = m.metadata ?? {};
+      const orderTs =
+        (meta as any)?.order_ts ||
+        m.created_at ||
+        "";
       mergedMap.set(m.id, {
         id: m.id,
         role: m.role === "assistant" ? "assistant" : "user",
         content: m.content ?? "",
         created_at: m.created_at,
-        metadata: m.metadata ?? {},
-      })
-    );
+        metadata: meta,
+        order_ts: orderTs,
+      });
+    });
 
-    const hydrated = Array.from(mergedMap.values()).sort((a, b) =>
-      (a.created_at || "").localeCompare(b.created_at || "")
-    );
+    const hydrated = Array.from(mergedMap.values()).sort((a, b) => {
+      const aKey = a.order_ts || a.created_at || "";
+      const bKey = b.order_ts || b.created_at || "";
+      const cmp = aKey.localeCompare(bKey);
+      if (cmp !== 0) return cmp;
+      return (a.created_at || "").localeCompare(b.created_at || "");
+    });
 
     return NextResponse.json({
       conversationId,
-      messages: hydrated.map(({ id: _id, ...rest }) => rest),
+      messages: hydrated.map(({ id: _id, order_ts: _order, ...rest }) => rest),
     });
   } catch (error: any) {
     console.error("[human-writing][history] error:", error);

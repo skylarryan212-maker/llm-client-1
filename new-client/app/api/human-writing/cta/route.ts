@@ -49,20 +49,23 @@ export async function POST(request: NextRequest) {
 
     const { data: existingCTA } = await supabase
       .from("messages")
-      .select("id, created_at")
+      .select("id, created_at, metadata")
       .eq("conversation_id", conversationId)
       .eq("metadata->>kind", "cta")
       .order("created_at", { ascending: false })
       .limit(1);
 
-    const existingCtaId = existingCTA?.[0]?.id as string | undefined;
+    const existingCtaRow = existingCTA?.[0];
+    const existingCtaId = existingCtaRow?.id as string | undefined;
+    const existingOrderTs =
+      (existingCtaRow?.metadata as any)?.order_ts || existingCtaRow?.created_at || new Date().toISOString();
 
     if (existingCtaId) {
       const { error: updateError } = await supabase
         .from("messages")
         .update({
           content,
-          metadata: { agent: "human-writing", kind: "cta", draftText, reason, status },
+          metadata: { agent: "human-writing", kind: "cta", draftText, reason, status, order_ts: existingOrderTs },
         })
         .eq("id", existingCtaId);
 
@@ -82,7 +85,14 @@ export async function POST(request: NextRequest) {
           conversation_id: conversationId,
           role: "assistant",
           content,
-          metadata: { agent: "human-writing", kind: "cta", draftText, reason, status },
+          metadata: {
+            agent: "human-writing",
+            kind: "cta",
+            draftText,
+            reason,
+            status,
+            order_ts: new Date().toISOString(),
+          },
         },
       ])
       .select("id")
