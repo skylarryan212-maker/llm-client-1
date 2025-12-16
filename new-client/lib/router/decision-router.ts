@@ -45,6 +45,13 @@ export async function runDecisionRouter(params: {
 }): Promise<DecisionRouterOutput> {
   const { input } = params;
 
+  const cleanMessage = (input.userMessage || "").toLowerCase();
+  const isSimple =
+    cleanMessage.length < 200 &&
+    !/\b(code|debug|optimize|architecture|legal|financial|contract|regulation|compliance|safety|medical|diagnosis|research|analysis|proof|algorithm|design|strategy|roadmap)\b/i.test(
+      input.userMessage || ""
+    );
+
   // Build prompt context
   const recentSection =
     input.recentMessages && input.recentMessages.length
@@ -88,11 +95,11 @@ Rules:
 - secondaryTopicIds: subset of provided topic ids, exclude primary; may be empty.
 - newParentTopicId: null or a provided topic id.
 - Model selection:
-  * Use gpt-5-nano for greetings, short factual answers, simple rewrites/classifications, short summaries.
+  * Use gpt-5-nano for greetings, short factual answers, simple rewrites/classifications, short summaries, and quick yes/no/definition questions.
   * Use gpt-5-mini for medium tasks: multi-step reasoning, moderate code/math, medium-length writing/editing.
   * Use gpt-5.2 for long/complex asks, heavy code/debug, longer reasoning or when higher quality is clearly needed.
-  * gpt-5.2-pro only for the most complex/high-stakes tasks (legal/financial/safety/very deep analysis).
-  * When unsure, choose the cheaper model that is still safe.
+  * ONLY use gpt-5.2-pro if the user explicitly prefers it OR the task is extremely high-stakes (legal/financial/safety) with deep complexity. Otherwise downgrade to gpt-5.2 or smaller.
+  * When unsure, choose the cheapest model that is still safe.
 - Effort selection:
   * "none" only with gpt-5.2/gpt-5.2-pro for trivial asks.
   * "minimal"/"low" for simple/short tasks.
@@ -195,6 +202,19 @@ Rules:
       effort = effort === "none" ? "minimal" : "high";
     }
 
+    // Clamp model: never auto-select 5.2-pro unless user explicitly preferred it.
+    let model = parsed.model as DecisionRouterOutput["model"];
+    const userRequestedPro = input.modelPreference === "gpt-5.2-pro";
+    if (model === "gpt-5.2-pro" && !userRequestedPro) {
+      model = "gpt-5.2";
+    }
+    // Downgrade simple prompts to nano/mini.
+    if (isSimple && model !== "gpt-5-nano") {
+      model = cleanMessage.length < 120 ? "gpt-5-nano" : "gpt-5-mini";
+      effort = effort === "high" || effort === "xhigh" ? "minimal" : effort;
+      if (effort === "none") effort = "minimal";
+    }
+
     return {
       topicAction: parsed.topicAction,
       primaryTopicId,
@@ -203,7 +223,7 @@ Rules:
         : [],
       newParentTopicId:
         parsed.newParentTopicId && topicIds.has(parsed.newParentTopicId) ? parsed.newParentTopicId : null,
-      model: parsed.model,
+      model,
       effort,
       memoryTypesToLoad: Array.isArray(parsed.memoryTypesToLoad) ? parsed.memoryTypesToLoad : [],
     };
