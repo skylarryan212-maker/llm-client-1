@@ -1012,7 +1012,6 @@ export async function POST(request: NextRequest) {
 
     // Unified decision router (model + topic + memory types)
     const decision = await runDecisionRouter({
-      supabase: supabaseAny,
       input: {
         userMessage: message,
         recentMessages: (recentMessages || []).slice(-6).map((m: any) => ({
@@ -1028,7 +1027,6 @@ export async function POST(request: NextRequest) {
         topics: Array.isArray(topicsForRouter) ? topicsForRouter : [],
         artifacts: Array.isArray(artifactsForRouter) ? artifactsForRouter : [],
       },
-      userId,
     });
 
     // Writer router for topic metadata and memory/permanent instructions
