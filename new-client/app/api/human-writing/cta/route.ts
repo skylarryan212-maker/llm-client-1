@@ -57,7 +57,7 @@ export async function POST(request: NextRequest) {
 
     const existingCtaId = existingCTA?.[0]?.id as string | undefined;
 
-    if (status === "done" && existingCtaId) {
+    if (existingCtaId) {
       const { error: updateError } = await supabase
         .from("messages")
         .update({
@@ -73,13 +73,6 @@ export async function POST(request: NextRequest) {
 
       return NextResponse.json({ ok: true, messageId: existingCtaId });
     }
-
-    // For new or pending CTAs, replace any prior CTA to keep a single record but let created_at set ordering.
-    await supabase
-      .from("messages")
-      .delete()
-      .eq("conversation_id", conversationId)
-      .eq("metadata->>kind", "cta");
 
     const { data: inserted, error: insertError } = await supabase
       .from("messages")
