@@ -98,6 +98,13 @@ export async function runDecisionRouter(params: {
           .map((m) => `- [${m.type}] ${m.title}: ${(m.content || "").replace(/\s+/g, " ").slice(0, 120)}`)
           .join("\n")
       : "No memories.";
+  const memoryTypesFromMemories = Array.from(
+    new Set(
+      (input.memories || [])
+        .map((m) => (m?.type || "").toString().trim())
+        .filter((t) => !!t)
+    )
+  );
 
   const systemPrompt = `You are a single decision router. All inputs are provided as JSON. You MUST output ONE JSON object with a "labels" field only, matching the schema below. Do not include the input in your response.
 
