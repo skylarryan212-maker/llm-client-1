@@ -2135,14 +2135,24 @@ export async function POST(request: NextRequest) {
                 console.log(`[router-memory] Writing ${memoriesToWrite.length} memories from router decision`);
 
                 for (const memory of memoriesToWrite) {
-                  await writeMemory({
-                    type: memory.type,
-                    title: memory.title,
-                    content: memory.content,
-                    enabled: true,
-                    conversationId,
-                  });
-                  console.log(`[router-memory] Wrote memory: ${memory.title} (type: ${memory.type})`);
+                  try {
+                    await writeMemory({
+                      type: memory.type,
+                      title: memory.title,
+                      content: memory.content,
+                      enabled: true,
+                      conversationId,
+                    });
+                    console.log(`[router-memory] Wrote memory: ${memory.title} (type: ${memory.type})`);
+                  } catch (err: any) {
+                    const msg = String(err?.message || err || "");
+                    if (msg.toLowerCase().includes('vector') || String(err?.code || "").includes("42704")) {
+                      console.warn("[router-memory] Skipping memory writes; vector extension/column missing");
+                      break;
+                    } else {
+                      console.error("[router-memory] Failed to write memory:", err);
+                    }
+                  }
                 }
               }
 

@@ -189,6 +189,9 @@ Rules:
     let primaryTopicId = parsed.primaryTopicId ?? null;
     if (parsed.topicAction === "continue_active") {
       primaryTopicId = input.activeTopicId ?? null;
+      if (!primaryTopicId) {
+        parsed.topicAction = "new";
+      }
     } else if (parsed.topicAction === "reopen_existing" && primaryTopicId && !topicIds.has(primaryTopicId)) {
       primaryTopicId = null;
     } else if (parsed.topicAction === "new") {
