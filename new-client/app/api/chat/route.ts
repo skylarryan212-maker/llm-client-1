@@ -365,23 +365,26 @@ const BASE_SYSTEM_PROMPT =
   "- Balance safety with usefulness: apply policies with nuance, offer safer alternatives when needed, and avoid unnecessary refusals when you can still help responsibly.\\n" +
   "- IMPORTANT: When a user asks to 'list my prompts' or 'show my messages', only list the TEXT they typed. Do NOT list file contents, document excerpts, or attachment names as if they were prompts. The marker '[Files attached]' indicates files were included but is not part of the prompt.";
 
-function loadPersonalizationSettings(): PersonalizationMemorySettings & { customInstructions?: string; baseStyle?: string } {
+async function loadPersonalizationSettingsServer(
+  userId: string
+): Promise<PersonalizationMemorySettings & { customInstructions?: string; baseStyle?: string; referenceChatHistory?: boolean }> {
   try {
-    if (typeof window === "undefined") {
-      // Server-side: no localStorage access, return defaults
-      return { referenceSavedMemories: true, allowSavingMemory: true };
-    }
-    const raw = window.localStorage.getItem("personalization.memory.v1");
-    if (!raw) return { referenceSavedMemories: true, allowSavingMemory: true };
-    const parsed = JSON.parse(raw);
+    const supabase = await supabaseServer();
+    const { data } = await supabase
+      .from("user_preferences")
+      .select("base_style, custom_instructions, reference_saved_memories, reference_chat_history, allow_saving_memory")
+      .eq("user_id", userId)
+      .maybeSingle<any>();
+
     return {
-      referenceSavedMemories: parsed.referenceSavedMemories ?? true,
-      allowSavingMemory: parsed.allowSavingMemory ?? true,
-      customInstructions: parsed.customInstructions || "",
-      baseStyle: parsed.baseStyle || "Professional",
+      referenceSavedMemories: data?.reference_saved_memories ?? true,
+      allowSavingMemory: data?.allow_saving_memory ?? true,
+      referenceChatHistory: data?.reference_chat_history ?? true,
+      customInstructions: data?.custom_instructions || "",
+      baseStyle: data?.base_style || "Professional",
     };
   } catch {
-    return { referenceSavedMemories: true, allowSavingMemory: true };
+    return { referenceSavedMemories: true, allowSavingMemory: true, referenceChatHistory: true };
   }
 }
 
@@ -1294,7 +1297,7 @@ export async function POST(request: NextRequest) {
     const requireWebSearch = forceWebSearch;
 
     // Load personalization settings and relevant memories using router's memory strategy
-    const personalizationSettings = loadPersonalizationSettings();
+    const personalizationSettings = await loadPersonalizationSettingsServer(userId);
     const permanentInstructionWrites = (modelConfig as any).permanentInstructionsToWrite || [];
     let permanentInstructionDeletes = (modelConfig as any).permanentInstructionsToDelete || [];
 

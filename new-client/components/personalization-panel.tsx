@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { z } from "zod";
 import ManageMemoriesModal from "@/components/memory-manage-modal";
-// import { supabase } from "@/lib/supabaseClient"; // Uncomment if you want to sync settings to Supabase
+import { getPersonalizationPreferences, savePersonalizationPreferences } from "@/app/actions/user-preferences-actions";
 
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -19,19 +19,16 @@ const SettingsSchema = z.object({
 
 type Settings = z.infer<typeof SettingsSchema>;
 
-const STORAGE_KEY = "personalization.memory.v1";
-
-
-// Optionally, sync settings to Supabase for cross-device persistence
 async function load(): Promise<Settings> {
   try {
-    // Uncomment and implement if you want to load from Supabase
-    // const { data, error } = await supabase.from('personalization_settings').select('*').single();
-    // if (data) return SettingsSchema.parse(data);
-    const raw = typeof window !== "undefined" ? window.localStorage.getItem(STORAGE_KEY) : null;
-    if (!raw) return SettingsSchema.parse({});
-    const parsed = JSON.parse(raw);
-    return SettingsSchema.parse(parsed);
+    const prefs = await getPersonalizationPreferences();
+    return SettingsSchema.parse({
+      customInstructions: prefs.customInstructions,
+      referenceSavedMemories: prefs.referenceSavedMemories,
+      referenceChatHistory: prefs.referenceChatHistory,
+      allowSavingMemory: prefs.allowSavingMemory,
+      baseStyle: prefs.baseStyle,
+    });
   } catch {
     return SettingsSchema.parse({});
   }
@@ -39,9 +36,13 @@ async function load(): Promise<Settings> {
 
 async function save(s: Settings) {
   try {
-    // Uncomment and implement if you want to save to Supabase
-    // await supabase.from('personalization_settings').upsert([s]);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(s));
+    await savePersonalizationPreferences({
+      baseStyle: s.baseStyle,
+      customInstructions: s.customInstructions || "",
+      referenceSavedMemories: s.referenceSavedMemories,
+      referenceChatHistory: s.referenceChatHistory,
+      allowSavingMemory: s.allowSavingMemory,
+    });
   } catch {}
 }
 

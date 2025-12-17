@@ -71,3 +71,39 @@ export async function updateAccentColor(accentColor: string) {
     return data;
   }
 }
+
+export async function updatePersonalizationPreferences(update: {
+  base_style?: UserPreferencesUpdate["base_style"];
+  custom_instructions?: UserPreferencesUpdate["custom_instructions"];
+  reference_saved_memories?: UserPreferencesUpdate["reference_saved_memories"];
+  reference_chat_history?: UserPreferencesUpdate["reference_chat_history"];
+  allow_saving_memory?: UserPreferencesUpdate["allow_saving_memory"];
+}) {
+  const supabase = await supabaseServer();
+  const userId = await requireUserIdServer();
+  const supabaseAny = supabase as any;
+
+  const existing = await getUserPreferences();
+  const updated_at = new Date().toISOString();
+
+  if (existing) {
+    const patch: UserPreferencesUpdate = { ...update, updated_at };
+    const { data, error } = await supabaseAny
+      .from("user_preferences")
+      .update(patch)
+      .eq("user_id", userId)
+      .select()
+      .single();
+    if (error) throw new Error(`Failed to update user preferences: ${error.message}`);
+    return data;
+  }
+
+  const insert: UserPreferencesInsert = { user_id: userId, ...update };
+  const { data, error } = await supabaseAny
+    .from("user_preferences")
+    .insert([insert])
+    .select()
+    .single();
+  if (error) throw new Error(`Failed to create user preferences: ${error.message}`);
+  return data;
+}
