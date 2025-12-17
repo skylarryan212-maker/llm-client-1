@@ -91,7 +91,7 @@ function parseJsonLoose(raw: string) {
 }
 
 export async function runWriterRouter(input: WriterRouterInput, topicAction: "continue_active" | "new" | "reopen_existing"): Promise<WriterRouterOutput> {
-  const systemPrompt = `You decide topic metadata updates and memory/permanent instruction writes. Respond with ONE JSON object only.
+const systemPrompt = `You decide topic metadata updates and memory/permanent instruction writes. Respond with ONE JSON object only.
 CRITICAL: Return STRICT JSON matching the schema. No prose, no markdown, no comments.
 {
   "topicWrite": {
@@ -111,7 +111,7 @@ Rules:
 - Never emit placeholder text like "none"/"null"/"n/a".
 - label is only for create; set null for update/skip.
 - Permanent instructions: only write when the user explicitly requests a persistent rule (phrases like "always", "every time", "from now on", "never do X"). Otherwise leave permanentInstructionsToWrite empty.
-- Memories: only write useful, factual items that could help future turns (facts, data, decisions, preferences, names, steps). Do NOT log random chat fluff or generic conversation summaries.
+- Memories: write only durable, user-defining information that is likely to remain true across many future conversations. Do NOT write first-mention interests, transient states, intermediate steps, plans-in-progress, or conversational details. Prefer under-writing to over-writing. Write memory only if: (a) the information is stable over time, (b) not easily re-derived from context, (c) clearly improves future responses without re-asking, OR the user explicitly asks to remember it. Default behavior is no memory write. If uncertain, do not write memory.
 - Memory type: choose a specific, descriptive type that matches the content (e.g., "name", "preference", "instruction", "task", "location", "code-snippet", "project-note"). Avoid generic types like "fact", "note", or "other".
 - Arrays must be arrays (never null). No extra fields.`;
 
