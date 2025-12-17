@@ -235,6 +235,7 @@ export default function ChatPageShell({
   const [isInsightSidebarOpen, setIsInsightSidebarOpen] = useState(false);
   const scrollViewportRef = useRef<HTMLDivElement | null>(null);
   const isProgrammaticScrollRef = useRef(false);
+  const pinToPromptRef = useRef(false);
   const conversationRenderKeyRef = useRef<string | null>(null);
   const animatedMessageIdsRef = useRef<Set<string>>(new Set());
   const lastCreatedConversationIdRef = useRef<string | null>(null);
@@ -842,7 +843,7 @@ export default function ChatPageShell({
       // composer (which is outside the ScrollArea viewport).
       if (targetTop > maxScrollTop) {
         const needed = targetTop - maxScrollTop;
-        setBottomSpacerPx((prev) => Math.max(prev, prev + Math.ceil(needed) + 56));
+        setBottomSpacerPx((prev) => Math.max(prev, prev + Math.ceil(needed) + 12));
         return;
       }
 
@@ -953,6 +954,7 @@ export default function ChatPageShell({
   // Auto-scroll during streaming when message content changes
   useEffect(() => {
     if (!isStreaming || !isAutoScroll) return;
+    if (pinToPromptRef.current) return;
     
     const viewport = scrollViewportRef.current;
     if (!viewport) return;
@@ -973,10 +975,16 @@ export default function ChatPageShell({
   }, [messages, isAutoScroll, isStreaming]);
 
   useEffect(() => {
+    if (pinToPromptRef.current) return;
     setIsAutoScroll(true);
     setShowScrollToBottom(false);
     scrollToBottom("auto");
   }, [selectedChatId, scrollToBottom]);
+
+  useEffect(() => {
+    if (isStreaming) return;
+    pinToPromptRef.current = false;
+  }, [isStreaming]);
 
   useEffect(() => {
     if (currentChat?.projectId) {
@@ -1138,6 +1146,7 @@ export default function ChatPageShell({
     // always jumping to the bottom). Also disable streaming auto-scroll so the
     // alignment isn't immediately overwritten.
     setIsAutoScroll(false);
+    pinToPromptRef.current = true;
     alignNextUserMessageToTopRef.current = userMessage.id;
 
     if (isGuest) {
@@ -2039,7 +2048,9 @@ export default function ChatPageShell({
 
     setShowScrollToBottom(!atBottom);
     // Re-enable autoscroll when user scrolls back to bottom, disable when scrolling up
-    setIsAutoScroll(atBottom);
+    if (!pinToPromptRef.current) {
+      setIsAutoScroll(atBottom);
+    }
   };
 
   useEffect(() => {
