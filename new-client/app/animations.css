@@ -24,24 +24,6 @@
 }
 
 @layer components {
-  @keyframes route-enter {
-    0% {
-      opacity: 0;
-      transform: translateY(10px) scale(0.995);
-      filter: blur(8px);
-    }
-    100% {
-      opacity: 1;
-      transform: translateY(0) scale(1);
-      filter: blur(0);
-    }
-  }
-
-  .route-enter-animate {
-    animation: route-enter 320ms cubic-bezier(0.16, 1, 0.3, 1) both;
-    will-change: opacity, transform, filter;
-  }
-
   @keyframes assistant-streaming-shimmer {
     0% {
       transform: translateX(-100%);
@@ -203,7 +185,6 @@
   }
 
   .assistant-streaming::after,
-  .route-enter-animate,
   .sidebar-entry,
   .composer-shell,
   .scroll-tip-button,

@@ -67,6 +67,9 @@ export function SettingsModal({ isOpen, onClose, initialTab = 'personalization' 
   const [deleteAllChatsProcessing, setDeleteAllChatsProcessing] = useState(false)
   const sidebarRef = useRef<HTMLDivElement | null>(null)
   const [panelHeightPx, setPanelHeightPx] = useState<number | null>(null)
+  const contentScrollRef = useRef<HTMLDivElement | null>(null)
+  const [canScrollUp, setCanScrollUp] = useState(false)
+  const [canScrollDown, setCanScrollDown] = useState(false)
 
   const fetchAccountData = useCallback(async () => {
     try {
@@ -151,6 +154,28 @@ export function SettingsModal({ isOpen, onClose, initialTab = 'personalization' 
     window.addEventListener('resize', recomputePanelHeight)
     return () => window.removeEventListener('resize', recomputePanelHeight)
   }, [isOpen, recomputePanelHeight])
+
+  useEffect(() => {
+    if (!isOpen) return
+
+    const el = contentScrollRef.current
+    if (!el) return
+
+    const update = () => {
+      const maxScrollTop = el.scrollHeight - el.clientHeight
+      const scrollTop = el.scrollTop
+      setCanScrollUp(scrollTop > 2)
+      setCanScrollDown(scrollTop < maxScrollTop - 2)
+    }
+
+    update()
+    el.addEventListener('scroll', update, { passive: true })
+    window.addEventListener('resize', update)
+    return () => {
+      el.removeEventListener('scroll', update)
+      window.removeEventListener('resize', update)
+    }
+  }, [isOpen, activeTab])
 
   const handleAccentColorChange = (newColor: string) => {
     // Only save when user explicitly changes the color
@@ -307,7 +332,16 @@ export function SettingsModal({ isOpen, onClose, initialTab = 'personalization' 
         </div>
 
         {/* Content */}
-        <div className="flex-1 min-h-0 overflow-y-auto p-6 sm:p-8">
+        <div className="relative flex-1 min-h-0">
+          <div
+            aria-hidden="true"
+            className={`pointer-events-none absolute left-0 right-0 top-0 z-10 h-10 bg-gradient-to-b from-black/35 to-transparent transition-opacity duration-200 ${canScrollUp ? 'opacity-100' : 'opacity-0'}`}
+          />
+          <div
+            aria-hidden="true"
+            className={`pointer-events-none absolute left-0 right-0 bottom-0 z-10 h-12 bg-gradient-to-t from-black/35 to-transparent transition-opacity duration-200 ${canScrollDown ? 'opacity-100' : 'opacity-0'}`}
+          />
+          <div ref={contentScrollRef} className="h-full overflow-y-auto p-6 sm:p-8">
           {activeTab === 'general' && (
             <div className="space-y-6">
               <div>
@@ -590,6 +624,7 @@ export function SettingsModal({ isOpen, onClose, initialTab = 'personalization' 
               <p className="text-muted-foreground">This section is coming soon...</p>
             </div>
           )}
+          </div>
         </div>
       </div>
 

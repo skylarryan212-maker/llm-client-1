@@ -15,7 +15,6 @@ import { getMonthlySpending } from "@/app/actions/usage-actions";
 import { getUserPlan } from "@/app/actions/plan-actions";
 import { getUsageStatus } from "@/lib/usage-limits";
 import { LocationPermissionWrapper } from "@/components/location-permission-wrapper";
-import { RouteTransition } from "@/components/route-transition";
 
 const geistSans = Geist({
   subsets: ["latin"],
@@ -100,7 +99,7 @@ export default async function RootLayout({
               <ProjectsProvider initialProjects={initialProjectSummaries} userId={identity.userId ?? ""}>
                 <ChatProvider initialChats={initialChats} userId={identity.userId ?? ""}>
                   <LocationPermissionWrapper />
-                  <RouteTransition>{children}</RouteTransition>
+                  {children}
                 </ChatProvider>
               </ProjectsProvider>
             </AccentColorProvider>

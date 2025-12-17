@@ -234,17 +234,18 @@ function ChatInner({ params }: PageProps) {
         throw new Error(`draft_empty${suffix}`);
       }
 
+      const ctaCreatedAt = new Date().toISOString();
       setMessages((prev) => {
         const updated = prev.map((msg) =>
           msg.id === draftMsgId ? { ...msg, content: draft, kind: undefined } : msg
         );
-          const next =
-            true && !updated.some((m) => m.kind === "cta")
-              ? [
-                  ...updated,
-                  {
-                    id: `cta-${Date.now()}`,
-                    role: "assistant",
+        const next =
+          true && !updated.some((m) => m.kind === "cta")
+            ? [
+                ...updated,
+                {
+                  id: `cta-${Date.now()}`,
+                  role: "assistant",
                   content: "Draft ready. Want me to humanize it now? (no detector or loop yet)",
                   kind: "cta" as MessageKind,
                   draftText: draft,
@@ -268,6 +269,7 @@ function ChatInner({ params }: PageProps) {
               content: "Draft ready. Want me to humanize it now? (no detector or loop yet)",
               reason: decisionReason,
               status: "pending",
+              createdAt: ctaCreatedAt,
             }),
           });
         } catch (err) {
