@@ -855,6 +855,8 @@ export default function ChatPageShell({
     const el = messageRefs.current[targetMessageId];
     if (!el) return;
 
+    let attempts = 0;
+
     const doScroll = () => {
       const viewport = scrollViewportRef.current;
       if (!viewport) return;
@@ -874,24 +876,26 @@ export default function ChatPageShell({
         if (typeof desiredSpacer === "number") {
           setBottomSpacerPx((prev) => Math.max(prev, desiredSpacer));
         }
+        attempts += 1;
+        if (attempts < 12) {
+          requestAnimationFrame(doScroll);
+        }
         return;
       }
 
       // Ensure programmatic scrolling doesn't toggle autoscroll state.
       isProgrammaticScrollRef.current = true;
       pinnedScrollTopRef.current = targetTop;
-      viewport.scrollTo({
-        top: targetTop,
-        behavior: "smooth",
-      });
-      // Keep the programmatic scroll guard up briefly; some browsers fire
-      // scroll events after the next animation frame.
+      // Use an instant scroll to avoid intermediate scroll events (which can
+      // interrupt alignment and create partial pinning).
+      viewport.scrollTop = targetTop;
       setTimeout(() => {
         isProgrammaticScrollRef.current = false;
-        // Keep autoscroll disabled after pinning so streaming doesn't pull us away.
-        setIsAutoScroll(false);
-        setShowScrollToBottom(true);
-      }, 250);
+      }, 0);
+
+      // Keep autoscroll disabled after pinning so streaming doesn't pull us away.
+      setIsAutoScroll(false);
+      setShowScrollToBottom(true);
       alignNextUserMessageToTopRef.current = null;
     };
 
@@ -1030,13 +1034,15 @@ export default function ChatPageShell({
     if (nextSpacer >= bottomSpacerPx) return;
 
     const viewport = scrollViewportRef.current;
-    const delta = bottomSpacerPx - nextSpacer;
+    if (!viewport) return;
+
+    // Only shrink if the current scrollTop remains valid under the new max;
+    // otherwise the browser will clamp and the UI will "jump" upward.
+    const contentWithoutSpacer = viewport.scrollHeight - bottomSpacerPx;
+    const nextMaxScrollTop = Math.max(0, contentWithoutSpacer + nextSpacer - viewport.clientHeight);
+    if (viewport.scrollTop > nextMaxScrollTop + 1) return;
+
     setBottomSpacerPx(nextSpacer);
-    if (viewport) {
-      requestAnimationFrame(() => {
-        viewport.scrollTop = Math.max(0, viewport.scrollTop - delta);
-      });
-    }
 
     if (nextSpacer === baseBottomSpacerPx) {
       pinnedMessageIdRef.current = null;
@@ -1205,6 +1211,7 @@ export default function ChatPageShell({
     setIsAutoScroll(false);
     pinToPromptRef.current = true;
     pinnedMessageIdRef.current = userMessage.id;
+    pinnedScrollTopRef.current = null;
     alignNextUserMessageToTopRef.current = userMessage.id;
 
     if (isGuest) {
@@ -1272,6 +1279,8 @@ export default function ChatPageShell({
               : undefined,
         };
 
+        pinnedMessageIdRef.current = mappedMessage.id;
+        pinnedScrollTopRef.current = null;
         alignNextUserMessageToTopRef.current = mappedMessage.id;
 
         const newChatId = createChat({
@@ -1313,6 +1322,8 @@ export default function ChatPageShell({
               : undefined,
         };
 
+        pinnedMessageIdRef.current = mappedMessage.id;
+        pinnedScrollTopRef.current = null;
         alignNextUserMessageToTopRef.current = mappedMessage.id;
 
         const newChatId = createChat({
