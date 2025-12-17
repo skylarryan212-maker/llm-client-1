@@ -248,6 +248,28 @@ export async function POST(request: NextRequest) {
             );
           } else {
             console.info("[human-writing][draft] draft message saved", { conversationId });
+            const ctaCreatedAt = new Date().toISOString();
+            const { error: ctaError } = await supabase.from("messages").insert([
+              {
+                user_id: userId,
+                conversation_id: conversationId,
+                role: "assistant",
+                content: "Draft ready. Want me to humanize it now? (no detector or loop yet)",
+                metadata: {
+                  agent: "human-writing",
+                  kind: "cta",
+                  draftText,
+                  status: "pending",
+                  order_ts: ctaCreatedAt,
+                },
+                created_at: ctaCreatedAt,
+              },
+            ]);
+            if (ctaError) {
+              console.warn("[human-writing][draft] failed to insert CTA message", ctaError);
+            } else {
+              console.info("[human-writing][draft] CTA message saved", { conversationId });
+            }
           }
         } else {
           await writer.write(textEncoder.encode(JSON.stringify({ error: "draft_empty" }) + "\n"));
