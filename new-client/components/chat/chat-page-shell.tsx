@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import { useUserIdentity } from "@/components/user-identity-provider";
 
 import { ChatSidebar } from "@/components/chat-sidebar";
@@ -301,6 +301,7 @@ export default function ChatPageShell({
   const currentContextMode =
     (selectedChatId && contextModeByChat[selectedChatId]) || contextModeGlobal;
   const useSimpleContext = currentContextMode === "simple";
+  const pathname = usePathname();
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -395,6 +396,38 @@ export default function ChatPageShell({
   useEffect(() => {
     setMessagesWithFirstToken(new Set());
   }, [activeConversationId]);
+
+  // If the current chat/project disappears, redirect to a safe route.
+  useEffect(() => {
+    if (!pathname) return;
+    const segments = pathname.split("/").filter(Boolean);
+    const pathProjectId = segments[0] === "projects" ? segments[1] : null;
+    const chatIdInPath =
+      segments[0] === "projects" && segments[2] === "c"
+        ? segments[3]
+        : segments[0] === "c"
+          ? segments[1]
+          : null;
+
+    // Handle deleted project
+    if (pathProjectId && !projects.find((p) => p.id === pathProjectId)) {
+      setSelectedProjectId("");
+      router.push("/projects");
+      return;
+    }
+
+    // Handle deleted chat
+    if (selectedChatId && !chats.find((c) => c.id === selectedChatId)) {
+      setSelectedChatId(null);
+      if (chatIdInPath === selectedChatId) {
+        if (pathProjectId) {
+          router.push(`/projects/${pathProjectId}`);
+        } else {
+          router.push("/");
+        }
+      }
+    }
+  }, [pathname, projects, chats, selectedChatId, router]);
 
   const isConversationAutoStreamed = useCallback(
     (conversationId: string) => {
