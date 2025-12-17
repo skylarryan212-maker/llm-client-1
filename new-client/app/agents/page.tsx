@@ -95,41 +95,34 @@ export default function AgentsPage() {
   };
 
   return (
-    <div className="relative h-screen overflow-hidden bg-background text-foreground dark">
-      <div
-        className="pointer-events-none absolute inset-0 z-0 overflow-hidden"
-        aria-hidden="true"
-      >
-        <div className="agents-bg absolute inset-0" />
-      </div>
+    <div className="flex h-[100dvh] max-h-[100dvh] w-full bg-background text-foreground dark overflow-hidden overscroll-y-none">
+      <ChatSidebar
+        isOpen={isSidebarOpen}
+        onToggle={() => setIsSidebarOpen((open) => !open)}
+        selectedChatId={""}
+        conversations={sidebarConversations}
+        projects={projects}
+        projectChats={projectChatMap}
+        onChatSelect={handleChatSelect}
+        onProjectChatSelect={(projectId, chatId) =>
+          router.push(`/projects/${projectId}/c/${chatId}`)
+        }
+        onNewChat={() => router.push("/")}
+        onNewProject={() => router.push("/projects")}
+        onProjectSelect={(projectId) => router.push(`/projects/${projectId}`)}
+        onSettingsOpen={() => {
+          setSettingsTab('personalization')
+          setIsSettingsOpen(true)
+        }}
+        onGeneralSettingsOpen={() => {
+          setSettingsTab('general')
+          setIsSettingsOpen(true)
+        }}
+        onRefreshChats={refreshChats}
+        onRefreshProjects={refreshProjects}
+      />
 
-      <div className="relative z-10 flex h-full">
-        <ChatSidebar
-          isOpen={isSidebarOpen}
-          onToggle={() => setIsSidebarOpen((open) => !open)}
-          selectedChatId={""}
-          conversations={sidebarConversations}
-          projects={projects}
-          projectChats={projectChatMap}
-          onChatSelect={handleChatSelect}
-          onProjectChatSelect={(projectId, chatId) =>
-            router.push(`/projects/${projectId}/c/${chatId}`)
-          }
-          onNewChat={() => router.push("/")}
-          onNewProject={() => router.push("/projects")}
-          onProjectSelect={(projectId) => router.push(`/projects/${projectId}`)}
-          onSettingsOpen={() => {
-            setSettingsTab('personalization')
-            setIsSettingsOpen(true)
-          }}
-          onGeneralSettingsOpen={() => {
-            setSettingsTab('general')
-            setIsSettingsOpen(true)
-          }}
-          onRefreshChats={refreshChats}
-          onRefreshProjects={refreshProjects}
-        />
-
+      <div className="chat-ambient-bg flex flex-1 flex-col w-full min-w-0 min-h-0 overflow-hidden">
         <div className="flex-1 overflow-y-auto">
           <div className="mx-auto max-w-7xl px-4 sm:px-6 py-8 sm:py-12 lg:py-16">
             <Button
@@ -185,136 +178,6 @@ export default function AgentsPage() {
         }}
         initialTab={settingsTab}
       />
-
-      <style jsx global>{`
-        .agents-bg {
-          --g1: rgba(56, 189, 248, 0.16);
-          --g2: rgba(167, 139, 250, 0.16);
-          --g3: rgba(16, 185, 129, 0.11);
-          --g4: rgba(244, 114, 182, 0.10);
-          background:
-            radial-gradient(900px 600px at 10% 15%, var(--g1), transparent 60%),
-            radial-gradient(800px 650px at 85% 20%, var(--g2), transparent 60%),
-            radial-gradient(900px 700px at 55% 90%, var(--g3), transparent 62%),
-            radial-gradient(850px 650px at 30% 70%, var(--g4), transparent 62%),
-            conic-gradient(
-              from 210deg at 50% 50%,
-              rgba(56, 189, 248, 0.08),
-              rgba(167, 139, 250, 0.07),
-              rgba(16, 185, 129, 0.06),
-              rgba(56, 189, 248, 0.08)
-            );
-          background-size: 160% 160%, 160% 160%, 160% 160%, 160% 160%, 240% 240%;
-          background-position: 0% 0%, 100% 0%, 30% 100%, 70% 80%, 50% 50%;
-          filter: blur(46px) saturate(1.2);
-          transform: scale(1.15);
-          animation: agents-flow 18s linear infinite;
-          will-change: background-position, filter;
-        }
-
-        .agents-bg::before {
-          content: "";
-          position: absolute;
-          inset: -20%;
-          background:
-            radial-gradient(700px 520px at 22% 30%, rgba(56, 189, 248, 0.10), transparent 62%),
-            radial-gradient(720px 520px at 78% 65%, rgba(167, 139, 250, 0.10), transparent 62%),
-            radial-gradient(650px 520px at 45% 55%, rgba(16, 185, 129, 0.07), transparent 62%);
-          background-size: 180% 180%;
-          animation: agents-flow-2 14s ease-in-out infinite;
-          filter: blur(54px);
-          opacity: 0.9;
-          mix-blend-mode: screen;
-          will-change: transform, opacity, filter;
-        }
-
-        .agents-bg::after {
-          content: "";
-          position: absolute;
-          inset: 0;
-          background:
-            repeating-linear-gradient(
-              0deg,
-              rgba(255, 255, 255, 0.02),
-              rgba(255, 255, 255, 0.02) 1px,
-              transparent 1px,
-              transparent 7px
-            ),
-            repeating-linear-gradient(
-              90deg,
-              rgba(255, 255, 255, 0.015),
-              rgba(255, 255, 255, 0.015) 1px,
-              transparent 1px,
-              transparent 9px
-            );
-          opacity: 0.12;
-          mix-blend-mode: overlay;
-          animation: agents-grain 9s ease-in-out infinite;
-          will-change: transform, opacity;
-        }
-
-        @keyframes agents-flow {
-          0% {
-            background-position: 0% 0%, 100% 0%, 30% 100%, 70% 80%, 50% 50%;
-            filter: blur(46px) saturate(1.2) hue-rotate(0deg);
-          }
-          25% {
-            background-position: 20% 10%, 80% 20%, 45% 90%, 65% 65%, 45% 55%;
-          }
-          50% {
-            background-position: 40% 25%, 60% 35%, 60% 80%, 55% 50%, 55% 45%;
-            filter: blur(52px) saturate(1.25) hue-rotate(18deg);
-          }
-          75% {
-            background-position: 25% 45%, 75% 55%, 40% 60%, 40% 70%, 48% 58%;
-          }
-          100% {
-            background-position: 0% 0%, 100% 0%, 30% 100%, 70% 80%, 50% 50%;
-            filter: blur(46px) saturate(1.2) hue-rotate(0deg);
-          }
-        }
-
-        @keyframes agents-flow-2 {
-          0% {
-            transform: translate3d(-2%, -1%, 0) rotate(0deg) scale(1.02);
-            filter: blur(54px) hue-rotate(0deg);
-          }
-          33% {
-            transform: translate3d(3%, -2%, 0) rotate(6deg) scale(1.05);
-          }
-          66% {
-            transform: translate3d(-1%, 3%, 0) rotate(-4deg) scale(1.08);
-            filter: blur(60px) hue-rotate(22deg);
-          }
-          100% {
-            transform: translate3d(-2%, -1%, 0) rotate(0deg) scale(1.02);
-            filter: blur(54px) hue-rotate(0deg);
-          }
-        }
-
-        @keyframes agents-grain {
-          0% {
-            transform: translate3d(0, 0, 0);
-            opacity: 0.10;
-          }
-          50% {
-            transform: translate3d(18px, -12px, 0);
-            opacity: 0.14;
-          }
-          100% {
-            transform: translate3d(0, 0, 0);
-            opacity: 0.10;
-          }
-        }
-
-        @media (prefers-reduced-motion: reduce) {
-          .agents-bg,
-          .agents-bg::before,
-          .agents-bg::after {
-            animation: none !important;
-          }
-        }
-      `}</style>
     </div>
   );
 }
