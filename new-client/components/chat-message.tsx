@@ -175,7 +175,7 @@ export function ChatMessage({
             </div>
           )}
           <div
-            className="relative inline-block max-w-[92%] sm:max-w-[85%] pb-8"
+            className="relative inline-block max-w-[92%] sm:max-w-[85%] pb-4"
             onMouseEnter={() => setShowUserCopyHover(true)}
             onMouseLeave={() => setShowUserCopyHover(false)}
           >
@@ -183,7 +183,7 @@ export function ChatMessage({
               <p className="text-base leading-relaxed break-words">{content}</p>
             </div>
             <div
-              className={`absolute -bottom-8 right-1 transition-opacity ${
+              className={`absolute -bottom-6 right-1 transition-opacity ${
                 showUserCopyHover ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
               }`}
             >
