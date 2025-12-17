@@ -92,7 +92,7 @@ export interface UserPreferences {
   id: string;
   user_id: string;
   accent_color: string;
-  base_style: "Professional" | "Friendly" | "Concise" | "Creative" | null;
+  base_style: "Professional" | "Friendly" | "Concise" | "Creative" | "Robot" | null;
   custom_instructions: string | null;
   reference_saved_memories: boolean | null;
   reference_chat_history: boolean | null;
@@ -104,7 +104,7 @@ export interface UserPreferences {
 export interface UserPreferencesInsert {
   user_id: string;
   accent_color?: string;
-  base_style?: "Professional" | "Friendly" | "Concise" | "Creative" | null;
+  base_style?: "Professional" | "Friendly" | "Concise" | "Creative" | "Robot" | null;
   custom_instructions?: string | null;
   reference_saved_memories?: boolean | null;
   reference_chat_history?: boolean | null;
@@ -113,7 +113,7 @@ export interface UserPreferencesInsert {
 
 export interface UserPreferencesUpdate {
   accent_color?: string;
-  base_style?: "Professional" | "Friendly" | "Concise" | "Creative" | null;
+  base_style?: "Professional" | "Friendly" | "Concise" | "Creative" | "Robot" | null;
   custom_instructions?: string | null;
   reference_saved_memories?: boolean | null;
   reference_chat_history?: boolean | null;

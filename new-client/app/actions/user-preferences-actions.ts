@@ -2,7 +2,7 @@
 
 import { getUserPreferences, updatePersonalizationPreferences } from "@/lib/data/user-preferences";
 
-export type BaseStylePreset = "Professional" | "Friendly" | "Concise" | "Creative";
+export type BaseStylePreset = "Professional" | "Friendly" | "Concise" | "Creative" | "Robot";
 
 export type PersonalizationPreferences = {
   baseStyle: BaseStylePreset;
@@ -49,4 +49,3 @@ export async function savePersonalizationPreferences(
     return { success: false, message: error?.message || "Failed to save preferences" };
   }
 }
-

@@ -432,6 +432,7 @@ function buildSystemPromptWithPersonalization(
       Friendly: "Be warm, conversational, and friendly in your responses.",
       Concise: "Keep your responses brief and to the point, avoiding unnecessary elaboration.",
       Creative: "Be imaginative, expressive, and engaging in your responses.",
+      Robot: "Respond in a terse, plain, robotic tone; be concise and unadorned.",
     };
     const styleInstruction = styleMap[settings.baseStyle];
     if (styleInstruction) {

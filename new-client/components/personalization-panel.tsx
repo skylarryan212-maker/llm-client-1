@@ -149,6 +149,7 @@ export function PersonalizationPanel() {
               <SelectItem value="Friendly">Friendly</SelectItem>
               <SelectItem value="Concise">Concise</SelectItem>
               <SelectItem value="Creative">Creative</SelectItem>
+              <SelectItem value="Robot">Robot</SelectItem>
             </SelectContent>
           </Select>
         </div>
