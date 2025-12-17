@@ -176,7 +176,7 @@ export function ChatMessage({
           )}
           <div className="relative w-full flex justify-end">
             <div
-              className="absolute inset-x-0 -top-8 -bottom-10 pointer-events-auto"
+              className="absolute inset-x-0 -top-24 -bottom-24 pointer-events-auto"
               onMouseEnter={() => setShowUserCopyHover(true)}
               onMouseLeave={() => setShowUserCopyHover(false)}
             />
