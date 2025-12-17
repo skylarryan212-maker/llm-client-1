@@ -1580,6 +1580,27 @@ export async function POST(request: NextRequest) {
         } else {
           console.log(`[vectorStorage] Successfully logged storage cost: $${storageEstimatedCost.toFixed(6)}`);
         }
+
+        // Track cumulative bytes per user for daily logging
+        try {
+          const { data: existing } = await supabaseAny
+            .from("vector_storage_usage")
+            .select("total_bytes,last_logged_at")
+            .eq("user_id", userId)
+            .single();
+          const prevBytes = existing?.total_bytes ?? 0;
+          const updatedBytes = prevBytes + totalFileUploadSize;
+          await supabaseAny
+            .from("vector_storage_usage")
+            .upsert({
+              user_id: userId,
+              total_bytes: updatedBytes,
+              last_logged_at: existing?.last_logged_at ?? new Date().toISOString(),
+            });
+          console.log(`[vectorStorage] Updated tracked bytes: ${updatedBytes}`);
+        } catch (trackErr) {
+          console.warn("[vectorStorage] Failed to update tracked bytes:", trackErr);
+        }
       } catch (storageErr) {
         console.error("[vectorStorage] Failed to log storage cost:", storageErr);
       }
@@ -1755,6 +1776,56 @@ export async function POST(request: NextRequest) {
     let responseStream: any;
     let webSearchCallCount = 0;
     let fileSearchCallCount = 0;
+
+    const logVectorStorageDaily = async () => {
+      if (!userId) return;
+      try {
+        const { data: vsRow, error: vsErr } = await supabaseAny
+          .from("vector_storage_usage")
+          .select("total_bytes,last_logged_at")
+          .eq("user_id", userId)
+          .single();
+        if (vsErr || !vsRow || !vsRow.total_bytes) return;
+        const totalBytes: number = vsRow.total_bytes;
+        const lastLogged = vsRow.last_logged_at ? new Date(vsRow.last_logged_at) : null;
+        const today = new Date();
+        const todayUtc = Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate());
+        const lastUtc = lastLogged
+          ? Date.UTC(
+              lastLogged.getUTCFullYear(),
+              lastLogged.getUTCMonth(),
+              lastLogged.getUTCDate()
+            )
+          : null;
+        const days = lastUtc === null ? 1 : Math.max(0, Math.floor((todayUtc - lastUtc) / 86_400_000));
+        if (days <= 0) return;
+        const cost = calculateVectorStorageCost(totalBytes, days);
+        await supabaseAny
+          .from("user_api_usage")
+          .insert({
+            id: crypto.randomUUID(),
+            user_id: userId,
+            conversation_id: conversationId,
+            model: "vector-storage",
+            input_tokens: 0,
+            cached_tokens: 0,
+            output_tokens: 0,
+            estimated_cost: cost,
+          });
+        await supabaseAny
+          .from("vector_storage_usage")
+          .upsert({
+            user_id: userId,
+            total_bytes: totalBytes,
+            last_logged_at: new Date(todayUtc).toISOString(),
+          });
+        console.log(
+          `[vectorStorage] Logged ${days}d cost for ${totalBytes} bytes: $${cost.toFixed(6)}`
+        );
+      } catch (err) {
+        console.warn("[vectorStorage] daily logging skipped:", err);
+      }
+    };
     try {
       // Progressive flex processing: free users always, all users at 80%+ usage,
       // and GPT-5 Pro forces flex for non-Dev plans.
@@ -2208,6 +2279,9 @@ export async function POST(request: NextRequest) {
                 console.error("[usage] Failed to log file_search tool calls:", err);
               }
             }
+
+            // Log daily vector storage cost if applicable
+            await logVectorStorageDaily();
           }
 
           const thinkingDurationMs =
