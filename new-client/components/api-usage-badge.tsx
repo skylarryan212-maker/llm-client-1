@@ -55,22 +55,24 @@ export function ApiUsageBadge() {
   const initialSnapshot = useUsageSnapshot();
   const cached = readUsageCache();
 
-  const [spending, setSpending] = useState<number | null>(cached?.spending ?? initialSnapshot?.spending ?? null);
-  const [usageStatus, setUsageStatus] = useState<UsageStatus | null>(cached?.status ?? initialSnapshot?.status ?? null);
+  const [spending, setSpending] = useState<number | null>(
+    cached?.spending ?? initialSnapshot?.spending ?? null
+  );
+  const [usageStatus, setUsageStatus] = useState<UsageStatus | null>(
+    cached?.status ?? initialSnapshot?.status ?? null
+  );
 
-  // Sync to incoming snapshot and cache it.
+  // Seed from SSR snapshot only if no cache exists (prevents flashing back to stale snapshot values).
   useEffect(() => {
-    if (initialSnapshot) {
-      setSpending(initialSnapshot.spending);
-      setUsageStatus(initialSnapshot.status as UsageStatus);
-      writeUsageCache(initialSnapshot.spending, initialSnapshot.status as UsageStatus);
-    }
+    if (!initialSnapshot) return;
+    if (readUsageCache()) return;
+    setSpending(initialSnapshot.spending);
+    setUsageStatus(initialSnapshot.status as UsageStatus);
+    writeUsageCache(initialSnapshot.spending, initialSnapshot.status as UsageStatus);
   }, [initialSnapshot]);
 
-  // On mount: fetch fresh, listen for usage update events.
+  // Listen for usage update events.
   useEffect(() => {
-    loadData();
-
     const handleUsageUpdate = () => {
       loadData();
     };
@@ -81,16 +83,8 @@ export function ApiUsageBadge() {
     };
   }, []);
 
-  // On URL/path change: hydrate from cache (if present) then fetch fresh.
+  // On URL/path change: keep current value visible; fetch fresh and update when ready.
   useEffect(() => {
-    const cachedEntry = readUsageCache();
-    if (cachedEntry) {
-      setSpending(cachedEntry.spending);
-      setUsageStatus(cachedEntry.status);
-    } else {
-      setSpending(null);
-      setUsageStatus(null);
-    }
     loadData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pathname]);
