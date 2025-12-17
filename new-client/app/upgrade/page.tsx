@@ -11,7 +11,7 @@ import { useUserPlan } from "@/lib/hooks/use-user-plan";
 const plans = [
   {
     id: "basic" as PlanType,
-    name: "Standard",
+    name: "Basic",
     price: 10,
     description: "Essential access with light usage limits.",
     features: [
