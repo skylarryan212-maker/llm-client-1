@@ -14,6 +14,14 @@ export function ApiUsageBadge() {
   const [spending, setSpending] = useState<number>(initialSnapshot?.spending ?? 0);
   const [usageStatus, setUsageStatus] = useState(initialSnapshot?.status ?? null);
 
+  // Sync to incoming snapshot (e.g., on route changes) to avoid stale flicker
+  useEffect(() => {
+    if (initialSnapshot) {
+      setSpending(initialSnapshot.spending);
+      setUsageStatus(initialSnapshot.status);
+    }
+  }, [initialSnapshot]);
+
   useEffect(() => {
     loadData();
 
