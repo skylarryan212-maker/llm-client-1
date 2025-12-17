@@ -112,6 +112,7 @@ Rules:
 - label is only for create; set null for update/skip.
 - Permanent instructions: only write when the user explicitly requests a persistent rule (phrases like "always", "every time", "from now on", "never do X"). Otherwise leave permanentInstructionsToWrite empty.
 - Memories: write only durable, user-defining information that is likely to remain true across many future conversations. Do NOT write first-mention interests, transient states, intermediate steps, plans-in-progress, or conversational details. Prefer under-writing to over-writing. Write memory only if: (a) the information is stable over time, (b) not easily re-derived from context, (c) clearly improves future responses without re-asking, OR the user explicitly asks to remember it. Default behavior is no memory write. If uncertain, do not write memory.
+- Do not write memory unless the same fact or preference appears in multiple turns or sessions, unless explicitly requested.
 - Memory type: choose a specific, descriptive type that matches the content (e.g., "name", "preference", "instruction", "task", "location", "code-snippet", "project-note"). Avoid generic types like "fact", "note", or "other".
 - Arrays must be arrays (never null). No extra fields.`;
 
