@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { z } from "zod";
 import ManageMemoriesModal from "@/components/memory-manage-modal";
 import { getPersonalizationPreferences, savePersonalizationPreferences } from "@/app/actions/user-preferences-actions";
+import { Check } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -42,6 +43,27 @@ function persistCachedSettings(settings: Settings) {
   } catch {
     // ignore storage errors
   }
+}
+
+function ThemedCheckbox(props: {
+  id: string;
+  checked: boolean;
+  onCheckedChange: (checked: boolean) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <div className="relative">
+      <input
+        id={props.id}
+        type="checkbox"
+        checked={props.checked}
+        disabled={props.disabled}
+        onChange={(e) => props.onCheckedChange(e.target.checked)}
+        className="peer h-5 w-5 shrink-0 appearance-none rounded-md border border-border bg-background shadow-sm transition-colors checked:border-primary checked:bg-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50"
+      />
+      <Check className="pointer-events-none absolute left-0 top-0 h-5 w-5 p-[3px] text-primary-foreground opacity-0 transition-opacity peer-checked:opacity-100" />
+    </div>
+  );
 }
 
 async function load(): Promise<Settings> {
@@ -147,40 +169,43 @@ export function PersonalizationPanel() {
           <Button variant="outline" size="sm" onClick={() => setOpenManage(true)}>Manage</Button>
         </div>
         <div className="space-y-3">
-          <div className="flex items-center justify-between">
+          <div className="flex items-start justify-between gap-4 rounded-lg border border-border/60 bg-muted/20 p-4">
             <div>
-              <p className="text-sm font-medium">Reference saved memories</p>
-              <p className="text-xs text-muted-foreground">Let the assistant use saved user info and preferences.</p>
+              <label htmlFor="referenceSavedMemories" className="text-sm font-medium leading-none cursor-pointer">
+                Reference saved memories
+              </label>
+              <p className="mt-1 text-xs text-muted-foreground">Let the assistant use saved user info and preferences.</p>
             </div>
-            <input
-              type="checkbox"
+            <ThemedCheckbox
+              id="referenceSavedMemories"
               checked={settings.referenceSavedMemories}
-              onChange={(e) => update("referenceSavedMemories", e.target.checked)}
-              className="h-4 w-4"
+              onCheckedChange={(checked) => update("referenceSavedMemories", checked)}
             />
           </div>
-          <div className="flex items-center justify-between">
+          <div className="flex items-start justify-between gap-4 rounded-lg border border-border/60 bg-muted/20 p-4">
             <div>
-              <p className="text-sm font-medium">Reference chat history</p>
-              <p className="text-xs text-muted-foreground">Allow previous conversations to inform responses.</p>
+              <label htmlFor="referenceChatHistory" className="text-sm font-medium leading-none cursor-pointer">
+                Reference chat history
+              </label>
+              <p className="mt-1 text-xs text-muted-foreground">Allow previous conversations to inform responses.</p>
             </div>
-            <input
-              type="checkbox"
+            <ThemedCheckbox
+              id="referenceChatHistory"
               checked={settings.referenceChatHistory}
-              onChange={(e) => update("referenceChatHistory", e.target.checked)}
-              className="h-4 w-4"
+              onCheckedChange={(checked) => update("referenceChatHistory", checked)}
             />
           </div>
-          <div className="flex items-center justify-between">
+          <div className="flex items-start justify-between gap-4 rounded-lg border border-border/60 bg-muted/20 p-4">
             <div>
-              <p className="text-sm font-medium">Allow saving memory</p>
-              <p className="text-xs text-muted-foreground">If off, we do not write memories to Supabase.</p>
+              <label htmlFor="allowSavingMemory" className="text-sm font-medium leading-none cursor-pointer">
+                Allow saving memory
+              </label>
+              <p className="mt-1 text-xs text-muted-foreground">If off, we do not write memories to Supabase.</p>
             </div>
-            <input
-              type="checkbox"
+            <ThemedCheckbox
+              id="allowSavingMemory"
               checked={settings.allowSavingMemory}
-              onChange={(e) => update("allowSavingMemory", e.target.checked)}
-              className="h-4 w-4"
+              onCheckedChange={(checked) => update("allowSavingMemory", checked)}
             />
           </div>
         </div>
