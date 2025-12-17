@@ -343,14 +343,12 @@ export default function ProjectDetailPage() {
                   <div>
                     <div className="flex items-center gap-3">
                       {project && (
-                        <div style={({ viewTransitionName: `vt-project-${projectId}` } as any)}>
-                          <ProjectIconEditor
-                            icon={project.icon || 'file'}
-                            color={project.color || 'white'}
-                            onSave={handleIconUpdate}
-                            size="lg"
-                          />
-                        </div>
+                        <ProjectIconEditor
+                          icon={project.icon || 'file'}
+                          color={project.color || 'white'}
+                          onSave={handleIconUpdate}
+                          size="lg"
+                        />
                       )}
                       <h1 className="text-3xl font-bold text-foreground">
                         {project?.name ?? "Unknown project"}

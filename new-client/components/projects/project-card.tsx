@@ -6,7 +6,7 @@ import { ProjectSummary } from "@/components/projects/projects-provider";
 import { ProjectIconEditor } from "@/components/project-icon-editor";
 import { updateProjectIconAction } from "@/app/actions/project-actions";
 import { ParallaxCard } from "@/components/ui/parallax-card";
-import { ViewTransitionLink } from "@/components/ui/view-transition-link";
+import Link from "next/link";
 
 interface ProjectCardProps {
   project: ProjectSummary;
@@ -34,11 +34,10 @@ export function ProjectCard({ project, onUpdate }: ProjectCardProps) {
   };
 
   const formattedDate = formatRelativeTime(project.createdAt);
-  const viewTransitionName = `vt-project-${project.id}`;
 
   return (
     <ParallaxCard className="group relative rounded-xl border border-border bg-card p-5 shadow-sm transition-[box-shadow,border-color] hover:border-primary/50 hover:shadow-lg hover:shadow-primary/5">
-      <ViewTransitionLink href={`/projects/${project.id}`} className="block">
+      <Link href={`/projects/${project.id}`} className="block">
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center">
@@ -58,21 +57,19 @@ export function ProjectCard({ project, onUpdate }: ProjectCardProps) {
           <span>{formattedDate}</span>
         </div>
       </div>
-      </ViewTransitionLink>
+      </Link>
       
       <div 
         className="absolute left-5 z-10 flex items-center justify-center"
         style={{ top: '50%', transform: 'translateY(-50%)' }}
         onClick={(e) => e.stopPropagation()}
       >
-        <div style={({ viewTransitionName } as any)}>
-          <ProjectIconEditor
-            icon={project.icon || 'file'}
-            color={project.color || 'white'}
-            onSave={handleIconUpdate}
-            size="lg"
-          />
-        </div>
+        <ProjectIconEditor
+          icon={project.icon || 'file'}
+          color={project.color || 'white'}
+          onSave={handleIconUpdate}
+          size="lg"
+        />
       </div>
     </ParallaxCard>
   );

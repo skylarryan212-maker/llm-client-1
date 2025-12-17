@@ -6,7 +6,6 @@ import { cn } from "@/lib/utils";
 type ParallaxCardProps = {
   className?: string;
   children: React.ReactNode;
-  intensity?: number;
   glint?: boolean;
   style?: React.CSSProperties;
 };
@@ -14,7 +13,6 @@ type ParallaxCardProps = {
 export function ParallaxCard({
   className,
   children,
-  intensity = 2,
   glint = true,
   style,
 }: ParallaxCardProps) {
@@ -35,11 +33,9 @@ export function ParallaxCard({
   }, []);
 
   const setVars = React.useCallback(
-    (rx: string, ry: string, mx: string, my: string) => {
+    (mx: string, my: string) => {
       const el = ref.current;
       if (!el) return;
-      el.style.setProperty("--rx", rx);
-      el.style.setProperty("--ry", ry);
       el.style.setProperty("--mx", mx);
       el.style.setProperty("--my", my);
     },
@@ -58,11 +54,6 @@ export function ParallaxCard({
     const y = (e.clientY - rect.top) / rect.height;
 
     const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
-    const cx = clamp01(x) - 0.5;
-    const cy = clamp01(y) - 0.5;
-
-    const nextRx = `${(-cy * intensity).toFixed(2)}deg`;
-    const nextRy = `${(cx * intensity).toFixed(2)}deg`;
     const nextMx = `${(clamp01(x) * 100).toFixed(2)}%`;
     const nextMy = `${(clamp01(y) * 100).toFixed(2)}%`;
 
@@ -70,7 +61,7 @@ export function ParallaxCard({
       cancelAnimationFrame(frameRef.current);
     }
     frameRef.current = requestAnimationFrame(() => {
-      setVars(nextRx, nextRy, nextMx, nextMy);
+      setVars(nextMx, nextMy);
       frameRef.current = null;
     });
   };
@@ -87,7 +78,7 @@ export function ParallaxCard({
       frameRef.current = null;
     }
     setIsHover(false);
-    setVars("0deg", "0deg", "50%", "50%");
+    setVars("50%", "50%");
   };
 
   return (

@@ -1,10 +1,10 @@
 "use client";
 
+import Link from "next/link";
 import { ArrowRight, type LucideIcon } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { ParallaxCard } from "@/components/ui/parallax-card";
-import { ViewTransitionLink } from "@/components/ui/view-transition-link";
 
 interface AgentCardProps {
   icon: LucideIcon;
@@ -23,10 +23,6 @@ export function AgentCard({
   gradient,
   onClick,
 }: AgentCardProps) {
-  const viewTransitionName = href
-    ? `vt-${href.replace(/^\//, "").replaceAll("/", "-")}`
-    : undefined;
-
   const handleLinkClick: React.MouseEventHandler<HTMLAnchorElement> = (event) => {
     if (!onClick) return;
     // Let parent code run (routing, etc.) instead of default link navigation
@@ -44,10 +40,7 @@ export function AgentCard({
         />
 
         <div className="relative flex h-full flex-col gap-4">
-          <div
-            className="flex h-12 w-12 items-center justify-center rounded-lg bg-primary/10 text-primary"
-            style={viewTransitionName ? ({ viewTransitionName } as any) : undefined}
-          >
+          <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-primary/10 text-primary">
             <Icon className="h-6 w-6" />
           </div>
 
@@ -66,10 +59,10 @@ export function AgentCard({
                 className="group/btn inline-flex items-center gap-2 px-0 text-primary hover:bg-transparent"
                 asChild
               >
-                <ViewTransitionLink href={href} onClick={handleLinkClick}>
+                <Link href={href} onClick={handleLinkClick}>
                   <span>Open Agent</span>
                   <ArrowRight className="h-4 w-4 transition-transform group-hover/btn:translate-x-1" />
-                </ViewTransitionLink>
+                </Link>
               </Button>
             ) : (
               <Button
