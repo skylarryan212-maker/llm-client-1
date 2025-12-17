@@ -837,7 +837,7 @@ export async function POST(request: NextRequest) {
       skipUserInsert: body.skipUserInsert,
       timestamp: Date.now(),
     });
-    const { conversationId, projectId, message, modelFamilyOverride, speedModeOverride, reasoningEffortOverride, skipUserInsert, forceWebSearch = false, attachments, location, timezone, simpleContextMode = false } = body;
+    const { conversationId, projectId, message, modelFamilyOverride, speedModeOverride, reasoningEffortOverride, skipUserInsert, forceWebSearch = false, attachments, location, timezone, clientNow, simpleContextMode = false } = body;
 
     if (!conversationId || !message?.trim()) {
       return NextResponse.json(
@@ -1596,6 +1596,22 @@ export async function POST(request: NextRequest) {
       ? `You are working in project "${projectMeta?.name ?? "Unnamed project"}" (ID: ${conversation.project_id}). Current chat: "${chatLabel}" (${conversation.id}). If asked what project you're in, answer with the project name.`
       : `No active project. Current chat: "${chatLabel}" (${conversation.id}). If asked what project you're in, explain this chat is outside a project.`;
 
+    const clientLocalTime = (() => {
+      try {
+        if (timezone) {
+          const ts = typeof clientNow === "number" ? clientNow : Date.now();
+          return new Date(ts).toLocaleString("en-US", {
+            timeZone: timezone,
+            dateStyle: "full",
+            timeStyle: "long",
+          });
+        }
+      } catch {
+        /* ignore */
+      }
+      return null;
+    })();
+
     const baseSystemInstructions = [
       BASE_SYSTEM_PROMPT,
       workspaceInstruction,
@@ -1603,7 +1619,8 @@ export async function POST(request: NextRequest) {
       ...(location ? [`User's location: ${location.city} (${location.lat.toFixed(4)}, ${location.lng.toFixed(4)}). Use this for location-specific queries like weather, local events, or "near me" searches.`] : []),
       ...(timezone
         ? [
-            `User timezone: ${timezone}. Current local time: ${new Date().toLocaleString("en-US", { timeZone: timezone })}. When interpreting "today" or "tomorrow", use this timezone.`,
+            `User timezone: ${timezone}. ${clientLocalTime ? `Current local date/time: ${clientLocalTime}.` : ""
+            } When interpreting relative dates like "today" or "tomorrow", use this timezone and current local time.`
           ]
         : []),
       ...(forceWebSearch ? [FORCE_WEB_SEARCH_PROMPT] : []),

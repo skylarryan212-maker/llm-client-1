@@ -1299,6 +1299,7 @@ export default function ChatPageShell({
           skipUserInsert,
           attachments,
           location: locationData,
+          clientNow: Date.now(),
           simpleContextMode: useSimpleContext,
         }),
         signal: controller.signal,
@@ -1737,6 +1738,7 @@ export default function ChatPageShell({
           reasoningEffortOverride: undefined, // Let API auto-calculate
           skipUserInsert: true,
           location: locationData,
+          clientNow: Date.now(),
           simpleContextMode: useSimpleContext,
         }),
       });
