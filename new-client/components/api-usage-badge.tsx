@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { DollarSign, AlertTriangle } from "lucide-react";
 import { getMonthlySpending } from "@/app/actions/usage-actions";
@@ -55,14 +55,36 @@ export function ApiUsageBadge() {
   const { isGuest } = useUserIdentity();
   const pathname = usePathname();
   const initialSnapshot = useUsageSnapshot();
-  const cached = readUsageCache();
 
   const [spending, setSpending] = useState<number | null>(
-    lastKnownUsage?.spending ?? cached?.spending ?? initialSnapshot?.spending ?? null
+    lastKnownUsage?.spending ?? initialSnapshot?.spending ?? null
   );
   const [usageStatus, setUsageStatus] = useState<UsageStatus | null>(
-    lastKnownUsage?.status ?? cached?.status ?? initialSnapshot?.status ?? null
+    lastKnownUsage?.status ?? initialSnapshot?.status ?? null
   );
+
+  const loadData = useCallback(async () => {
+    try {
+      const [monthlyTotal, plan] = await Promise.all([getMonthlySpending(), getUserPlan()]);
+      const status = getUsageStatus(monthlyTotal, plan);
+      lastKnownUsage = { spending: monthlyTotal, status };
+      setSpending(monthlyTotal);
+      setUsageStatus(status);
+      writeUsageCache(monthlyTotal, status);
+    } catch (error) {
+      console.error("Error loading usage data:", error);
+    }
+  }, []);
+
+  // After hydration, prefer cached values (if any) without causing an SSR/client mismatch.
+  useEffect(() => {
+    if (lastKnownUsage) return;
+    const cached = readUsageCache();
+    if (!cached) return;
+    lastKnownUsage = { spending: cached.spending, status: cached.status };
+    setSpending(cached.spending);
+    setUsageStatus(cached.status);
+  }, []);
 
   // Seed from SSR snapshot only if no cache exists (prevents flashing back to stale snapshot values).
   useEffect(() => {
@@ -86,26 +108,12 @@ export function ApiUsageBadge() {
     return () => {
       window.removeEventListener("api-usage-updated", handleUsageUpdate);
     };
-  }, []);
+  }, [loadData]);
 
   // On URL/path change: keep current value visible; fetch fresh and update when ready.
   useEffect(() => {
     loadData();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pathname]);
-
-  const loadData = async () => {
-    try {
-      const [monthlyTotal, plan] = await Promise.all([getMonthlySpending(), getUserPlan()]);
-      const status = getUsageStatus(monthlyTotal, plan);
-      lastKnownUsage = { spending: monthlyTotal, status };
-      setSpending(monthlyTotal);
-      setUsageStatus(status);
-      writeUsageCache(monthlyTotal, status);
-    } catch (error) {
-      console.error("Error loading usage data:", error);
-    }
-  };
+  }, [pathname, loadData]);
 
   if (isGuest || !usageStatus || spending === null) {
     return null;
