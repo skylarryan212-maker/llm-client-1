@@ -24,6 +24,10 @@
 }
 
 @layer components {
+  .chat-scroll-viewport {
+    overflow-anchor: none;
+  }
+
   @keyframes assistant-streaming-shimmer {
     0% {
       transform: translateX(-100%);

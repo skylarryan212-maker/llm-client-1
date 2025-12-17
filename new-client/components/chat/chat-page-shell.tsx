@@ -2749,7 +2749,7 @@ export default function ChatPageShell({
             <ScrollArea
               className="flex-1 min-h-0 overscroll-y-contain"
               viewportRef={scrollViewportRef}
-              viewportClassName="h-full overscroll-y-contain overscroll-contain"
+              viewportClassName="chat-scroll-viewport h-full overscroll-y-contain overscroll-contain"
               onViewportScroll={handleScroll}
             >
               <div className="py-4 pb-20">
