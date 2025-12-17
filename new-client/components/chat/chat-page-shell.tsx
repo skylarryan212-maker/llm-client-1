@@ -943,6 +943,11 @@ export default function ChatPageShell({
       // fired during the smooth scroll animation.
       guardTimer = setTimeout(() => {
         isProgrammaticScrollRef.current = false;
+        // Once the "prompt to top" animation finishes, stop pinning/clamping scroll.
+        // The initial alignment is intentional, but after that the user should be
+        // able to scroll normally even while the model is streaming.
+        pinToPromptRef.current = false;
+        pinnedScrollTopRef.current = null;
       }, 900);
     };
 
