@@ -210,6 +210,7 @@ export default function ChatPageShell({
   const [isAutoScroll, setIsAutoScroll] = useState(true);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const messageRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const alignNextUserMessageToTopRef = useRef<string | null>(null);
   const [bottomSpacerPx, setBottomSpacerPx] = useState(220);
   const [composerLiftPx, setComposerLiftPx] = useState(0);
   const [showOtherModels, setShowOtherModels] = useState(false);
@@ -816,6 +817,22 @@ export default function ChatPageShell({
     []
   );
 
+  useEffect(() => {
+    const targetMessageId = alignNextUserMessageToTopRef.current;
+    if (!targetMessageId) return;
+
+    const el = messageRefs.current[targetMessageId];
+    if (!el) return;
+
+    const doScroll = () => {
+      el.scrollIntoView({ block: "start", behavior: "smooth" });
+      alignNextUserMessageToTopRef.current = null;
+    };
+
+    // Double-RAF to ensure the viewport + message layout is settled.
+    requestAnimationFrame(() => requestAnimationFrame(doScroll));
+  }, [messages.length]);
+
   const recomputeScrollFlags = useCallback(() => {
     const viewport = scrollViewportRef.current;
     if (!viewport) return;
@@ -1086,6 +1103,12 @@ export default function ChatPageShell({
         : undefined,
     };
 
+    // Align the newly-sent user message to the top of the viewport (instead of
+    // always jumping to the bottom). Also disable streaming auto-scroll so the
+    // alignment isn't immediately overwritten.
+    setIsAutoScroll(false);
+    alignNextUserMessageToTopRef.current = userMessage.id;
+
     if (isGuest) {
       // Local-only guest chat; not persisted.
       let chatId = selectedChatId;
@@ -1151,6 +1174,8 @@ export default function ChatPageShell({
               : undefined,
         };
 
+        alignNextUserMessageToTopRef.current = mappedMessage.id;
+
         const newChatId = createChat({
           id: conversationId,
           projectId: targetProjectId,
@@ -1189,6 +1214,8 @@ export default function ChatPageShell({
                 }
               : undefined,
         };
+
+        alignNextUserMessageToTopRef.current = mappedMessage.id;
 
         const newChatId = createChat({
           id: conversationId,
@@ -2572,6 +2599,7 @@ export default function ChatPageShell({
                               messageRefs.current[message.id] = el;
                             }
                           }}
+                          className="scroll-mt-4"
                         >
                           {message.role === "assistant" && (
                             <div className="flex flex-col gap-2 pb-2 px-4 sm:px-6">
