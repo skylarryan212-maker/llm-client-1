@@ -40,6 +40,7 @@ function ChatInner({ params }: PageProps) {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const sidebarDismissedRef = useRef(false);
   const [initialized, setInitialized] = useState(false);
+  const startInitializedRef = useRef(false);
   const [hasStarted, setHasStarted] = useState(false);
   const hasStartedRef = useRef(false);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
@@ -92,9 +93,10 @@ function ChatInner({ params }: PageProps) {
       }
 
       const bootPrompt = initialPromptRef.current || prompt;
-      if (bootPrompt) {
+      if (bootPrompt && !startInitializedRef.current) {
         setHasStarted(true);
         hasStartedRef.current = true;
+        startInitializedRef.current = true;
         void startDraftFlow(bootPrompt);
       } else if (!hasStartedRef.current && messagesRef.current.length === 0) {
         const initial: Message[] = [
