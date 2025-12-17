@@ -174,6 +174,7 @@ export default function ChatPageShell({
   projectId,
   searchParams,
 }: ChatPageShellProps) {
+  const baseBottomSpacerPx = 28;
   const router = useRouter();
   const { projects, addProject, refreshProjects } = useProjects();
   const {
@@ -211,7 +212,7 @@ export default function ChatPageShell({
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const messageRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const alignNextUserMessageToTopRef = useRef<string | null>(null);
-  const [bottomSpacerPx, setBottomSpacerPx] = useState(220);
+  const [bottomSpacerPx, setBottomSpacerPx] = useState(baseBottomSpacerPx);
   const [composerLiftPx, setComposerLiftPx] = useState(0);
   const [showOtherModels, setShowOtherModels] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
@@ -832,9 +833,20 @@ export default function ChatPageShell({
       const elRect = el.getBoundingClientRect();
       const desiredPadding = 14;
       const nextTop = viewport.scrollTop + (elRect.top - viewportRect.top) - desiredPadding;
+      const targetTop = Math.max(0, Math.round(nextTop));
+      const maxScrollTop = Math.max(0, viewport.scrollHeight - viewport.clientHeight);
+
+      // If there's not enough scrollable space to bring this message to the top,
+      // expand the bottom spacer so we can scroll further without affecting the
+      // composer (which is outside the ScrollArea viewport).
+      if (targetTop > maxScrollTop) {
+        const needed = targetTop - maxScrollTop;
+        setBottomSpacerPx((prev) => Math.max(prev, prev + Math.ceil(needed) + 8));
+        return;
+      }
 
       viewport.scrollTo({
-        top: Math.max(0, Math.round(nextTop)),
+        top: targetTop,
         behavior: "smooth",
       });
       alignNextUserMessageToTopRef.current = null;
@@ -859,15 +871,14 @@ export default function ChatPageShell({
     const viewport = scrollViewportRef.current;
     const compute = () => {
       if (!viewport) return;
-      const desired = 28;
-      setBottomSpacerPx((prev) => (prev === desired ? prev : desired));
+      setBottomSpacerPx((prev) => Math.max(baseBottomSpacerPx, prev));
     };
     compute();
     if (typeof window !== "undefined") {
       window.addEventListener("resize", compute);
       return () => window.removeEventListener("resize", compute);
     }
-  }, [messages.length]);
+  }, [baseBottomSpacerPx, messages.length]);
 
   // Lock body scroll when mobile sidebar is open so only sidebar scrolls
   useEffect(() => {
