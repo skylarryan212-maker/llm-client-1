@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { z } from "zod";
 import ManageMemoriesModal from "@/components/memory-manage-modal";
 import { getPersonalizationPreferences, savePersonalizationPreferences } from "@/app/actions/user-preferences-actions";
@@ -19,6 +19,31 @@ const SettingsSchema = z.object({
 
 type Settings = z.infer<typeof SettingsSchema>;
 
+const PERSONALIZATION_SETTINGS_CACHE_KEY = "llm-client-personalization-settings-cache";
+
+function loadCachedSettings(): Settings {
+  if (typeof window === "undefined") return SettingsSchema.parse({});
+  try {
+    const raw = window.localStorage.getItem(PERSONALIZATION_SETTINGS_CACHE_KEY);
+    if (!raw) return SettingsSchema.parse({});
+    return SettingsSchema.parse(JSON.parse(raw));
+  } catch {
+    return SettingsSchema.parse({});
+  }
+}
+
+function persistCachedSettings(settings: Settings) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(
+      PERSONALIZATION_SETTINGS_CACHE_KEY,
+      JSON.stringify(settings)
+    );
+  } catch {
+    // ignore storage errors
+  }
+}
+
 async function load(): Promise<Settings> {
   try {
     const prefs = await getPersonalizationPreferences();
@@ -35,18 +60,30 @@ async function load(): Promise<Settings> {
 }
 
 export function PersonalizationPanel() {
-  const [settings, setSettings] = useState<Settings>();
+  const [settings, setSettings] = useState<Settings>(() => loadCachedSettings());
+  const hasEditedRef = useRef(false);
   const [openManage, setOpenManage] = useState(false);
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<number | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
 
   useEffect(() => {
-    load().then(setSettings);
+    let alive = true;
+    load().then((next) => {
+      if (!alive) return;
+      persistCachedSettings(next);
+      if (!hasEditedRef.current) {
+        setSettings(next);
+      }
+    });
+    return () => {
+      alive = false;
+    };
   }, []);
 
   const update = <K extends keyof Settings>(key: K, value: Settings[K]) => {
     if (!settings) return;
+    hasEditedRef.current = true;
     const next = { ...settings, [key]: value };
     const parsed = SettingsSchema.safeParse(next);
     if (parsed.success) setSettings(parsed.data);
@@ -67,10 +104,11 @@ export function PersonalizationPanel() {
         setSaveError(result.message || "Failed to save changes");
         return;
       }
-      setSaveError(null);
-      setSavedAt(Date.now());
-    } finally { setSaving(false); }
-  };
+        setSaveError(null);
+        setSavedAt(Date.now());
+        persistCachedSettings(settings);
+      } finally { setSaving(false); }
+    };
 
   if (!settings) return <div>Loading…</div>;
 
