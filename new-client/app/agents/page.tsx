@@ -122,7 +122,7 @@ export default function AgentsPage() {
         onRefreshProjects={refreshProjects}
       />
 
-      <div className="chat-ambient-bg flex flex-1 flex-col w-full min-w-0 min-h-0 overflow-hidden">
+      <div className="chat-ambient-bg agents-ambient-bg flex flex-1 flex-col w-full min-w-0 min-h-0 overflow-hidden">
         <div className="flex-1 overflow-y-auto">
           <div className="mx-auto max-w-7xl px-4 sm:px-6 py-8 sm:py-12 lg:py-16">
             <Button

@@ -165,6 +165,72 @@
     }
   }
 
+  .agents-ambient-bg::before {
+    background:
+      radial-gradient(780px 560px at 14% 70%, rgba(56, 189, 248, 0.10), transparent 62%),
+      radial-gradient(820px 600px at 86% 22%, rgba(167, 139, 250, 0.10), transparent 62%),
+      radial-gradient(860px 640px at 62% 10%, rgba(16, 185, 129, 0.075), transparent 64%),
+      radial-gradient(760px 560px at 35% 30%, rgba(244, 114, 182, 0.065), transparent 64%),
+      conic-gradient(
+        from 190deg at 50% 50%,
+        rgba(56, 189, 248, 0.04),
+        rgba(167, 139, 250, 0.04),
+        rgba(16, 185, 129, 0.035),
+        rgba(56, 189, 248, 0.04)
+      );
+    filter: blur(60px) saturate(1.15);
+    opacity: 0.85;
+    transform: translate3d(0, 0, 0) scale(1.08);
+    animation: agents-ambient-drift 22s ease-in-out infinite;
+    will-change: transform, filter;
+  }
+
+  .agents-ambient-bg::after {
+    opacity: 0.07;
+    animation: agents-ambient-grain 10s ease-in-out infinite;
+    will-change: transform, opacity;
+  }
+
+  @keyframes agents-ambient-drift {
+    0% {
+      transform: translate3d(-1.6%, 1.2%, 0) scale(1.08);
+      filter: blur(60px) saturate(1.15) hue-rotate(0deg);
+    }
+    25% {
+      transform: translate3d(2.8%, -1.8%, 0) scale(1.11);
+    }
+    50% {
+      transform: translate3d(1.6%, 2.6%, 0) scale(1.13);
+      filter: blur(66px) saturate(1.2) hue-rotate(18deg);
+    }
+    75% {
+      transform: translate3d(-2.6%, 0.8%, 0) scale(1.11);
+    }
+    100% {
+      transform: translate3d(-1.6%, 1.2%, 0) scale(1.08);
+      filter: blur(60px) saturate(1.15) hue-rotate(0deg);
+    }
+  }
+
+  @keyframes agents-ambient-grain {
+    0% {
+      transform: translate3d(0, 0, 0);
+      opacity: 0.06;
+    }
+    33% {
+      transform: translate3d(22px, -14px, 0);
+      opacity: 0.09;
+    }
+    66% {
+      transform: translate3d(-14px, 16px, 0);
+      opacity: 0.08;
+    }
+    100% {
+      transform: translate3d(0, 0, 0);
+      opacity: 0.06;
+    }
+  }
+
   .parallax-card {
     --mx: 50%;
     --my: 50%;
