@@ -15,7 +15,7 @@ export async function getConversationsForUser(options?: { projectId?: string | n
   const supabase = await supabaseServer();
   const userId = await requireUserIdServer();
 
-  const query = supabase
+  const conversationQuery = supabase
     .from("conversations")
     .select("*")
     .eq("user_id", userId)
@@ -23,7 +23,7 @@ export async function getConversationsForUser(options?: { projectId?: string | n
 
   // Exclude human-writing agent chats from general lists unless explicitly requested
   if (!options?.includeHumanWriting) {
-    query.neq("metadata->>agent", "human-writing");
+    conversationQuery.neq("metadata->>agent", "human-writing");
   }
 
   if (options) {
@@ -31,19 +31,58 @@ export async function getConversationsForUser(options?: { projectId?: string | n
       if (!isValidUuid(options.projectId)) {
         return [];
       }
-      query.eq("project_id", options.projectId);
+      conversationQuery.eq("project_id", options.projectId);
     } else {
-      query.is("project_id", null);
+      conversationQuery.is("project_id", null);
     }
   }
 
-  const { data, error } = await query.returns<ConversationRow[]>();
+  const { data: conversations, error } = await conversationQuery.returns<ConversationRow[]>();
 
   if (error) {
     throw new Error(`Failed to load conversations: ${error.message}`);
   }
 
-  return data ?? [];
+  const conversationRows = conversations ?? [];
+
+  // Order conversations by most recent message (fallback to conversation creation).
+  if (conversationRows.length === 0) {
+    return [];
+  }
+
+  const conversationIds = conversationRows.map((c) => c.id);
+
+  const { data: latestMessages, error: latestMessagesError } = await supabase
+    .from("messages")
+    .select("conversation_id, created_at")
+    .eq("user_id", userId)
+    .in("conversation_id", conversationIds)
+    .order("created_at", { ascending: false });
+
+  if (latestMessagesError) {
+    throw new Error(`Failed to load recent messages: ${latestMessagesError.message}`);
+  }
+
+  const latestByConversation = new Map<string, string>();
+  (latestMessages ?? []).forEach((row) => {
+    if (!row?.conversation_id || !row?.created_at) return;
+    if (!latestByConversation.has(row.conversation_id)) {
+      latestByConversation.set(row.conversation_id, row.created_at);
+    }
+  });
+
+  const withLastActivity = conversationRows.map((conversation) => ({
+    ...conversation,
+    last_activity: latestByConversation.get(conversation.id) ?? conversation.created_at,
+  }));
+
+  withLastActivity.sort((a, b) => {
+    const aTime = new Date(a.last_activity ?? a.created_at ?? 0).getTime();
+    const bTime = new Date(b.last_activity ?? b.created_at ?? 0).getTime();
+    return bTime - aTime;
+  });
+
+  return withLastActivity;
 }
 
 export async function getConversationById(conversationId: string) {
