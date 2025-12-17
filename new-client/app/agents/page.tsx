@@ -39,7 +39,7 @@ const agents = [
     description:
       "Produce clear, human-quality writing fast. Draft emails, docs, and narratives with tone control and structure that feels natural.",
     href: "/agents/human-writing",
-    gradient: "bg-gradient-to-br from-amber-500/25 via-orange-500/15 to-rose-500/25",
+    gradient: "bg-gradient-to-br from-amber-500 via-orange-500 to-rose-500",
   },
   {
     icon: Database,
