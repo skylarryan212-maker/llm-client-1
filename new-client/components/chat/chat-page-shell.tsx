@@ -232,6 +232,7 @@ export default function ChatPageShell({
   const searchDomainSetRef = useRef(new Set<string>());
   const [fileReadingIndicator, setFileReadingIndicator] = useState<"running" | "error" | null>(null);
   const [activeIndicatorMessageId, setActiveIndicatorMessageId] = useState<string | null>(null);
+  const [reserveRuntimeIndicatorSpace, setReserveRuntimeIndicatorSpace] = useState(false);
   const [isInsightSidebarOpen, setIsInsightSidebarOpen] = useState(false);
    const [insightPreambles, setInsightPreambles] = useState<Record<string, string>>({});
   const scrollViewportRef = useRef<HTMLDivElement | null>(null);
@@ -1303,6 +1304,7 @@ export default function ChatPageShell({
     // always jumping to the bottom). Also disable streaming auto-scroll so the
     // alignment isn't immediately overwritten.
     setIsAutoScroll(false);
+    setReserveRuntimeIndicatorSpace(true);
     pinToPromptRef.current = true;
     pinnedMessageIdRef.current = userMessage.id;
     pinnedScrollTopRef.current = null;
@@ -1480,6 +1482,7 @@ export default function ChatPageShell({
       setIsStreaming(false);
       hideThinkingIndicator();
       setActiveIndicatorMessageId(null);
+      setReserveRuntimeIndicatorSpace(false);
       // Clear timing/pending data to avoid stale chips or stuck UI
       responseTimingRef.current = { start: null, firstToken: null, assistantMessageId: null };
       pendingThinkingInfoRef.current = null;
@@ -2369,13 +2372,7 @@ export default function ChatPageShell({
 
     if (!bubble) return null;
 
-    return (
-      <div className="px-4 sm:px-6 pb-2">
-        <div className="mx-auto w-full max-w-[min(720px,100%)] px-1.5 sm:px-0">
-          <div className="flex items-center justify-center min-h-[32px]">{bubble}</div>
-        </div>
-      </div>
-    );
+    return bubble;
   }, [
     fileReadingIndicator,
     lastUserMessageId,
@@ -2384,6 +2381,17 @@ export default function ChatPageShell({
     selectedChatId,
     thinkingStatus,
   ]);
+
+  const shouldRenderRuntimeIndicatorSlot =
+    Boolean(selectedChatId && lastUserMessageId) &&
+    (reserveRuntimeIndicatorSpace ||
+      Boolean(thinkingStatus || searchIndicator || fileReadingIndicator));
+
+  useEffect(() => {
+    if (!shouldRenderRuntimeIndicatorSlot && !isStreaming) {
+      setReserveRuntimeIndicatorSpace(false);
+    }
+  }, [isStreaming, shouldRenderRuntimeIndicatorSlot]);
 
   return (
     <div className="flex h-[100dvh] max-h-[100dvh] w-full bg-background text-foreground dark overflow-hidden overscroll-y-none">
@@ -2862,10 +2870,19 @@ export default function ChatPageShell({
                             </div>
                           </div>
                         </div>
-                        {runtimeIndicatorBubble &&
-                          message.role === "user" &&
-                          message.id === lastUserMessageId &&
-                          runtimeIndicatorBubble}
+                        {message.role === "user" && message.id === lastUserMessageId && shouldRenderRuntimeIndicatorSlot ? (
+                          <div className="px-4 sm:px-6 pb-2">
+                            <div className="mx-auto w-full max-w-[min(720px,100%)] px-1.5 sm:px-0">
+                              <div className="flex items-center justify-center min-h-[32px]">
+                                {runtimeIndicatorBubble ? (
+                                  runtimeIndicatorBubble
+                                ) : (
+                                  <div aria-hidden className="invisible h-[32px]" />
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        ) : null}
                       </React.Fragment>
                     );
                 })}
