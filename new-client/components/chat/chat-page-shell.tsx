@@ -1286,6 +1286,12 @@ export default function ChatPageShell({
         console.error("[Location] Failed to parse location data:", e);
       }
 
+      const timezone =
+        locationData?.timezone ||
+        (typeof Intl !== "undefined"
+          ? Intl.DateTimeFormat().resolvedOptions().timeZone
+          : null);
+
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1300,6 +1306,7 @@ export default function ChatPageShell({
           attachments,
           location: locationData,
           clientNow: Date.now(),
+          timezone,
           simpleContextMode: useSimpleContext,
         }),
         signal: controller.signal,
@@ -1726,6 +1733,12 @@ export default function ChatPageShell({
         console.error("[Location] Failed to parse location data:", e);
       }
 
+      const timezone =
+        locationData?.timezone ||
+        (typeof Intl !== "undefined"
+          ? Intl.DateTimeFormat().resolvedOptions().timeZone
+          : null);
+
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1739,6 +1752,7 @@ export default function ChatPageShell({
           skipUserInsert: true,
           location: locationData,
           clientNow: Date.now(),
+          timezone,
           simpleContextMode: useSimpleContext,
         }),
       });
