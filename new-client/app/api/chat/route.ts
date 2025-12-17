@@ -365,6 +365,16 @@ const BASE_SYSTEM_PROMPT =
   "- Balance safety with usefulness: apply policies with nuance, offer safer alternatives when needed, and avoid unnecessary refusals when you can still help responsibly.\\n" +
   "- IMPORTANT: When a user asks to 'list my prompts' or 'show my messages', only list the TEXT they typed. Do NOT list file contents, document excerpts, or attachment names as if they were prompts. The marker '[Files attached]' indicates files were included but is not part of the prompt.";
 
+function stripMemoryBehaviorBlock(prompt: string): string {
+  const start = prompt.indexOf("**Memory Behavior:**");
+  if (start === -1) return prompt;
+  const end = prompt.indexOf("**Web Search Rules:**");
+  if (end === -1 || end <= start) return prompt;
+  const before = prompt.slice(0, start).trimEnd();
+  const after = prompt.slice(end);
+  return `${before}\n\n${after}`;
+}
+
 async function loadPersonalizationSettingsServer(
   userId: string
 ): Promise<PersonalizationMemorySettings & { customInstructions?: string; baseStyle?: string; referenceChatHistory?: boolean }> {
@@ -1675,8 +1685,10 @@ export async function POST(request: NextRequest) {
       return null;
     })();
 
+    const personalizationEnabled = Boolean(personalizationSettings?.referenceSavedMemories);
+
     const baseSystemInstructions = [
-      BASE_SYSTEM_PROMPT,
+      personalizationEnabled ? BASE_SYSTEM_PROMPT : stripMemoryBehaviorBlock(BASE_SYSTEM_PROMPT),
       workspaceInstruction,
       "You can inline-read files when the user includes tokens like <<file:relative/path/to/file>> in their prompt. Replace those tokens with the file content and use it in your reasoning.",
       ...(location ? [`User's location: ${location.city} (${location.lat.toFixed(4)}, ${location.lng.toFixed(4)}). Use this for location-specific queries like weather, local events, or "near me" searches.`] : []),
@@ -1707,9 +1719,9 @@ export async function POST(request: NextRequest) {
 
     const systemInstructions = buildSystemPromptWithPersonalization(
       baseSystemInstructions,
-      personalizationSettings,
-      relevantMemories,
-      permanentInstructions
+      personalizationEnabled ? personalizationSettings : {},
+      personalizationEnabled ? relevantMemories : [],
+      personalizationEnabled ? permanentInstructions : []
     );
 
     // Build user content with native image inputs when available to leverage model vision
