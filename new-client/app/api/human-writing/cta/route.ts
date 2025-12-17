@@ -10,6 +10,7 @@ type CTARequest = {
   draftText?: string;
   reason?: string;
   status?: "pending" | "done";
+  createdAt?: string;
 };
 
 export async function POST(request: NextRequest) {
@@ -20,6 +21,10 @@ export async function POST(request: NextRequest) {
     const draftText = body.draftText?.trim() || "";
     const reason = body.reason;
     const status = body.status === "done" ? "done" : "pending";
+    const createdAt =
+      typeof body.createdAt === "string" && body.createdAt.trim().length
+        ? new Date(body.createdAt).toISOString()
+        : new Date().toISOString();
 
     if (!taskId) {
       return NextResponse.json({ error: "taskId is required" }, { status: 400 });
@@ -58,7 +63,9 @@ export async function POST(request: NextRequest) {
     const existingCtaRow = existingCTA?.[0];
     const existingCtaId = existingCtaRow?.id as string | undefined;
     const existingOrderTs =
-      (existingCtaRow?.metadata as any)?.order_ts || existingCtaRow?.created_at || new Date().toISOString();
+      (existingCtaRow?.metadata as any)?.order_ts ||
+      existingCtaRow?.created_at ||
+      createdAt;
 
     if (existingCtaId) {
       const { error: updateError } = await supabase
@@ -93,6 +100,7 @@ export async function POST(request: NextRequest) {
             status,
             order_ts: new Date().toISOString(),
           },
+          created_at: createdAt,
         },
       ])
       .select("id")
