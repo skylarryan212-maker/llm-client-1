@@ -30,6 +30,7 @@ export function useFlipListAnimation({
 }) {
   const prevRectsRef = useRef<RectMap>(new Map());
   const prevIdsRef = useRef<readonly string[]>([]);
+  const hasMeasuredRef = useRef(false);
 
   useLayoutEffect(() => {
     const container = containerRef.current;
@@ -42,6 +43,14 @@ export function useFlipListAnimation({
     const nextRects = getRectMap(container, selector);
     const prevRects = prevRectsRef.current;
     const prevIds = prevIdsRef.current;
+
+    // Avoid "flash" animations on first mount / route transitions when the list remounts.
+    if (!hasMeasuredRef.current) {
+      hasMeasuredRef.current = true;
+      prevRectsRef.current = nextRects;
+      prevIdsRef.current = ids;
+      return;
+    }
 
     if (!enabled || prefersReducedMotion) {
       prevRectsRef.current = nextRects;
@@ -101,4 +110,3 @@ export function useFlipListAnimation({
     prevIdsRef.current = ids;
   }, [containerRef, durationMs, enabled, ids, selector]);
 }
-
