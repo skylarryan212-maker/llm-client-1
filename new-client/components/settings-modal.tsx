@@ -288,7 +288,7 @@ export function SettingsModal({ isOpen, onClose, initialTab = 'preferences' }: S
   return (
     <div className="modal-overlay fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm pointer-events-none">
       <div
-        className="modal-panel relative flex flex-col sm:flex-row h-[82vh] sm:h-auto max-h-[82vh] w-full max-w-[min(520px,95vw)] sm:max-w-4xl overflow-hidden rounded-xl border border-border bg-card shadow-2xl pointer-events-auto"
+        className="modal-panel relative flex flex-col sm:flex-row h-[90vh] sm:h-auto max-h-[90vh] w-full max-w-[min(520px,95vw)] sm:max-w-4xl overflow-hidden rounded-xl border border-border bg-card shadow-2xl pointer-events-auto"
         style={panelHeightPx ? { height: `${panelHeightPx}px` } : undefined}
       >
         {/* Sidebar */}
