@@ -22,7 +22,7 @@ import type {
   Tool,
   ToolChoiceOptions,
 } from "openai/resources/responses/responses";
-import { calculateCost, calculateVectorStorageCost } from "@/lib/pricing";
+import { calculateCost, calculateVectorStorageCost, calculateToolCallCost } from "@/lib/pricing";
 import { getUserPlan } from "@/app/actions/plan-actions";
 import { getMonthlySpending } from "@/app/actions/usage-actions";
 import { hasExceededLimit, getPlanLimit } from "@/lib/usage-limits";
@@ -1753,6 +1753,8 @@ export async function POST(request: NextRequest) {
         : "auto"
       : undefined;
     let responseStream: any;
+    let webSearchCallCount = 0;
+    let fileSearchCallCount = 0;
     try {
       // Progressive flex processing: free users always, all users at 80%+ usage,
       // and GPT-5 Pro forces flex for non-Dev plans.
@@ -2043,6 +2045,7 @@ export async function POST(request: NextRequest) {
                 query: (event as { query?: string }).query ?? "web search",
               });
               noteDomainsFromCall((event as { item?: unknown }).item as WebSearchCall);
+              webSearchCallCount += 1;
             } else if (event.type === "response.file_search_call.in_progress") {
               sendStatusUpdate({
                 type: "file-search-start",
@@ -2053,6 +2056,7 @@ export async function POST(request: NextRequest) {
                 type: "file-search-complete",
                 query: (event as { query?: string }).query ?? "file search",
               });
+              fileSearchCallCount += 1;
             } else if (event.type === "response.function_call.in_progress") {
               // Memory tool called
               const functionName = (event as any).function?.name;
@@ -2161,6 +2165,49 @@ export async function POST(request: NextRequest) {
             }
           } else {
             console.warn("[usage] No tokens to log (both input and output are 0)");
+          }
+
+          // Tool call costs
+          if (userId) {
+            const webSearchCost = calculateToolCallCost("web_search", webSearchCallCount);
+            if (webSearchCallCount > 0 && webSearchCost > 0) {
+              try {
+                await logUsageRecord({
+                  userId,
+                  conversationId,
+                  model: "tool:web_search",
+                  inputTokens: 0,
+                  cachedTokens: 0,
+                  outputTokens: 0,
+                  estimatedCost: webSearchCost,
+                });
+                console.log(
+                  `[usage] Logged web_search calls=${webSearchCallCount} cost=$${webSearchCost.toFixed(6)}`
+                );
+              } catch (err) {
+                console.error("[usage] Failed to log web_search tool calls:", err);
+              }
+            }
+
+            const fileSearchCost = calculateToolCallCost("file_search", fileSearchCallCount);
+            if (fileSearchCallCount > 0 && fileSearchCost > 0) {
+              try {
+                await logUsageRecord({
+                  userId,
+                  conversationId,
+                  model: "tool:file_search",
+                  inputTokens: 0,
+                  cachedTokens: 0,
+                  outputTokens: 0,
+                  estimatedCost: fileSearchCost,
+                });
+                console.log(
+                  `[usage] Logged file_search calls=${fileSearchCallCount} cost=$${fileSearchCost.toFixed(6)}`
+                );
+              } catch (err) {
+                console.error("[usage] Failed to log file_search tool calls:", err);
+              }
+            }
           }
 
           const thinkingDurationMs =

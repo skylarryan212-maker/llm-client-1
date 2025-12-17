@@ -62,6 +62,12 @@ export const FILE_OPERATIONS_PRICING = {
   vector_store_search: 0.0, // Included in model costs
 };
 
+// Tool call pricing (per 1k calls)
+export const TOOL_CALL_PRICING_PER_1K = {
+  web_search: 2.5, // $2.50 / 1k tool calls (tool version/model dependent; using default)
+  file_search: 2.5, // Responses API file_search tool calls
+} as const;
+
 export function calculateCost(
   model: string,
   inputTokens: number,
@@ -89,4 +95,10 @@ export function calculateVectorStorageCost(sizeInBytes: number, durationInDays: 
 export function calculateWhisperCost(durationInSeconds: number): number {
   const durationInMinutes = durationInSeconds / 60;
   return durationInMinutes * WHISPER_COST_PER_MINUTE;
+}
+
+export function calculateToolCallCost(type: keyof typeof TOOL_CALL_PRICING_PER_1K, callCount: number): number {
+  const ratePer1k = TOOL_CALL_PRICING_PER_1K[type];
+  if (!ratePer1k || callCount <= 0) return 0;
+  return (callCount / 1000) * ratePer1k;
 }
