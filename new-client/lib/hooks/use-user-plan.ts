@@ -35,20 +35,24 @@ function cachePlan(plan: PlanType): PlanCacheEntry | null {
 }
 
 export function useUserPlan() {
-  const initialCache = typeof window !== "undefined" ? readPlanCache() : null;
-  const cacheRef = useRef<PlanCacheEntry | null>(initialCache);
-  const [plan, setPlan] = useState<PlanType>(() => initialCache?.plan ?? "free");
+  // Start from a stable server/client default to avoid hydration mismatches.
+  const cacheRef = useRef<PlanCacheEntry | null>(null);
+  const [plan, setPlan] = useState<PlanType>("free");
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
 
-    const needsRefresh =
-      !cacheRef.current || Date.now() - cacheRef.current.timestamp >= PLAN_CACHE_TTL_MS;
-
-    if (!needsRefresh) {
-      setIsLoading(false);
-      return;
+    // First: try cache from localStorage after mount (client only)
+    const cached = readPlanCache();
+    if (cached) {
+      cacheRef.current = cached;
+      setPlan(cached.plan);
+      const stillValid = Date.now() - cached.timestamp < PLAN_CACHE_TTL_MS;
+      if (stillValid) {
+        setIsLoading(false);
+        return;
+      }
     }
 
     async function loadPlan() {
