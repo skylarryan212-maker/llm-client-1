@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback, useLayoutEffect, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { X, Palette, Database, UserCircle, ChevronDown } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
@@ -65,8 +65,6 @@ export function SettingsModal({ isOpen, onClose, initialTab = 'preferences' }: S
   const [cancelResultDialog, setCancelResultDialog] = useState<{ open: boolean; message: string; success: boolean }>({ open: false, message: "", success: false })
   const [deleteAllChatsConfirmOpen, setDeleteAllChatsConfirmOpen] = useState(false)
   const [deleteAllChatsProcessing, setDeleteAllChatsProcessing] = useState(false)
-  const sidebarRef = useRef<HTMLDivElement | null>(null)
-  const [panelHeightPx, setPanelHeightPx] = useState<number | null>(null)
   const contentScrollRef = useRef<HTMLDivElement | null>(null)
   const [canScrollUp, setCanScrollUp] = useState(false)
   const [canScrollDown, setCanScrollDown] = useState(false)
@@ -131,29 +129,6 @@ export function SettingsModal({ isOpen, onClose, initialTab = 'preferences' }: S
       } catch {}
     }
   }, [isOpen, initialTab])
-
-  const recomputePanelHeight = useCallback(() => {
-    if (typeof window === 'undefined') return
-    const sidebarEl = sidebarRef.current
-    if (!sidebarEl) return
-
-    const desktop = window.matchMedia('(min-width: 640px)').matches
-    if (!desktop) {
-      setPanelHeightPx(null)
-      return
-    }
-
-    const sidebarHeight = Math.ceil(sidebarEl.scrollHeight)
-    const maxHeight = Math.floor(window.innerHeight * 0.82)
-    setPanelHeightPx(Math.min(sidebarHeight, maxHeight))
-  }, [])
-
-  useLayoutEffect(() => {
-    if (!isOpen) return
-    recomputePanelHeight()
-    window.addEventListener('resize', recomputePanelHeight)
-    return () => window.removeEventListener('resize', recomputePanelHeight)
-  }, [isOpen, recomputePanelHeight])
 
   useEffect(() => {
     if (!isOpen) return
@@ -288,11 +263,10 @@ export function SettingsModal({ isOpen, onClose, initialTab = 'preferences' }: S
   return (
     <div className="modal-overlay fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm pointer-events-none">
       <div
-        className="modal-panel relative flex flex-col sm:flex-row h-[90vh] sm:h-auto max-h-[90vh] w-full max-w-[min(520px,95vw)] sm:max-w-4xl overflow-hidden rounded-xl border border-border bg-card shadow-2xl pointer-events-auto"
-        style={panelHeightPx ? { height: `${panelHeightPx}px` } : undefined}
+        className="modal-panel relative flex flex-col sm:flex-row h-[96vh] max-h-[96vh] w-full max-w-[min(520px,95vw)] sm:max-w-4xl overflow-hidden rounded-xl border border-border bg-card shadow-2xl pointer-events-auto"
       >
         {/* Sidebar */}
-        <div ref={sidebarRef} className="w-full sm:w-56 border-b sm:border-b-0 sm:border-r border-border bg-muted/30 px-3 pt-3 pb-3">
+        <div className="w-full sm:w-56 border-b sm:border-b-0 sm:border-r border-border bg-muted/30 px-3 pt-3 pb-3">
           <div className="mb-3 flex h-8 items-center">
             <Button
               variant="ghost"
