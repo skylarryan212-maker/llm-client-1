@@ -390,8 +390,11 @@ export function ChatProvider({ children, initialChats = [], userId }: ChatProvid
     setChats((prev) => {
       const existingIndex = prev.findIndex((existing) => existing.id === chat.id);
 
+      // Insert new chat and keep list sorted by timestamp (desc)
       if (existingIndex === -1) {
-        return [chat, ...prev];
+        const next = [chat, ...prev];
+        next.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+        return next;
       }
 
       const existing = prev[existingIndex];
@@ -410,11 +413,18 @@ export function ChatProvider({ children, initialChats = [], userId }: ChatProvid
         mergedMessages = [...chat.messages, ...existingNew];
       }
 
+      const incomingTs = chat.timestamp || existing.timestamp || new Date().toISOString();
+      const existingTs = existing.timestamp || incomingTs;
+      const chosenTimestamp =
+        new Date(incomingTs).getTime() >= new Date(existingTs).getTime()
+          ? incomingTs
+          : existingTs;
+
       const updated: StoredChat = {
         ...existing,
         ...chat,
         title: chat.title || existing.title,
-        timestamp: chat.timestamp || existing.timestamp,
+        timestamp: chosenTimestamp,
         messages: mergedMessages,
       };
 
@@ -429,6 +439,7 @@ export function ChatProvider({ children, initialChats = [], userId }: ChatProvid
 
       const next = [...prev];
       next[existingIndex] = updated;
+      next.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
       return next;
     });
   }, []);
