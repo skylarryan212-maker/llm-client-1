@@ -49,9 +49,9 @@ export default function ManageMemoriesModal({ open, onOpenChange }: { open: bool
     <Dialog
       open={open}
       onClose={() => onOpenChange(false)}
-      contentClassName="w-full max-w-[min(720px,95vw)] max-h-[70vh] overflow-hidden p-0"
+      contentClassName="flex w-full max-w-[min(720px,95vw)] flex-col max-h-[70vh] overflow-hidden p-0"
     >
-      <div className="flex h-full flex-col">
+      <div className="flex min-h-0 flex-col">
         <div className="px-5 pt-5 pb-3 border-b border-border flex items-start justify-between gap-3">
           <h2 className="text-lg font-semibold">Saved memories</h2>
           <Button
