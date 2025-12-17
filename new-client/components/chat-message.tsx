@@ -137,6 +137,8 @@ export function ChatMessage({
     setRetryModel(model)
   }
 
+  const [showUserCopyHover, setShowUserCopyHover] = useState(false)
+
   if (role === 'user') {
     return (
       <div className={`py-3 sm:py-4 ${animateClass}`}>
@@ -172,11 +174,19 @@ export function ChatMessage({
               ))}
             </div>
           )}
-          <div className="relative inline-block max-w-[92%] sm:max-w-[85%] group">
+          <div
+            className="relative inline-block max-w-[92%] sm:max-w-[85%] pb-8"
+            onMouseEnter={() => setShowUserCopyHover(true)}
+            onMouseLeave={() => setShowUserCopyHover(false)}
+          >
             <div className="accent-user-bubble inline-block rounded-2xl px-3 sm:px-4 py-2.5 sm:py-3">
               <p className="text-base leading-relaxed break-words">{content}</p>
             </div>
-            <div className="absolute -bottom-8 right-1 opacity-0 group-hover:opacity-100 transition-opacity">
+            <div
+              className={`absolute -bottom-8 right-1 transition-opacity ${
+                showUserCopyHover ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
+              }`}
+            >
               <Button
                 variant="ghost"
                 size="icon-sm"
