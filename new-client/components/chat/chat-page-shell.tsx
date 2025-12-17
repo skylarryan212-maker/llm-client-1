@@ -870,20 +870,23 @@ export default function ChatPageShell({
     // that appears under an assistant message). Retry briefly until mounted.
     let cancelled = false;
     let retryRaf: number | null = null;
+    const startMs = typeof performance !== "undefined" ? performance.now() : Date.now();
+    const deadlineMs = startMs + 2500;
 
-    let attempts = 0;
     let scrollTimer: ReturnType<typeof setTimeout> | null = null;
     let guardTimer: ReturnType<typeof setTimeout> | null = null;
 
     const doScroll = () => {
       if (cancelled) return;
+      const nowMs = typeof performance !== "undefined" ? performance.now() : Date.now();
+      if (nowMs > deadlineMs) return;
+
       const viewport = scrollViewportRef.current;
       if (!viewport) return;
 
       const el = messageRefs.current[targetMessageId];
       if (!el) {
-        attempts += 1;
-        if (attempts < 12 && typeof requestAnimationFrame !== "undefined") {
+        if (typeof requestAnimationFrame !== "undefined") {
           retryRaf = requestAnimationFrame(doScroll);
         }
         return;
@@ -904,8 +907,7 @@ export default function ChatPageShell({
         if (typeof desiredSpacer === "number") {
           setBottomSpacerPx((prev) => Math.max(prev, desiredSpacer));
         }
-        attempts += 1;
-        if (attempts < 12) {
+        if (typeof requestAnimationFrame !== "undefined") {
           requestAnimationFrame(doScroll);
         }
         return;
