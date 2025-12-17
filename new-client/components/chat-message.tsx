@@ -172,8 +172,20 @@ export function ChatMessage({
               ))}
             </div>
           )}
-          <div className="accent-user-bubble inline-block rounded-2xl px-3 sm:px-4 py-2.5 sm:py-3 max-w-[92%] sm:max-w-[85%]">
-            <p className="text-base leading-relaxed break-words">{content}</p>
+          <div className="relative group inline-block max-w-[92%] sm:max-w-[85%]">
+            <div className="accent-user-bubble inline-block rounded-2xl px-3 sm:px-4 py-2.5 sm:py-3">
+              <p className="text-base leading-relaxed break-words">{content}</p>
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleCopy}
+              aria-label="Copy message"
+              className="absolute right-1 translate-y-2 opacity-0 group-hover:opacity-100 transition-opacity shadow-sm text-xs h-7 gap-1"
+            >
+              {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+              <span className="hidden sm:inline">{copied ? "Copied" : "Copy"}</span>
+            </Button>
           </div>
         </div>
       </div>
