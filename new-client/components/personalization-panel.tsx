@@ -15,7 +15,7 @@ const SettingsSchema = z.object({
   referenceSavedMemories: z.boolean().default(true),
   referenceChatHistory: z.boolean().default(true),
   allowSavingMemory: z.boolean().default(true),
-  baseStyle: z.enum(["Professional","Friendly","Concise","Creative"]).default("Professional"),
+  baseStyle: z.enum(["Professional","Friendly","Concise","Creative","Robot"]).default("Professional"),
 });
 
 type Settings = z.infer<typeof SettingsSchema>;
