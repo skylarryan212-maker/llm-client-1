@@ -234,6 +234,7 @@ export default function ChatPageShell({
   const [activeIndicatorMessageId, setActiveIndicatorMessageId] = useState<string | null>(null);
   const [isInsightSidebarOpen, setIsInsightSidebarOpen] = useState(false);
   const scrollViewportRef = useRef<HTMLDivElement | null>(null);
+  const isProgrammaticScrollRef = useRef(false);
   const conversationRenderKeyRef = useRef<string | null>(null);
   const animatedMessageIdsRef = useRef<Set<string>>(new Set());
   const lastCreatedConversationIdRef = useRef<string | null>(null);
@@ -841,20 +842,28 @@ export default function ChatPageShell({
       // composer (which is outside the ScrollArea viewport).
       if (targetTop > maxScrollTop) {
         const needed = targetTop - maxScrollTop;
-        setBottomSpacerPx((prev) => Math.max(prev, prev + Math.ceil(needed) + 8));
+        setBottomSpacerPx((prev) => Math.max(prev, prev + Math.ceil(needed) + 56));
         return;
       }
 
+      // Ensure programmatic scrolling doesn't toggle autoscroll state.
+      isProgrammaticScrollRef.current = true;
       viewport.scrollTo({
         top: targetTop,
         behavior: "smooth",
+      });
+      requestAnimationFrame(() => {
+        isProgrammaticScrollRef.current = false;
+        // Keep autoscroll disabled after pinning so streaming doesn't pull us away.
+        setIsAutoScroll(false);
+        setShowScrollToBottom(true);
       });
       alignNextUserMessageToTopRef.current = null;
     };
 
     // Double-RAF to ensure the viewport + message layout is settled.
     requestAnimationFrame(() => requestAnimationFrame(doScroll));
-  }, [messages.length]);
+  }, [messages.length, bottomSpacerPx]);
 
   const recomputeScrollFlags = useCallback(() => {
     const viewport = scrollViewportRef.current;
@@ -2021,6 +2030,7 @@ export default function ChatPageShell({
   };
 
   const handleScroll: React.UIEventHandler<HTMLDivElement> = (event) => {
+    if (isProgrammaticScrollRef.current) return;
     const target = event.currentTarget;
     const { scrollTop, scrollHeight, clientHeight } = target;
     const distanceFromBottom = scrollHeight - (scrollTop + clientHeight);
