@@ -2577,7 +2577,7 @@ export default function ChatPageShell({
         </div>
         {/* Composer: full-width bar, centered pill like ChatGPT */}
         <div
-          className="border-t border-border/40 bg-transparent px-4 sm:px-6 lg:px-12 py-3 sm:py-4 relative sticky bottom-0 z-30 pb-[max(env(safe-area-inset-bottom),0px)] transition-transform duration-200 ease-out"
+          className="bg-transparent px-4 sm:px-6 lg:px-12 py-3 sm:py-4 relative sticky bottom-0 z-30 pb-[max(env(safe-area-inset-bottom),0px)] transition-transform duration-200 ease-out"
           style={{ transform: `translateY(${-Math.max(0, composerLiftPx + 4)}px)` }}
         >
           <div
