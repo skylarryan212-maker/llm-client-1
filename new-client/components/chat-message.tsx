@@ -174,34 +174,35 @@ export function ChatMessage({
               ))}
             </div>
           )}
-          <div
-            className="relative inline-block max-w-[92%] sm:max-w-[85%] pb-6"
-            onMouseEnter={() => setShowUserCopyHover(true)}
-            onMouseLeave={() => setShowUserCopyHover(false)}
-          >
-            <div className="accent-user-bubble inline-block rounded-2xl px-3 sm:px-4 py-2.5 sm:py-3">
-              <p className="text-base leading-relaxed break-words">{content}</p>
-            </div>
-            {/* Expand hover zone below the bubble so approaching from above the assistant area reveals the control */}
+          <div className="relative w-full flex justify-end">
             <div
-              className="absolute left-0 right-0 -bottom-10 h-10"
+              className="absolute inset-x-0 -top-8 -bottom-10 pointer-events-auto"
               onMouseEnter={() => setShowUserCopyHover(true)}
               onMouseLeave={() => setShowUserCopyHover(false)}
             />
             <div
-              className={`absolute -bottom-6 right-1 transition-opacity ${
-                showUserCopyHover ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
-              }`}
+              className="relative inline-block max-w-[92%] sm:max-w-[85%] pb-6"
+              onMouseEnter={() => setShowUserCopyHover(true)}
+              onMouseLeave={() => setShowUserCopyHover(false)}
             >
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                onClick={handleCopy}
-                aria-label="Copy message"
-                className="h-8 w-8 flex-shrink-0 rounded-full text-muted-foreground hover:text-foreground hover:bg-accent/60 transition-colors"
+              <div className="accent-user-bubble inline-block rounded-2xl px-3 sm:px-4 py-2.5 sm:py-3">
+                <p className="text-base leading-relaxed break-words">{content}</p>
+              </div>
+              <div
+                className={`absolute -bottom-4 left-1/2 -translate-x-1/2 transition-opacity ${
+                  showUserCopyHover ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
+                }`}
               >
-                {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-              </Button>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  onClick={handleCopy}
+                  aria-label="Copy message"
+                  className="h-8 w-8 flex-shrink-0 rounded-full text-muted-foreground hover:text-foreground hover:bg-accent/60 transition-colors"
+                >
+                  {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+                </Button>
+              </div>
             </div>
           </div>
         </div>
