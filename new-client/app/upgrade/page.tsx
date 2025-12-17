@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useEffect, Suspense } from "react";
+import { useState, Suspense } from "react";
 import { ArrowLeft, Check, Lock, X } from "lucide-react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { unlockPlanWithCode, upgradeToPlan, type PlanType } from "@/app/actions/plan-actions";
@@ -69,21 +69,13 @@ const plans = [
 
 function UpgradePageContent() {
   const router = useRouter();
-  const searchParams = useSearchParams();
   const { plan: currentPlan, refreshPlan } = useUserPlan();
   const [isUnlockDialogOpen, setIsUnlockDialogOpen] = useState(false);
   const [selectedPlanForUnlock, setSelectedPlanForUnlock] = useState<Exclude<PlanType, "free"> | null>(null);
   const [unlockCode, setUnlockCode] = useState("");
   const [isProcessing, setIsProcessing] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
-  const [showAllPlans, setShowAllPlans] = useState(false);
   const [successDialog, setSuccessDialog] = useState<{ open: boolean; message: string; title: string }>({ open: false, message: "", title: "" });
-
-  useEffect(() => {
-    // Check if we should show all plans from URL parameter
-    const showAll = searchParams.get("showAll") === "true";
-    setShowAllPlans(showAll);
-  }, [searchParams]);
 
   const handleOpenUnlockDialog = (planId: Exclude<PlanType, "free">) => {
     setSelectedPlanForUnlock(planId);
@@ -112,9 +104,6 @@ function UpgradePageContent() {
     }
     setIsProcessing(false);
   };
-
-  // Determine if we should show all plans (from settings modal)
-  const shouldShowAllPlans = showAllPlans;
 
   // Helper to determine plan hierarchy
   const planHierarchy: Record<string, number> = {
@@ -150,6 +139,7 @@ function UpgradePageContent() {
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 auto-rows-fr gap-4 sm:gap-6 w-full place-items-stretch justify-items-center place-content-center justify-center">
           {filteredPlans.map((plan) => {
             const isCurrent = currentPlan === plan.id;
+            const canDirectChange = isLowerTier(plan.id) || plan.id === "basic";
             return (
               <div
                 key={plan.id}
@@ -195,30 +185,30 @@ function UpgradePageContent() {
                         <Button
                           className="w-full"
                           variant="outline"
-                          disabled={!isLowerTier(plan.id) || isProcessing}
+                          disabled={!canDirectChange || isProcessing}
                           title={
-                            isLowerTier(plan.id)
+                            canDirectChange
                               ? `Switch to ${plan.name}`
                               : "Direct upgrades are currently disabled. Please use unlock code."
                           }
                           onClick={async () => {
-                            if (!isLowerTier(plan.id)) return;
+                            if (!canDirectChange) return;
                             setIsProcessing(true);
                             const result = await upgradeToPlan(plan.id, currentPlan);
-                            await refreshPlan();
+                            if (result.success) await refreshPlan();
                             setIsProcessing(false);
                             setSuccessDialog({
                               open: true,
                               message: result.message,
-                              title: `Switched to ${plan.name}`,
+                              title: result.success ? `Switched to ${plan.name}` : "Plan change failed",
                             });
                           }}
                         >
-                          {isLowerTier(plan.id)
+                          {canDirectChange
                             ? `Switch to ${plan.name}`
                             : `Upgrade to ${plan.name}`}
                         </Button>
-                        {!isLowerTier(plan.id) && (
+                        {!canDirectChange && (
                           <Button
                             variant="outline"
                             className="w-full"
