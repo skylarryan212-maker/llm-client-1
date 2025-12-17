@@ -37,6 +37,7 @@ export function LocationPermissionModal({ onClose }: LocationPermissionModalProp
         const country = data.address?.country || "";
 
         const locationString = [city, state, country].filter(Boolean).join(", ");
+        const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
 
         // Store in localStorage
         localStorage.setItem("location_preference", "always");
@@ -44,6 +45,7 @@ export function LocationPermissionModal({ onClose }: LocationPermissionModalProp
           lat: latitude,
           lng: longitude,
           city: locationString,
+          timezone,
           timestamp: Date.now(),
         }));
 
@@ -56,6 +58,7 @@ export function LocationPermissionModal({ onClose }: LocationPermissionModalProp
           lat: latitude,
           lng: longitude,
           city: `${latitude.toFixed(2)}, ${longitude.toFixed(2)}`,
+          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
           timestamp: Date.now(),
         }));
       }

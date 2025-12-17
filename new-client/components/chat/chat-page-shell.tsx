@@ -1279,6 +1279,7 @@ export default function ChatPageShell({
             lat: parsed.lat,
             lng: parsed.lng,
             city: parsed.city,
+            timezone: parsed.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || null,
           };
         }
       } catch (e) {
@@ -1717,6 +1718,7 @@ export default function ChatPageShell({
             lat: parsed.lat,
             lng: parsed.lng,
             city: parsed.city,
+            timezone: parsed.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || null,
           };
         }
       } catch (e) {
