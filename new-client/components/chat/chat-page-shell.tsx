@@ -892,6 +892,19 @@ export default function ChatPageShell({
         return;
       }
 
+      // Ensure there's always enough scrollable "runway" below the messages to
+      // bring the new user prompt up to the top immediately, even before the
+      // assistant placeholder/stream has added any height. This prevents the
+      // first prompt-under-assistant case from waiting until the response ends.
+      const minimumSpacerForAlign = baseBottomSpacerPx + viewport.clientHeight + 80;
+      if (bottomSpacerPx < minimumSpacerForAlign) {
+        setBottomSpacerPx((prev) => Math.max(prev, minimumSpacerForAlign));
+        if (typeof requestAnimationFrame !== "undefined") {
+          retryRaf = requestAnimationFrame(doScroll);
+        }
+        return;
+      }
+
       const viewportRect = viewport.getBoundingClientRect();
       const elRect = el.getBoundingClientRect();
       const desiredPadding = 14;
