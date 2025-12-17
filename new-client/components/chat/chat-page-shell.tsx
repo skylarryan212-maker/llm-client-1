@@ -833,10 +833,11 @@ export default function ChatPageShell({
       if (!viewport) return;
 
       const bottom = getEffectiveScrollBottom(viewport);
-      viewport.scrollTo({ top: bottom, behavior });
+      const targetTop = Math.max(0, bottom - viewport.clientHeight);
+      viewport.scrollTo({ top: targetTop, behavior });
       if (typeof requestAnimationFrame !== "undefined") {
         requestAnimationFrame(() =>
-          viewport.scrollTo({ top: bottom, behavior: "auto" })
+          viewport.scrollTo({ top: targetTop, behavior: "auto" })
         );
       }
     },
@@ -940,7 +941,12 @@ export default function ChatPageShell({
       pinnedScrollTopRef.current = targetTop;
       // Keep autoscroll disabled after pinning so streaming doesn't pull us away.
       setIsAutoScroll(false);
-      setShowScrollToBottom(true);
+      {
+        const effectiveBottom = getEffectiveScrollBottom(viewport);
+        const distanceFromBottom = effectiveBottom - (targetTop + viewport.clientHeight);
+        const tolerance = Math.max(12, bottomSpacerPx / 3);
+        setShowScrollToBottom(!(distanceFromBottom <= tolerance));
+      }
       alignNextUserMessageToTopRef.current = null;
 
       // Let the new message render in place first, then smoothly scroll it to the top.
@@ -1074,14 +1080,16 @@ export default function ChatPageShell({
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
           if (viewport) {
-            viewport.scrollTo({ top: viewport.scrollHeight, behavior: "auto" });
+            const bottom = getEffectiveScrollBottom(viewport);
+            const targetTop = Math.max(0, bottom - viewport.clientHeight);
+            viewport.scrollTo({ top: targetTop, behavior: "auto" });
           }
         });
       });
     };
     
     scrollToEnd();
-  }, [messages, isAutoScroll, isStreaming]);
+  }, [messages, isAutoScroll, isStreaming, getEffectiveScrollBottom]);
 
   useEffect(() => {
     if (pinToPromptRef.current) return;
@@ -1091,8 +1099,7 @@ export default function ChatPageShell({
   }, [selectedChatId, scrollToBottom]);
 
   useEffect(() => {
-    if (isStreaming) return;
-    pinToPromptRef.current = false;
+    if (pinToPromptRef.current) return;
     pinnedScrollTopRef.current = null;
 
     // Shrink any extra spacer once we have enough content below the pinned prompt.
@@ -1119,7 +1126,7 @@ export default function ChatPageShell({
     if (nextSpacer === baseBottomSpacerPx) {
       pinnedMessageIdRef.current = null;
     }
-  }, [isStreaming]);
+  }, [messages.length, bottomSpacerPx, baseBottomSpacerPx, computeRequiredSpacerForMessage]);
 
   useEffect(() => {
     if (currentChat?.projectId) {
