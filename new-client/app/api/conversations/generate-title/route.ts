@@ -64,39 +64,27 @@ export async function POST(req: NextRequest) {
     );
 
     const encoder = new TextEncoder();
-    const hasLlamaKey = Boolean(process.env.DEEPINFRA_API_KEY);
-
-    const buildFallbackTitle = () => {
-      const cleaned = (userMessage || "").replace(/\s+/g, " ").trim();
-      if (!cleaned) return null;
-      const words = cleaned.split(" ").slice(0, 6).join(" ");
-      return normalizeGeneratedTitle(words);
-    };
     const readable = new ReadableStream({
       async start(controller) {
         try {
-          // If no key, skip the LLM call and fall back.
-          const llmDisabled = !hasLlamaKey;
-          const { text, usage } = llmDisabled
-            ? { text: "", usage: null as any }
-            : await callDeepInfraLlama({
-                messages: [
-                  {
-                    role: "system",
-                    content:
-                      "You create short chat titles (3-8 words) from a single user prompt. Avoid punctuation, emojis, and filler words. Respond with the title only.",
-                  },
-                  {
-                    role: "user",
-                    content: `User message:\n${userMessage}\n\nTitle:`,
-                  },
-                ],
-                enforceJson: false,
-                maxTokens: 100,
-                model: "mistralai/Mistral-Small-24B-Instruct-2501",
-              });
+          const { text, usage } = await callDeepInfraLlama({
+            messages: [
+              {
+                role: "system",
+                content:
+                  "You create short chat titles (3-8 words) from a single user prompt. Avoid punctuation, emojis, and filler words. Respond with the title only.",
+              },
+              {
+                role: "user",
+                content: `User message:\n${userMessage}\n\nTitle:`,
+              },
+            ],
+            enforceJson: false,
+            maxTokens: 100,
+            model: "mistralai/Mistral-Small-24B-Instruct-2501",
+          });
 
-          const normalizedTitle = normalizeGeneratedTitle(text.trim()) || buildFallbackTitle();
+          const normalizedTitle = normalizeGeneratedTitle(text.trim());
 
           if (!normalizedTitle) {
             console.warn(
@@ -161,29 +149,9 @@ export async function POST(req: NextRequest) {
           }
         } catch (error) {
           console.error("Streaming error:", error);
-          // Fallback: try to set a quick title from the prompt itself
-          const fallbackTitle = buildFallbackTitle();
-          if (fallbackTitle) {
-            try {
-              await supabaseAny
-                .from("conversations")
-                .update({ title: fallbackTitle })
-                .eq("id", conversationId)
-                .eq("user_id", userId);
-              controller.enqueue(
-                encoder.encode(JSON.stringify({ done: true, title: fallbackTitle }) + "\n")
-              );
-            } catch (updateErr) {
-              console.error("[titleDebug] fallback update failed:", updateErr);
-              controller.enqueue(
-                encoder.encode(JSON.stringify({ error: "Title generation failed" }) + "\n")
-              );
-            }
-          } else {
-            controller.enqueue(
-              encoder.encode(JSON.stringify({ error: "Title generation failed" }) + "\n")
-            );
-          }
+          controller.enqueue(
+            encoder.encode(JSON.stringify({ error: "Streaming failed" }) + "\n")
+          );
         } finally {
           controller.close();
         }
