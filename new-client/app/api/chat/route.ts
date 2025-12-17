@@ -1756,6 +1756,7 @@ export async function POST(request: NextRequest) {
     // Use generic Tool to avoid strict preview-only type union on WebSearchTool in SDK types
     const webSearchTool: Tool = { type: "web_search" as any };
     const fileSearchTool = { type: "file_search" as const, ...(vectorStoreId ? { vector_store_ids: [vectorStoreId] } : {}) };
+    const imageGenerationTool: Tool = { type: "image_generation" as any };
     
     // Memory management is now handled by the router model
     // No need for save_memory tool - router decides what to save based on user prompts
@@ -1768,6 +1769,8 @@ export async function POST(request: NextRequest) {
     if (vectorStoreId) {
       toolsForRequest.push(fileSearchTool as Tool);
     }
+    // Enable image generation tool for streaming models
+    toolsForRequest.push(imageGenerationTool);
     const toolChoice: ToolChoiceOptions | undefined = allowWebSearch
       ? requireWebSearch
         ? "required"
