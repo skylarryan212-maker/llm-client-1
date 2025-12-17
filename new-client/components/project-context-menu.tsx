@@ -63,6 +63,7 @@ export function ProjectContextMenu({
       if (menuRef.current && !menuRef.current.contains(event.target as Node) &&
           buttonRef.current && !buttonRef.current.contains(event.target as Node)) {
         setIsOpen(false)
+        setMenuCoords(null)
       }
     }
 
@@ -85,7 +86,8 @@ export function ProjectContextMenu({
         onClick={(e: React.MouseEvent<HTMLButtonElement>) => {
           e.preventDefault()
           e.stopPropagation()
-          setIsOpen(!isOpen)
+          setMenuCoords(null)
+          setIsOpen((prev) => !prev)
         }}
       >
         <MoreHorizontal className="h-4 w-4" />
