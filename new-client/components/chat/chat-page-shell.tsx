@@ -825,7 +825,18 @@ export default function ChatPageShell({
     if (!el) return;
 
     const doScroll = () => {
-      el.scrollIntoView({ block: "start", behavior: "smooth" });
+      const viewport = scrollViewportRef.current;
+      if (!viewport) return;
+
+      const viewportRect = viewport.getBoundingClientRect();
+      const elRect = el.getBoundingClientRect();
+      const desiredPadding = 14;
+      const nextTop = viewport.scrollTop + (elRect.top - viewportRect.top) - desiredPadding;
+
+      viewport.scrollTo({
+        top: Math.max(0, Math.round(nextTop)),
+        behavior: "smooth",
+      });
       alignNextUserMessageToTopRef.current = null;
     };
 
@@ -2599,7 +2610,6 @@ export default function ChatPageShell({
                               messageRefs.current[message.id] = el;
                             }
                           }}
-                          className="scroll-mt-4"
                         >
                           {message.role === "assistant" && (
                             <div className="flex flex-col gap-2 pb-2 px-4 sm:px-6">
