@@ -175,13 +175,19 @@ export function ChatMessage({
             </div>
           )}
           <div
-            className="relative inline-block max-w-[92%] sm:max-w-[85%] pb-4"
+            className="relative inline-block max-w-[92%] sm:max-w-[85%] pb-6"
             onMouseEnter={() => setShowUserCopyHover(true)}
             onMouseLeave={() => setShowUserCopyHover(false)}
           >
             <div className="accent-user-bubble inline-block rounded-2xl px-3 sm:px-4 py-2.5 sm:py-3">
               <p className="text-base leading-relaxed break-words">{content}</p>
             </div>
+            {/* Expand hover zone below the bubble so approaching from above the assistant area reveals the control */}
+            <div
+              className="absolute left-0 right-0 -bottom-10 h-10"
+              onMouseEnter={() => setShowUserCopyHover(true)}
+              onMouseLeave={() => setShowUserCopyHover(false)}
+            />
             <div
               className={`absolute -bottom-6 right-1 transition-opacity ${
                 showUserCopyHover ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
