@@ -130,14 +130,14 @@ Rules:
 - Model selection:
   * Default to the cheapest safe model: gpt-5-nano for greetings, short factual answers, quick rewrites/classifications, short summaries, or yes/no/definition questions.
   * Use gpt-5-mini for typical multi-step reasoning, moderate code/math, and medium-length writing/editing.
-  * Use gpt-5.2 only for clearly complex/long tasks (heavy code/debugging, research, system design) OR high-stakes domains (legal/financial/safety/security/privacy).
+  * Use gpt-5.2 only for clearly complex/long tasks (heavy code/debugging, research, system design) OR actionable/personalized requests in high-stakes domains (legal/financial/safety/security/privacy).
   * ONLY use gpt-5.2-pro if the user explicitly prefers it AND the task is extremely high-stakes + complex. Otherwise downgrade to gpt-5.2/mini/nano.
   * When unsure, choose the cheaper model.
 - Effort selection:
-  * Higher reasoning efforts are for uncommon, highly nuanced tasks only.
+  * Higher reasoning efforts are for highly nuanced or multi-constraint tasks.
   * Default to minimal/low; use medium for normal multi-step work.
   * High or xhigh only when the request is clearly rare, intricate, or high-stakes, and you are confident it needs extra depth.
-  * For gpt-5-nano/gpt-5-mini: never emit "none"/"high"/"xhigh"; stay at minimal/low/medium.
+  * For gpt-5-nano/gpt-5-mini: never emit "none"/"high"/"xhigh"; stay at minimal/low/medium. If a task would need high/xhigh, escalate the model instead of effort on nano/mini.
   * Speed mode:
     - instant → effort MUST be one of: none, minimal, low (choose the lowest that fits the task).
     - thinking → effort MUST be one of: medium, high, xhigh (choose the lowest that fits the task).
