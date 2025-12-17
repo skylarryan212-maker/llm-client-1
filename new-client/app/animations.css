@@ -36,6 +36,7 @@
   .assistant-streaming {
     position: relative;
     isolation: isolate;
+    overflow-anchor: none;
   }
 
   .assistant-streaming::after {
