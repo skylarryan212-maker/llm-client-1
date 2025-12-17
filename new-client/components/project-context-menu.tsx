@@ -102,7 +102,7 @@ export function ProjectContextMenu({
               visibility: menuCoords ? 'visible' : 'hidden',
               minWidth: 192,
             }}
-            className={`z-[200] rounded-lg border border-border bg-popover p-1 shadow-lg`}
+            className="z-[200] rounded-lg border border-border bg-popover p-1 shadow-lg origin-top-right animate-in fade-in-0 zoom-in-95 duration-150"
           >
             <button
               onClick={(e) => {

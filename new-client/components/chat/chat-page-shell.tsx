@@ -2260,7 +2260,7 @@ export default function ChatPageShell({
                     />
                   </DropdownMenuItem>
                   {showOtherModels && (
-                    <div className="mt-1 space-y-1 rounded-md border border-border/70 bg-popover px-2 py-2 text-foreground shadow-sm">
+                    <div className="mt-1 space-y-1 rounded-md border border-border/70 bg-popover px-2 py-2 text-foreground shadow-sm origin-top animate-in fade-in-0 zoom-in-95 duration-150">
                       <div className="px-3 pb-1 text-sm font-semibold text-muted-foreground">
                         GPT 5 Nano
                       </div>
