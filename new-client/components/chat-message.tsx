@@ -182,7 +182,7 @@ export function ChatMessage({
                 size="icon-sm"
                 onClick={handleCopy}
                 aria-label="Copy message"
-                className="h-8 w-8 rounded-full shadow-sm hover:bg-muted/60"
+                className="h-8 w-8 flex-shrink-0 rounded-full text-muted-foreground hover:text-foreground hover:bg-accent/60 transition-colors"
               >
                 {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
               </Button>
