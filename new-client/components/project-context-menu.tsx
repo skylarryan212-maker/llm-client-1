@@ -15,6 +15,7 @@ export function ProjectContextMenu({
   onDelete
 }: ProjectContextMenuProps) {
   const [isOpen, setIsOpen] = useState(false)
+  const [isPositioned, setIsPositioned] = useState(false)
   const [menuCoords, setMenuCoords] = useState<{
     position: 'above' | 'below'
     left: number
@@ -45,6 +46,9 @@ export function ProjectContextMenu({
           : Math.round(buttonRect.bottom + 8)
 
       setMenuCoords({ position, left, top })
+      if (!isPositioned) {
+        requestAnimationFrame(() => setIsPositioned(true))
+      }
     }
 
     const raf = requestAnimationFrame(reposition)
@@ -56,13 +60,14 @@ export function ProjectContextMenu({
       window.removeEventListener('resize', reposition)
       window.removeEventListener('scroll', reposition, true)
     }
-  }, [isOpen])
+  }, [isOpen, isPositioned])
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(event.target as Node) &&
           buttonRef.current && !buttonRef.current.contains(event.target as Node)) {
         setIsOpen(false)
+        setIsPositioned(false)
         setMenuCoords(null)
       }
     }
@@ -86,6 +91,7 @@ export function ProjectContextMenu({
         onClick={(e: React.MouseEvent<HTMLButtonElement>) => {
           e.preventDefault()
           e.stopPropagation()
+          setIsPositioned(false)
           setMenuCoords(null)
           setIsOpen((prev) => !prev)
         }}
@@ -101,10 +107,14 @@ export function ProjectContextMenu({
               position: 'fixed',
               left: menuCoords ? `${menuCoords.left}px` : '-9999px',
               top: menuCoords ? `${menuCoords.top}px` : '-9999px',
-              visibility: menuCoords ? 'visible' : 'hidden',
+              visibility: menuCoords && isPositioned ? 'visible' : 'hidden',
               minWidth: 192,
             }}
-            className="z-[200] rounded-lg border border-border bg-popover p-1 shadow-lg origin-top-right animate-in fade-in-0 zoom-in-95 duration-150"
+            className={`z-[200] rounded-lg border border-border bg-popover p-1 shadow-lg ${
+              menuCoords && isPositioned
+                ? `${menuCoords.position === 'above' ? 'origin-bottom-right' : 'origin-top-right'} animate-in fade-in-0 zoom-in-95 duration-150`
+                : ''
+            }`}
           >
             <button
               onClick={(e) => {
@@ -112,6 +122,7 @@ export function ProjectContextMenu({
                 e.stopPropagation()
                 onRename?.()
                 setIsOpen(false)
+                setIsPositioned(false)
               }}
               className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-popover-foreground hover:bg-accent"
             >
@@ -124,6 +135,7 @@ export function ProjectContextMenu({
                 e.stopPropagation()
                 onDelete?.()
                 setIsOpen(false)
+                setIsPositioned(false)
               }}
               className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-destructive hover:bg-accent"
             >

@@ -17,7 +17,8 @@ interface ChatContextMenuProps {
 
 export function ChatContextMenu({ onShare, onRename, onMoveToProject, onRemoveFromProject, onDelete, onArchive, removeLabel }: ChatContextMenuProps) {
   const [isOpen, setIsOpen] = useState(false)
-  const [menuCoords, setMenuCoords] = useState<{ left: number; top: number } | null>(null)
+  const [isPositioned, setIsPositioned] = useState(false)
+  const [menuCoords, setMenuCoords] = useState<{ left: number; top: number; position: 'above' | 'below' } | null>(null)
   const menuRef = useRef<HTMLDivElement>(null)
   const buttonRef = useRef<HTMLButtonElement>(null)
 
@@ -36,7 +37,7 @@ export function ChatContextMenu({ onShare, onRename, onMoveToProject, onRemoveFr
       const menuWidth = menuEl.offsetWidth
       const spaceBelow = window.innerHeight - buttonRect.bottom
 
-      const position = spaceBelow < menuHeight + 10 ? 'above' : 'below'
+      const position: 'above' | 'below' = spaceBelow < menuHeight + 10 ? 'above' : 'below'
 
       let left = Math.round(buttonRect.right - menuWidth)
       left = Math.min(Math.max(left, 8), Math.max(window.innerWidth - menuWidth - 8, 8))
@@ -45,7 +46,12 @@ export function ChatContextMenu({ onShare, onRename, onMoveToProject, onRemoveFr
         ? Math.round(buttonRect.top - menuHeight - 8)
         : Math.round(buttonRect.bottom + 8)
 
-      setMenuCoords({ left, top })
+      setMenuCoords({ left, top, position })
+      if (!isPositioned) {
+        // Reveal on the next frame so we never animate while jumping from
+        // the initial offscreen render into place.
+        requestAnimationFrame(() => setIsPositioned(true))
+      }
     }
 
     // Use requestAnimationFrame to ensure layout has settled and the
@@ -61,13 +67,14 @@ export function ChatContextMenu({ onShare, onRename, onMoveToProject, onRemoveFr
       window.removeEventListener('resize', reposition)
       window.removeEventListener('scroll', reposition, true)
     }
-  }, [isOpen])
+  }, [isOpen, isPositioned])
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(event.target as Node) &&
           buttonRef.current && !buttonRef.current.contains(event.target as Node)) {
         setIsOpen(false)
+        setIsPositioned(false)
         setMenuCoords(null)
       }
     }
@@ -91,6 +98,7 @@ export function ChatContextMenu({ onShare, onRename, onMoveToProject, onRemoveFr
         onClick={(e) => {
           e.preventDefault()
           e.stopPropagation()
+          setIsPositioned(false)
           setMenuCoords(null)
           setIsOpen((prev) => !prev)
         }}
@@ -109,9 +117,13 @@ export function ChatContextMenu({ onShare, onRename, onMoveToProject, onRemoveFr
             width: 'auto',
             minWidth: 160,
             // Keep the menu visually hidden until we compute its coords
-            visibility: menuCoords ? 'visible' : 'hidden',
+            visibility: menuCoords && isPositioned ? 'visible' : 'hidden',
           }}
-          className="z-50 rounded-lg border border-border bg-popover p-1 shadow-lg origin-top-right animate-in fade-in-0 zoom-in-95 duration-150"
+          className={`z-50 rounded-lg border border-border bg-popover p-1 shadow-lg ${
+            menuCoords && isPositioned
+              ? `${menuCoords.position === 'above' ? 'origin-bottom-right' : 'origin-top-right'} animate-in fade-in-0 zoom-in-95 duration-150`
+              : ''
+          }`}
         >
           <button
             onClick={(e) => {
@@ -119,6 +131,7 @@ export function ChatContextMenu({ onShare, onRename, onMoveToProject, onRemoveFr
               e.stopPropagation()
               onShare?.()
               setIsOpen(false)
+              setIsPositioned(false)
             }}
             className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-popover-foreground hover:bg-accent"
           >
@@ -132,6 +145,7 @@ export function ChatContextMenu({ onShare, onRename, onMoveToProject, onRemoveFr
               e.stopPropagation()
               onRename?.()
               setIsOpen(false)
+              setIsPositioned(false)
             }}
             className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-popover-foreground hover:bg-accent"
           >
@@ -144,6 +158,7 @@ export function ChatContextMenu({ onShare, onRename, onMoveToProject, onRemoveFr
               e.stopPropagation()
               onMoveToProject?.()
               setIsOpen(false)
+              setIsPositioned(false)
             }}
             className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-popover-foreground hover:bg-accent"
           >
@@ -160,6 +175,7 @@ export function ChatContextMenu({ onShare, onRename, onMoveToProject, onRemoveFr
                 e.stopPropagation()
                 onRemoveFromProject?.()
                 setIsOpen(false)
+                setIsPositioned(false)
               }}
               className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-popover-foreground hover:bg-accent"
             >
@@ -174,6 +190,7 @@ export function ChatContextMenu({ onShare, onRename, onMoveToProject, onRemoveFr
               e.stopPropagation()
               onArchive?.()
               setIsOpen(false)
+              setIsPositioned(false)
             }}
             className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-popover-foreground hover:bg-accent"
           >
@@ -186,6 +203,7 @@ export function ChatContextMenu({ onShare, onRename, onMoveToProject, onRemoveFr
               e.stopPropagation()
               onDelete?.()
               setIsOpen(false)
+              setIsPositioned(false)
             }}
             className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-destructive hover:bg-accent"
           >
