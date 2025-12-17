@@ -5,6 +5,22 @@ import { getCurrentUserIdServer } from "@/lib/supabase/user";
 
 export type PlanType = "free" | "basic" | "plus" | "pro" | "dev";
 
+type DbPlanType = "free" | "standard" | "plus" | "pro" | "dev";
+
+function toDbPlanType(planType: PlanType): DbPlanType {
+  // Supabase `user_plans.plan_type` constraint uses "standard" instead of "basic".
+  if (planType === "basic") return "standard";
+  return planType satisfies Exclude<PlanType, "basic"> as DbPlanType;
+}
+
+function fromDbPlanType(planType: unknown): PlanType {
+  if (planType === "standard") return "basic";
+  if (planType === "free" || planType === "basic" || planType === "plus" || planType === "pro" || planType === "dev") {
+    return planType;
+  }
+  return "free";
+}
+
 const UNLOCK_CODES: Record<Exclude<PlanType, "free">, string> = {
   basic: "devadmin",
   plus: "devadmin",
@@ -37,7 +53,7 @@ export async function getUserPlan(): Promise<PlanType> {
       return "free";
     }
 
-    return data.plan_type as PlanType;
+    return fromDbPlanType(data.plan_type);
   } catch (error) {
     console.error("Error fetching user plan:", error);
     return "free";
@@ -81,7 +97,7 @@ export async function unlockPlanWithCode(
 
     const { error: insertError } = await supabase.from("user_plans").insert({
       user_id: userId,
-      plan_type: planType,
+      plan_type: toDbPlanType(planType),
       unlock_code: code,
       is_active: true,
       updated_at: new Date().toISOString(),
@@ -131,7 +147,7 @@ export async function upgradeToPlan(
 
     const { error: insertError } = await supabase.from("user_plans").insert({
       user_id: userId,
-      plan_type: planType,
+      plan_type: toDbPlanType(planType),
       is_active: true,
       updated_at: new Date().toISOString(),
     });
@@ -200,7 +216,7 @@ export async function getUserPlanDetails(): Promise<{
       : null;
 
     return {
-      planType: data.plan_type as PlanType,
+      planType: fromDbPlanType(data.plan_type),
       renewalDate,
       isActive: data.is_active,
     };

@@ -11,7 +11,7 @@ import { useUserPlan } from "@/lib/hooks/use-user-plan";
 const plans = [
   {
     id: "basic" as PlanType,
-    name: "Basic",
+    name: "Standard",
     price: 10,
     description: "Essential access with light usage limits.",
     features: [
@@ -140,6 +140,7 @@ function UpgradePageContent() {
           {filteredPlans.map((plan) => {
             const isCurrent = currentPlan === plan.id;
             const canDirectChange = isLowerTier(plan.id) || plan.id === "basic";
+            const isUpgradeFromFree = currentPlan === "free" && plan.id === "basic";
             return (
               <div
                 key={plan.id}
@@ -205,10 +206,12 @@ function UpgradePageContent() {
                           }}
                         >
                           {canDirectChange
-                            ? `Switch to ${plan.name}`
+                            ? isUpgradeFromFree
+                              ? `Upgrade to ${plan.name}`
+                              : `Switch to ${plan.name}`
                             : `Upgrade to ${plan.name}`}
                         </Button>
-                        {!canDirectChange && (
+                        {(!canDirectChange || plan.id === "basic") && (
                           <Button
                             variant="outline"
                             className="w-full"
