@@ -1,6 +1,14 @@
 "use client";
 
-import { useState, KeyboardEvent, FormEvent, useRef, useCallback, useEffect } from "react";
+import {
+  useState,
+  KeyboardEvent,
+  FormEvent,
+  useRef,
+  useCallback,
+  useEffect,
+  ClipboardEvent,
+} from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Mic, ArrowUp } from "lucide-react";
@@ -392,11 +400,12 @@ export function ChatComposer({
     fileInputRef.current?.click();
   };
 
-  const handleFilesSelected = async (files: FileList | null) => {
-    if (!files || files.length === 0) return;
+  const handleFilesSelected = async (files: FileList | File[] | null) => {
+    const fileArray = Array.isArray(files) ? files : Array.from(files ?? []);
+    if (fileArray.length === 0) return;
     try {
       // Convert files to base64 data URLs (like legacy client)
-      const fileReads = Array.from(files).map((file) => {
+      const fileReads = fileArray.map((file) => {
         return new Promise<UploadedFragment>((resolve, reject) => {
           const reader = new FileReader();
           reader.onload = () => {
@@ -424,6 +433,20 @@ export function ChatComposer({
     } catch (err) {
       console.error("File read error:", err);
     }
+  };
+
+  const handlePaste = (e: ClipboardEvent<HTMLTextAreaElement>) => {
+    const items = Array.from(e.clipboardData?.items ?? []);
+    const files = items
+      .filter((item) => item.kind === "file")
+      .map((item) => item.getAsFile())
+      .filter((file): file is File => Boolean(file));
+
+    if (!files.length) return;
+
+    e.preventDefault();
+    setAttachmentError(null);
+    void handleFilesSelected(files);
   };
 
   return (
@@ -523,6 +546,8 @@ export function ChatComposer({
               value={value}
               onChange={(e) => setValue(e.target.value)}
               onKeyDown={handleKeyDown}
+              onPaste={handlePaste}
+              title="Tip: paste images/files to attach"
               placeholder={isTranscribing ? "Transcribing…" : placeholder ?? "Message LLM Client..."}
               rows={1}
               disabled={isRecording || isTranscribing}
