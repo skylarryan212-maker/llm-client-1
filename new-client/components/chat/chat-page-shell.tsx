@@ -2658,8 +2658,10 @@ function ContextUsageIndicator({
   const [isPinned, setIsPinned] = useState(false);
   const percent = Math.min(100, Math.max(0, Math.round(usage.percent ?? 0)));
   const remainingPercent = Math.max(0, 100 - percent);
-  const arc = `${percent * 3.6}deg`;
   const accent = "var(--user-accent-color, #7dd3fc)";
+  const radius = 12.5;
+  const circumference = 2 * Math.PI * radius;
+  const dashOffset = circumference * (1 - percent / 100);
   const safeNumber = (value?: number) =>
     typeof value === "number" && Number.isFinite(value) ? value : 0;
   const usedTokens =
@@ -2696,12 +2698,29 @@ function ContextUsageIndicator({
           });
         }}
       >
-        <div
-          className="absolute inset-0 rounded-full bg-white/10"
-          style={{
-            backgroundImage: `conic-gradient(${accent} ${arc}, rgba(255,255,255,0.08) ${arc})`,
-          }}
-        />
+        <svg className="absolute inset-0" viewBox="0 0 28 28" aria-hidden="true">
+          <circle
+            cx="14"
+            cy="14"
+            r={radius}
+            fill="none"
+            stroke="rgba(255,255,255,0.10)"
+            strokeWidth="3"
+          />
+          <circle
+            cx="14"
+            cy="14"
+            r={radius}
+            fill="none"
+            stroke={accent}
+            strokeWidth="3"
+            strokeLinecap="round"
+            strokeDasharray={`${circumference} ${circumference}`}
+            strokeDashoffset={dashOffset}
+            className="context-ring-progress"
+            transform="rotate(-90 14 14)"
+          />
+        </svg>
         <div className="absolute inset-[3px] rounded-full bg-background" />
       </div>
       <span className="text-sm font-semibold text-foreground">{percent}%</span>

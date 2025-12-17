@@ -73,6 +73,11 @@
     background-color: rgba(17, 17, 26, 0.9);
   }
 
+  .context-ring-progress {
+    transition: stroke-dashoffset 520ms cubic-bezier(0.16, 1, 0.3, 1);
+    will-change: stroke-dashoffset;
+  }
+
   @keyframes scroll-tip-slide {
     from {
       transform: translateY(16px);
@@ -187,6 +192,7 @@
   .assistant-streaming::after,
   .sidebar-entry,
   .composer-shell,
+  .context-ring-progress,
   .scroll-tip-button,
   .status-bubble,
   .modal-overlay,
