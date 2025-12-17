@@ -43,12 +43,12 @@ export function Dialog({ open, onClose, children, contentClassName }: DialogProp
   return createPortal(
     <div className="fixed inset-0 z-[1000] flex items-center justify-center px-4 py-6">
       <div
-        className="absolute inset-0 bg-black/60 backdrop-blur"
+        className="modal-overlay absolute inset-0 bg-black/60 backdrop-blur"
         onClick={handleBackdropClick}
       />
       <div
         className={cn(
-          "relative z-10 w-full max-w-sm overflow-hidden rounded-2xl border border-border bg-popover p-4 shadow-2xl",
+          "modal-panel relative z-10 w-full max-w-sm overflow-hidden rounded-2xl border border-border bg-popover p-4 shadow-2xl",
           contentClassName
         )}
         onClick={(event) => event.stopPropagation()}
