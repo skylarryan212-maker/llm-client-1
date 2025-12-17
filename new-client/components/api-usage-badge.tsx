@@ -17,6 +17,8 @@ type UsageCacheEntry = {
   timestamp: number;
 };
 
+let lastKnownUsage: { spending: number; status: UsageStatus } | null = null;
+
 const USAGE_CACHE_KEY = "api_usage_cache_v1";
 
 function readUsageCache(): UsageCacheEntry | null {
@@ -56,19 +58,22 @@ export function ApiUsageBadge() {
   const cached = readUsageCache();
 
   const [spending, setSpending] = useState<number | null>(
-    cached?.spending ?? initialSnapshot?.spending ?? null
+    lastKnownUsage?.spending ?? cached?.spending ?? initialSnapshot?.spending ?? null
   );
   const [usageStatus, setUsageStatus] = useState<UsageStatus | null>(
-    cached?.status ?? initialSnapshot?.status ?? null
+    lastKnownUsage?.status ?? cached?.status ?? initialSnapshot?.status ?? null
   );
 
   // Seed from SSR snapshot only if no cache exists (prevents flashing back to stale snapshot values).
   useEffect(() => {
     if (!initialSnapshot) return;
+    if (lastKnownUsage) return;
     if (readUsageCache()) return;
+    const seededStatus = initialSnapshot.status as UsageStatus;
+    lastKnownUsage = { spending: initialSnapshot.spending, status: seededStatus };
     setSpending(initialSnapshot.spending);
-    setUsageStatus(initialSnapshot.status as UsageStatus);
-    writeUsageCache(initialSnapshot.spending, initialSnapshot.status as UsageStatus);
+    setUsageStatus(seededStatus);
+    writeUsageCache(initialSnapshot.spending, seededStatus);
   }, [initialSnapshot]);
 
   // Listen for usage update events.
@@ -93,6 +98,7 @@ export function ApiUsageBadge() {
     try {
       const [monthlyTotal, plan] = await Promise.all([getMonthlySpending(), getUserPlan()]);
       const status = getUsageStatus(monthlyTotal, plan);
+      lastKnownUsage = { spending: monthlyTotal, status };
       setSpending(monthlyTotal);
       setUsageStatus(status);
       writeUsageCache(monthlyTotal, status);
