@@ -13,7 +13,7 @@ type ParallaxCardProps = {
 export function ParallaxCard({
   className,
   children,
-  intensity = 4,
+  intensity = 2,
   glint = true,
 }: ParallaxCardProps) {
   const ref = React.useRef<HTMLDivElement | null>(null);
