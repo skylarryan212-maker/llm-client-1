@@ -819,19 +819,28 @@ export default function ChatPageShell({
     return null;
   }, [messages]);
 
+  const getEffectiveScrollBottom = useCallback(
+    (viewport: HTMLDivElement) => {
+      const extraSpacer = Math.max(0, bottomSpacerPx - baseBottomSpacerPx);
+      return Math.max(0, viewport.scrollHeight - extraSpacer);
+    },
+    [baseBottomSpacerPx, bottomSpacerPx]
+  );
+
   const scrollToBottom = useCallback(
     (behavior: ScrollBehavior = "smooth") => {
       const viewport = scrollViewportRef.current;
       if (!viewport) return;
 
-      viewport.scrollTo({ top: viewport.scrollHeight, behavior });
+      const bottom = getEffectiveScrollBottom(viewport);
+      viewport.scrollTo({ top: bottom, behavior });
       if (typeof requestAnimationFrame !== "undefined") {
         requestAnimationFrame(() =>
-          viewport.scrollTo({ top: viewport.scrollHeight, behavior: "auto" })
+          viewport.scrollTo({ top: bottom, behavior: "auto" })
         );
       }
     },
-    []
+    [getEffectiveScrollBottom]
   );
 
   const computeRequiredSpacerForMessage = useCallback(
@@ -968,12 +977,13 @@ export default function ChatPageShell({
   const recomputeScrollFlags = useCallback(() => {
     const viewport = scrollViewportRef.current;
     if (!viewport) return;
-    const { scrollTop, scrollHeight, clientHeight } = viewport;
-    const distanceFromBottom = scrollHeight - (scrollTop + clientHeight);
+    const { scrollTop, clientHeight } = viewport;
+    const effectiveBottom = getEffectiveScrollBottom(viewport);
+    const distanceFromBottom = effectiveBottom - (scrollTop + clientHeight);
     const tolerance = Math.max(12, bottomSpacerPx / 3);
     const atBottom = distanceFromBottom <= tolerance;
     setShowScrollToBottom(!atBottom);
-  }, [bottomSpacerPx]);
+  }, [bottomSpacerPx, getEffectiveScrollBottom]);
 
   // Dynamically size the bottom spacer to provide room below messages
   useEffect(() => {
@@ -2192,7 +2202,7 @@ export default function ChatPageShell({
     if (isProgrammaticScrollRef.current) return;
 
     const target = event.currentTarget;
-    const { scrollTop, scrollHeight, clientHeight } = target;
+    const { scrollTop, clientHeight } = target;
 
     // While pinned-to-prompt, don't allow scrolling "past" the pinned position
     // (which would reveal blank space created by the temporary spacer).
@@ -2208,7 +2218,8 @@ export default function ChatPageShell({
       }
     }
 
-    const distanceFromBottom = scrollHeight - (scrollTop + clientHeight);
+    const effectiveBottom = getEffectiveScrollBottom(target);
+    const distanceFromBottom = effectiveBottom - (scrollTop + clientHeight);
     const tolerance = Math.max(16, bottomSpacerPx / 3);
     const atBottom = distanceFromBottom <= tolerance;
 
