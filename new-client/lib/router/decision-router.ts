@@ -311,7 +311,7 @@ Return only the "labels" object matching the output schema.`;
         : [];
     let newParentTopicId =
       labels.newParentTopicId && topicIds.has(labels.newParentTopicId) ? labels.newParentTopicId : null;
-    let topicAction: DecisionRouterOutput["topicAction"] = labels.topicAction;
+    const topicAction: DecisionRouterOutput["topicAction"] = labels.topicAction;
     if (topicAction === "new") {
       primaryTopicId = null;
       secondaryTopicIds = [];
