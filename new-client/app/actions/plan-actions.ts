@@ -64,25 +64,35 @@ export async function unlockPlanWithCode(
 
     const supabase = await supabaseServer();
 
-    // Upsert the plan (update if exists, insert if not)
-    const { error } = await supabase
+    // Avoid relying on a specific unique constraint for upsert; enforce "one active plan" ourselves.
+    const { error: deactivateError } = await supabase
       .from("user_plans")
-      .upsert(
-        {
-          user_id: userId,
-          plan_type: planType,
-          unlock_code: code,
-          is_active: true,
-          updated_at: new Date().toISOString(),
-        },
-        {
-          onConflict: "user_id",
-        }
-      );
+      .update({ is_active: false, updated_at: new Date().toISOString() })
+      .eq("user_id", userId)
+      .eq("is_active", true);
 
-    if (error) {
-      console.error("Error unlocking plan:", error);
-      return { success: false, message: "Failed to unlock plan" };
+    if (deactivateError) {
+      console.error("Error deactivating existing plan:", deactivateError);
+      return {
+        success: false,
+        message: `Failed to unlock plan${deactivateError.message ? `: ${deactivateError.message}` : ""}`,
+      };
+    }
+
+    const { error: insertError } = await supabase.from("user_plans").insert({
+      user_id: userId,
+      plan_type: planType,
+      unlock_code: code,
+      is_active: true,
+      updated_at: new Date().toISOString(),
+    });
+
+    if (insertError) {
+      console.error("Error unlocking plan:", insertError);
+      return {
+        success: false,
+        message: `Failed to unlock plan${insertError.message ? `: ${insertError.message}` : ""}`,
+      };
     }
 
     return { success: true, message: `Successfully unlocked ${planType} plan!` };
@@ -104,24 +114,34 @@ export async function upgradeToPlan(
 
     const supabase = await supabaseServer();
 
-    // Upsert the plan (update if exists, insert if not)
-    const { error } = await supabase
+    // Avoid relying on an upsert constraint; enforce "one active plan" ourselves.
+    const { error: deactivateError } = await supabase
       .from("user_plans")
-      .upsert(
-        {
-          user_id: userId,
-          plan_type: planType,
-          is_active: true,
-          updated_at: new Date().toISOString(),
-        },
-        {
-          onConflict: "user_id",
-        }
-      );
+      .update({ is_active: false, updated_at: new Date().toISOString() })
+      .eq("user_id", userId)
+      .eq("is_active", true);
 
-    if (error) {
-      console.error("Error changing plan:", error);
-      return { success: false, message: "Failed to change plan" };
+    if (deactivateError) {
+      console.error("Error changing plan:", deactivateError);
+      return {
+        success: false,
+        message: `Failed to change plan${deactivateError.message ? `: ${deactivateError.message}` : ""}`,
+      };
+    }
+
+    const { error: insertError } = await supabase.from("user_plans").insert({
+      user_id: userId,
+      plan_type: planType,
+      is_active: true,
+      updated_at: new Date().toISOString(),
+    });
+
+    if (insertError) {
+      console.error("Error changing plan:", insertError);
+      return {
+        success: false,
+        message: `Failed to change plan${insertError.message ? `: ${insertError.message}` : ""}`,
+      };
     }
 
     // Determine if this is an upgrade or downgrade
@@ -202,24 +222,33 @@ export async function cancelSubscription(): Promise<{
 
     const supabase = await supabaseServer();
 
-    // Set plan to free
-    const { error } = await supabase
+    const { error: deactivateError } = await supabase
       .from("user_plans")
-      .upsert(
-        {
-          user_id: userId,
-          plan_type: "free",
-          is_active: true,
-          updated_at: new Date().toISOString(),
-        },
-        {
-          onConflict: "user_id",
-        }
-      );
+      .update({ is_active: false, updated_at: new Date().toISOString() })
+      .eq("user_id", userId)
+      .eq("is_active", true);
 
-    if (error) {
-      console.error("Error canceling subscription:", error);
-      return { success: false, message: "Failed to cancel subscription" };
+    if (deactivateError) {
+      console.error("Error canceling subscription:", deactivateError);
+      return {
+        success: false,
+        message: `Failed to cancel subscription${deactivateError.message ? `: ${deactivateError.message}` : ""}`,
+      };
+    }
+
+    const { error: insertError } = await supabase.from("user_plans").insert({
+      user_id: userId,
+      plan_type: "free",
+      is_active: true,
+      updated_at: new Date().toISOString(),
+    });
+
+    if (insertError) {
+      console.error("Error canceling subscription:", insertError);
+      return {
+        success: false,
+        message: `Failed to cancel subscription${insertError.message ? `: ${insertError.message}` : ""}`,
+      };
     }
 
     return {
