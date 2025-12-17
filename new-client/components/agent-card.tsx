@@ -4,6 +4,7 @@ import Link from "next/link";
 import { ArrowRight, type LucideIcon } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { ParallaxCard } from "@/components/ui/parallax-card";
 
 interface AgentCardProps {
   icon: LucideIcon;
@@ -31,7 +32,7 @@ export function AgentCard({
 
   return (
     <div className="w-full">
-      <div className="group relative h-full overflow-hidden rounded-xl border border-border/80 bg-card/60 backdrop-blur-sm p-6 transition-all hover:border-primary/50 hover:shadow-lg hover:shadow-primary/10">
+      <ParallaxCard className="group relative h-full overflow-hidden rounded-xl border border-border/80 bg-card/60 backdrop-blur-sm p-6 transition-[box-shadow,border-color] hover:border-primary/50 hover:shadow-lg hover:shadow-primary/10">
         <div
           className={`pointer-events-none absolute inset-0 opacity-0 transition-opacity group-hover:opacity-10 ${
             gradient || "bg-gradient-to-br from-primary/40 via-primary/20 to-primary/10"
@@ -76,7 +77,7 @@ export function AgentCard({
             )}
           </div>
         </div>
-      </div>
+      </ParallaxCard>
     </div>
   );
 }
