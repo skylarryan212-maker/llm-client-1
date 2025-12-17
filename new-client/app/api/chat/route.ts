@@ -229,6 +229,8 @@ interface ChatRequestBody {
   simpleContextMode?: boolean;
   attachments?: Array<{ name?: string; mime?: string; dataUrl?: string; url?: string }>;
   location?: { lat: number; lng: number; city: string };
+  timezone?: string;
+  clientNow?: number;
 }
 
 type SearchStatusEvent =

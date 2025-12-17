@@ -2112,7 +2112,7 @@ export default function ChatPageShell({
       )}
 
       {/* Right column: header + messages + composer */}
-      <div className="flex flex-1 flex-col w-full min-w-0 min-h-0 overflow-hidden">
+      <div className="chat-ambient-bg flex flex-1 flex-col w-full min-w-0 min-h-0 overflow-hidden">
         {/* Header bar */}
         <div className="sticky top-0 z-20 flex h-[53px] items-center justify-between border-b border-border bg-background px-3 lg:px-6">
           <div className="flex items-center gap-3 min-w-0">

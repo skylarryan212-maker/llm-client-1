@@ -73,6 +73,89 @@
     background-color: rgba(17, 17, 26, 0.9);
   }
 
+  .chat-ambient-bg {
+    position: relative;
+    isolation: isolate;
+  }
+
+  .chat-ambient-bg::before {
+    content: "";
+    position: absolute;
+    inset: -20%;
+    pointer-events: none;
+    z-index: 0;
+    background:
+      radial-gradient(700px 520px at 16% 18%, rgba(56, 189, 248, 0.11), transparent 62%),
+      radial-gradient(760px 560px at 82% 20%, rgba(167, 139, 250, 0.11), transparent 62%),
+      radial-gradient(820px 620px at 55% 92%, rgba(16, 185, 129, 0.08), transparent 64%),
+      radial-gradient(720px 540px at 30% 72%, rgba(244, 114, 182, 0.07), transparent 64%);
+    filter: blur(56px) saturate(1.1);
+    opacity: 0.9;
+    transform: translate3d(0, 0, 0) scale(1.05);
+    animation: chat-ambient-drift 18s ease-in-out infinite;
+    will-change: transform, filter;
+  }
+
+  .chat-ambient-bg::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    background:
+      repeating-linear-gradient(
+        0deg,
+        rgba(255, 255, 255, 0.02),
+        rgba(255, 255, 255, 0.02) 1px,
+        transparent 1px,
+        transparent 9px
+      ),
+      repeating-linear-gradient(
+        90deg,
+        rgba(255, 255, 255, 0.014),
+        rgba(255, 255, 255, 0.014) 1px,
+        transparent 1px,
+        transparent 11px
+      );
+    opacity: 0.08;
+    mix-blend-mode: overlay;
+    animation: chat-ambient-grain 12s ease-in-out infinite;
+    will-change: transform, opacity;
+  }
+
+  @keyframes chat-ambient-drift {
+    0% {
+      transform: translate3d(-1%, -1%, 0) scale(1.05);
+      filter: blur(56px) saturate(1.1) hue-rotate(0deg);
+    }
+    33% {
+      transform: translate3d(2.2%, -1.4%, 0) scale(1.08);
+    }
+    66% {
+      transform: translate3d(-1.4%, 2.2%, 0) scale(1.1);
+      filter: blur(62px) saturate(1.15) hue-rotate(16deg);
+    }
+    100% {
+      transform: translate3d(-1%, -1%, 0) scale(1.05);
+      filter: blur(56px) saturate(1.1) hue-rotate(0deg);
+    }
+  }
+
+  @keyframes chat-ambient-grain {
+    0% {
+      transform: translate3d(0, 0, 0);
+      opacity: 0.07;
+    }
+    50% {
+      transform: translate3d(18px, -12px, 0);
+      opacity: 0.10;
+    }
+    100% {
+      transform: translate3d(0, 0, 0);
+      opacity: 0.07;
+    }
+  }
+
   .parallax-card {
     --mx: 50%;
     --my: 50%;
@@ -220,6 +303,8 @@
   .composer-shell,
   .context-ring-progress,
   .parallax-card,
+  .chat-ambient-bg::before,
+  .chat-ambient-bg::after,
   .scroll-tip-button,
   .status-bubble,
   .modal-overlay,
