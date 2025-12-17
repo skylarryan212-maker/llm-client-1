@@ -78,6 +78,11 @@
     isolation: isolate;
   }
 
+  .chat-ambient-bg > * {
+    position: relative;
+    z-index: 1;
+  }
+
   .chat-ambient-bg::before {
     content: "";
     position: absolute;
