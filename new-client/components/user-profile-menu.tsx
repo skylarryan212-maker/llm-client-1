@@ -102,7 +102,7 @@ export function UserProfileMenu({ isCompressed, onSettingsOpen, onGeneralSetting
               </Button>
             )}
           </DropdownMenuTrigger>
-          <DropdownMenuContent side="top" align={isCompressed ? "center" : "end"} sideOffset={8} className="w-56">
+          <DropdownMenuContent side="top" align={isCompressed ? "center" : "end"} sideOffset={10} collisionPadding={12} className="w-56">
             {!isGuest && (
               <>
                 <DropdownMenuItem onClick={() => onSettingsOpen?.()}>
