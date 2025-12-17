@@ -69,7 +69,10 @@ export default function CodexAgentPage() {
 
         <div className="mb-12 space-y-3">
           <div className="flex items-center gap-3">
-            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10 text-primary">
+            <div
+              className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10 text-primary"
+              style={{ viewTransitionName: "vt-agents-codex" } as any}
+            >
               <Code2 className="h-6 w-6" />
             </div>
             <div>

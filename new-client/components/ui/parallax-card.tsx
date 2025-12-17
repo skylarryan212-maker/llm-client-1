@@ -8,6 +8,7 @@ type ParallaxCardProps = {
   children: React.ReactNode;
   intensity?: number;
   glint?: boolean;
+  style?: React.CSSProperties;
 };
 
 export function ParallaxCard({
@@ -15,6 +16,7 @@ export function ParallaxCard({
   children,
   intensity = 2,
   glint = true,
+  style,
 }: ParallaxCardProps) {
   const ref = React.useRef<HTMLDivElement | null>(null);
   const frameRef = React.useRef<number | null>(null);
@@ -92,6 +94,7 @@ export function ParallaxCard({
     <div
       ref={ref}
       className={cn("parallax-card", className)}
+      style={style}
       data-hover={isHover ? "true" : "false"}
       onPointerEnter={handlePointerEnter}
       onPointerMove={handlePointerMove}

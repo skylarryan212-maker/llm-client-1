@@ -94,8 +94,11 @@ export default function HumanWritingAgentPage() {
         <div className="relative mx-auto w-full max-w-[960px] overflow-hidden rounded-[20px] border border-white/6 bg-gradient-to-br from-amber-500/25 via-orange-500/15 to-rose-500/25 p-6 shadow-[0_24px_90px_-48px_rgba(0,0,0,0.6)] sm:p-8">
           <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_20%_20%,rgba(255,255,255,0.08),transparent_35%),radial-gradient(circle_at_80%_0%,rgba(255,255,255,0.08),transparent_30%)]" />
           <div className="relative flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-            <div className="flex items-start gap-3">
-              <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-white/10 text-amber-100 ring-1 ring-white/20 backdrop-blur">
+              <div className="flex items-start gap-3">
+              <div
+                className="flex h-12 w-12 items-center justify-center rounded-xl bg-white/10 text-amber-100 ring-1 ring-white/20 backdrop-blur"
+                style={{ viewTransitionName: "vt-agents-human-writing" } as any}
+              >
                 <PenLine className="h-6 w-6" />
               </div>
               <div className="space-y-2">
