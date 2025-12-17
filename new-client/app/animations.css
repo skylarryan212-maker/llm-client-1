@@ -89,6 +89,8 @@
     inset: -20%;
     pointer-events: none;
     z-index: 0;
+    -webkit-mask-image: linear-gradient(to top, transparent 0px, rgba(0, 0, 0, 1) 160px);
+    mask-image: linear-gradient(to top, transparent 0px, rgba(0, 0, 0, 1) 160px);
     background:
       radial-gradient(700px 520px at 16% 18%, rgba(56, 189, 248, 0.11), transparent 62%),
       radial-gradient(760px 560px at 82% 20%, rgba(167, 139, 250, 0.11), transparent 62%),
@@ -107,6 +109,8 @@
     inset: 0;
     pointer-events: none;
     z-index: 0;
+    -webkit-mask-image: linear-gradient(to top, transparent 0px, rgba(0, 0, 0, 1) 160px);
+    mask-image: linear-gradient(to top, transparent 0px, rgba(0, 0, 0, 1) 160px);
     background:
       repeating-linear-gradient(
         0deg,
