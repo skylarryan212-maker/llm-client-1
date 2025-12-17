@@ -237,6 +237,7 @@ export default function ChatPageShell({
   const isProgrammaticScrollRef = useRef(false);
   const pinToPromptRef = useRef(false);
   const pinnedMessageIdRef = useRef<string | null>(null);
+  const pinnedScrollTopRef = useRef<number | null>(null);
   const conversationRenderKeyRef = useRef<string | null>(null);
   const animatedMessageIdsRef = useRef<Set<string>>(new Set());
   const lastCreatedConversationIdRef = useRef<string | null>(null);
@@ -878,16 +879,19 @@ export default function ChatPageShell({
 
       // Ensure programmatic scrolling doesn't toggle autoscroll state.
       isProgrammaticScrollRef.current = true;
+      pinnedScrollTopRef.current = targetTop;
       viewport.scrollTo({
         top: targetTop,
         behavior: "smooth",
       });
-      requestAnimationFrame(() => {
+      // Keep the programmatic scroll guard up briefly; some browsers fire
+      // scroll events after the next animation frame.
+      setTimeout(() => {
         isProgrammaticScrollRef.current = false;
         // Keep autoscroll disabled after pinning so streaming doesn't pull us away.
         setIsAutoScroll(false);
         setShowScrollToBottom(true);
-      });
+      }, 250);
       alignNextUserMessageToTopRef.current = null;
     };
 
@@ -1013,6 +1017,7 @@ export default function ChatPageShell({
   useEffect(() => {
     if (isStreaming) return;
     pinToPromptRef.current = false;
+    pinnedScrollTopRef.current = null;
 
     // Shrink any extra spacer once we have enough content below the pinned prompt.
     const pinnedId = pinnedMessageIdRef.current;
@@ -2094,24 +2099,23 @@ export default function ChatPageShell({
   const handleScroll: React.UIEventHandler<HTMLDivElement> = (event) => {
     if (isProgrammaticScrollRef.current) return;
 
-    // If the user manually scrolls after a pin-to-prompt action, stop pinning and
-    // remove extra bottom spacer so we don't allow "scrolling into emptiness".
-    if (pinToPromptRef.current && alignNextUserMessageToTopRef.current === null) {
-      pinToPromptRef.current = false;
-      pinnedMessageIdRef.current = null;
+    const target = event.currentTarget;
+    const { scrollTop, scrollHeight, clientHeight } = target;
 
-      const viewport = scrollViewportRef.current;
-      if (viewport && bottomSpacerPx > baseBottomSpacerPx) {
-        const delta = bottomSpacerPx - baseBottomSpacerPx;
-        setBottomSpacerPx(baseBottomSpacerPx);
-        requestAnimationFrame(() => {
-          viewport.scrollTop = Math.max(0, viewport.scrollTop - delta);
-        });
+    // While pinned-to-prompt, don't allow scrolling "past" the pinned position
+    // (which would reveal blank space created by the temporary spacer).
+    if (pinToPromptRef.current && pinnedScrollTopRef.current !== null) {
+      const maxAllowed = pinnedScrollTopRef.current;
+      if (scrollTop > maxAllowed + 2) {
+        isProgrammaticScrollRef.current = true;
+        target.scrollTop = maxAllowed;
+        setTimeout(() => {
+          isProgrammaticScrollRef.current = false;
+        }, 150);
+        return;
       }
     }
 
-    const target = event.currentTarget;
-    const { scrollTop, scrollHeight, clientHeight } = target;
     const distanceFromBottom = scrollHeight - (scrollTop + clientHeight);
     const tolerance = Math.max(16, bottomSpacerPx / 3);
     const atBottom = distanceFromBottom <= tolerance;
