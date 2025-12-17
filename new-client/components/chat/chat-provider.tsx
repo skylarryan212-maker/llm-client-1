@@ -12,6 +12,7 @@ export type StoredMessage = {
   timestamp: string;
   model?: string;
   metadata?: AssistantMessageMetadata | Record<string, unknown> | null;
+  preamble?: string | null;
 };
 
 export type StoredChat = {
@@ -98,6 +99,7 @@ export function ChatProvider({ children, initialChats = [], userId }: ChatProvid
           content: msg.content ?? "",
           timestamp: msg.created_at ?? new Date().toISOString(),
           metadata: msg.metadata as AssistantMessageMetadata | Record<string, unknown> | null,
+          preamble: (msg as any).preamble ?? null,
         });
         messageMap.set(convId, messages);
       });

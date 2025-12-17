@@ -841,6 +841,43 @@ export async function POST(request: NextRequest) {
     });
     const { conversationId, projectId, message, modelFamilyOverride, speedModeOverride, reasoningEffortOverride, skipUserInsert, forceWebSearch = false, attachments, location, timezone, clientNow, simpleContextMode = false } = body;
 
+    const extractReasoningText = (reasoning: any): string => {
+      if (!reasoning) return "";
+      if (typeof reasoning === "string") return reasoning;
+      if (typeof reasoning?.output_text === "string") return reasoning.output_text;
+      if (Array.isArray(reasoning?.summary)) {
+        return reasoning.summary
+          .map((s: any) => {
+            if (typeof s?.text === "string") return s.text;
+            if (typeof s?.content === "string") return s.content;
+            return "";
+          })
+          .filter(Boolean)
+          .join("\n\n");
+      }
+      if (Array.isArray(reasoning?.content)) {
+        return reasoning.content
+          .map((c: any) => {
+            if (typeof c?.text === "string") return c.text;
+            if (typeof c?.content === "string") return c.content;
+            return "";
+          })
+          .filter(Boolean)
+          .join("\n\n");
+      }
+      if (typeof reasoning?.text === "string") return reasoning.text;
+      return "";
+    };
+
+    const extractReasoningFromOutput = (output: any): string => {
+      if (!Array.isArray(output)) return "";
+      return output
+        .filter((item) => item && item.type === "reasoning")
+        .map((item) => extractReasoningText(item))
+        .filter(Boolean)
+        .join("\n\n");
+    };
+
     if (!conversationId || !message?.trim()) {
       return NextResponse.json(
         { error: "conversationId and message are required" },
@@ -1952,6 +1989,7 @@ export async function POST(request: NextRequest) {
 
     const requestStartMs = Date.now();
     let assistantContent = "";
+    let preambleBuffer = "";
     let firstTokenAtMs: number | null = null;
     const liveSearchDomainSet = new Set<string>();
     const liveSearchDomainList: string[] = [];
@@ -2102,6 +2140,20 @@ export async function POST(request: NextRequest) {
                   },
                 });
               }
+            } else if (event.type === "response.reasoning.delta" && typeof (event as any).delta === "string") {
+              const delta = (event as any).delta as string;
+              preambleBuffer += delta;
+              enqueueJson({ preamble_delta: delta });
+            } else if (
+              (event as any)?.item?.type === "reasoning" &&
+              typeof extractReasoningText((event as any).item) === "string" &&
+              (event.type === "response.output_item.added" || event.type === "response.output_item.done")
+            ) {
+              const text = extractReasoningText((event as any).item);
+              if (text) {
+                preambleBuffer += text;
+                enqueueJson({ preamble_delta: text });
+              }
             } else if (
               event.type === "response.web_search_call.in_progress" ||
               event.type === "response.web_search_call.searching"
@@ -2160,6 +2212,13 @@ export async function POST(request: NextRequest) {
           const finalResponse = await responseStream.finalResponse();
           if (finalResponse.output_text) {
             assistantContent = finalResponse.output_text;
+          }
+          if (!preambleBuffer) {
+            const extracted = extractReasoningFromOutput((finalResponse as any)?.output);
+            if (extracted) {
+              preambleBuffer = extracted;
+              enqueueJson({ preamble: extracted });
+            }
           }
 
           // Extract usage information for cost tracking
@@ -2312,6 +2371,9 @@ export async function POST(request: NextRequest) {
               combinedDomains[combinedDomains.length - 1] ||
               metadataPayload.searchedSiteLabel;
           }
+          if (preambleBuffer) {
+            (metadataPayload as any).preamble = preambleBuffer;
+          }
 
           const resolveAssistantRow = async (): Promise<MessageRow | null> => {
             if (assistantMessageRow) {
@@ -2333,6 +2395,7 @@ export async function POST(request: NextRequest) {
                 content: assistantContent,
                 openai_response_id: finalResponse.id || null,
                 metadata: metadataPayload,
+                preamble: preambleBuffer || null,
               })
               .eq("id", persistedAssistantRow.id)
               .select()
@@ -2356,6 +2419,7 @@ export async function POST(request: NextRequest) {
                 content: assistantContent,
                 openai_response_id: finalResponse.id || null,
                 metadata: metadataPayload,
+                preamble: preambleBuffer || null,
                 topic_id: resolvedTopicDecision.primaryTopicId ?? null,
               })
               .select()

@@ -46,6 +46,7 @@ export interface Message {
   created_at: string | null;
   metadata: Json | null;
   topic_id: string | null;
+  preamble?: string | null;
 }
 
 export interface MessageInsert {
@@ -56,11 +57,13 @@ export interface MessageInsert {
   openai_response_id?: string | null;
   metadata?: Json | null;
   topic_id?: string | null;
+  preamble?: string | null;
 }
 
 export interface MessageUpdate {
   metadata?: Json | null;
   topic_id?: string | null;
+  preamble?: string | null;
 }
 
 export interface Project {

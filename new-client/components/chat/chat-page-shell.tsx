@@ -233,6 +233,7 @@ export default function ChatPageShell({
   const [fileReadingIndicator, setFileReadingIndicator] = useState<"running" | "error" | null>(null);
   const [activeIndicatorMessageId, setActiveIndicatorMessageId] = useState<string | null>(null);
   const [isInsightSidebarOpen, setIsInsightSidebarOpen] = useState(false);
+   const [insightPreambles, setInsightPreambles] = useState<Record<string, string>>({});
   const scrollViewportRef = useRef<HTMLDivElement | null>(null);
   const isProgrammaticScrollRef = useRef(false);
   const pinToPromptRef = useRef(false);
@@ -272,6 +273,17 @@ export default function ChatPageShell({
   const fileIndicatorTimerRef = useRef<NodeJS.Timeout | null>(null);
   const openInsightSidebar = useCallback(() => setIsInsightSidebarOpen(true), []);
   const closeInsightSidebar = useCallback(() => setIsInsightSidebarOpen(false), []);
+  const appendPreambleDelta = useCallback(
+    (messageId: string, delta: string) => {
+      if (!delta) return;
+      setInsightPreambles((prev) => {
+        const current = prev[messageId] || "";
+        return { ...prev, [messageId]: current + delta };
+      });
+      setIsInsightSidebarOpen(true);
+    },
+    []
+  );
   const hasSessionAutoStream = useCallback((conversationId: string) => {
     return (
       typeof window !== "undefined" &&
@@ -1069,6 +1081,21 @@ export default function ChatPageShell({
     }
   }, [currentChat, selectedChatId]);
 
+  // Seed preambles from loaded messages (including persisted preambles)
+  useEffect(() => {
+    const next: Record<string, string> = {};
+    messages.forEach((m) => {
+      const meta = m.metadata as any;
+      if (meta?.preamble && typeof meta.preamble === "string") {
+        next[m.id] = meta.preamble;
+      }
+      if ((m as any).preamble && typeof (m as any).preamble === "string") {
+        next[m.id] = (m as any).preamble as string;
+      }
+    });
+    setInsightPreambles(next);
+  }, [messages, selectedChatId]);
+
   type UploadedFragment = { id: string; name: string; dataUrl?: string; url?: string; mime?: string };
 
   const streamGuestResponse = async (
@@ -1590,6 +1617,10 @@ export default function ChatPageShell({
                   content: assistantContent,
                   metadata: messageMetadata,
                 });
+              } else if (typeof parsed.preamble_delta === "string") {
+                appendPreambleDelta(assistantMessageId, parsed.preamble_delta);
+              } else if (typeof parsed.preamble === "string") {
+                appendPreambleDelta(assistantMessageId, parsed.preamble);
               } else if (parsed.status) {
                 handleStatusEvent(parsed.status as SearchStatusEvent);
               } else if (parsed.type === "web_search_domain" && typeof parsed.domain === "string") {
@@ -2840,8 +2871,19 @@ export default function ChatPageShell({
               <X className="h-4 w-4" />
             </Button>
           </div>
-          <div className="flex-1 p-4 text-sm text-muted-foreground">
-            User updates will appear here.
+          <div className="flex-1 p-4 text-sm text-muted-foreground space-y-3 overflow-y-auto">
+            {Object.entries(insightPreambles).length === 0 ? (
+              <p className="text-muted-foreground/80">Tool preambles will appear here.</p>
+            ) : (
+              Object.entries(insightPreambles).map(([messageId, text]) => (
+                <div key={messageId} className="rounded-lg border border-border bg-card/80 p-3 text-foreground">
+                  <div className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground mb-1">
+                    Message {messageId.slice(0, 6)}
+                  </div>
+                  <div className="whitespace-pre-wrap leading-relaxed">{text}</div>
+                </div>
+              ))
+            )}
           </div>
         </div>
       </div>
