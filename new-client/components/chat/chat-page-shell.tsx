@@ -100,6 +100,30 @@ const getAutoStreamKey = (conversationId: string) =>
   `${AUTO_STREAM_KEY_PREFIX}${conversationId}`;
 const CONTEXT_MODE_BY_CHAT_KEY = "llm-client-context-mode-by-chat";
 
+function loadInitialContextModeGlobal(): "advanced" | "simple" {
+  if (typeof window === "undefined") return "advanced";
+  try {
+    const raw = window.localStorage.getItem("context-mode-global");
+    return raw === "simple" || raw === "advanced" ? raw : "advanced";
+  } catch {
+    return "advanced";
+  }
+}
+
+function loadInitialContextModeByChat(): Record<string, "advanced" | "simple"> {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = window.localStorage.getItem(CONTEXT_MODE_BY_CHAT_KEY);
+    const parsed = raw ? JSON.parse(raw) : null;
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      return parsed as Record<string, "advanced" | "simple">;
+    }
+  } catch {
+    /* ignore */
+  }
+  return {};
+}
+
 function mergeThinkingTimingIntoMetadata(
   metadata: AssistantMessageMetadata | null,
   timing: ThinkingTimingInfo | null
@@ -191,8 +215,10 @@ export default function ChatPageShell({
   const [showOtherModels, setShowOtherModels] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
   const [contextUsageByChat, setContextUsageByChat] = useState<Record<string, ContextUsageSnapshot>>({});
-  const [contextModeGlobal, setContextModeGlobal] = useState<"advanced" | "simple">("advanced");
-  const [contextModeByChat, setContextModeByChat] = useState<Record<string, "advanced" | "simple">>({});
+  const [contextModeGlobal, setContextModeGlobal] = useState<"advanced" | "simple">(loadInitialContextModeGlobal);
+  const [contextModeByChat, setContextModeByChat] = useState<Record<string, "advanced" | "simple">>(
+    loadInitialContextModeByChat
+  );
   const [messagesWithFirstToken, setMessagesWithFirstToken] = useState<Set<string>>(new Set());
   const [thinkingStatus, setThinkingStatus] = useState<{ variant: "thinking" | "extended"; label: string } | null>(null);
   // Force re-render while thinking so a live duration chip can update
