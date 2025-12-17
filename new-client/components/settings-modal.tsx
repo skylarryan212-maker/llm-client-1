@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useLayoutEffect, useRef } from 'react'
-import { X, Settings, Bell, User, Grid3x3, Calendar, ShoppingCart, Database, Shield, Users2, UserCircle, ChevronDown } from 'lucide-react'
+import { X, Palette, Database, UserCircle, ChevronDown } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { useRouter } from 'next/navigation'
@@ -35,9 +35,9 @@ interface SettingsModalProps {
   initialTab?: TabType
 }
 
-type TabType = 'general' | 'personalization' | 'notifications' | 'apps' | 'schedules' | 'orders' | 'data' | 'security' | 'parental' | 'account'
+type TabType = 'preferences' | 'data' | 'account'
 
-export function SettingsModal({ isOpen, onClose, initialTab = 'personalization' }: SettingsModalProps) {
+export function SettingsModal({ isOpen, onClose, initialTab = 'preferences' }: SettingsModalProps) {
   const router = useRouter()
   const [activeTab, setActiveTab] = useState<TabType>(initialTab)
   const [accentColor, setAccentColor] = useState('white')
@@ -270,16 +270,9 @@ export function SettingsModal({ isOpen, onClose, initialTab = 'personalization' 
   if (!isOpen) return null
 
   const tabs = [
-    { id: 'general' as TabType, label: 'General', icon: Settings },
-    { id: 'notifications' as TabType, label: 'Notifications', icon: Bell },
-    { id: 'personalization' as TabType, label: 'Personalization', icon: User },
-    { id: 'apps' as TabType, label: 'Apps & Connectors', icon: Grid3x3 },
-    { id: 'schedules' as TabType, label: 'Schedules', icon: Calendar },
-    { id: 'orders' as TabType, label: 'Orders', icon: ShoppingCart },
-    { id: 'data' as TabType, label: 'Data controls', icon: Database },
-    { id: 'security' as TabType, label: 'Security', icon: Shield },
-    { id: 'parental' as TabType, label: 'Parental controls', icon: Users2 },
-    { id: 'account' as TabType, label: 'Account', icon: UserCircle },
+    { id: 'preferences' as TabType, label: 'Preferences', icon: Palette },
+    { id: 'account' as TabType, label: 'Account & Plan', icon: UserCircle },
+    { id: 'data' as TabType, label: 'Data', icon: Database },
   ]
 
   const accentColors = [
@@ -342,16 +335,16 @@ export function SettingsModal({ isOpen, onClose, initialTab = 'personalization' 
             className={`pointer-events-none absolute left-0 right-0 bottom-0 z-10 h-12 bg-gradient-to-t from-black/35 to-transparent transition-opacity duration-200 ${canScrollDown ? 'opacity-100' : 'opacity-0'}`}
           />
           <div ref={contentScrollRef} className="h-full overflow-y-auto p-6 sm:p-8">
-          {activeTab === 'general' && (
+          {activeTab === 'preferences' && (
             <div className="space-y-6">
               <div>
-                <h2 className="text-2xl font-semibold text-foreground">General</h2>
+                <h2 className="text-2xl font-semibold text-foreground">Preferences</h2>
                 <div className="mt-1 h-px bg-border" />
               </div>
 
               <div className="space-y-6">
                 <div className="flex items-center justify-between">
-                  <Label className="text-base">Appearance</Label>
+                  <Label className="text-base">Theme</Label>
                   <Select defaultValue="system">
                     <SelectTrigger className="w-40">
                       <SelectValue />
@@ -383,7 +376,7 @@ export function SettingsModal({ isOpen, onClose, initialTab = 'personalization' 
                 </div>
 
                 <div className="flex items-center justify-between">
-                  <Label className="text-base">Context mode (global default)</Label>
+                  <Label className="text-base">Context mode (default)</Label>
                   <Button
                     variant="outline"
                     size="sm"
@@ -402,23 +395,10 @@ export function SettingsModal({ isOpen, onClose, initialTab = 'personalization' 
                     {contextModeGlobal === "simple" ? "Simple" : "Advanced"}
                   </Button>
                 </div>
-
-                
-
-                
-
-                
-
-                
               </div>
-            </div>
-          )}
 
-          {activeTab === 'personalization' && (
-            <div className="space-y-6">
-              <div>
-                <h2 className="text-2xl font-semibold text-foreground">Personalization</h2>
-                <div className="mt-1 h-px bg-border" />
+              <div className="pt-2">
+                <div className="text-sm font-medium text-muted-foreground">Personalization</div>
               </div>
               <PersonalizationPanel />
             </div>
@@ -427,7 +407,7 @@ export function SettingsModal({ isOpen, onClose, initialTab = 'personalization' 
           {activeTab === 'data' && (
             <div className="space-y-6">
               <div>
-                <h2 className="text-2xl font-semibold text-foreground">Data controls</h2>
+                <h2 className="text-2xl font-semibold text-foreground">Data</h2>
                 <div className="mt-1 h-px bg-border" />
               </div>
 
@@ -457,7 +437,7 @@ export function SettingsModal({ isOpen, onClose, initialTab = 'personalization' 
           {activeTab === 'account' && (
             <div className="space-y-6">
               <div>
-                <h2 className="text-2xl font-semibold text-foreground">Account</h2>
+                <h2 className="text-2xl font-semibold text-foreground">Account & Plan</h2>
                 <div className="mt-1 h-px bg-border" />
               </div>
 
@@ -619,11 +599,6 @@ export function SettingsModal({ isOpen, onClose, initialTab = 'personalization' 
             </div>
           )}
 
-          {activeTab !== 'general' && activeTab !== 'personalization' && activeTab !== 'data' && activeTab !== 'account' && (
-            <div className="flex h-full items-center justify-center">
-              <p className="text-muted-foreground">This section is coming soon...</p>
-            </div>
-          )}
           </div>
         </div>
       </div>
