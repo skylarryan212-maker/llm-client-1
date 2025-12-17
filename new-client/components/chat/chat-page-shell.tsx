@@ -236,6 +236,7 @@ export default function ChatPageShell({
   const scrollViewportRef = useRef<HTMLDivElement | null>(null);
   const isProgrammaticScrollRef = useRef(false);
   const pinToPromptRef = useRef(false);
+  const pinnedMessageIdRef = useRef<string | null>(null);
   const conversationRenderKeyRef = useRef<string | null>(null);
   const animatedMessageIdsRef = useRef<Set<string>>(new Set());
   const lastCreatedConversationIdRef = useRef<string | null>(null);
@@ -820,6 +821,32 @@ export default function ChatPageShell({
     []
   );
 
+  const computeRequiredSpacerForMessage = useCallback(
+    (messageId: string) => {
+      const viewport = scrollViewportRef.current;
+      const el = messageRefs.current[messageId];
+      if (!viewport || !el) return null;
+
+      const viewportRect = viewport.getBoundingClientRect();
+      const elRect = el.getBoundingClientRect();
+      const desiredPadding = 14;
+
+      const elContentTop = viewport.scrollTop + (elRect.top - viewportRect.top);
+      const requiredScrollTop = Math.max(0, Math.round(elContentTop - desiredPadding));
+
+      // Estimate max scroll if bottom spacer were reset to base.
+      const contentWithoutSpacer = viewport.scrollHeight - bottomSpacerPx;
+      const maxScrollTopWithBase = Math.max(
+        0,
+        contentWithoutSpacer + baseBottomSpacerPx - viewport.clientHeight
+      );
+      const extraNeeded = Math.max(0, requiredScrollTop - maxScrollTopWithBase);
+
+      return baseBottomSpacerPx + extraNeeded;
+    },
+    [baseBottomSpacerPx, bottomSpacerPx]
+  );
+
   useEffect(() => {
     const targetMessageId = alignNextUserMessageToTopRef.current;
     if (!targetMessageId) return;
@@ -842,8 +869,10 @@ export default function ChatPageShell({
       // expand the bottom spacer so we can scroll further without affecting the
       // composer (which is outside the ScrollArea viewport).
       if (targetTop > maxScrollTop) {
-        const needed = targetTop - maxScrollTop;
-        setBottomSpacerPx((prev) => Math.max(prev, prev + Math.ceil(needed) + 12));
+        const desiredSpacer = computeRequiredSpacerForMessage(targetMessageId);
+        if (typeof desiredSpacer === "number") {
+          setBottomSpacerPx((prev) => Math.max(prev, desiredSpacer));
+        }
         return;
       }
 
@@ -984,6 +1013,29 @@ export default function ChatPageShell({
   useEffect(() => {
     if (isStreaming) return;
     pinToPromptRef.current = false;
+
+    // Shrink any extra spacer once we have enough content below the pinned prompt.
+    const pinnedId = pinnedMessageIdRef.current;
+    if (!pinnedId) return;
+
+    const desiredSpacer = computeRequiredSpacerForMessage(pinnedId);
+    if (typeof desiredSpacer !== "number") return;
+
+    const nextSpacer = Math.max(baseBottomSpacerPx, desiredSpacer);
+    if (nextSpacer >= bottomSpacerPx) return;
+
+    const viewport = scrollViewportRef.current;
+    const delta = bottomSpacerPx - nextSpacer;
+    setBottomSpacerPx(nextSpacer);
+    if (viewport) {
+      requestAnimationFrame(() => {
+        viewport.scrollTop = Math.max(0, viewport.scrollTop - delta);
+      });
+    }
+
+    if (nextSpacer === baseBottomSpacerPx) {
+      pinnedMessageIdRef.current = null;
+    }
   }, [isStreaming]);
 
   useEffect(() => {
@@ -1147,6 +1199,7 @@ export default function ChatPageShell({
     // alignment isn't immediately overwritten.
     setIsAutoScroll(false);
     pinToPromptRef.current = true;
+    pinnedMessageIdRef.current = userMessage.id;
     alignNextUserMessageToTopRef.current = userMessage.id;
 
     if (isGuest) {
@@ -2040,6 +2093,23 @@ export default function ChatPageShell({
 
   const handleScroll: React.UIEventHandler<HTMLDivElement> = (event) => {
     if (isProgrammaticScrollRef.current) return;
+
+    // If the user manually scrolls after a pin-to-prompt action, stop pinning and
+    // remove extra bottom spacer so we don't allow "scrolling into emptiness".
+    if (pinToPromptRef.current && alignNextUserMessageToTopRef.current === null) {
+      pinToPromptRef.current = false;
+      pinnedMessageIdRef.current = null;
+
+      const viewport = scrollViewportRef.current;
+      if (viewport && bottomSpacerPx > baseBottomSpacerPx) {
+        const delta = bottomSpacerPx - baseBottomSpacerPx;
+        setBottomSpacerPx(baseBottomSpacerPx);
+        requestAnimationFrame(() => {
+          viewport.scrollTop = Math.max(0, viewport.scrollTop - delta);
+        });
+      }
+    }
+
     const target = event.currentTarget;
     const { scrollTop, scrollHeight, clientHeight } = target;
     const distanceFromBottom = scrollHeight - (scrollTop + clientHeight);
