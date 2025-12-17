@@ -35,12 +35,11 @@ function cachePlan(plan: PlanType): PlanCacheEntry | null {
 }
 
 export function useUserPlan() {
-  // Start from a stable server/client default to avoid hydration mismatches.
-  const initialCache =
-    typeof window !== "undefined" ? readPlanCache() : null;
-  const cacheRef = useRef<PlanCacheEntry | null>(initialCache);
-  const [plan, setPlan] = useState<PlanType>(initialCache?.plan ?? "free");
+  // Start from a stable "free" plan to keep server/client HTML identical; hydrate with cache after mount.
+  const cacheRef = useRef<PlanCacheEntry | null>(null);
+  const [plan, setPlan] = useState<PlanType>("free");
   const [isLoading, setIsLoading] = useState(true);
+  const [hydrated, setHydrated] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -53,6 +52,7 @@ export function useUserPlan() {
       const stillValid = Date.now() - cached.timestamp < PLAN_CACHE_TTL_MS;
       if (stillValid) {
         setIsLoading(false);
+        setHydrated(true);
         return;
       }
     }
@@ -71,6 +71,7 @@ export function useUserPlan() {
       } finally {
         if (!cancelled) {
           setIsLoading(false);
+          setHydrated(true);
         }
       }
     }
@@ -91,8 +92,9 @@ export function useUserPlan() {
       console.error("Error refreshing user plan:", error);
     } finally {
       setIsLoading(false);
+      setHydrated(true);
     }
   };
 
-  return { plan, isLoading, refreshPlan };
+  return { plan, isLoading, hydrated, refreshPlan };
 }
