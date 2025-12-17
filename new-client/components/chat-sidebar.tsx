@@ -519,36 +519,39 @@ export function ChatSidebar({
                           <div
                             key={conv.id}
                             data-flip-id={conv.id}
-                            role="button"
-                            tabIndex={0}
-                            onClick={() => {
-                              onChatSelect?.(conv.id)
-                              closeSidebarIfMobile()
-                            }}
-                            onKeyDown={(event) =>
-                              handleListItemKeyDown(event, () => onChatSelect?.(conv.id))
-                            }
-                            className={`group/chat flex items-center ${listItemClass} rounded-lg ${
-                              selectedChatId === conv.id && !isAgentsPage
-                                ? 'bg-zinc-800 text-white'
-                                : 'hover:bg-sidebar-accent'
-                            }`}
                           >
-                            <div className="flex-1 min-w-0 pr-0">
-                              <AnimatedTitle 
-                                chatId={conv.id}
-                                title={conv.title}
-                                className="min-w-0 w-full truncate text-sm text-sidebar-foreground"
-                              />
-                            </div>
-                            <div className="flex-shrink-0 ml-2">
-                              <ChatContextMenu
-                                onShare={() => console.log('Share', conv.id)}
-                                onRename={() => void queueRenameChat(conv.id, conv.title)}
-                                onMoveToProject={() => void queueMoveChat(conv.id)}
-                                onArchive={() => console.log('Archive', conv.id)}
-                                onDelete={() => void queueDeleteChat(conv.id, conv.title)}
-                              />
+                            <div
+                              role="button"
+                              tabIndex={0}
+                              onClick={() => {
+                                onChatSelect?.(conv.id)
+                                closeSidebarIfMobile()
+                              }}
+                              onKeyDown={(event) =>
+                                handleListItemKeyDown(event, () => onChatSelect?.(conv.id))
+                              }
+                              className={`group/chat flex items-center ${listItemClass} rounded-lg ${
+                                selectedChatId === conv.id && !isAgentsPage
+                                  ? 'bg-zinc-800 text-white'
+                                  : 'hover:bg-sidebar-accent'
+                              }`}
+                            >
+                              <div className="flex-1 min-w-0 pr-0">
+                                <AnimatedTitle 
+                                  chatId={conv.id}
+                                  title={conv.title}
+                                  className="min-w-0 w-full truncate text-sm text-sidebar-foreground"
+                                />
+                              </div>
+                              <div className="flex-shrink-0 ml-2">
+                                <ChatContextMenu
+                                  onShare={() => console.log('Share', conv.id)}
+                                  onRename={() => void queueRenameChat(conv.id, conv.title)}
+                                  onMoveToProject={() => void queueMoveChat(conv.id)}
+                                  onArchive={() => console.log('Archive', conv.id)}
+                                  onDelete={() => void queueDeleteChat(conv.id, conv.title)}
+                                />
+                              </div>
                             </div>
                           </div>
                         ))}

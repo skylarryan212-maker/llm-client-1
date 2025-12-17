@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useRef, useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { Menu, Plus, ArrowLeft } from 'lucide-react'
 import { ChatContextMenu } from '@/components/chat-context-menu'
@@ -22,6 +22,7 @@ import { startProjectConversationAction } from "@/app/actions/chat-actions";
 import { updateProjectIconAction } from "@/app/actions/project-actions";
 import { requestAutoNaming } from "@/lib/autoNaming";
 import { useUserIdentity } from "@/components/user-identity-provider";
+import { useFlipListAnimation } from "@/lib/hooks/use-flip-list";
 
 import type { StoredChat, StoredMessage } from "@/components/chat/chat-provider";
 
@@ -126,6 +127,14 @@ export default function ProjectDetailPage() {
     const list = projectConversations[projectId] ?? [];
     return [...list].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
   }, [projectConversations, projectId]);
+
+  const projectChatIds = useMemo(() => projectChatList.map((c) => c.id), [projectChatList]);
+  const projectChatListRef = useRef<HTMLDivElement | null>(null);
+  useFlipListAnimation({
+    containerRef: projectChatListRef,
+    ids: projectChatIds,
+    enabled: true,
+  });
 
   if (shouldRedirectToProjects) {
     return null;
@@ -369,13 +378,14 @@ export default function ProjectDetailPage() {
               <ChatComposer onSubmit={handleProjectChatSubmit} />
               <div className="border-t border-b border-border bg-transparent">
                 {projectChatList.length ? (
-                  <div className="max-h-[360px] divide-y divide-border overflow-y-auto">
+                  <div ref={projectChatListRef} className="max-h-[360px] divide-y divide-border overflow-y-auto">
                     {projectChatList.map((chat) => {
                       const preview = getLatestUserPrompt(chat.messages);
                       const latestTimestamp = getLatestMessageTimestamp(chat.messages, chat.timestamp);
                       return (
                         <div
                           key={chat.id}
+                          data-flip-id={chat.id}
                           onClick={() => handleProjectChatSelect(projectId ?? "", chat.id)}
                           className="group/chat w-full bg-transparent px-3 py-3 cursor-pointer transition hover:bg-muted relative flex items-center min-w-0"
                         >
