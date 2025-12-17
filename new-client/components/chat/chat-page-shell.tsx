@@ -864,16 +864,30 @@ export default function ChatPageShell({
     const targetMessageId = alignNextUserMessageToTopRef.current;
     if (!targetMessageId) return;
 
-    const el = messageRefs.current[targetMessageId];
-    if (!el) return;
+    // The ref may not be mounted on the same tick as the message is appended.
+    // If we bail out here, the "align prompt to top" behavior can be delayed
+    // until the next unrelated state change (commonly seen on the first prompt
+    // that appears under an assistant message). Retry briefly until mounted.
+    let cancelled = false;
+    let retryRaf: number | null = null;
 
     let attempts = 0;
     let scrollTimer: ReturnType<typeof setTimeout> | null = null;
     let guardTimer: ReturnType<typeof setTimeout> | null = null;
 
     const doScroll = () => {
+      if (cancelled) return;
       const viewport = scrollViewportRef.current;
       if (!viewport) return;
+
+      const el = messageRefs.current[targetMessageId];
+      if (!el) {
+        attempts += 1;
+        if (attempts < 12 && typeof requestAnimationFrame !== "undefined") {
+          retryRaf = requestAnimationFrame(doScroll);
+        }
+        return;
+      }
 
       const viewportRect = viewport.getBoundingClientRect();
       const elRect = el.getBoundingClientRect();
@@ -921,6 +935,10 @@ export default function ChatPageShell({
     requestAnimationFrame(() => requestAnimationFrame(doScroll));
 
     return () => {
+      cancelled = true;
+      if (retryRaf && typeof cancelAnimationFrame !== "undefined") {
+        cancelAnimationFrame(retryRaf);
+      }
       if (scrollTimer) clearTimeout(scrollTimer);
       if (guardTimer) clearTimeout(guardTimer);
       isProgrammaticScrollRef.current = false;
