@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
 import { DollarSign, AlertTriangle } from "lucide-react";
 import { getMonthlySpending } from "@/app/actions/usage-actions";
 import { getUserPlan } from "@/app/actions/plan-actions";
@@ -8,20 +9,65 @@ import { getUsageStatus } from "@/lib/usage-limits";
 import { useUserIdentity } from "@/components/user-identity-provider";
 import { useUsageSnapshot } from "@/components/usage-snapshot-provider";
 
+type UsageStatus = ReturnType<typeof getUsageStatus>;
+
+type UsageCacheEntry = {
+  spending: number;
+  status: UsageStatus;
+  timestamp: number;
+};
+
+const USAGE_CACHE_KEY = "api_usage_cache_v1";
+
+function readUsageCache(): UsageCacheEntry | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = localStorage.getItem(USAGE_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (
+      parsed &&
+      typeof parsed.spending === "number" &&
+      parsed.status &&
+      typeof parsed.timestamp === "number"
+    ) {
+      return parsed as UsageCacheEntry;
+    }
+  } catch (err) {
+    console.error("Error reading usage cache:", err);
+  }
+  return null;
+}
+
+function writeUsageCache(spending: number, status: UsageStatus) {
+  if (typeof window === "undefined") return;
+  try {
+    const entry: UsageCacheEntry = { spending, status, timestamp: Date.now() };
+    localStorage.setItem(USAGE_CACHE_KEY, JSON.stringify(entry));
+  } catch (err) {
+    console.error("Error writing usage cache:", err);
+  }
+}
+
 export function ApiUsageBadge() {
   const { isGuest } = useUserIdentity();
+  const pathname = usePathname();
   const initialSnapshot = useUsageSnapshot();
-  const [spending, setSpending] = useState<number>(initialSnapshot?.spending ?? 0);
-  const [usageStatus, setUsageStatus] = useState(initialSnapshot?.status ?? null);
+  const cached = readUsageCache();
 
-  // Sync to incoming snapshot (e.g., on route changes) to avoid stale flicker
+  const [spending, setSpending] = useState<number | null>(cached?.spending ?? initialSnapshot?.spending ?? null);
+  const [usageStatus, setUsageStatus] = useState<UsageStatus | null>(cached?.status ?? initialSnapshot?.status ?? null);
+
+  // Sync to incoming snapshot and cache it.
   useEffect(() => {
     if (initialSnapshot) {
       setSpending(initialSnapshot.spending);
-      setUsageStatus(initialSnapshot.status);
+      setUsageStatus(initialSnapshot.status as UsageStatus);
+      writeUsageCache(initialSnapshot.spending, initialSnapshot.status as UsageStatus);
     }
   }, [initialSnapshot]);
 
+  // On mount: fetch fresh, listen for usage update events.
   useEffect(() => {
     loadData();
 
@@ -35,21 +81,33 @@ export function ApiUsageBadge() {
     };
   }, []);
 
+  // On URL/path change: hydrate from cache (if present) then fetch fresh.
+  useEffect(() => {
+    const cachedEntry = readUsageCache();
+    if (cachedEntry) {
+      setSpending(cachedEntry.spending);
+      setUsageStatus(cachedEntry.status);
+    } else {
+      setSpending(null);
+      setUsageStatus(null);
+    }
+    loadData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pathname]);
+
   const loadData = async () => {
     try {
-      const [monthlyTotal, plan] = await Promise.all([
-        getMonthlySpending(),
-        getUserPlan(),
-      ]);
-      setSpending(monthlyTotal);
+      const [monthlyTotal, plan] = await Promise.all([getMonthlySpending(), getUserPlan()]);
       const status = getUsageStatus(monthlyTotal, plan);
+      setSpending(monthlyTotal);
       setUsageStatus(status);
+      writeUsageCache(monthlyTotal, status);
     } catch (error) {
       console.error("Error loading usage data:", error);
     }
   };
 
-  if (isGuest || !usageStatus) {
+  if (isGuest || !usageStatus || spending === null) {
     return null;
   }
 
