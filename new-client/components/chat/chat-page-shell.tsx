@@ -201,7 +201,7 @@ export default function ChatPageShell({
   const [selectedProjectId, setSelectedProjectId] = useState(projectId ?? "");
   const [isNewProjectOpen, setIsNewProjectOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [settingsTab, setSettingsTab] = useState<'general' | 'personalization'>('personalization');
+  const [settingsTab, setSettingsTab] = useState<'preferences' | 'data' | 'account'>('preferences');
   const [usageLimitModal, setUsageLimitModal] = useState<{
     isOpen: boolean;
     currentSpending: number;
@@ -2348,7 +2348,7 @@ export default function ChatPageShell({
           selectedProjectId={selectedProjectId}
           onSettingsOpen={() => setIsSettingsOpen(true)}
           onGeneralSettingsOpen={() => {
-            setSettingsTab('general')
+            setSettingsTab('data')
             setIsSettingsOpen(true)
           }}
           onRefreshChats={refreshChats}
@@ -2891,7 +2891,7 @@ export default function ChatPageShell({
         isOpen={isSettingsOpen}
         onClose={() => {
           setIsSettingsOpen(false)
-          setSettingsTab('personalization')
+          setSettingsTab('preferences')
         }}
         initialTab={settingsTab}
       />

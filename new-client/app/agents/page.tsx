@@ -55,7 +55,7 @@ export default function AgentsPage() {
   const { chats, globalChats, refreshChats } = useChatStore();
   const [isSidebarOpen, setIsSidebarOpen] = usePersistentSidebarOpen(true);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [settingsTab, setSettingsTab] = useState<'general' | 'personalization'>('personalization');
+  const [settingsTab, setSettingsTab] = useState<'preferences' | 'data' | 'account'>('preferences');
 
   const sidebarConversations = useMemo(
     () =>
@@ -111,11 +111,11 @@ export default function AgentsPage() {
         onNewProject={() => router.push("/projects")}
         onProjectSelect={(projectId) => router.push(`/projects/${projectId}`)}
         onSettingsOpen={() => {
-          setSettingsTab('personalization')
+          setSettingsTab('preferences')
           setIsSettingsOpen(true)
         }}
         onGeneralSettingsOpen={() => {
-          setSettingsTab('general')
+          setSettingsTab('data')
           setIsSettingsOpen(true)
         }}
         onRefreshChats={refreshChats}
@@ -174,7 +174,7 @@ export default function AgentsPage() {
         isOpen={isSettingsOpen}
         onClose={() => {
           setIsSettingsOpen(false)
-          setSettingsTab('personalization')
+          setSettingsTab('preferences')
         }}
         initialTab={settingsTab}
       />

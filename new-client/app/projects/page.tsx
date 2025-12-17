@@ -18,7 +18,7 @@ export default function ProjectsPage() {
   const [selectedProjectId, setSelectedProjectId] = useState("");
   const [isNewProjectOpen, setIsNewProjectOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [settingsTab, setSettingsTab] = useState<'general' | 'personalization'>('personalization');
+  const [settingsTab, setSettingsTab] = useState<'preferences' | 'data' | 'account'>('preferences');
   const { projects, addProject, refreshProjects } = useProjects();
   const { globalChats, chats, refreshChats } = useChatStore();
   const router = useRouter();
@@ -101,11 +101,11 @@ export default function ProjectsPage() {
         onRefreshChats={refreshChats}
         onRefreshProjects={refreshProjects}
         onSettingsOpen={() => {
-          setSettingsTab('personalization')
+          setSettingsTab('preferences')
           setIsSettingsOpen(true)
         }}
         onGeneralSettingsOpen={() => {
-          setSettingsTab('general')
+          setSettingsTab('data')
           setIsSettingsOpen(true)
         }}
       />
@@ -163,7 +163,7 @@ export default function ProjectsPage() {
         isOpen={isSettingsOpen}
         onClose={() => {
           setIsSettingsOpen(false)
-          setSettingsTab('personalization')
+          setSettingsTab('preferences')
         }}
         initialTab={settingsTab}
       />

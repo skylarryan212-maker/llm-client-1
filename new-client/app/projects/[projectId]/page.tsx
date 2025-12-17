@@ -68,7 +68,7 @@ export default function ProjectDetailPage() {
   const [selectedProjectId, setSelectedProjectId] = useState(params.projectId);
   const [guestWarning, setGuestWarning] = useState<string | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [settingsTab, setSettingsTab] = useState<'general' | 'personalization'>('personalization');
+  const [settingsTab, setSettingsTab] = useState<'preferences' | 'data' | 'account'>('preferences');
   const [activeAction, setActiveAction] = useState<ActiveAction | null>(null);
   const [pendingName, setPendingName] = useState('');
 
@@ -313,11 +313,11 @@ export default function ProjectDetailPage() {
         onRefreshChats={refreshChats}
         onRefreshProjects={refreshProjects}
         onSettingsOpen={() => {
-          setSettingsTab('personalization')
+          setSettingsTab('preferences')
           setIsSettingsOpen(true)
         }}
         onGeneralSettingsOpen={() => {
-          setSettingsTab('general')
+          setSettingsTab('data')
           setIsSettingsOpen(true)
         }}
       />
@@ -573,7 +573,7 @@ export default function ProjectDetailPage() {
         isOpen={isSettingsOpen}
         onClose={() => {
           setIsSettingsOpen(false)
-          setSettingsTab('personalization')
+          setSettingsTab('preferences')
         }}
         initialTab={settingsTab}
       />
