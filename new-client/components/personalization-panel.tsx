@@ -34,23 +34,12 @@ async function load(): Promise<Settings> {
   }
 }
 
-async function save(s: Settings) {
-  try {
-    await savePersonalizationPreferences({
-      baseStyle: s.baseStyle,
-      customInstructions: s.customInstructions || "",
-      referenceSavedMemories: s.referenceSavedMemories,
-      referenceChatHistory: s.referenceChatHistory,
-      allowSavingMemory: s.allowSavingMemory,
-    });
-  } catch {}
-}
-
 export function PersonalizationPanel() {
   const [settings, setSettings] = useState<Settings>();
   const [openManage, setOpenManage] = useState(false);
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<number | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   useEffect(() => {
     load().then(setSettings);
@@ -67,7 +56,18 @@ export function PersonalizationPanel() {
     if (!settings) return;
     setSaving(true);
     try {
-      await save(settings);
+      const result = await savePersonalizationPreferences({
+        baseStyle: settings.baseStyle,
+        customInstructions: settings.customInstructions || "",
+        referenceSavedMemories: settings.referenceSavedMemories,
+        referenceChatHistory: settings.referenceChatHistory,
+        allowSavingMemory: settings.allowSavingMemory,
+      });
+      if (!result.success) {
+        setSaveError(result.message || "Failed to save changes");
+        return;
+      }
+      setSaveError(null);
       setSavedAt(Date.now());
     } finally { setSaving(false); }
   };
@@ -152,6 +152,9 @@ export function PersonalizationPanel() {
         <div>
           {savedAt && (
             <p className="text-xs text-muted-foreground">Saved {new Date(savedAt).toLocaleTimeString()}</p>
+          )}
+          {saveError && (
+            <p className="text-xs text-red-400">{saveError}</p>
           )}
         </div>
         <Button onClick={onSave} disabled={saving}>

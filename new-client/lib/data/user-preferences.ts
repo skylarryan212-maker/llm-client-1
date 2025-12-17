@@ -98,7 +98,7 @@ export async function updatePersonalizationPreferences(update: {
     return data;
   }
 
-  const insert: UserPreferencesInsert = { user_id: userId, ...update };
+  const insert: UserPreferencesInsert = { user_id: userId, accent_color: "white", ...update };
   const { data, error } = await supabaseAny
     .from("user_preferences")
     .insert([insert])
