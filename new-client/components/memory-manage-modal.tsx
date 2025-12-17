@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { X } from "lucide-react";
-import { fetchMemories, updateMemoryEnabled, deleteMemory, MemoryType, MemoryItem } from "@/lib/memory";
+import { fetchMemories, deleteMemory, MemoryType, MemoryItem } from "@/lib/memory";
 
 import { Dialog } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -49,7 +49,7 @@ export default function ManageMemoriesModal({ open, onOpenChange }: { open: bool
     <Dialog
       open={open}
       onClose={() => onOpenChange(false)}
-      contentClassName="w-full max-w-[min(520px,95vw)] sm:max-w-4xl max-h-[90vh] overflow-hidden p-0"
+      contentClassName="w-full max-w-[min(720px,95vw)] max-h-[70vh] overflow-hidden p-0"
     >
       <div className="flex h-full flex-col">
         <div className="px-5 pt-5 pb-3 border-b border-border flex items-start justify-between gap-3">
@@ -63,7 +63,7 @@ export default function ManageMemoriesModal({ open, onOpenChange }: { open: bool
             <X className="h-4 w-4" />
           </Button>
         </div>
-        <div className="flex-1 overflow-hidden p-5 space-y-4">
+        <div className="flex-1 min-h-0 overflow-hidden p-5 flex flex-col gap-4">
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
             <div className="sm:col-span-2">
               <Input
@@ -91,7 +91,7 @@ export default function ManageMemoriesModal({ open, onOpenChange }: { open: bool
             </div>
           </div>
 
-          <div className="flex-1 overflow-y-auto pr-1 space-y-2">
+          <div className="flex-1 min-h-0 overflow-y-auto pr-1 space-y-2">
             {loading ? (
               <p className="text-sm text-muted-foreground">Loading…</p>
             ) : items.length === 0 ? (
@@ -105,16 +105,6 @@ export default function ManageMemoriesModal({ open, onOpenChange }: { open: bool
                       <p className="text-xs text-muted-foreground capitalize">{m.type}</p>
                     </div>
                     <div className="flex flex-shrink-0 items-center gap-2">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={async () => {
-                          await updateMemoryEnabled(m.id, !m.enabled);
-                          loadMemories();
-                        }}
-                      >
-                        {m.enabled ? "Disable" : "Enable"}
-                      </Button>
                       <Button
                         size="sm"
                         variant="destructive"
