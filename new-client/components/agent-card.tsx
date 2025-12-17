@@ -31,10 +31,10 @@ export function AgentCard({
 
   return (
     <div className="w-full">
-      <div className="group relative h-full overflow-hidden rounded-xl border border-border bg-card p-6 transition-all hover:border-primary/50 hover:shadow-lg hover:shadow-primary/10">
+      <div className="group relative h-full overflow-hidden rounded-xl border border-border/80 bg-card/60 backdrop-blur-sm p-6 transition-all hover:border-primary/50 hover:shadow-lg hover:shadow-primary/10">
         <div
-          className={`pointer-events-none absolute inset-0 opacity-0 transition-opacity group-hover:opacity-5 ${
-            gradient || "bg-gradient-to-br from-primary to-primary"
+          className={`pointer-events-none absolute inset-0 opacity-0 transition-opacity group-hover:opacity-10 ${
+            gradient || "bg-gradient-to-br from-primary/40 via-primary/20 to-primary/10"
           }`}
         />
 
