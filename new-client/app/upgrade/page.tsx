@@ -59,6 +59,7 @@ const plans = [
       "Everything in Pro",
       "Full priority processing on all models",
       "Highest allowances across agents and GPT-5.2 Pro",
+      "Early access to new features",
     ],
     recommended: false,
     gradientFrom: "from-amber-400/5",
