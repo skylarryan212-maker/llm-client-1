@@ -13,12 +13,13 @@ type ParallaxCardProps = {
 export function ParallaxCard({
   className,
   children,
-  intensity = 8,
+  intensity = 4,
   glint = true,
 }: ParallaxCardProps) {
   const ref = React.useRef<HTMLDivElement | null>(null);
   const frameRef = React.useRef<number | null>(null);
   const reducedMotionRef = React.useRef(false);
+  const [isHover, setIsHover] = React.useState(false);
 
   React.useEffect(() => {
     if (typeof window === "undefined") return;
@@ -72,12 +73,18 @@ export function ParallaxCard({
     });
   };
 
+  const handlePointerEnter: React.PointerEventHandler<HTMLDivElement> = () => {
+    if (reducedMotionRef.current) return;
+    setIsHover(true);
+  };
+
   const handlePointerLeave: React.PointerEventHandler<HTMLDivElement> = () => {
     if (reducedMotionRef.current) return;
     if (frameRef.current !== null) {
       cancelAnimationFrame(frameRef.current);
       frameRef.current = null;
     }
+    setIsHover(false);
     setVars("0deg", "0deg", "50%", "50%");
   };
 
@@ -85,6 +92,8 @@ export function ParallaxCard({
     <div
       ref={ref}
       className={cn("parallax-card", className)}
+      data-hover={isHover ? "true" : "false"}
+      onPointerEnter={handlePointerEnter}
       onPointerMove={handlePointerMove}
       onPointerLeave={handlePointerLeave}
     >
@@ -93,4 +102,3 @@ export function ParallaxCard({
     </div>
   );
 }
-
