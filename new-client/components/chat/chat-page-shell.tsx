@@ -856,6 +856,8 @@ export default function ChatPageShell({
     if (!el) return;
 
     let attempts = 0;
+    let scrollTimer: ReturnType<typeof setTimeout> | null = null;
+    let guardTimer: ReturnType<typeof setTimeout> | null = null;
 
     const doScroll = () => {
       const viewport = scrollViewportRef.current;
@@ -886,21 +888,31 @@ export default function ChatPageShell({
       // Ensure programmatic scrolling doesn't toggle autoscroll state.
       isProgrammaticScrollRef.current = true;
       pinnedScrollTopRef.current = targetTop;
-      // Use an instant scroll to avoid intermediate scroll events (which can
-      // interrupt alignment and create partial pinning).
-      viewport.scrollTop = targetTop;
-      setTimeout(() => {
-        isProgrammaticScrollRef.current = false;
-      }, 0);
-
       // Keep autoscroll disabled after pinning so streaming doesn't pull us away.
       setIsAutoScroll(false);
       setShowScrollToBottom(true);
       alignNextUserMessageToTopRef.current = null;
+
+      // Let the new message render in place first, then smoothly scroll it to the top.
+      scrollTimer = setTimeout(() => {
+        viewport.scrollTo({ top: targetTop, behavior: "smooth" });
+      }, 80);
+
+      // Keep the programmatic scroll guard up long enough to ignore scroll events
+      // fired during the smooth scroll animation.
+      guardTimer = setTimeout(() => {
+        isProgrammaticScrollRef.current = false;
+      }, 900);
     };
 
     // Double-RAF to ensure the viewport + message layout is settled.
     requestAnimationFrame(() => requestAnimationFrame(doScroll));
+
+    return () => {
+      if (scrollTimer) clearTimeout(scrollTimer);
+      if (guardTimer) clearTimeout(guardTimer);
+      isProgrammaticScrollRef.current = false;
+    };
   }, [messages.length, bottomSpacerPx]);
 
   const recomputeScrollFlags = useCallback(() => {
