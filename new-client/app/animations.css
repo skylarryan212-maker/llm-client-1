@@ -50,17 +50,11 @@
   }
 
   .sidebar-entry {
-    transition: transform 180ms ease, background-color 200ms ease, box-shadow 200ms ease;
-    will-change: transform;
-  }
-
-  .sidebar-entry:hover {
-    transform: translateX(2px);
+    transition: background-color 200ms ease;
   }
 
   .sidebar-entry[data-sidebar-selected="true"] {
-    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
-    transform: translateX(0);
+    box-shadow: none;
   }
 
   .composer-shell {
