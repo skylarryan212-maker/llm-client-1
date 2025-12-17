@@ -1035,6 +1035,27 @@ export default function ChatPageShell({
     scrollToEnd();
   }, [messages, isAutoScroll, isStreaming]);
 
+  // Keep the viewport pinned to bottom while status indicators add content,
+  // but only if the user is already in autoscroll mode.
+  useEffect(() => {
+    if (!isAutoScroll) return;
+    if (isStreaming) return;
+    if (pinToPromptRef.current) return;
+
+    const hasIndicator = Boolean(thinkingStatus || searchIndicator || fileReadingIndicator);
+    if (!hasIndicator) return;
+
+    scrollToBottom("auto");
+    setShowScrollToBottom(false);
+  }, [
+    isAutoScroll,
+    isStreaming,
+    thinkingStatus,
+    searchIndicator,
+    fileReadingIndicator,
+    scrollToBottom,
+  ]);
+
   useEffect(() => {
     if (pinToPromptRef.current) return;
     setIsAutoScroll(true);
@@ -2161,12 +2182,13 @@ export default function ChatPageShell({
     if (pinToPromptRef.current && pinnedScrollTopRef.current !== null) {
       const maxAllowed = pinnedScrollTopRef.current;
       if (scrollTop > maxAllowed + 2) {
-        isProgrammaticScrollRef.current = true;
-        target.scrollTop = maxAllowed;
-        setTimeout(() => {
-          isProgrammaticScrollRef.current = false;
-        }, 150);
-        return;
+        // User is explicitly trying to scroll away from the pinned prompt.
+        // Respect that and unpin so we don't "fight" their scroll during streaming.
+        pinToPromptRef.current = false;
+        pinnedMessageIdRef.current = null;
+        pinnedScrollTopRef.current = null;
+        alignNextUserMessageToTopRef.current = null;
+        setIsAutoScroll(false);
       }
     }
 
@@ -2836,6 +2858,10 @@ export default function ChatPageShell({
                 size="icon"
                 className={`${showScrollToBottom ? "scroll-tip-button" : ""} pointer-events-auto h-10 w-10 rounded-full border border-border bg-card/90 text-foreground shadow-md backdrop-blur hover:bg-background`}
                 onClick={() => {
+                  pinToPromptRef.current = false;
+                  pinnedMessageIdRef.current = null;
+                  pinnedScrollTopRef.current = null;
+                  alignNextUserMessageToTopRef.current = null;
                   scrollToBottom("smooth");
                   // Re-enable autoscroll after scrolling to bottom
                   setTimeout(() => {
