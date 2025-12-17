@@ -89,19 +89,22 @@ export function ChatProvider({ children, initialChats = [], userId }: ChatProvid
         .returns<Database["public"]["Tables"]["messages"]["Row"][]>();
 
       const messageMap = new Map<string, StoredMessage[]>();
+      const latestMessageTime = new Map<string, string>();
       (messageRows ?? []).forEach((msg) => {
         const convId = msg.conversation_id;
         if (!convId) return;
         const messages = messageMap.get(convId) ?? [];
+        const timestamp = msg.created_at ?? new Date().toISOString();
         messages.push({
           id: msg.id,
           role: (msg.role as "user" | "assistant") || "assistant",
           content: msg.content ?? "",
-          timestamp: msg.created_at ?? new Date().toISOString(),
+          timestamp,
           metadata: msg.metadata as AssistantMessageMetadata | Record<string, unknown> | null,
           preamble: (msg as any).preamble ?? null,
         });
         messageMap.set(convId, messages);
+        latestMessageTime.set(convId, timestamp);
       });
 
       // Preserve existing messages for chats already in memory; don't wipe messages to [] on refresh
@@ -109,14 +112,16 @@ export function ChatProvider({ children, initialChats = [], userId }: ChatProvid
         const prevById = new Map(prev.map((c) => [c.id, c] as const));
         const merged: StoredChat[] = rows.map((row) => {
           const existing = prevById.get(row.id);
+          const lastActivity = latestMessageTime.get(row.id) ?? row.created_at ?? existing?.timestamp ?? new Date().toISOString();
           return {
             id: row.id,
             title: row.title ?? existing?.title ?? "Untitled chat",
-            timestamp: row.created_at ?? existing?.timestamp ?? new Date().toISOString(),
+            timestamp: lastActivity,
             projectId: row.project_id ?? existing?.projectId ?? undefined,
             messages: messageMap.get(row.id) ?? existing?.messages ?? [],
           };
         });
+        merged.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
         return merged;
       });
     } catch (err) {

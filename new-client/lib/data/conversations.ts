@@ -60,7 +60,7 @@ export async function getConversationsForUser(options?: { projectId?: string | n
     .order("created_at", { ascending: false });
 
   if (latestMessagesError) {
-    throw new Error(`Failed to load recent messages: ${latestMessagesError.message}`);
+    console.warn("Failed to load recent messages for ordering, falling back to created_at:", latestMessagesError.message);
   }
 
   const latestByConversation = new Map<string, string>();

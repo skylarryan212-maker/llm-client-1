@@ -80,7 +80,7 @@ export default async function RootLayout({
   const initialChats: StoredChat[] = conversations.map((conversation) => ({
     id: conversation.id,
     title: conversation.title ?? "Untitled chat",
-    timestamp: conversation.created_at ?? new Date().toISOString(),
+    timestamp: (conversation as any)?.last_activity ?? conversation.created_at ?? new Date().toISOString(),
     projectId: conversation.project_id ?? undefined,
     messages: [],
   }));
