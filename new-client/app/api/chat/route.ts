@@ -1614,22 +1614,6 @@ export async function POST(request: NextRequest) {
       return null;
     })();
 
-    const clientLocalTime = (() => {
-      try {
-        if (timezone) {
-          const ts = typeof clientNow === "number" ? clientNow : Date.now();
-          return new Date(ts).toLocaleString("en-US", {
-            timeZone: timezone,
-            dateStyle: "full",
-            timeStyle: "long",
-          });
-        }
-      } catch {
-        /* ignore */
-      }
-      return null;
-    })();
-
     const baseSystemInstructions = [
       BASE_SYSTEM_PROMPT,
       workspaceInstruction,
@@ -1637,9 +1621,22 @@ export async function POST(request: NextRequest) {
       ...(location ? [`User's location: ${location.city} (${location.lat.toFixed(4)}, ${location.lng.toFixed(4)}). Use this for location-specific queries like weather, local events, or "near me" searches.`] : []),
       ...(timezone
         ? [
-            `User timezone: ${timezone}. ${
-              clientLocalTime ? `Current local date/time (user): ${clientLocalTime}.` : ""
-            } Always interpret relative dates ("today", "tomorrow", etc.) using this timezone and current local time. Do NOT assume UTC.`
+            (() => {
+              let localTimeInfo = "";
+              try {
+                const ts = typeof clientNow === "number" ? clientNow : Date.now();
+                localTimeInfo = new Date(ts).toLocaleString("en-US", {
+                  timeZone: timezone,
+                  dateStyle: "full",
+                  timeStyle: "long",
+                });
+              } catch {
+                localTimeInfo = "";
+              }
+              return `User timezone: ${timezone}. ${
+                localTimeInfo ? `Current local date/time (user): ${localTimeInfo}. ` : ""
+              }Always interpret relative dates ("today", "tomorrow", etc.) using this timezone and current local time. Do NOT assume UTC.`;
+            })()
           ]
         : []),
       ...(forceWebSearch ? [FORCE_WEB_SEARCH_PROMPT] : []),
