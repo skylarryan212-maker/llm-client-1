@@ -1,6 +1,6 @@
 'use client'
 
-import { KeyboardEvent, useEffect, useMemo, useState } from 'react'
+import { KeyboardEvent, useEffect, useMemo, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Plus, Sparkles, ChevronDown, ChevronRight, FolderPlus, X } from 'lucide-react'
@@ -19,6 +19,7 @@ import { AnimatedTitle } from '@/components/chat/animated-title'
 import { Dialog } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { getProjectIcon, getProjectColor } from '@/components/project-icon-picker'
+import { useFlipListAnimation } from '@/lib/hooks/use-flip-list'
 
 interface Conversation {
   id: string
@@ -81,6 +82,9 @@ export function ChatSidebar({
   const conversations: Conversation[] = propConversations || []
 
   const projects: Project[] = propProjects || []
+  const conversationIds = useMemo(() => conversations.map((c) => c.id), [conversations])
+  const allChatsListRef = useRef<HTMLDivElement | null>(null)
+  useFlipListAnimation({ containerRef: allChatsListRef, ids: conversationIds, enabled: isOpen && !chatsCollapsed })
 
   const pathSegments = pathname?.split("/").filter(Boolean) ?? []
   const pathProjectId =
@@ -510,10 +514,11 @@ export function ChatSidebar({
                     </button>
                     
                     {!chatsCollapsed && (
-                      <div className="space-y-1">
+                      <div ref={allChatsListRef} className="space-y-1">
                         {conversations.map((conv) => (
                           <div
                             key={conv.id}
+                            data-flip-id={conv.id}
                             role="button"
                             tabIndex={0}
                             onClick={() => {

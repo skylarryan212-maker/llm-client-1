@@ -38,13 +38,13 @@ export function UserProfileMenu({ isCompressed, onSettingsOpen, onGeneralSetting
   const getPlanIcon = () => {
     switch (plan) {
       case 'dev':
-        return <Crown className="h-2.5 w-2.5" />
+        return <Crown className="h-2.5 w-2.5" suppressHydrationWarning />
       case 'pro':
-        return <Code2 className="h-2.5 w-2.5" />
+        return <Code2 className="h-2.5 w-2.5" suppressHydrationWarning />
       case 'plus':
-        return <Zap className="h-2.5 w-2.5" />
+        return <Zap className="h-2.5 w-2.5" suppressHydrationWarning />
       default:
-        return <Sparkles className="h-2.5 w-2.5" />
+        return <Sparkles className="h-2.5 w-2.5" suppressHydrationWarning />
     }
   }
 
@@ -92,7 +92,7 @@ export function UserProfileMenu({ isCompressed, onSettingsOpen, onGeneralSetting
                   </div>
                   <div className="flex flex-col items-start">
                     <span className="text-xs font-medium text-sidebar-foreground">{displayName}</span>
-                    <span className="text-[10px] text-muted-foreground flex items-center gap-1">
+                    <span className="text-[10px] text-muted-foreground flex items-center gap-1" suppressHydrationWarning>
                       {getPlanIcon()}
                       {getPlanLabel()}
                     </span>

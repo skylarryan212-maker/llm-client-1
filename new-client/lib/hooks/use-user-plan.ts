@@ -36,8 +36,10 @@ function cachePlan(plan: PlanType): PlanCacheEntry | null {
 
 export function useUserPlan() {
   // Start from a stable server/client default to avoid hydration mismatches.
-  const cacheRef = useRef<PlanCacheEntry | null>(null);
-  const [plan, setPlan] = useState<PlanType>("free");
+  const initialCache =
+    typeof window !== "undefined" ? readPlanCache() : null;
+  const cacheRef = useRef<PlanCacheEntry | null>(initialCache);
+  const [plan, setPlan] = useState<PlanType>(initialCache?.plan ?? "free");
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
