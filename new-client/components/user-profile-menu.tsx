@@ -2,7 +2,7 @@
 
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
-import { ChevronUp, Crown, LogIn, Sparkles, Zap, Code2 } from 'lucide-react'
+import { ChevronUp, Crown, LogIn, Sparkles, Star, Zap, Code2 } from 'lucide-react'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -43,6 +43,8 @@ export function UserProfileMenu({ isCompressed, onSettingsOpen, onGeneralSetting
         return <Code2 className="h-2.5 w-2.5" suppressHydrationWarning />
       case 'plus':
         return <Zap className="h-2.5 w-2.5" suppressHydrationWarning />
+      case 'basic':
+        return <Star className="h-2.5 w-2.5" suppressHydrationWarning />
       default:
         return <Sparkles className="h-2.5 w-2.5" suppressHydrationWarning />
     }
