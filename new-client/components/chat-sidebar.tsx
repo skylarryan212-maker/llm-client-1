@@ -256,12 +256,15 @@ export function ChatSidebar({
         />
       )}
 
-      <div className={`
-        fixed lg:sticky lg:top-0 lg:h-[100dvh] h-full border-r border-border bg-sidebar z-50
+      <div
+        data-sidebar-open={isOpen ? 'true' : 'false'}
+        className={`
+        sidebar-shell fixed lg:sticky lg:top-0 lg:h-[100dvh] h-full border-r border-border bg-sidebar z-50
         transition-all duration-300 ease-in-out
         ${isOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'}
         ${isOpen ? 'w-[272px]' : 'lg:w-[60px] w-[272px]'}
-      `}>
+      `}
+      >
         <div className="flex h-full flex-col overflow-hidden">
           <div className={`flex h-[53px] items-center border-b border-sidebar-border px-4 ${isOpen ? 'justify-between' : 'lg:justify-center justify-between'}`}>
             {isOpen && (

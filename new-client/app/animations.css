@@ -54,11 +54,11 @@
     will-change: transform;
   }
 
-  .sidebar-entry:hover {
+  .sidebar-shell[data-sidebar-open="true"] .sidebar-entry:hover {
     transform: translateX(2px);
   }
 
-  .sidebar-entry[data-sidebar-selected="true"] {
+  .sidebar-shell[data-sidebar-open="true"] .sidebar-entry[data-sidebar-selected="true"] {
     box-shadow: none;
     transform: translateX(2px);
   }
