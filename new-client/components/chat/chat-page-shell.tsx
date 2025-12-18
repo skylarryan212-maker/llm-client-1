@@ -3244,7 +3244,9 @@ export default function ChatPageShell({
                         ? "GPT 5.2 Instant"
                         : currentModel === "Thinking"
                           ? "GPT 5.2 Thinking"
-                          : currentModel}
+                          : currentModel === "Pro"
+                            ? "GPT 5.2 Pro"
+                            : currentModel}
                   <ChevronDown className="h-4 w-4 text-muted-foreground" />
                 </Button>
               </DropdownMenuTrigger>
@@ -3337,6 +3339,18 @@ export default function ChatPageShell({
                     </div>
                     <span className="flex w-4 justify-end">
                       {currentModel === "Thinking" && <Check className="h-4 w-4" />}
+                    </span>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    className="items-center gap-3 px-3 py-2"
+                    onSelect={() => setCurrentModel("Pro")}
+                  >
+                    <div className="flex flex-1 flex-col">
+                      <span className="font-medium leading-none">Pro</span>
+                      <span className="text-xs text-muted-foreground">Highest quality GPT 5.2</span>
+                    </div>
+                    <span className="flex w-4 justify-end">
+                      {currentModel === "Pro" && <Check className="h-4 w-4" />}
                     </span>
                   </DropdownMenuItem>
 
@@ -3437,22 +3451,6 @@ export default function ChatPageShell({
                         </div>
                         <span className="flex w-4 justify-end">
                           {currentModel === "GPT 5 Mini Thinking" && <Check className="h-4 w-4" />}
-                        </span>
-                      </DropdownMenuItem>
-
-                      <div className="px-2">
-                        <div className="h-px bg-border" />
-                      </div>
-
-                      <DropdownMenuItem
-                        className="items-center gap-3 px-3 py-2"
-                        onSelect={() => setCurrentModel("GPT 5.2 Pro")}
-                      >
-                        <span className="flex-1">GPT 5.2 Pro</span>
-                        <span className="flex w-4 justify-end">
-                          {currentModel === "GPT 5.2 Pro" && (
-                            <Check className="h-4 w-4" />
-                          )}
                         </span>
                       </DropdownMenuItem>
                     </div>

@@ -497,6 +497,7 @@ export function getModelSettingsFromDisplayName(displayName: string): ModelSetti
   if (displayName === "Auto") return { modelFamily: "auto", speedMode: "auto" };
   if (displayName === "Instant") return { modelFamily: "auto", speedMode: "instant", reasoningEffort: "low" };
   if (displayName === "Thinking") return { modelFamily: "auto", speedMode: "thinking", reasoningEffort: "medium" };
+  if (displayName === "Pro") return { modelFamily: "gpt-5.2-pro", speedMode: "auto" };
 
   // GPT 5 Nano options
   if (displayName === "GPT 5 Nano Auto") return { modelFamily: "gpt-5-nano", speedMode: "auto" };
