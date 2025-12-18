@@ -488,6 +488,7 @@ function ChatInner({ params }: PageProps) {
           <div className="flex-none bg-[#0f0d12] px-4 pb-4 pt-3 sm:px-6 lg:px-12">
             <div className="mx-auto w-full max-w-3xl">
               <ChatComposer
+                conversationId={taskId}
                 onSendMessage={handleSubmit}
                 placeholder="Send a prompt, I'll draft, then ask before running the humanizer..."
                 isStreaming={isDrafting || isHumanizing}

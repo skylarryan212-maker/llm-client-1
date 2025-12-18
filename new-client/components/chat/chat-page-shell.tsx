@@ -3740,6 +3740,7 @@ export default function ChatPageShell({
               </div>
             )}
             <ChatComposer
+              conversationId={selectedChatId}
               onSubmit={handleSubmit}
               isStreaming={isStreaming}
               onStop={handleStopGeneration}

@@ -107,6 +107,7 @@ export default function CodexAgentChatPage({ params }: CodexChatPageProps) {
       <div className="border-t border-zinc-800 bg-black px-4 sm:px-6 lg:px-12 py-3 sm:py-4">
         <div className="mx-auto w-full max-w-3xl">
           <ChatComposer
+            conversationId={params.chatId}
             placeholder="Request changes or ask a question"
             onSubmit={handleSubmit}
           />

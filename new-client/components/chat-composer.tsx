@@ -12,9 +12,12 @@ import {
 } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Mic, ArrowUp } from "lucide-react";
+import { Mic, ArrowUp, ChevronDown } from "lucide-react";
 import { AttachmentMenuButton } from "@/components/chat/attachment-menu";
 import { uploadFilesAndGetUrls } from "@/lib/uploads";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { AgentPickerPanel } from "@/components/chat/agent-picker-panel";
+import { getFeaturedAgentById } from "@/lib/agents/featuredAgents";
 
 type UploadedFragment = {
   id: string;
@@ -33,6 +36,7 @@ type ChatComposerProps = {
   onStop?: () => void;
   onCreateImage?: () => void;
   placeholder?: string;
+  conversationId?: string | null;
 };
 
 const RESTORE_FOCUS_KEY = "llm-client:composer:restore-focus";
@@ -53,15 +57,52 @@ export function ChatComposer({
   onStop,
   onCreateImage,
   placeholder,
+  conversationId,
 }: ChatComposerProps) {
   const [value, setValue] = useState("");
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [isAgentPickerOpen, setIsAgentPickerOpen] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const restoreFocusOnMountRef = useRef(readRestoreFocusFlag());
   const [attachments, setAttachments] = useState<UploadedFragment[]>([]);
+  const [selectedAgentByConversation, setSelectedAgentByConversation] = useState<Record<string, string | null>>({});
   const trimmedValue = value.trim();
+
+  const NEW_CONVERSATION_KEY = "__new__";
+  const conversationKey = conversationId ?? NEW_CONVERSATION_KEY;
+  const selectedAgentId = selectedAgentByConversation[conversationKey] ?? null;
+  const selectedAgent = getFeaturedAgentById(selectedAgentId);
+  const SelectedAgentIcon = selectedAgent?.icon ?? null;
+
+  const previousConversationKeyRef = useRef(conversationKey);
+  useEffect(() => {
+    const prevKey = previousConversationKeyRef.current;
+    if (prevKey === conversationKey) return;
+    previousConversationKeyRef.current = conversationKey;
+
+    // If a new conversation was just created, carry over any selection made before the ID existed.
+    if (conversationId && prevKey === NEW_CONVERSATION_KEY) {
+      setSelectedAgentByConversation((prev) => {
+        const pending = prev[NEW_CONVERSATION_KEY] ?? null;
+        if (!pending) return prev;
+        if (prev[conversationId]) {
+          return { ...prev, [NEW_CONVERSATION_KEY]: null };
+        }
+        const { [NEW_CONVERSATION_KEY]: removed, ...rest } = prev;
+        void removed;
+        return { ...rest, [conversationId]: pending };
+      });
+    }
+  }, [conversationId, conversationKey]);
+
+  const setSelectedAgentIdForConversation = useCallback(
+    (next: string | null) => {
+      setSelectedAgentByConversation((prev) => ({ ...prev, [conversationKey]: next }));
+    },
+    [conversationKey]
+  );
 
   // Voice recording state
   const [isRecording, setIsRecording] = useState(false);
@@ -496,6 +537,40 @@ export function ChatComposer({
 
   return (
     <form onSubmit={handleFormSubmit}>
+      {/* Selected agent pill (UI-only) */}
+      {selectedAgent ? (
+        <div className="mb-2 flex pl-2">
+          <DropdownMenu open={isAgentPickerOpen} onOpenChange={setIsAgentPickerOpen}>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                className="inline-flex max-w-full items-center gap-2 rounded-2xl border border-border bg-card/85 px-3 py-2 text-xs font-medium text-foreground shadow-sm transition hover:bg-card/95 hover:shadow-md active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                aria-label="Change selected agent"
+                title="Click to change agent"
+              >
+                <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-primary/15 text-primary">
+                  {SelectedAgentIcon ? <SelectedAgentIcon className="h-3.5 w-3.5" /> : null}
+                </span>
+                <span className="truncate">Agent: {selectedAgent.name}</span>
+                <ChevronDown className="h-4 w-4 text-muted-foreground" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              side="top"
+              align="start"
+              sideOffset={10}
+              className="rounded-xl border border-border bg-popover p-0 shadow-lg"
+            >
+              <AgentPickerPanel
+                selectedAgentId={selectedAgentId}
+                onSelectAgentId={(id) => setSelectedAgentIdForConversation(id)}
+                onClearAgentId={() => setSelectedAgentIdForConversation(null)}
+              />
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      ) : null}
+
       {/* Attachments preview list (above composer) */}
       {attachments.length > 0 && (
         <div className="mb-2 flex flex-wrap gap-2">
@@ -584,6 +659,15 @@ export function ChatComposer({
                 onOpenChange={setIsMenuOpen}
                 onPickFiles={handleOpenFilePicker}
                 onCreateImage={onCreateImage}
+                selectedAgentId={selectedAgentId}
+                onSelectAgent={(id) => {
+                  setSelectedAgentIdForConversation(id);
+                  setIsAgentPickerOpen(false);
+                }}
+                onClearAgent={() => {
+                  setSelectedAgentIdForConversation(null);
+                  setIsAgentPickerOpen(false);
+                }}
               />
             </div>
 
