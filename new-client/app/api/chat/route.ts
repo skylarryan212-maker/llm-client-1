@@ -2125,10 +2125,10 @@ export async function POST(request: NextRequest) {
     }
 
     if (generationMode === "image") {
-      const apiKey = process.env.GOOGLE_API_KEY;
+      const apiKey = process.env.GOOGLE_API_KEY || process.env.GEMINI_API_KEY;
       if (!apiKey) {
         return NextResponse.json(
-          { error: "Missing GOOGLE_API_KEY environment variable" },
+          { error: "Missing image API key (set GOOGLE_API_KEY or GEMINI_API_KEY)" },
           { status: 500 }
         );
       }

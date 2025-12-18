@@ -2082,8 +2082,29 @@ export default function ChatPageShell({
             console.error("Failed to parse error response:", e);
           }
         }
-        // Non-429 or unparsed error: surface a warning instead of noisy error
-        console.warn("Chat API error:", response.status, response.statusText);
+        // Non-429 or unparsed error: surface the error content in the chat so the user isn't stuck.
+        let errorMessage = `Request failed (${response.status} ${response.statusText})`;
+        try {
+          const raw = await response.text();
+          if (raw) {
+            try {
+              const parsed = JSON.parse(raw) as any;
+              const detail = parsed?.details ? `\n${String(parsed.details)}` : "";
+              if (parsed?.message) errorMessage = String(parsed.message) + detail;
+              else if (parsed?.error) errorMessage = String(parsed.error) + detail;
+              else errorMessage = raw;
+            } catch {
+              errorMessage = raw;
+            }
+          }
+        } catch {}
+
+        const currentMessageId =
+          responseTimingRef.current.assistantMessageId ?? assistantMessageId;
+        updateMessage(chatId, currentMessageId, {
+          content: errorMessage,
+        });
+        console.warn("Chat API error:", response.status, response.statusText, errorMessage);
         return;
       }
 
