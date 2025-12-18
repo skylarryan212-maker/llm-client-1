@@ -21,6 +21,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { applyAccentColor } from '@/components/accent-color-provider'
 import { updateAccentColorAction } from '@/app/actions/preferences-actions'
+import { getContextModeGlobalPreference, saveContextModeGlobalPreference } from '@/app/actions/user-preferences-actions'
 import { useUserPlan } from '@/lib/hooks/use-user-plan'
 import { useUserIdentity } from '@/components/user-identity-provider'
 import { getUserPlanDetails, cancelSubscription } from '@/app/actions/plan-actions'
@@ -43,7 +44,7 @@ export function SettingsModal({ isOpen, onClose, initialTab = 'preferences' }: S
   const [accentColor, setAccentColor] = useState('white')
   const { plan, refreshPlan } = useUserPlan()
   const [contextModeGlobal, setContextModeGlobal] = useState<"advanced" | "simple">("advanced")
-  const { fullName, email } = useUserIdentity()
+  const { fullName, email, isGuest } = useUserIdentity()
   const { refreshChats } = useChatStore()
 
   const [planDetails, setPlanDetails] = useState<{
@@ -108,6 +109,7 @@ export function SettingsModal({ isOpen, onClose, initialTab = 'preferences' }: S
     // Accent color is now loaded from server via AccentColorProvider
     // We just need to sync the local state when modal opens
     if (isOpen) {
+      let alive = true
       setActiveTab(initialTab)
       const styleEl = document.getElementById('accent-color-override')
       if (styleEl) {
@@ -129,8 +131,27 @@ export function SettingsModal({ isOpen, onClose, initialTab = 'preferences' }: S
           setContextModeGlobal(storedMode)
         }
       } catch {}
+
+      if (!isGuest) {
+        getContextModeGlobalPreference()
+          .then((mode) => {
+            if (!alive) return
+            setContextModeGlobal(mode)
+            try {
+              window.localStorage.setItem("context-mode-global", mode)
+              window.dispatchEvent(
+                new CustomEvent("contextModeGlobalChange", { detail: mode })
+              )
+            } catch {}
+          })
+          .catch(() => {})
+      }
+
+      return () => {
+        alive = false
+      }
     }
-  }, [isOpen, initialTab])
+  }, [isOpen, initialTab, isGuest])
 
   useEffect(() => {
     if (!isOpen) return
@@ -248,8 +269,8 @@ export function SettingsModal({ isOpen, onClose, initialTab = 'preferences' }: S
 
   const tabs = [
     { id: 'preferences' as TabType, label: 'Preferences', icon: Palette },
-    { id: 'account' as TabType, label: 'Account & Plan', icon: UserCircle },
     { id: 'data' as TabType, label: 'Data', icon: Database },
+    { id: 'account' as TabType, label: 'Account & Plan', icon: UserCircle },
   ]
 
   const accentColors = [
@@ -366,6 +387,15 @@ export function SettingsModal({ isOpen, onClose, initialTab = 'preferences' }: S
                           new CustomEvent("contextModeGlobalChange", { detail: next })
                         )
                       } catch {}
+                      if (!isGuest) {
+                        saveContextModeGlobalPreference(next)
+                          .then((result) => {
+                            if (!result.success) {
+                              console.error('Failed to save context mode:', result.message)
+                            }
+                          })
+                          .catch(() => {})
+                      }
                     }}
                   >
                     {contextModeGlobal === "simple" ? "Simple" : "Advanced"}

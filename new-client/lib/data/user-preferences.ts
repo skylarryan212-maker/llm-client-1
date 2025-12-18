@@ -107,3 +107,37 @@ export async function updatePersonalizationPreferences(update: {
   if (error) throw new Error(`Failed to create user preferences: ${error.message}`);
   return data;
 }
+
+export async function updateContextModeGlobal(contextModeGlobal: "advanced" | "simple") {
+  const supabase = await supabaseServer();
+  const userId = await requireUserIdServer();
+  const supabaseAny = supabase as any;
+
+  const existing = await getUserPreferences();
+  const updated_at = new Date().toISOString();
+
+  if (existing) {
+    const patch: UserPreferencesUpdate = { context_mode_global: contextModeGlobal, updated_at };
+    const { data, error } = await supabaseAny
+      .from("user_preferences")
+      .update(patch)
+      .eq("user_id", userId)
+      .select()
+      .single();
+    if (error) throw new Error(`Failed to update context mode: ${error.message}`);
+    return data;
+  }
+
+  const insert: UserPreferencesInsert = {
+    user_id: userId,
+    accent_color: "white",
+    context_mode_global: contextModeGlobal,
+  };
+  const { data, error } = await supabaseAny
+    .from("user_preferences")
+    .insert([insert])
+    .select()
+    .single();
+  if (error) throw new Error(`Failed to create user preferences: ${error.message}`);
+  return data;
+}

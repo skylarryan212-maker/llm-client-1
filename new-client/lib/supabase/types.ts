@@ -97,6 +97,7 @@ export interface UserPreferences {
   reference_saved_memories: boolean | null;
   reference_chat_history: boolean | null;
   allow_saving_memory: boolean | null;
+  context_mode_global: "advanced" | "simple" | null;
   created_at: string | null;
   updated_at: string | null;
 }
@@ -109,6 +110,7 @@ export interface UserPreferencesInsert {
   reference_saved_memories?: boolean | null;
   reference_chat_history?: boolean | null;
   allow_saving_memory?: boolean | null;
+  context_mode_global?: "advanced" | "simple" | null;
 }
 
 export interface UserPreferencesUpdate {
@@ -118,6 +120,7 @@ export interface UserPreferencesUpdate {
   reference_saved_memories?: boolean | null;
   reference_chat_history?: boolean | null;
   allow_saving_memory?: boolean | null;
+  context_mode_global?: "advanced" | "simple" | null;
   updated_at?: string;
 }
 

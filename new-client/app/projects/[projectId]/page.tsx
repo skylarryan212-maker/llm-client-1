@@ -323,7 +323,7 @@ export default function ProjectDetailPage() {
           setIsSettingsOpen(true)
         }}
         onGeneralSettingsOpen={() => {
-          setSettingsTab('data')
+          setSettingsTab('account')
           setIsSettingsOpen(true)
         }}
       />

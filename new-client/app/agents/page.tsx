@@ -85,7 +85,7 @@ export default function AgentsPage() {
           setIsSettingsOpen(true)
         }}
         onGeneralSettingsOpen={() => {
-          setSettingsTab('data')
+          setSettingsTab('account')
           setIsSettingsOpen(true)
         }}
         onRefreshChats={refreshChats}

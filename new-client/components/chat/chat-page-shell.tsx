@@ -20,6 +20,10 @@ import {
   startProjectConversationAction,
 } from "@/app/actions/chat-actions";
 import {
+  getContextModeGlobalPreference,
+  saveContextModeGlobalPreference,
+} from "@/app/actions/user-preferences-actions";
+import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
@@ -639,6 +643,7 @@ export default function ChatPageShell({
   // Load global context mode preference
   useEffect(() => {
     if (typeof window === "undefined") return;
+    let alive = true;
     try {
       const raw = window.localStorage.getItem("context-mode-global");
       if (raw === "simple" || raw === "advanced") {
@@ -647,6 +652,21 @@ export default function ChatPageShell({
     } catch (err) {
       console.error("Failed to load context mode preference", err);
     }
+
+    if (!isGuest) {
+      getContextModeGlobalPreference()
+        .then((mode) => {
+          if (!alive) return;
+          setContextModeGlobal(mode);
+          try {
+            window.localStorage.setItem("context-mode-global", mode);
+          } catch {
+            // ignore
+          }
+        })
+        .catch(() => {});
+    }
+
     const handler = (event: Event) => {
       const detail = (event as CustomEvent).detail;
       if (detail === "simple" || detail === "advanced") {
@@ -654,8 +674,11 @@ export default function ChatPageShell({
       }
     };
     window.addEventListener("contextModeGlobalChange", handler as EventListener);
-    return () => window.removeEventListener("contextModeGlobalChange", handler as EventListener);
-  }, []);
+    return () => {
+      alive = false;
+      window.removeEventListener("contextModeGlobalChange", handler as EventListener);
+    };
+  }, [isGuest]);
 
   // Load per-chat context modes
   useEffect(() => {
@@ -3146,7 +3169,7 @@ export default function ChatPageShell({
           selectedProjectId={selectedProjectId}
           onSettingsOpen={() => setIsSettingsOpen(true)}
           onGeneralSettingsOpen={() => {
-            setSettingsTab('data')
+            setSettingsTab('account')
             setIsSettingsOpen(true)
           }}
           onRefreshChats={refreshChats}
@@ -3491,12 +3514,21 @@ export default function ChatPageShell({
 	                  setContextModeGlobal(next);
 	                  try {
 	                    window.localStorage.setItem("context-mode-global", next);
-                  } catch {}
-                  return;
-                }
-                setContextModeByChat((prev) => ({
-                  ...prev,
-                  [effectiveChatId]: next,
+                   } catch {}
+                  if (!isGuest) {
+                    saveContextModeGlobalPreference(next)
+                      .then((result) => {
+                        if (!result.success) {
+                          console.error("Failed to save context mode:", result.message);
+                        }
+                      })
+                      .catch(() => {});
+                  }
+                   return;
+                 }
+                 setContextModeByChat((prev) => ({
+                   ...prev,
+                   [effectiveChatId]: next,
                 }));
               }}
             />

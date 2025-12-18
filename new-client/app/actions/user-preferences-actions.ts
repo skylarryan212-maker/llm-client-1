@@ -1,8 +1,13 @@
 "use server";
 
-import { getUserPreferences, updatePersonalizationPreferences } from "@/lib/data/user-preferences";
+import {
+  getUserPreferences,
+  updateContextModeGlobal,
+  updatePersonalizationPreferences,
+} from "@/lib/data/user-preferences";
 
 export type BaseStylePreset = "Professional" | "Friendly" | "Concise" | "Creative" | "Robot";
+export type ContextModeGlobal = "advanced" | "simple";
 
 export type PersonalizationPreferences = {
   baseStyle: BaseStylePreset;
@@ -19,6 +24,8 @@ const DEFAULT_PREFS: PersonalizationPreferences = {
   referenceChatHistory: true,
   allowSavingMemory: true,
 };
+
+const DEFAULT_CONTEXT_MODE_GLOBAL: ContextModeGlobal = "advanced";
 
 export async function getPersonalizationPreferences(): Promise<PersonalizationPreferences> {
   const row = await getUserPreferences();
@@ -47,5 +54,26 @@ export async function savePersonalizationPreferences(
     return { success: true };
   } catch (error: any) {
     return { success: false, message: error?.message || "Failed to save preferences" };
+  }
+}
+
+export async function getContextModeGlobalPreference(): Promise<ContextModeGlobal> {
+  try {
+    const row = await getUserPreferences();
+    const value = row?.context_mode_global;
+    return value === "simple" || value === "advanced" ? value : DEFAULT_CONTEXT_MODE_GLOBAL;
+  } catch {
+    return DEFAULT_CONTEXT_MODE_GLOBAL;
+  }
+}
+
+export async function saveContextModeGlobalPreference(
+  contextModeGlobal: ContextModeGlobal
+): Promise<{ success: boolean; message?: string }> {
+  try {
+    await updateContextModeGlobal(contextModeGlobal);
+    return { success: true };
+  } catch (error: any) {
+    return { success: false, message: error?.message || "Failed to save context mode" };
   }
 }
