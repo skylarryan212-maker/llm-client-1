@@ -1,0 +1,64 @@
+import type { LucideIcon } from "lucide-react";
+import { Code2, Database, PenLine, TrendingUp, Workflow } from "lucide-react";
+
+export type AgentCatalogItem = {
+  id: string;
+  slug: string;
+  title: string;
+  description: string;
+  icon: LucideIcon;
+  href?: string;
+  gradient?: string;
+};
+
+// This is the canonical agent list for the `/agents` experience.
+// "Available" agents should have an `href` that points to an actual route.
+export const AGENT_CATALOG: AgentCatalogItem[] = [
+  {
+    id: "codex",
+    slug: "codex",
+    icon: Code2,
+    title: "Codex",
+    description:
+      "Your AI coding assistant. Build applications, review code, debug issues, and get expert programming guidance across all major languages and frameworks.",
+    href: "/agents/codex",
+    gradient: "bg-gradient-to-br from-blue-500 to-purple-600",
+  },
+  {
+    id: "market-agent",
+    slug: "market-agent",
+    icon: TrendingUp,
+    title: "Market Agent",
+    description:
+      "Real-time market analysis and insights. Track trends, analyze data, generate reports, and make data-driven decisions with AI-powered market intelligence.",
+  },
+  {
+    id: "automation-builder",
+    slug: "automation-builder",
+    icon: Workflow,
+    title: "Automation Builder",
+    description:
+      "Design and deploy intelligent workflows. Connect APIs, automate tasks, orchestrate complex processes, and streamline operations effortlessly.",
+  },
+  {
+    id: "human-writing",
+    slug: "human-writing",
+    icon: PenLine,
+    title: "Human Writing Agent",
+    description:
+      "Produce clear, human-quality writing fast. Draft emails, docs, and narratives with tone control and structure that feels natural.",
+    href: "/agents/human-writing",
+    gradient: "bg-gradient-to-br from-amber-500 via-orange-500 to-rose-500",
+  },
+  {
+    id: "data-interpreter",
+    slug: "data-interpreter",
+    icon: Database,
+    title: "Data Interpreter",
+    description:
+      "Transform raw data into actionable insights. Analyze datasets, create visualizations, run queries, and extract meaningful patterns from your data.",
+  },
+];
+
+export const AVAILABLE_AGENTS = AGENT_CATALOG.filter((agent) => Boolean(agent.href));
+

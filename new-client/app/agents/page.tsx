@@ -2,7 +2,7 @@
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Code2, Database, Menu, PenLine, TrendingUp, Workflow } from "lucide-react";
+import { Menu } from "lucide-react";
 
 import { AgentCard } from "@/components/agent-card";
 import { ChatSidebar } from "@/components/chat-sidebar";
@@ -12,43 +12,7 @@ import { useProjects } from "@/components/projects/projects-provider";
 import { useChatStore } from "@/components/chat/chat-provider";
 import { usePersistentSidebarOpen } from "@/lib/hooks/use-sidebar-open";
 import { navigateWithMainPanelFade, runMainPanelEnterIfNeeded } from "@/lib/view-transitions";
-
-const agents = [
-  {
-    icon: Code2,
-    title: "Codex",
-    description:
-      "Your AI coding assistant. Build applications, review code, debug issues, and get expert programming guidance across all major languages and frameworks.",
-    href: "/agents/codex",
-    gradient: "bg-gradient-to-br from-blue-500 to-purple-600",
-  },
-  {
-    icon: TrendingUp,
-    title: "Market Agent",
-    description:
-      "Real-time market analysis and insights. Track trends, analyze data, generate reports, and make data-driven decisions with AI-powered market intelligence.",
-  },
-  {
-    icon: Workflow,
-    title: "Automation Builder",
-    description:
-      "Design and deploy intelligent workflows. Connect APIs, automate tasks, orchestrate complex processes, and streamline operations effortlessly.",
-  },
-  {
-    icon: PenLine,
-    title: "Human Writing Agent",
-    description:
-      "Produce clear, human-quality writing fast. Draft emails, docs, and narratives with tone control and structure that feels natural.",
-    href: "/agents/human-writing",
-    gradient: "bg-gradient-to-br from-amber-500 via-orange-500 to-rose-500",
-  },
-  {
-    icon: Database,
-    title: "Data Interpreter",
-    description:
-      "Transform raw data into actionable insights. Analyze datasets, create visualizations, run queries, and extract meaningful patterns from your data.",
-  },
-];
+import { AGENT_CATALOG } from "@/lib/agents/agentCatalog";
 
 export default function AgentsPage() {
   const router = useRouter();
@@ -157,7 +121,7 @@ export default function AgentsPage() {
             </div>
 
             <div className="grid gap-4 sm:gap-6 grid-cols-1 sm:grid-cols-2">
-              {agents.map((agent) => (
+              {AGENT_CATALOG.map((agent) => (
                 <AgentCard
                   key={agent.title}
                   {...agent}

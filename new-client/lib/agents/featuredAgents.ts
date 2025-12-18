@@ -1,5 +1,5 @@
 import type { LucideIcon } from "lucide-react";
-import { ClipboardList, Code2, PenLine, TrendingUp } from "lucide-react";
+import { AVAILABLE_AGENTS } from "@/lib/agents/agentCatalog";
 
 export type FeaturedAgent = {
   id: string;
@@ -8,35 +8,16 @@ export type FeaturedAgent = {
   icon: LucideIcon;
 };
 
-export const FEATURED_AGENTS: FeaturedAgent[] = [
-  {
-    id: "market-analysis",
-    name: "Market Analysis",
-    description: "Sizing, competitors, positioning, and insights.",
-    icon: TrendingUp,
-  },
-  {
-    id: "product-spec",
-    name: "Product Spec",
-    description: "Turn ideas into clear, actionable requirements.",
-    icon: ClipboardList,
-  },
-  {
-    id: "code-review",
-    name: "Code Review",
-    description: "Review code for bugs, style, and structure.",
-    icon: Code2,
-  },
-  {
-    id: "writing-coach",
-    name: "Writing Coach",
-    description: "Improve clarity, tone, and structure quickly.",
-    icon: PenLine,
-  },
-];
+// Featured agents = the ones that actually exist under `/agents` (have an href).
+// Keep it capped for the compact picker UI.
+export const FEATURED_AGENTS: FeaturedAgent[] = AVAILABLE_AGENTS.slice(0, 4).map((agent) => ({
+  id: agent.slug,
+  name: agent.title,
+  description: agent.description,
+  icon: agent.icon,
+}));
 
 export function getFeaturedAgentById(id: string | null | undefined): FeaturedAgent | null {
   if (!id) return null;
   return FEATURED_AGENTS.find((agent) => agent.id === id) ?? null;
 }
-
