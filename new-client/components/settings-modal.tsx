@@ -49,6 +49,8 @@ export function SettingsModal({ isOpen, onClose, initialTab = 'preferences' }: S
   const [planDetails, setPlanDetails] = useState<{
     planType: string
     renewalDate: string | null
+    cancelAt: string | null
+    cancelAtPeriodEnd: boolean
     isActive: boolean
   } | null>(null)
   const [totalSpending, setTotalSpending] = useState<number | null>(null)
@@ -426,11 +428,11 @@ export function SettingsModal({ isOpen, onClose, initialTab = 'preferences' }: S
                     </div>
                     {planDetails?.renewalDate && plan !== 'free' && (
                       <p className="text-sm text-muted-foreground">
-                        Your plan auto-renews on {new Date(planDetails.renewalDate).toLocaleDateString('en-US', { 
-                          month: 'long', 
-                          day: 'numeric', 
-                          year: 'numeric' 
-                        })}
+                        {planDetails.cancelAtPeriodEnd && planDetails.cancelAt ? (
+                          <>Your plan will be canceled on {new Date(planDetails.cancelAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</>
+                        ) : (
+                          <>Your plan auto-renews on {new Date(planDetails.renewalDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</>
+                        )}
                       </p>
                     )}
                   </div>
@@ -587,7 +589,7 @@ export function SettingsModal({ isOpen, onClose, initialTab = 'preferences' }: S
                   Cancel subscription?
                 </h3>
                 <p className="text-sm text-muted-foreground mt-2">
-                  Are you sure you want to cancel your subscription? You will be downgraded to the Free plan immediately.
+                  Are you sure you want to cancel your subscription? You will keep access until your current period ends{planDetails?.renewalDate ? ` (${new Date(planDetails.renewalDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}).` : '.'}
                 </p>
               </div>
               <div className="flex items-center justify-end gap-2">

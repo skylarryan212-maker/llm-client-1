@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { useUserIdentity } from "@/components/user-identity-provider";
 
@@ -9,9 +9,10 @@ import { ChatMessage } from "@/components/chat-message";
 import { ChatComposer } from "@/components/chat-composer";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
-import { ArrowDown, Check, ChevronDown, Menu, Plus, X } from "lucide-react";
+import { ArrowDown, Check, ChevronDown, Image as ImageIcon, Menu, Plus, X } from "lucide-react";
 import { SettingsModal } from "@/components/settings-modal";
 import { StatusBubble } from "@/components/chat/status-bubble";
+import supabaseBrowserClient from "@/lib/supabase/browser-client";
 import { ApiUsageBadge } from "@/components/api-usage-badge";
 import { UsageLimitModal } from "@/components/usage-limit-modal";
 import {
@@ -20,13 +21,16 @@ import {
 } from "@/app/actions/chat-actions";
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useProjects } from "@/components/projects/projects-provider";
 import { NewProjectModal } from "@/components/projects/new-project-modal";
-import { StoredMessage, useChatStore } from "@/components/chat/chat-provider";
+import { StoredMessage, type StoredChat, useChatStore } from "@/components/chat/chat-provider";
 import { usePersistentSidebarOpen } from "@/lib/hooks/use-sidebar-open";
 import { getModelAndReasoningConfig, getModelSettingsFromDisplayName } from "@/lib/modelConfig";
 import type { ModelFamily, SpeedMode, ReasoningEffort } from "@/lib/modelConfig";
@@ -35,6 +39,12 @@ import { requestAutoNaming } from "@/lib/autoNaming";
 import type { AssistantMessageMetadata } from "@/lib/chatTypes";
 import { formatSearchedDomainsLine, formatThoughtDurationLabel } from "@/lib/metadata";
 import { MessageInsightChips } from "@/components/chat/message-insight-chips";
+import {
+  navigateWithChatBodyFade,
+  navigateWithMainPanelFade,
+  runChatBodyEnterIfNeeded,
+  runMainPanelEnterIfNeeded,
+} from "@/lib/view-transitions";
 
 interface ShellConversation {
   id: string;
@@ -59,7 +69,10 @@ type SearchStatusEvent =
   | { type: "file-search-complete"; query: string }
   | { type: "file-reading-start" }
   | { type: "file-reading-complete" }
-  | { type: "file-reading-error"; message?: string };
+  | { type: "file-reading-error"; message?: string }
+  | { type: "code-interpreter-start" }
+  | { type: "code-interpreter-complete" }
+  | { type: "code-interpreter-error"; message?: string };
 
 type SearchIndicatorState =
   | {
@@ -95,10 +108,80 @@ type ContextUsageSnapshot = {
 };
 
 const CONTEXT_USAGE_STORAGE_KEY = "llm-client-context-usage";
+const DEFAULT_CONTEXT_WINDOW_TOKENS = 350_000;
 const AUTO_STREAM_KEY_PREFIX = "llm-client-auto-stream:";
 const getAutoStreamKey = (conversationId: string) =>
   `${AUTO_STREAM_KEY_PREFIX}${conversationId}`;
+const AUTO_STREAM_PREFS_KEY_PREFIX = "llm-client-auto-stream-prefs:";
+const getAutoStreamPrefsKey = (conversationId: string) =>
+  `${AUTO_STREAM_PREFS_KEY_PREFIX}${conversationId}`;
 const CONTEXT_MODE_BY_CHAT_KEY = "llm-client-context-mode-by-chat";
+const MODEL_SELECTION_STORAGE_KEY = "llm-client-model-selection";
+const SIMPLE_CONTEXT_EXTERNAL_CHAT_SELECTION_KEY =
+  "llm-client:simple-context-external-chat-ids-by-chat";
+const ADVANCED_CONTEXT_TOPIC_SELECTION_KEY =
+  "llm-client:advanced-context-topic-ids-by-chat";
+const STREAMING_ACTIVE_STORAGE_KEY = "llm-client:streaming-active";
+const STREAMING_CHAT_ID_STORAGE_KEY = "llm-client:streaming-chat-id";
+
+function persistModelSelection(displayName: string) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(MODEL_SELECTION_STORAGE_KEY, displayName);
+  } catch {
+    // Ignore persistence failures
+  }
+}
+
+function readModelSelectionFromStorage(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(MODEL_SELECTION_STORAGE_KEY);
+    return raw && raw.trim().length > 0 ? raw : null;
+  } catch {
+    return null;
+  }
+}
+
+type AutoStreamPrefs = {
+  generationMode?: "chat" | "image";
+  imageModel?: "nano-banana" | "nano-banana-pro";
+};
+
+function saveAutoStreamPrefs(conversationId: string, prefs: AutoStreamPrefs | null) {
+  if (typeof window === "undefined") return;
+  try {
+    const key = getAutoStreamPrefsKey(conversationId);
+    if (!prefs) {
+      window.sessionStorage.removeItem(key);
+      return;
+    }
+    window.sessionStorage.setItem(key, JSON.stringify(prefs));
+  } catch {
+    // Ignore persistence failures
+  }
+}
+
+function readAutoStreamPrefs(conversationId: string): AutoStreamPrefs | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.sessionStorage.getItem(getAutoStreamPrefsKey(conversationId));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as any;
+    if (!parsed || typeof parsed !== "object") return null;
+    const generationMode =
+      parsed.generationMode === "image" || parsed.generationMode === "chat"
+        ? (parsed.generationMode as "chat" | "image")
+        : undefined;
+    const imageModel =
+      parsed.imageModel === "nano-banana" || parsed.imageModel === "nano-banana-pro"
+        ? (parsed.imageModel as "nano-banana" | "nano-banana-pro")
+        : undefined;
+    return { generationMode, imageModel };
+  } catch {
+    return null;
+  }
+}
 
 function loadInitialContextModeGlobal(): "advanced" | "simple" {
   if (typeof window === "undefined") return "advanced";
@@ -176,6 +259,13 @@ export default function ChatPageShell({
 }: ChatPageShellProps) {
   const baseBottomSpacerPx = 28;
   const router = useRouter();
+  const mainPanelRef = useRef<HTMLDivElement | null>(null);
+  const chatBodyRef = useRef<HTMLDivElement | null>(null);
+  useLayoutEffect(() => {
+    runMainPanelEnterIfNeeded(mainPanelRef.current);
+    runChatBodyEnterIfNeeded(chatBodyRef.current);
+  }, []);
+
   const { projects, addProject, refreshProjects } = useProjects();
   const {
     chats,
@@ -188,15 +278,39 @@ export default function ChatPageShell({
     ensureChat,
     refreshChats,
   } = useChatStore();
-  const { isGuest } = useUserIdentity();
-  const [guestWarning, setGuestWarning] = useState<string | null>(null);
+	  const { isGuest } = useUserIdentity();
+	  const [guestWarning, setGuestWarning] = useState<string | null>(null);
 
-  const [isSidebarOpen, setIsSidebarOpen] = usePersistentSidebarOpen();
-  const [currentModel, setCurrentModel] = useState("Auto");
-  const [selectedChatId, setSelectedChatId] = useState<string | null>(
-    activeConversationId ?? null
-  );
-  const prevActiveConversationIdRef = useRef<string | null>(activeConversationId);
+	  const [isSidebarOpen, setIsSidebarOpen] = usePersistentSidebarOpen();
+	  const [currentModel, setCurrentModel] = useState("Auto");
+	  const [isImageMode, setIsImageMode] = useState(false);
+	  const [currentImageModel, setCurrentImageModel] = useState<"nano-banana" | "nano-banana-pro">(
+	    "nano-banana"
+	  );
+	  const hasLoadedModelSelectionRef = useRef(false);
+	  const [selectedChatId, setSelectedChatId] = useState<string | null>(
+	    activeConversationId ?? null
+	  );
+	  const prevActiveConversationIdRef = useRef<string | null>(activeConversationId);
+
+	  useEffect(() => {
+	    const stored = readModelSelectionFromStorage();
+	    if (stored) {
+	      setCurrentModel(stored);
+	    }
+	    hasLoadedModelSelectionRef.current = true;
+	  }, []);
+
+    // Ensure the Supabase attachments bucket is readable so image/file attachments render.
+    useEffect(() => {
+      if (typeof window === "undefined") return;
+      void fetch("/api/storage/ensure-bucket", { method: "POST" }).catch(() => {});
+    }, []);
+
+	  useEffect(() => {
+	    if (!hasLoadedModelSelectionRef.current) return;
+	    persistModelSelection(currentModel);
+	  }, [currentModel]);
 
   const [selectedProjectId, setSelectedProjectId] = useState(projectId ?? "");
   const [isNewProjectOpen, setIsNewProjectOpen] = useState(false);
@@ -221,10 +335,172 @@ export default function ChatPageShell({
   const [contextModeByChat, setContextModeByChat] = useState<Record<string, "advanced" | "simple">>(
     loadInitialContextModeByChat
   );
+  const [simpleExternalChatSelectionByChat, setSimpleExternalChatSelectionByChat] = useState<
+    Record<string, string[] | null>
+  >(() => {
+    if (typeof window === "undefined") return {};
+    try {
+      const raw = window.localStorage.getItem(SIMPLE_CONTEXT_EXTERNAL_CHAT_SELECTION_KEY);
+      if (!raw) return {};
+      const parsed = JSON.parse(raw) as unknown;
+      if (!parsed || typeof parsed !== "object") return {};
+      const next: Record<string, string[] | null> = {};
+      for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
+        if (!key || typeof key !== "string") continue;
+        if (value === null) {
+          next[key] = null;
+          continue;
+        }
+        if (Array.isArray(value)) {
+          next[key] = value.filter((x) => typeof x === "string");
+        }
+      }
+      return next;
+    } catch {
+      return {};
+    }
+  });
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      window.localStorage.setItem(
+        SIMPLE_CONTEXT_EXTERNAL_CHAT_SELECTION_KEY,
+        JSON.stringify(simpleExternalChatSelectionByChat)
+      );
+    } catch {
+      // Ignore persistence failures
+    }
+  }, [simpleExternalChatSelectionByChat]);
+
+  const [advancedTopicSelectionByChat, setAdvancedTopicSelectionByChat] = useState<
+    Record<string, string[] | null>
+  >(() => {
+    if (typeof window === "undefined") return {};
+    try {
+      const raw = window.localStorage.getItem(ADVANCED_CONTEXT_TOPIC_SELECTION_KEY);
+      if (!raw) return {};
+      const parsed = JSON.parse(raw) as unknown;
+      if (!parsed || typeof parsed !== "object") return {};
+      const next: Record<string, string[] | null> = {};
+      for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
+        if (!key || typeof key !== "string") continue;
+        if (value === null) {
+          next[key] = null;
+          continue;
+        }
+        if (Array.isArray(value)) {
+          next[key] = value.filter((x) => typeof x === "string");
+        }
+      }
+      return next;
+    } catch {
+      return {};
+    }
+  });
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      window.localStorage.setItem(
+        ADVANCED_CONTEXT_TOPIC_SELECTION_KEY,
+        JSON.stringify(advancedTopicSelectionByChat)
+      );
+    } catch {
+      // Ignore persistence failures
+    }
+  }, [advancedTopicSelectionByChat]);
+
+	  const computeRecentExternalChatIds = useCallback(
+	    (excludeChatId: string | null) => {
+      const cutoffMs = Date.now() - 7 * 24 * 60 * 60 * 1000;
+      return (chats ?? [])
+        .filter((chat) => {
+          if (!chat?.id) return false;
+          if (excludeChatId && chat.id === excludeChatId) return false;
+          const ts = new Date(chat.timestamp).getTime();
+          return Number.isFinite(ts) && ts >= cutoffMs;
+        })
+        .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+        .map((chat) => chat.id);
+    },
+	    [chats]
+	  );
+
+	  // Default for each chat: freeze context mode to current global when first opened.
+	  useEffect(() => {
+	    if (!selectedChatId) return;
+	    setContextModeByChat((prev) => {
+	      if (Object.prototype.hasOwnProperty.call(prev, selectedChatId)) return prev;
+	      return { ...prev, [selectedChatId]: contextModeGlobal };
+	    });
+	  }, [contextModeGlobal, selectedChatId]);
+
+	  // Default for each chat: select all recent chats (last 7 days).
+	  useEffect(() => {
+	    if (!selectedChatId) return;
+	    setSimpleExternalChatSelectionByChat((prev) => {
+	      if (Object.prototype.hasOwnProperty.call(prev, selectedChatId)) return prev;
+      return { ...prev, [selectedChatId]: computeRecentExternalChatIds(selectedChatId) };
+    });
+  }, [computeRecentExternalChatIds, selectedChatId]);
+
+  const simpleExternalChatIdsForActiveChat = useMemo(() => {
+    if (!selectedChatId) return null;
+    const value = simpleExternalChatSelectionByChat[selectedChatId];
+    return typeof value === "undefined" ? computeRecentExternalChatIds(selectedChatId) : value;
+  }, [computeRecentExternalChatIds, selectedChatId, simpleExternalChatSelectionByChat]);
+
+  const setSimpleExternalChatIdsForActiveChat = useCallback(
+    (next: React.SetStateAction<string[] | null>) => {
+      if (!selectedChatId) return;
+      setSimpleExternalChatSelectionByChat((prev) => {
+        const current =
+          typeof prev[selectedChatId] === "undefined"
+            ? computeRecentExternalChatIds(selectedChatId)
+            : prev[selectedChatId];
+        const resolved = typeof next === "function" ? (next as any)(current) : next;
+        return { ...prev, [selectedChatId]: resolved };
+      });
+    },
+    [computeRecentExternalChatIds, selectedChatId]
+  );
+
+  const getSimpleContextExternalChatIdsForChat = useCallback(
+    (chatId: string | null): string[] | undefined => {
+      if (!chatId) return undefined;
+      const selection = simpleExternalChatSelectionByChat[chatId];
+      if (selection === null) return undefined; // auto selection
+      if (Array.isArray(selection)) return selection;
+      return computeRecentExternalChatIds(chatId);
+    },
+    [computeRecentExternalChatIds, simpleExternalChatSelectionByChat]
+  );
+
+  const getAdvancedContextTopicIdsForChat = useCallback(
+    (chatId: string | null): string[] | undefined => {
+      if (!chatId) return undefined;
+      const selection = advancedTopicSelectionByChat[chatId];
+      if (selection === null) return undefined; // auto selection
+      if (Array.isArray(selection) && selection.length > 0) return selection;
+      return undefined;
+    },
+    [advancedTopicSelectionByChat]
+  );
   const [messagesWithFirstToken, setMessagesWithFirstToken] = useState<Set<string>>(new Set());
   const [thinkingStatus, setThinkingStatus] = useState<{ variant: "thinking" | "extended"; label: string } | null>(null);
   // Force re-render while thinking so a live duration chip can update
   const [, setThinkingTick] = useState(0);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const createInsightAnimationScopeId = useCallback(
+    (conversationId: string | null) =>
+      `${conversationId ?? "__no_conversation__"}:${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`,
+    []
+  );
+  const [insightAnimationScopeId, setInsightAnimationScopeId] = useState(() =>
+    createInsightAnimationScopeId(activeConversationId ?? null)
+  );
+  const prevInsightConversationIdRef = useRef<string | null>(activeConversationId ?? null);
   const [searchIndicator, setSearchIndicator] = useState<
     SearchIndicatorState
   >(null);
@@ -234,7 +510,7 @@ export default function ChatPageShell({
   const [activeIndicatorMessageId, setActiveIndicatorMessageId] = useState<string | null>(null);
   const [reserveRuntimeIndicatorSpace, setReserveRuntimeIndicatorSpace] = useState(false);
   const [isInsightSidebarOpen, setIsInsightSidebarOpen] = useState(false);
-   const [insightPreambles, setInsightPreambles] = useState<Record<string, string>>({});
+  const [insightPreambles, setInsightPreambles] = useState<Record<string, string>>({});
   const scrollViewportRef = useRef<HTMLDivElement | null>(null);
   const isProgrammaticScrollRef = useRef(false);
   const pinToPromptRef = useRef(false);
@@ -249,6 +525,14 @@ export default function ChatPageShell({
   const guestResponseIdsRef = useRef<Record<string, string | undefined>>({});
   const inFlightRequests = useRef<Set<string>>(new Set());
   const streamAbortControllerRef = useRef<AbortController | null>(null);
+  const stopRequestedRef = useRef(false);
+  const lastTokenAtRef = useRef<number>(0);
+  const activeStreamStateRef = useRef<{
+    conversationId: string;
+    chatId: string;
+    placeholderMessageId: string;
+    minContentLength: number;
+  } | null>(null);
   const thinkingTimerRef = useRef<NodeJS.Timeout | null>(null);
   const responseTimingRef = useRef({
     start: null as number | null,
@@ -272,6 +556,7 @@ export default function ChatPageShell({
   >({});
   const searchIndicatorTimerRef = useRef<NodeJS.Timeout | null>(null);
   const fileIndicatorTimerRef = useRef<NodeJS.Timeout | null>(null);
+
   const openInsightSidebar = useCallback(() => setIsInsightSidebarOpen(true), []);
   const closeInsightSidebar = useCallback(() => setIsInsightSidebarOpen(false), []);
   const appendPreambleDelta = useCallback(
@@ -316,11 +601,21 @@ export default function ChatPageShell({
     }
   }
   conversationRenderKeyRef.current = currentConversationKey;
-  const currentContextUsage = selectedChatId ? contextUsageByChat[selectedChatId] : null;
+  const effectiveChatId = activeConversationId ?? selectedChatId;
+  const currentContextUsage =
+    (effectiveChatId ? contextUsageByChat[effectiveChatId] : null) ?? {
+      percent: 0,
+      limit: DEFAULT_CONTEXT_WINDOW_TOKENS,
+      inputTokens: 0,
+      cachedTokens: 0,
+      outputTokens: 0,
+    };
   const currentContextMode =
-    (selectedChatId && contextModeByChat[selectedChatId]) || contextModeGlobal;
-  const useSimpleContext = currentContextMode === "simple";
-  const pathname = usePathname();
+    (effectiveChatId && contextModeByChat[effectiveChatId]) || contextModeGlobal;
+	  const useSimpleContext = currentContextMode === "simple";
+	  const advancedTopicIdsForActiveChat =
+	    (effectiveChatId ? advancedTopicSelectionByChat[effectiveChatId] : null) ?? null;
+	  const pathname = usePathname();
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -416,6 +711,14 @@ export default function ChatPageShell({
     setMessagesWithFirstToken(new Set());
   }, [activeConversationId]);
 
+  // Reset insight chip "pop" animations each time a chat is opened.
+  useEffect(() => {
+    const nextConversationId = activeConversationId ?? null;
+    if (prevInsightConversationIdRef.current === nextConversationId) return;
+    prevInsightConversationIdRef.current = nextConversationId;
+    setInsightAnimationScopeId(createInsightAnimationScopeId(nextConversationId));
+  }, [activeConversationId, createInsightAnimationScopeId]);
+
   // If the current chat/project disappears, redirect to a safe route.
   useEffect(() => {
     if (!pathname) return;
@@ -499,14 +802,19 @@ export default function ChatPageShell({
   }, []);
 
   const startResponseTiming = useCallback(() => {
-    resetThinkingIndicator();
+    // Clear timers without hiding the current thinking indicator so it can show immediately.
+    if (thinkingTimerRef.current) {
+      clearTimeout(thinkingTimerRef.current);
+      thinkingTimerRef.current = null;
+    }
     responseTimingRef.current = {
       start: typeof performance !== "undefined" ? performance.now() : Date.now(),
       firstToken: null,
       assistantMessageId: null,
     };
     pendingThinkingInfoRef.current = null;
-  }, [resetThinkingIndicator]);
+    setThinkingStatus((prev) => prev ?? { variant: "thinking", label: "Thinking" });
+  }, []);
 
   // While thinking is active and before first token, tick to update live duration label
   useEffect(() => {
@@ -516,6 +824,8 @@ export default function ChatPageShell({
     const id = setInterval(() => setThinkingTick((t) => t + 1), 250);
     return () => clearInterval(id);
   }, [thinkingStatus, activeIndicatorMessageId]);
+
+
 
   const recordFirstTokenTiming = useCallback(
     (
@@ -574,6 +884,10 @@ export default function ChatPageShell({
     setSearchIndicator(null);
     searchDomainSetRef.current.clear();
     searchDomainListRef.current = [];
+  }, []);
+
+  const clearAnalyzingIndicator = useCallback(() => {
+    setIsAnalyzing(false);
   }, []);
 
   const showSearchCompleteIndicator = useCallback(
@@ -689,6 +1003,15 @@ export default function ChatPageShell({
         case "file-reading-error":
           showFileReadingIndicator("error");
           break;
+        case "code-interpreter-start":
+          setIsAnalyzing(true);
+          break;
+        case "code-interpreter-complete":
+          setIsAnalyzing(false);
+          break;
+        case "code-interpreter-error":
+          setIsAnalyzing(false);
+          break;
       }
     },
     [clearFileReadingIndicator, showFileReadingIndicator, showSearchCompleteIndicator]
@@ -699,11 +1022,12 @@ export default function ChatPageShell({
       activeIndicatorMessageId &&
       !searchIndicator &&
       !fileReadingIndicator &&
-      !thinkingStatus
+      !thinkingStatus &&
+      !isAnalyzing
     ) {
       setActiveIndicatorMessageId(null);
     }
-  }, [activeIndicatorMessageId, searchIndicator, fileReadingIndicator, thinkingStatus]);
+  }, [activeIndicatorMessageId, searchIndicator, fileReadingIndicator, thinkingStatus, isAnalyzing]);
 
   useEffect(() => {
     const previousKey = prevActiveConversationIdRef.current ?? "__no_conversation__";
@@ -1104,6 +1428,7 @@ export default function ChatPageShell({
     pinnedScrollTopRef.current = null;
 
     // Shrink any extra spacer once we have enough content below the pinned prompt.
+    if (runtimeIndicatorBubble) return;
     const pinnedId = pinnedMessageIdRef.current;
     if (!pinnedId) return;
 
@@ -1116,13 +1441,22 @@ export default function ChatPageShell({
     const viewport = scrollViewportRef.current;
     if (!viewport) return;
 
-    // Only shrink if the current scrollTop remains valid under the new max;
-    // otherwise the browser will clamp and the UI will "jump" upward.
+    // If we're currently "down in the spacer", shrinking would cause the browser to clamp
+    // scrollTop, which can feel like a jump. Prefer shrinking anyway (to avoid huge empty
+    // scroll areas) and manually clamp to the new max in a controlled way.
     const contentWithoutSpacer = viewport.scrollHeight - bottomSpacerPx;
     const nextMaxScrollTop = Math.max(0, contentWithoutSpacer + nextSpacer - viewport.clientHeight);
-    if (viewport.scrollTop > nextMaxScrollTop + 1) return;
+    const shouldClampScrollTop = viewport.scrollTop > nextMaxScrollTop + 1;
 
     setBottomSpacerPx(nextSpacer);
+    if (shouldClampScrollTop && typeof requestAnimationFrame !== "undefined") {
+      requestAnimationFrame(() => {
+        const v = scrollViewportRef.current;
+        if (!v) return;
+        const maxTop = Math.max(0, v.scrollHeight - v.clientHeight);
+        if (v.scrollTop > maxTop) v.scrollTop = maxTop;
+      });
+    }
 
     if (nextSpacer === baseBottomSpacerPx) {
       pinnedMessageIdRef.current = null;
@@ -1208,22 +1542,27 @@ export default function ChatPageShell({
         return;
       }
 
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let assistantContent = "";
-      let messageMetadata: AssistantMessageMetadata | null = { isGuest: true } as AssistantMessageMetadata;
-      let firstTokenSeen = false;
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        const textChunk = decoder.decode(value, { stream: true });
-        const lines = textChunk.split("\n").filter(Boolean);
-        for (const line of lines) {
-          try {
-            const parsed = JSON.parse(line);
-            if (parsed.response_id) {
-              guestResponseIdsRef.current[chatId] = parsed.response_id as string;
-            }
+	      const reader = response.body.getReader();
+	      const decoder = new TextDecoder();
+	      let assistantContent = "";
+	      let messageMetadata: AssistantMessageMetadata | null = { isGuest: true } as AssistantMessageMetadata;
+	      let firstTokenSeen = false;
+        let ndjsonBuffer = "";
+	      while (true) {
+	        const { done, value } = await reader.read();
+	        if (done) break;
+	        ndjsonBuffer += decoder.decode(value, { stream: true });
+          while (true) {
+            const newlineIndex = ndjsonBuffer.indexOf("\n");
+            if (newlineIndex === -1) break;
+            const line = ndjsonBuffer.slice(0, newlineIndex);
+            ndjsonBuffer = ndjsonBuffer.slice(newlineIndex + 1);
+            if (!line.trim()) continue;
+	          try {
+	            const parsed = JSON.parse(line);
+	            if (parsed.response_id) {
+	              guestResponseIdsRef.current[chatId] = parsed.response_id as string;
+	            }
             if (parsed.token) {
               assistantContent += parsed.token;
               if (!firstTokenSeen) {
@@ -1250,8 +1589,8 @@ export default function ChatPageShell({
                 metadata: messageMetadata,
               });
             }
-            if (parsed.done) {
-              if (assistantContent.length > 0) {
+	            if (parsed.done) {
+	              if (assistantContent.length > 0) {
                 const finalMeta = mergeThinkingTimingIntoMetadata(
                   messageMetadata,
                   pendingThinkingInfoRef.current as ThinkingTimingInfo | null
@@ -1262,16 +1601,16 @@ export default function ChatPageShell({
                   metadata: messageMetadata,
                 });
               }
-              setIsStreaming(false);
-              setActiveIndicatorMessageId(null);
-              return;
-            }
-          } catch (e) {
-            console.warn("guest-chat parse error", e);
+	              setIsStreaming(false);
+	              setActiveIndicatorMessageId(null);
+	              return;
+	            }
+	          } catch (e) {
+	            console.warn("guest-chat parse error", e);
+	          }
           }
-        }
-      }
-    } catch (e) {
+	      }
+	    } catch (e) {
       console.error("guest chat error", e);
       setGuestWarning("Guest mode: model call failed. Please sign in.");
     } finally {
@@ -1305,6 +1644,7 @@ export default function ChatPageShell({
     // alignment isn't immediately overwritten.
     setIsAutoScroll(false);
     setReserveRuntimeIndicatorSpace(true);
+    showThinkingIndicator();
     pinToPromptRef.current = true;
     pinnedMessageIdRef.current = userMessage.id;
     pinnedScrollTopRef.current = null;
@@ -1357,6 +1697,10 @@ export default function ChatPageShell({
             firstMessageContent: message,
             attachments,
           });
+        saveAutoStreamPrefs(
+          conversationId,
+          isImageMode ? { generationMode: "image", imageModel: currentImageModel } : null
+        );
 
         const mappedMessage: StoredMessage = {
           id: createdMessage.id,
@@ -1395,11 +1739,16 @@ export default function ChatPageShell({
         // Navigate immediately so the new chat page shows thinking/streaming
         const targetUrl = `/projects/${targetProjectId}/c/${newChatId}`;
         if (typeof window !== "undefined" && !window.location.pathname.includes(`/c/${newChatId}`)) {
-          router.push(targetUrl);
+          persistModelSelection(currentModel);
+          void navigateWithMainPanelFade(router, targetUrl);
         }
       } else {
         const { conversationId, message: createdMessage, conversation } =
           await startGlobalConversationAction(message, attachments);
+        saveAutoStreamPrefs(
+          conversationId,
+          isImageMode ? { generationMode: "image", imageModel: currentImageModel } : null
+        );
 
         const mappedMessage: StoredMessage = {
           id: createdMessage.id,
@@ -1436,7 +1785,8 @@ export default function ChatPageShell({
 
         // Navigate immediately so the new chat page shows thinking/streaming
         if (typeof window !== "undefined" && !window.location.pathname.includes(`/c/${newChatId}`)) {
-          router.push(`/c/${newChatId}`);
+          persistModelSelection(currentModel);
+          void navigateWithMainPanelFade(router, `/c/${newChatId}`);
         }
       }
     } else {
@@ -1481,15 +1831,99 @@ export default function ChatPageShell({
     () => {
       setIsStreaming(false);
       hideThinkingIndicator();
+      clearAnalyzingIndicator();
       setActiveIndicatorMessageId(null);
       setReserveRuntimeIndicatorSpace(false);
+      if (typeof window !== "undefined") {
+        try {
+          window.sessionStorage.removeItem(STREAMING_ACTIVE_STORAGE_KEY);
+          window.sessionStorage.removeItem(STREAMING_CHAT_ID_STORAGE_KEY);
+        } catch {}
+      }
       // Clear timing/pending data to avoid stale chips or stuck UI
       responseTimingRef.current = { start: null, firstToken: null, assistantMessageId: null };
       pendingThinkingInfoRef.current = null;
       clearSearchIndicator();
       clearFileReadingIndicator();
     },
-    [clearFileReadingIndicator, clearSearchIndicator, hideThinkingIndicator]
+    [clearAnalyzingIndicator, clearFileReadingIndicator, clearSearchIndicator, hideThinkingIndicator]
+  );
+
+  const recoverInterruptedStream = useCallback(
+    async (options: {
+      conversationId: string;
+      chatId: string;
+      placeholderMessageId: string;
+      minContentLength: number;
+    }) => {
+      const { conversationId, chatId, placeholderMessageId, minContentLength } = options;
+
+      // Keep the "wave" alive while recovering.
+      setIsStreaming(true);
+      setReserveRuntimeIndicatorSpace(true);
+      setThinkingStatus({ variant: "thinking", label: "Reconnecting" });
+      setActiveIndicatorMessageId(placeholderMessageId);
+
+      const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+      for (let attempt = 0; attempt < 8; attempt += 1) {
+        try {
+          const { data } = await supabaseBrowserClient
+            .from("messages")
+            .select("id, role, content, created_at, metadata, preamble, openai_response_id")
+            .eq("conversation_id", conversationId)
+            .eq("role", "assistant")
+            .order("created_at", { ascending: false })
+            .limit(3);
+
+          const rows = Array.isArray(data) ? (data as any[]) : [];
+          const best = rows.find((m) => typeof m?.id === "string" && m.id.trim()) ?? null;
+          if (best) {
+            const text = typeof best.content === "string" ? best.content : "";
+            const hasFinalId = typeof best.openai_response_id === "string" && best.openai_response_id.trim().length > 0;
+            if (hasFinalId || text.length >= minContentLength) {
+              const metadata = (best.metadata && typeof best.metadata === "object") ? (best.metadata as any) : null;
+              const updates: any = {
+                id: best.id,
+                content: text,
+                timestamp: best.created_at ?? new Date().toISOString(),
+                metadata,
+                preamble: typeof best.preamble === "string" ? best.preamble : null,
+              };
+
+              const currentChat = chats.find((c) => c.id === chatId);
+              const hasPlaceholder = Boolean(currentChat?.messages?.some((m) => m.id === placeholderMessageId));
+              const hasPersisted = Boolean(currentChat?.messages?.some((m) => m.id === best.id));
+
+              if (hasPlaceholder) {
+                updateMessage(chatId, placeholderMessageId, updates);
+              } else if (hasPersisted) {
+                updateMessage(chatId, best.id, updates);
+              } else {
+                appendMessages(chatId, [
+                  {
+                    id: best.id,
+                    role: "assistant",
+                    content: text,
+                    timestamp: best.created_at ?? new Date().toISOString(),
+                    metadata,
+                    preamble: typeof best.preamble === "string" ? best.preamble : null,
+                  },
+                ]);
+              }
+              finalizeStreamingState();
+              return;
+            }
+          }
+        } catch {
+          // swallow and retry
+        }
+        await delay(650);
+      }
+
+      finalizeStreamingState();
+    },
+    [appendMessages, chats, finalizeStreamingState, updateMessage]
   );
 
   const streamModelResponse = useCallback(async (
@@ -1498,7 +1932,8 @@ export default function ChatPageShell({
     message: string,
     chatId: string,
     skipUserInsert: boolean = false,
-    attachments?: UploadedFragment[]
+    attachments?: UploadedFragment[],
+    generationOverride?: AutoStreamPrefs
   ) => {
     const requestKey = `${conversationId}:${message}`;
     if (inFlightRequests.current.has(requestKey)) {
@@ -1506,13 +1941,46 @@ export default function ChatPageShell({
       return;
     }
     inFlightRequests.current.add(requestKey);
-    const controller = new AbortController();
-    streamAbortControllerRef.current = controller;
-    setIsStreaming(true);
+	    const controller = new AbortController();
+	    streamAbortControllerRef.current = controller;
+	    setIsStreaming(true);
+	    if (typeof window !== "undefined") {
+	      try {
+	        window.sessionStorage.setItem(STREAMING_ACTIVE_STORAGE_KEY, "1");
+	        window.sessionStorage.setItem(STREAMING_CHAT_ID_STORAGE_KEY, chatId);
+	      } catch {}
+	    }
 
     console.log("[chatDebug] streamModelResponse start", { conversationId, chatId, skipUserInsert, shortMessage: message.slice(0,40) });
 
+    const assistantMessageId = `assistant-streaming-${Date.now()}`;
+    let currentAssistantMessageId = assistantMessageId;
+    let sawToken = false;
+    let sawDone = false;
+    let sawMeta = false;
+    let interrupted = false;
+    let assistantContent = "";
+    let messageMetadata: AssistantMessageMetadata | null = {};
+    activeStreamStateRef.current = {
+      conversationId,
+      chatId,
+      placeholderMessageId: assistantMessageId,
+      minContentLength: 0,
+    };
+
     try {
+      // Create the placeholder assistant message immediately so the pre-stream shimmer shows with no network delay.
+      setActiveIndicatorMessageId(assistantMessageId);
+      appendMessages(chatId, [
+        {
+          id: assistantMessageId,
+          role: "assistant",
+          content: "",
+          timestamp: new Date().toISOString(),
+        },
+      ]);
+      responseTimingRef.current.assistantMessageId = assistantMessageId;
+
       // Get model settings from current display selection
       const {
         modelFamily,
@@ -1545,7 +2013,9 @@ export default function ChatPageShell({
             lat: parsed.lat,
             lng: parsed.lng,
             city: parsed.city,
-            timezone: parsed.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || null,
+            timezone: parsed.timezone || (typeof Intl !== "undefined"
+              ? Intl.DateTimeFormat().resolvedOptions().timeZone
+              : null),
           };
         }
       } catch (e) {
@@ -1558,25 +2028,36 @@ export default function ChatPageShell({
           ? Intl.DateTimeFormat().resolvedOptions().timeZone
           : null);
 
+      const effectiveMode = generationOverride?.generationMode ?? (isImageMode ? "image" : "chat");
+      const effectiveImageModel = generationOverride?.imageModel ?? currentImageModel;
+
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          conversationId,
-          projectId,
-          message,
-          modelFamilyOverride: modelFamily,
-          speedModeOverride: speedMode,
-          reasoningEffortOverride: reasoningEffortOverride,
-          skipUserInsert,
-          attachments,
-          location: locationData,
-          clientNow: Date.now(),
-          timezone,
-          simpleContextMode: useSimpleContext,
-        }),
-        signal: controller.signal,
-      });
+          body: JSON.stringify({
+            conversationId,
+            projectId,
+            message,
+            generationMode: effectiveMode,
+            imageModel: effectiveMode === "image" ? effectiveImageModel : undefined,
+            modelFamilyOverride: modelFamily,
+            speedModeOverride: speedMode,
+            reasoningEffortOverride: reasoningEffortOverride,
+            skipUserInsert,
+            attachments,
+            location: locationData,
+            clientNow: Date.now(),
+            timezone,
+            simpleContextMode: useSimpleContext,
+            simpleContextExternalChatIds: useSimpleContext
+              ? getSimpleContextExternalChatIdsForChat(chatId)
+              : undefined,
+            advancedContextTopicIds: !useSimpleContext
+              ? getAdvancedContextTopicIdsForChat(chatId)
+              : undefined,
+          }),
+          signal: controller.signal,
+        });
 
       if (!response.ok) {
         // Stop streaming state and indicators on error
@@ -1606,50 +2087,43 @@ export default function ChatPageShell({
         return;
       }
 
-      const reader = response.body?.getReader();
+	      const reader = response.body?.getReader();
       if (!reader) {
         console.error("No response body reader");
         finalizeStreamingState();
         return;
       }
 
-      const decoder = new TextDecoder();
-      let assistantContent = "";
-      const assistantMessageId = `assistant-streaming-${Date.now()}`;
-      let messageMetadata: AssistantMessageMetadata | null = {};
+	      const decoder = new TextDecoder();
+        let ndjsonBuffer = "";
 
-      // Set active indicator BEFORE adding message so indicators show
-      setActiveIndicatorMessageId(assistantMessageId);
+	      try {
+	        while (true) {
+	          const { done, value } = await reader.read();
+	          if (done) break;
 
-      // Add the initial empty assistant message
-      appendMessages(chatId, [
-        {
-          id: assistantMessageId,
-          role: "assistant",
-          content: "",
-          timestamp: new Date().toISOString(),
-        },
-      ]);
-      responseTimingRef.current.assistantMessageId = assistantMessageId;
+	          ndjsonBuffer += decoder.decode(value, { stream: true });
 
-      try {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
+            while (true) {
+              const newlineIndex = ndjsonBuffer.indexOf("\n");
+              if (newlineIndex === -1) break;
+              const line = ndjsonBuffer.slice(0, newlineIndex);
+              ndjsonBuffer = ndjsonBuffer.slice(newlineIndex + 1);
+              if (!line.trim()) continue;
+	            try {
+	              const parsed = JSON.parse(line);
 
-          const chunk = decoder.decode(value, { stream: true });
-          const lines = chunk.split("\n").filter((l) => l.trim());
-
-          for (const line of lines) {
-            try {
-              const parsed = JSON.parse(line);
-
-              if (parsed.token) {
-                assistantContent += parsed.token;
-                const currentMessageId =
-                  responseTimingRef.current.assistantMessageId ?? assistantMessageId;
-                messageMetadata = recordFirstTokenTiming(
-                  chatId,
+		              if (parsed.token) {
+		                lastTokenAtRef.current = Date.now();
+		                assistantContent += parsed.token;
+		                sawToken = true;
+                    if (activeStreamStateRef.current) {
+                      activeStreamStateRef.current.minContentLength = assistantContent.length;
+                    }
+	                const currentMessageId =
+	                  responseTimingRef.current.assistantMessageId ?? assistantMessageId;
+	                messageMetadata = recordFirstTokenTiming(
+	                  chatId,
                   currentMessageId,
                   messageMetadata,
                   messageMetadata?.reasoningEffort ?? null
@@ -1659,6 +2133,7 @@ export default function ChatPageShell({
                   hideThinkingIndicator();
                   clearSearchIndicator();
                   clearFileReadingIndicator();
+                  clearAnalyzingIndicator();
                 }
                 // Clear the search indicator bubble on first token so it doesn't persist
                 clearSearchIndicator();
@@ -1722,8 +2197,9 @@ export default function ChatPageShell({
                     metadata: messageMetadata,
                   });
                 }
-              } else if (parsed.meta) {
-                const fallbackMeta: AssistantMessageMetadata = {
+		              } else if (parsed.meta) {
+		                sawMeta = true;
+	                const fallbackMeta: AssistantMessageMetadata = {
                   modelUsed: parsed.meta.model,
                   reasoningEffort: parsed.meta.reasoningEffort,
                   resolvedFamily: parsed.meta.resolvedFamily,
@@ -1771,16 +2247,32 @@ export default function ChatPageShell({
                     }));
                   }
                 }
-                const newId = parsed.meta.assistantMessageRowId;
-                setActiveIndicatorMessageId(newId);
+	                const newId = parsed.meta.assistantMessageRowId;
+	                currentAssistantMessageId = newId;
+                  if (activeStreamStateRef.current) {
+                    activeStreamStateRef.current.placeholderMessageId = newId;
+                  }
+                const finalContent =
+                  typeof (parsed.meta as any).finalContent === "string" ? ((parsed.meta as any).finalContent as string) : null;
+                if (finalContent) {
+                  assistantContent = finalContent;
+                }
+	                setActiveIndicatorMessageId(newId);
                 // Clear thinking indicator when metadata arrives
                 resetThinkingIndicator();
                 // Replace the temporary ID with the persisted row ID and store metadata
                 updateMessage(chatId, assistantMessageId, {
                   id: newId,
                   metadata: metadataWithTiming,
+                  ...(finalContent ? { content: finalContent } : {}),
                 });
-                responseTimingRef.current.assistantMessageId = newId;
+	                responseTimingRef.current.assistantMessageId = newId;
+                setMessagesWithFirstToken((prev) => {
+                  if (!prev.has(assistantMessageId) || prev.has(newId)) return prev;
+                  const next = new Set(prev);
+                  next.add(newId);
+                  return next;
+                });
                 
                 // Emit usage update event for live counter
                 if (typeof window !== 'undefined') {
@@ -1802,63 +2294,142 @@ export default function ChatPageShell({
                   });
                 }
                 // Do not persist file-reading indicator based on citations; it's ephemeral.
-              } else if (parsed.done) {
-                // Streaming complete
-                break;
-              }
-            } catch {
-              // Skip lines that aren't valid JSON
+		              } else if (parsed.done) {
+		                // Streaming complete
+		                sawDone = true;
+		                break;
+		              }
+		            } catch {
+		              // Skip lines that aren't valid JSON
+		            }
             }
+	        }
+          // If the stream ended without an explicit `{ done: true }` marker, treat it as interrupted.
+          if (!sawDone && (sawToken || sawMeta)) {
+            interrupted = true;
           }
-        }
-      } finally {
-        reader.releaseLock();
-      }
-    } catch (error) {
-      const isAbortError =
-        error instanceof DOMException
-          ? error.name === "AbortError"
-          : (error as { name?: string })?.name === "AbortError";
-      if (!isAbortError) {
-        console.error("Error streaming model response:", error);
-      }
-    } finally {
-      if (streamAbortControllerRef.current === controller) {
-        streamAbortControllerRef.current = null;
-      }
-      inFlightRequests.current.delete(requestKey);
-      finalizeStreamingState();
-    }
-  }, [
+	      } finally {
+	        reader.releaseLock();
+	      }
+	    } catch (error) {
+	      const isAbortError =
+	        error instanceof DOMException
+	          ? error.name === "AbortError"
+	          : (error as { name?: string })?.name === "AbortError";
+	      if (!isAbortError) {
+	        console.error("Error streaming model response:", error);
+	      }
+	      const likelyBackgroundInterruption =
+	        typeof document !== "undefined" && document.visibilityState !== "visible";
+	      interrupted =
+	        !stopRequestedRef.current &&
+          !sawDone &&
+          (sawToken || sawMeta) &&
+	        (isAbortError || likelyBackgroundInterruption || error instanceof TypeError);
+	    } finally {
+	      if (streamAbortControllerRef.current === controller) {
+	        streamAbortControllerRef.current = null;
+	      }
+	      inFlightRequests.current.delete(requestKey);
+
+	      const wasStopRequested = stopRequestedRef.current;
+	      stopRequestedRef.current = false;
+
+	      if (interrupted && !wasStopRequested) {
+	        // Keep the streaming UI alive and recover from the persisted assistant message.
+          const state = activeStreamStateRef.current;
+          if (state) {
+            void recoverInterruptedStream({
+              conversationId: state.conversationId,
+              chatId: state.chatId,
+              placeholderMessageId: state.placeholderMessageId,
+              minContentLength: Math.max(1, state.minContentLength),
+            });
+          } else {
+            void recoverInterruptedStream({
+              conversationId,
+              chatId,
+              placeholderMessageId: currentAssistantMessageId,
+              minContentLength: Math.max(1, assistantContent.length),
+            });
+          }
+	        return;
+	      }
+
+	      finalizeStreamingState();
+        activeStreamStateRef.current = null;
+	      if (!sawToken && !sawMeta) {
+	        removeMessage(chatId, currentAssistantMessageId);
+	      }
+	    }
+	  }, [
     addSearchDomain,
     appendMessages,
     clearFileReadingIndicator,
     clearSearchIndicator,
+    currentImageModel,
     currentModel,
     handleStatusEvent,
     hideThinkingIndicator,
+    isImageMode,
     resetThinkingIndicator,
+    removeMessage,
     recordFirstTokenTiming,
-    finalizeStreamingState,
-    promoteThinkingIndicator,
-    showThinkingIndicator,
-    startResponseTiming,
-    updateMessage,
-  ]);
+	    finalizeStreamingState,
+	    recoverInterruptedStream,
+	    promoteThinkingIndicator,
+	    showThinkingIndicator,
+	    startResponseTiming,
+	    updateMessage,
+	  ]);
 
   // Keep the latest streamModelResponse without retriggering effects that shouldn't re-run on dropdown changes
   useEffect(() => {
     streamModelResponseRef.current = streamModelResponse;
   }, [streamModelResponse]);
 
-  const handleStopGeneration = useCallback(() => {
-    const controller = streamAbortControllerRef.current;
-    if (!controller) return;
-    controller.abort();
-    streamAbortControllerRef.current = null;
-    setIsStreaming(false);
-    resetThinkingIndicator();
-  }, [resetThinkingIndicator]);
+	  const handleStopGeneration = useCallback(() => {
+	    const controller = streamAbortControllerRef.current;
+	    if (!controller) return;
+	    stopRequestedRef.current = true;
+	    controller.abort();
+	    streamAbortControllerRef.current = null;
+	    setIsStreaming(false);
+	    if (typeof window !== "undefined") {
+	      try {
+	        window.sessionStorage.removeItem(STREAMING_ACTIVE_STORAGE_KEY);
+	        window.sessionStorage.removeItem(STREAMING_CHAT_ID_STORAGE_KEY);
+	      } catch {}
+	    }
+	    resetThinkingIndicator();
+	    clearAnalyzingIndicator();
+	  }, [clearAnalyzingIndicator, resetThinkingIndicator]);
+
+	  useEffect(() => {
+	    const onVisible = () => {
+	      if (document.visibilityState !== "visible") return;
+	      if (!isStreaming) return;
+	      const last = lastTokenAtRef.current;
+	      if (!last) return;
+	      if (Date.now() - last < 8000) return;
+	      // If we appear stuck after resuming, trigger a non-destructive recovery fetch.
+        const state = activeStreamStateRef.current;
+        if (!state) return;
+        stopRequestedRef.current = false;
+        void recoverInterruptedStream({
+          conversationId: state.conversationId,
+          chatId: state.chatId,
+          placeholderMessageId: state.placeholderMessageId,
+          minContentLength: Math.max(1, state.minContentLength),
+        });
+	    };
+	    document.addEventListener("visibilitychange", onVisible);
+	    window.addEventListener("focus", onVisible);
+	    return () => {
+	      document.removeEventListener("visibilitychange", onVisible);
+	      window.removeEventListener("focus", onVisible);
+	    };
+	  }, [isStreaming, recoverInterruptedStream]);
 
   const buildAttachmentsFromMetadata = useCallback(
     (metadata?: Record<string, unknown> | null): UploadedFragment[] => {
@@ -1894,6 +2465,15 @@ export default function ChatPageShell({
       const userMessage = initialMessages[0];
       console.log("[chatDebug] Detected new chat with only user message, triggering stream");
 
+      const prefs = readAutoStreamPrefs(activeConversationId);
+      if (prefs?.generationMode === "image") {
+        setIsImageMode(true);
+        if (prefs.imageModel) {
+          setCurrentImageModel(prefs.imageModel);
+        }
+      }
+      saveAutoStreamPrefs(activeConversationId, null);
+
       // Mark as auto-streamed before triggering
       autoStreamedConversations.current.add(activeConversationId);
       if (typeof window !== "undefined") {
@@ -1911,7 +2491,8 @@ export default function ChatPageShell({
         userMessage.content,
         activeConversationId,
         true, // skipUserInsert since message is already in DB
-        initialAttachments.length ? initialAttachments : undefined
+        initialAttachments.length ? initialAttachments : undefined,
+        prefs ?? undefined
       ).catch((err: unknown) => {
         console.error("Failed to stream initial message:", err);
       });
@@ -1936,6 +2517,21 @@ export default function ChatPageShell({
     const userMessage = messages[messageIndex - 1];
     if (!userMessage || userMessage.role !== "user") return;
 
+    const isImageRetry = retryModelName === "Nano Banana" || retryModelName === "Nano Banana Pro";
+    const retryGenerationMode: "chat" | "image" = isImageRetry ? "image" : "chat";
+    const retryImageModel: "nano-banana" | "nano-banana-pro" | undefined = isImageRetry
+      ? retryModelName === "Nano Banana Pro"
+        ? "nano-banana-pro"
+        : "nano-banana"
+      : undefined;
+
+    if (isImageRetry) {
+      setIsImageMode(true);
+      setCurrentImageModel(retryImageModel ?? "nano-banana");
+    } else {
+      setIsImageMode(false);
+    }
+
     // Map retry model name to model settings (without changing the UI dropdown)
     let retryModelFamily: ModelFamily = "gpt-5-mini";
     let retrySpeedMode: SpeedMode = "auto";
@@ -1952,16 +2548,14 @@ export default function ChatPageShell({
       retryModelFamily = "gpt-5.2-pro";
       retrySpeedMode = "auto";
     }
-    const retryPreviewConfig = getModelAndReasoningConfig(
-      retryModelFamily,
-      retrySpeedMode,
-      userMessage.content
-    );
+    const retryPreviewConfig = isImageRetry
+      ? null
+      : getModelAndReasoningConfig(retryModelFamily, retrySpeedMode, userMessage.content);
 
     // Start timing and show thinking indicator BEFORE removing message
     startResponseTiming();
     showThinkingIndicator();
-    promoteThinkingIndicator(retryPreviewConfig.reasoning?.effort);
+    promoteThinkingIndicator(retryPreviewConfig?.reasoning?.effort);
     clearSearchIndicator();
     clearFileReadingIndicator();
 
@@ -1996,7 +2590,9 @@ export default function ChatPageShell({
             lat: parsed.lat,
             lng: parsed.lng,
             city: parsed.city,
-            timezone: parsed.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || null,
+            timezone: parsed.timezone || (typeof Intl !== "undefined"
+              ? Intl.DateTimeFormat().resolvedOptions().timeZone
+              : null),
           };
         }
       } catch (e) {
@@ -2016,6 +2612,8 @@ export default function ChatPageShell({
           conversationId: selectedChatId,
           projectId: selectedProjectId || undefined,
           message: userMessage.content,
+          generationMode: retryGenerationMode,
+          imageModel: retryGenerationMode === "image" ? retryImageModel : undefined,
           modelFamilyOverride: retryModelFamily,
           speedModeOverride: retrySpeedMode,
           reasoningEffortOverride: undefined, // Let API auto-calculate
@@ -2024,6 +2622,9 @@ export default function ChatPageShell({
           clientNow: Date.now(),
           timezone,
           simpleContextMode: useSimpleContext,
+          simpleContextExternalChatIds: useSimpleContext
+            ? getSimpleContextExternalChatIdsForChat(selectedChatId)
+            : undefined,
         }),
       });
 
@@ -2038,10 +2639,11 @@ export default function ChatPageShell({
         return;
       }
 
-      const decoder = new TextDecoder();
-      let assistantContent = "";
-      // assistantMessageId already generated and set above
-      let messageMetadata: AssistantMessageMetadata | null = {};
+	      const decoder = new TextDecoder();
+	      let assistantContent = "";
+	      // assistantMessageId already generated and set above
+	      let messageMetadata: AssistantMessageMetadata | null = {};
+        let ndjsonBuffer = "";
 
       // Add the initial empty assistant message
       appendMessages(selectedChatId, [
@@ -2054,17 +2656,21 @@ export default function ChatPageShell({
       ]);
       responseTimingRef.current.assistantMessageId = assistantMessageId;
 
-      try {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
+	      try {
+	        while (true) {
+	          const { done, value } = await reader.read();
+	          if (done) break;
 
-          const chunk = decoder.decode(value, { stream: true });
-          const lines = chunk.split("\n").filter((l) => l.trim());
+	          ndjsonBuffer += decoder.decode(value, { stream: true });
 
-          for (const line of lines) {
-            try {
-              const parsed = JSON.parse(line);
+            while (true) {
+              const newlineIndex = ndjsonBuffer.indexOf("\n");
+              if (newlineIndex === -1) break;
+              const line = ndjsonBuffer.slice(0, newlineIndex);
+              ndjsonBuffer = ndjsonBuffer.slice(newlineIndex + 1);
+              if (!line.trim()) continue;
+	            try {
+	              const parsed = JSON.parse(line);
 
               if (parsed.token) {
                 assistantContent += parsed.token;
@@ -2148,24 +2754,30 @@ export default function ChatPageShell({
                 setActiveIndicatorMessageId(newId);
                 // Clear thinking indicator when metadata arrives
                 resetThinkingIndicator();
+                const finalContent =
+                  typeof (parsed.meta as any).finalContent === "string" ? ((parsed.meta as any).finalContent as string) : null;
+                if (finalContent) {
+                  assistantContent = finalContent;
+                }
                 // Replace the temporary ID with the persisted row ID and store metadata
                 updateMessage(selectedChatId, assistantMessageId, {
                   id: newId,
                   metadata: metadataWithTiming,
+                  ...(finalContent ? { content: finalContent } : {}),
                 });
                 responseTimingRef.current.assistantMessageId = newId;
               } else if (parsed.done) {
                 // Streaming complete
                 break;
               }
-            } catch {
-              // Skip lines that aren't valid JSON
+	            } catch {
+	              // Skip lines that aren't valid JSON
+	            }
             }
-          }
-        }
-      } finally {
-        reader.releaseLock();
-      }
+	        }
+	      } finally {
+	        reader.releaseLock();
+	      }
     } catch (error) {
       console.error("Error retrying with model:", error);
     } finally {
@@ -2177,20 +2789,15 @@ export default function ChatPageShell({
 
   const handleChatSelect = (id: string) => {
     const chat = chats.find((item) => item.id === id);
-    setSelectedChatId(id);
     if (chat?.projectId) {
-      setSelectedProjectId(chat.projectId);
-      router.push(`/projects/${chat.projectId}/c/${id}`);
+      void navigateWithChatBodyFade(router, `/projects/${chat.projectId}/c/${id}`);
     } else {
-      setSelectedProjectId("");
-      router.push(`/c/${id}`);
+      void navigateWithChatBodyFade(router, `/c/${id}`);
     }
   };
 
   const handleProjectChatSelect = (projectIdValue: string, chatId: string) => {
-    setSelectedChatId(chatId);
-    setSelectedProjectId(projectIdValue);
-    router.push(`/projects/${projectIdValue}/c/${chatId}`);
+    void navigateWithChatBodyFade(router, `/projects/${projectIdValue}/c/${chatId}`);
   };
 
   const handleNewChat = () => {
@@ -2198,14 +2805,11 @@ export default function ChatPageShell({
       setGuestWarning("Guest mode: sign in to save chats and projects.");
       return;
     }
-    setSelectedChatId(null);
-    setSelectedProjectId("");
-    router.replace("/");
+    void navigateWithChatBodyFade(router, "/", "replace");
   };
 
   const handleProjectSelect = (id: string) => {
-    setSelectedProjectId(id);
-    router.push(`/projects/${id}`);
+    void navigateWithMainPanelFade(router, `/projects/${id}`);
   };
 
   const handleScroll: React.UIEventHandler<HTMLDivElement> = (event) => {
@@ -2282,9 +2886,8 @@ export default function ChatPageShell({
       return;
     }
     const newProject = await addProject(name, icon, color);
-    setSelectedProjectId(newProject.id);
     setIsNewProjectOpen(false);
-    router.push(`/projects/${newProject.id}`);
+    void navigateWithMainPanelFade(router, `/projects/${newProject.id}`);
   };
 
   const sidebarConversations = useMemo(
@@ -2343,15 +2946,17 @@ export default function ChatPageShell({
   const runtimeIndicatorBubble = useMemo(() => {
     if (!selectedChatId || !lastUserMessageId) return null;
 
-    const hasIndicator = Boolean(thinkingStatus || searchIndicator || fileReadingIndicator);
+    const hasIndicator = Boolean(thinkingStatus || searchIndicator || fileReadingIndicator || isAnalyzing);
     const lastHasContent = messages.length === 0 || Boolean(messages[messages.length - 1]?.content);
-    const allowRegardless = Boolean(searchIndicator || fileReadingIndicator || thinkingStatus);
+    const allowRegardless = Boolean(searchIndicator || fileReadingIndicator || thinkingStatus || isAnalyzing);
 
     if (!hasIndicator || (!lastHasContent && !allowRegardless)) {
       return null;
     }
 
-    const bubble = fileReadingIndicator ? (
+    const bubble = isAnalyzing ? (
+      <StatusBubble label="Analyzing" variant="analyzing" />
+    ) : fileReadingIndicator ? (
       <StatusBubble
         label="Reading documents"
         variant={fileReadingIndicator === "error" ? "error" : "reading"}
@@ -2375,6 +2980,7 @@ export default function ChatPageShell({
     return bubble;
   }, [
     fileReadingIndicator,
+    isAnalyzing,
     lastUserMessageId,
     messages,
     searchIndicator,
@@ -2382,10 +2988,117 @@ export default function ChatPageShell({
     thinkingStatus,
   ]);
 
+  const assistantShimmerRgb = useMemo(() => {
+    if (fileReadingIndicator) return "83, 242, 199"; // green
+    if (searchIndicator) return "75, 100, 255"; // darker blue
+    if (isAnalyzing) return "196, 181, 253"; // purple
+    if (thinkingStatus?.variant === "extended") return "138, 180, 255"; // blue
+    if (thinkingStatus) return "255, 255, 255"; // default thinking
+    return "255, 255, 255";
+  }, [fileReadingIndicator, searchIndicator, isAnalyzing, thinkingStatus]);
+
   const shouldRenderRuntimeIndicatorSlot =
     Boolean(selectedChatId && lastUserMessageId) &&
     (reserveRuntimeIndicatorSpace ||
-      Boolean(thinkingStatus || searchIndicator || fileReadingIndicator));
+      Boolean(thinkingStatus || searchIndicator || fileReadingIndicator || isAnalyzing));
+
+  // When we're intentionally not auto-scrolling (e.g., pinning the prompt near the top),
+  // prevent newly mounted runtime indicators from nudging the scroll position.
+  useEffect(() => {
+    if (isAutoScroll) return;
+    const viewport = scrollViewportRef.current;
+    if (!viewport) return;
+
+    const lockedTop = viewport.scrollTop;
+    const restore = () => {
+      viewport.scrollTop = lockedTop;
+    };
+
+    // Restore immediately and over the next two frames to cover layout/paint.
+    restore();
+    const raf1 = typeof requestAnimationFrame !== "undefined" ? requestAnimationFrame(() => {
+      restore();
+      if (typeof requestAnimationFrame !== "undefined") {
+        requestAnimationFrame(restore);
+      }
+    }) : null;
+
+    // If the viewport resizes while indicators are present, keep the same top.
+    const resizeObserver =
+      typeof ResizeObserver !== "undefined"
+        ? new ResizeObserver(restore)
+        : null;
+    if (resizeObserver) {
+      resizeObserver.observe(viewport);
+    }
+
+    return () => {
+      if (raf1 && typeof cancelAnimationFrame !== "undefined") {
+        cancelAnimationFrame(raf1);
+      }
+      if (resizeObserver) {
+        resizeObserver.disconnect();
+      }
+    };
+  }, [
+    isAutoScroll,
+    thinkingStatus,
+    searchIndicator,
+    fileReadingIndicator,
+    reserveRuntimeIndicatorSpace,
+  ]);
+
+  // Lock scroll position while runtime indicator is visible to avoid jumps from layout/anchor adjustments.
+  useEffect(() => {
+    if (!runtimeIndicatorBubble) return;
+    const viewport = scrollViewportRef.current;
+    if (!viewport) return;
+
+    const lockTop = viewport.scrollTop;
+    const effectiveBottom = getEffectiveScrollBottom(viewport);
+    const distanceFromBottom = effectiveBottom - (viewport.scrollTop + viewport.clientHeight);
+    if (distanceFromBottom > 8) {
+      setIsAutoScroll(false);
+    }
+
+    const restore = () => {
+      viewport.scrollTop = lockTop;
+    };
+
+    restore();
+    const raf1 =
+      typeof requestAnimationFrame !== "undefined"
+        ? requestAnimationFrame(() => {
+            restore();
+            if (typeof requestAnimationFrame !== "undefined") {
+              requestAnimationFrame(restore);
+            }
+          })
+        : null;
+
+    const resizeObserver =
+      typeof ResizeObserver !== "undefined"
+        ? new ResizeObserver(restore)
+        : null;
+    if (resizeObserver) {
+      resizeObserver.observe(viewport);
+    }
+
+    return () => {
+      if (raf1 && typeof cancelAnimationFrame !== "undefined") {
+        cancelAnimationFrame(raf1);
+      }
+      if (resizeObserver) {
+        resizeObserver.disconnect();
+      }
+    };
+  }, [runtimeIndicatorBubble, getEffectiveScrollBottom]);
+
+  // Ensure we never shrink the bottom spacer while a runtime indicator is visible; keeps page height stable.
+  useEffect(() => {
+    if (!runtimeIndicatorBubble) return;
+    setBottomSpacerPx((prev) => Math.max(prev, baseBottomSpacerPx + 80));
+  }, [runtimeIndicatorBubble, baseBottomSpacerPx]);
 
   useEffect(() => {
     if (!shouldRenderRuntimeIndicatorSlot && !isStreaming) {
@@ -2421,7 +3134,12 @@ export default function ChatPageShell({
       )}
 
       {/* Right column: header + messages + composer */}
-      <div className="chat-ambient-bg flex flex-1 flex-col w-full min-w-0 min-h-0 overflow-hidden">
+      <div
+        ref={mainPanelRef}
+        data-main-panel="true"
+        className="chat-ambient-bg flex flex-1 flex-col w-full min-w-0 min-h-0 overflow-hidden"
+        style={{ viewTransitionName: "main-panel", ["--assistant-shimmer-rgb" as any]: assistantShimmerRgb }}
+      >
         {/* Header bar */}
         <div className="sticky top-0 z-20 flex h-[53px] items-center justify-between border-b border-border bg-background px-3 lg:px-6">
           <div className="flex items-center gap-3 min-w-0">
@@ -2472,22 +3190,66 @@ export default function ChatPageShell({
                   size="sm"
                   className="h-9 w-auto gap-1.5 border-0 px-2 text-base font-semibold focus-visible:bg-transparent focus-visible:outline-none focus-visible:ring-0"
                 >
-                  {currentModel === "Auto"
-                    ? "GPT 5.2"
-                    : currentModel === "Instant"
-                      ? "GPT 5.2 Instant"
-                      : currentModel === "Thinking"
-                        ? "GPT 5.2 Thinking"
-                        : currentModel}
+                  {isImageMode
+                    ? currentImageModel === "nano-banana"
+                      ? "Nano Banana"
+                      : "Nano Banana Pro"
+                    : currentModel === "Auto"
+                      ? "GPT 5.2"
+                      : currentModel === "Instant"
+                        ? "GPT 5.2 Instant"
+                        : currentModel === "Thinking"
+                          ? "GPT 5.2 Thinking"
+                          : currentModel}
                   <ChevronDown className="h-4 w-4 text-muted-foreground" />
                 </Button>
               </DropdownMenuTrigger>
               {!isGuest ? (
-                <DropdownMenuContent
-                  align="start"
-                  sideOffset={8}
-                  className="w-auto min-w-[220px] max-w-[90vw] sm:w-64 space-y-1 py-2"
-                >
+                isImageMode ? (
+                  <DropdownMenuContent
+                    align="start"
+                    sideOffset={8}
+                    className="w-auto min-w-[220px] max-w-[90vw] sm:w-64 space-y-1 py-2"
+                  >
+                    <div className="px-3 pb-1 text-sm font-semibold text-muted-foreground">
+                      Image generation
+                    </div>
+                    <DropdownMenuItem
+                      className="items-center gap-3 px-3 py-2"
+                      onSelect={() => setCurrentImageModel("nano-banana")}
+                    >
+                      <span className="flex-1">Nano Banana</span>
+                      <span className="flex w-4 justify-end">
+                        {currentImageModel === "nano-banana" && <Check className="h-4 w-4" />}
+                      </span>
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      className="items-center gap-3 px-3 py-2"
+                      onSelect={() => setCurrentImageModel("nano-banana-pro")}
+                    >
+                      <span className="flex-1">Nano Banana Pro</span>
+                      <span className="flex w-4 justify-end">
+                        {currentImageModel === "nano-banana-pro" && <Check className="h-4 w-4" />}
+                      </span>
+                    </DropdownMenuItem>
+
+                    <div className="px-2">
+                      <div className="h-px bg-border" />
+                    </div>
+
+                    <DropdownMenuItem
+                      className="items-center gap-3 px-3 py-2"
+                      onSelect={() => setIsImageMode(false)}
+                    >
+                      <span className="flex-1 text-muted-foreground">Back to chat models</span>
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                ) : (
+                  <DropdownMenuContent
+                    align="start"
+                    sideOffset={8}
+                    className="w-auto min-w-[220px] max-w-[90vw] sm:w-64 space-y-1 py-2"
+                  >
                   <div className="px-3 pb-1 text-sm font-semibold text-muted-foreground">
                     GPT 5.2
                   </div>
@@ -2652,6 +3414,7 @@ export default function ChatPageShell({
                     </div>
                   )}
                 </DropdownMenuContent>
+                )
               ) : (
                 <DropdownMenuContent align="start" className="w-72 p-0 overflow-hidden border border-border/60">
                   <div className="bg-card">
@@ -2686,25 +3449,36 @@ export default function ChatPageShell({
           </div>
 
           <div className="flex items-center gap-3">
-            {currentContextUsage ? (
-              <ContextUsageIndicator
-                usage={currentContextUsage}
-                contextMode={currentContextMode}
-                onToggleMode={(next) => {
-                  if (!selectedChatId) {
-                    setContextModeGlobal(next);
-                    try {
-                      window.localStorage.setItem("context-mode-global", next);
-                    } catch {}
-                    return;
-                  }
-                  setContextModeByChat((prev) => ({
-                    ...prev,
-                    [selectedChatId]: next,
-                  }));
-                }}
-              />
-            ) : null}
+	            <ContextUsageIndicator
+	              usage={currentContextUsage}
+	              contextMode={currentContextMode}
+	              availableChats={chats}
+	              activeChatId={effectiveChatId}
+	              simpleExternalChatIds={simpleExternalChatIdsForActiveChat}
+	              onChangeSimpleExternalChatIds={setSimpleExternalChatIdsForActiveChat}
+	              advancedTopicIds={advancedTopicIdsForActiveChat}
+	              onChangeAdvancedTopicIds={(next) => {
+	                if (!effectiveChatId) return;
+	                setAdvancedTopicSelectionByChat((prev) => {
+	                  const current = typeof prev[effectiveChatId] === "undefined" ? null : prev[effectiveChatId];
+	                  const resolved = typeof next === "function" ? (next as any)(current) : next;
+	                  return { ...prev, [effectiveChatId]: resolved };
+	                });
+	              }}
+	              onToggleMode={(next) => {
+	                if (!effectiveChatId) {
+	                  setContextModeGlobal(next);
+	                  try {
+	                    window.localStorage.setItem("context-mode-global", next);
+                  } catch {}
+                  return;
+                }
+                setContextModeByChat((prev) => ({
+                  ...prev,
+                  [effectiveChatId]: next,
+                }));
+              }}
+            />
             {isGuest ? (
               <>
                 <Button
@@ -2744,7 +3518,11 @@ export default function ChatPageShell({
           </div>
         )}
 
-        <div className="flex-1 overflow-hidden flex flex-col min-h-0">
+        <div
+          ref={chatBodyRef}
+          data-chat-body="true"
+          className="flex-1 overflow-hidden flex flex-col min-h-0"
+        >
           {!selectedChatId || messages.length === 0 ? (
             <div className="flex flex-1 items-center justify-center px-4">
               <div className="text-center">
@@ -2845,6 +3623,8 @@ export default function ChatPageShell({
                                   {metadataIndicators && (
                                     <MessageInsightChips
                                       metadata={displayMetadata || undefined}
+                                      messageId={message.id}
+                                      animationScopeId={insightAnimationScopeId}
                                       onOpenSidebar={openInsightSidebar}
                                     />
                                   )}
@@ -2870,19 +3650,7 @@ export default function ChatPageShell({
                             </div>
                           </div>
                         </div>
-                        {message.role === "user" && message.id === lastUserMessageId && shouldRenderRuntimeIndicatorSlot ? (
-                          <div className="px-4 sm:px-6 pb-2">
-                            <div className="mx-auto w-full max-w-[min(720px,100%)] px-1.5 sm:px-0">
-                              <div className="flex items-center justify-center min-h-[32px]">
-                                {runtimeIndicatorBubble ? (
-                                  runtimeIndicatorBubble
-                                ) : (
-                                  <div aria-hidden className="invisible h-[32px]" />
-                                )}
-                              </div>
-                            </div>
-                          </div>
-                        ) : null}
+                        {/* Runtime indicator is rendered as a fixed overlay (not in flow) to avoid layout shifts */}
                       </React.Fragment>
                     );
                 })}
@@ -2893,6 +3661,17 @@ export default function ChatPageShell({
             </ScrollArea>
           )}
         </div>
+        {/* Runtime indicator overlay (fixed, out of document flow) */}
+        {shouldRenderRuntimeIndicatorSlot && runtimeIndicatorBubble ? (
+          <div
+            className="pointer-events-none fixed inset-x-0 bottom-[calc(104px+env(safe-area-inset-bottom,0px))] z-40 flex justify-center"
+            style={{ overflowAnchor: "none" }}
+          >
+            <div className="pointer-events-auto">
+              {runtimeIndicatorBubble}
+            </div>
+          </div>
+        ) : null}
         {/* Composer: full-width bar, centered pill like ChatGPT */}
         <div
           className="bg-transparent px-4 sm:px-6 lg:px-12 py-3 sm:py-4 relative sticky bottom-0 z-30 pb-[max(env(safe-area-inset-bottom),0px)] transition-transform duration-200 ease-out"
@@ -2922,10 +3701,29 @@ export default function ChatPageShell({
             </div>
           </div>
           <div className="mx-auto w-full max-w-3xl">
+            {isImageMode && (
+              <div className="mb-2 flex pl-2">
+                <button
+                  type="button"
+                  onClick={() => setIsImageMode(false)}
+                  className="inline-flex max-w-full items-center gap-2 rounded-2xl border border-border bg-card/85 px-3 py-2 text-xs font-medium text-fuchsia-50 shadow-sm transition hover:bg-card/95 hover:shadow-md active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fuchsia-400/50 cursor-pointer"
+                  aria-label="Exit image mode"
+                  title="Click to exit image mode"
+                >
+                  <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-fuchsia-500/20">
+                    <ImageIcon className="h-3.5 w-3.5" />
+                  </span>
+                  <span className="truncate">Create image</span>
+                  <span className="ml-1 text-[14px] leading-none text-fuchsia-50/80">x</span>
+                </button>
+              </div>
+            )}
             <ChatComposer
               onSubmit={handleSubmit}
               isStreaming={isStreaming}
               onStop={handleStopGeneration}
+              onCreateImage={() => setIsImageMode(true)}
+              placeholder={isImageMode ? "Describe the image you want to generate…" : undefined}
             />
           </div>
         </div>
@@ -3007,14 +3805,41 @@ function formatTokenCount(tokens: number) {
 function ContextUsageIndicator({
   usage,
   contextMode,
+  availableChats,
+  activeChatId,
+  simpleExternalChatIds,
+  onChangeSimpleExternalChatIds,
+  advancedTopicIds,
+  onChangeAdvancedTopicIds,
   onToggleMode,
 }: {
   usage: ContextUsageSnapshot;
   contextMode: "advanced" | "simple";
+  availableChats: StoredChat[];
+  activeChatId: string | null;
+  simpleExternalChatIds: string[] | null;
+  onChangeSimpleExternalChatIds: React.Dispatch<React.SetStateAction<string[] | null>>;
+  advancedTopicIds: string[] | null;
+  onChangeAdvancedTopicIds: React.Dispatch<React.SetStateAction<string[] | null>>;
   onToggleMode: (next: "advanced" | "simple") => void;
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const [isPinned, setIsPinned] = useState(false);
+  const [isConfigureOpen, setIsConfigureOpen] = useState(false);
+  const [allTopics, setAllTopics] = useState<
+    Array<{
+      id: string;
+      conversationId: string;
+      label: string;
+      tokenEstimate: number;
+      updatedAt: string | null;
+      conversationTitle: string | null;
+      projectName: string | null;
+    }> | null
+  >(null);
+  const [topicsLoading, setTopicsLoading] = useState(false);
+  const [topicsError, setTopicsError] = useState<string | null>(null);
+  const topicsRequestRef = useRef<AbortController | null>(null);
   const percent = Math.min(100, Math.max(0, Math.round(usage.percent ?? 0)));
   const remainingPercent = Math.max(0, 100 - percent);
   const accent = "var(--user-accent-color, #7dd3fc)";
@@ -3028,6 +3853,117 @@ function ContextUsageIndicator({
     safeNumber(usage.cachedTokens) +
     safeNumber(usage.outputTokens);
   const limitTokens = Math.max(0, safeNumber(usage.limit));
+
+  const [recentChatsCutoffMs, setRecentChatsCutoffMs] = useState(0);
+  useEffect(() => {
+    setRecentChatsCutoffMs(Date.now() - 7 * 24 * 60 * 60 * 1000);
+  }, []);
+
+  const recentExternalChats = useMemo(() => {
+    return (availableChats ?? [])
+      .filter((chat) => {
+        if (!chat?.id) return false;
+        if (activeChatId && chat.id === activeChatId) return false;
+        const ts = new Date(chat.timestamp).getTime();
+        return Number.isFinite(ts) && ts >= recentChatsCutoffMs;
+      })
+      .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+  }, [activeChatId, availableChats, recentChatsCutoffMs]);
+
+  const toggleExternalChatId = useCallback(
+    (chatId: string, checked: boolean) => {
+      onChangeSimpleExternalChatIds((prev) => {
+        if (prev === null) {
+          if (checked) return null;
+          return recentExternalChats.filter((c) => c.id !== chatId).map((c) => c.id);
+        }
+        const nextSet = new Set<string>(Array.isArray(prev) ? prev : []);
+        if (checked) nextSet.add(chatId);
+        else nextSet.delete(chatId);
+        return Array.from(nextSet);
+      });
+    },
+    [onChangeSimpleExternalChatIds, recentExternalChats]
+  );
+
+  const allExternalChatsSelected =
+    recentExternalChats.length > 0 &&
+    (simpleExternalChatIds === null || simpleExternalChatIds.length === recentExternalChats.length);
+
+  useEffect(() => {
+    if (!isConfigureOpen) return;
+    if (contextMode !== "advanced") return;
+    if (allTopics !== null) return;
+    if (topicsRequestRef.current) return;
+
+    const controller = new AbortController();
+    topicsRequestRef.current = controller;
+    setTopicsLoading(true);
+    setTopicsError(null);
+    fetch("/api/conversation-topics", { signal: controller.signal })
+      .then(async (res) => {
+        if (!res.ok) {
+          throw new Error(`Failed to load topics (${res.status})`);
+        }
+        return (await res.json()) as { topics?: any[] };
+      })
+      .then((payload) => {
+        const topics = Array.isArray(payload.topics) ? payload.topics : [];
+        setAllTopics(
+          topics
+            .map((t) => ({
+              id: String(t.id),
+              conversationId: String(t.conversationId),
+              label: typeof t.label === "string" ? t.label : "Untitled topic",
+              tokenEstimate: typeof t.tokenEstimate === "number" ? t.tokenEstimate : 0,
+              updatedAt: typeof t.updatedAt === "string" ? t.updatedAt : null,
+              conversationTitle: typeof t.conversationTitle === "string" ? t.conversationTitle : null,
+              projectName: typeof t.projectName === "string" ? t.projectName : null,
+            }))
+            .filter((t) => t.id && t.conversationId)
+        );
+      })
+      .catch((err) => {
+        if ((err as any)?.name === "AbortError") return;
+        setTopicsError(err instanceof Error ? err.message : "Failed to load topics");
+        setAllTopics([]);
+      })
+      .finally(() => {
+        topicsRequestRef.current = null;
+        setTopicsLoading(false);
+      });
+
+    return () => {
+      controller.abort();
+      topicsRequestRef.current = null;
+    };
+  }, [allTopics, contextMode, isConfigureOpen]);
+
+  const topicsForActiveChat = useMemo(() => {
+    if (!activeChatId || !Array.isArray(allTopics)) return [];
+    return allTopics.filter((t) => t.conversationId === activeChatId);
+  }, [activeChatId, allTopics]);
+
+  const topicsForOtherChats = useMemo(() => {
+    if (!Array.isArray(allTopics)) return [];
+    if (!activeChatId) return allTopics;
+    return allTopics.filter((t) => t.conversationId !== activeChatId);
+  }, [activeChatId, allTopics]);
+
+  const toggleTopicId = useCallback(
+    (topicId: string, checked: boolean) => {
+      onChangeAdvancedTopicIds((prev) => {
+        if (prev === null) {
+          return checked ? [topicId] : null;
+        }
+        const nextSet = new Set<string>(Array.isArray(prev) ? prev : []);
+        if (checked) nextSet.add(topicId);
+        else nextSet.delete(topicId);
+        return Array.from(nextSet);
+      });
+    },
+    [onChangeAdvancedTopicIds]
+  );
 
   return (
     <div
@@ -3086,15 +4022,181 @@ function ContextUsageIndicator({
 
       {isOpen ? (
         <div className="absolute right-0 top-[115%] z-30 w-64 rounded-lg border border-border/80 bg-card/95 text-foreground shadow-xl backdrop-blur-sm">
-          <div className="relative space-y-1.5 p-3">
-            <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-              Context window
-            </div>
-            <div className="text-sm font-semibold">
-              {percent}% used ({remainingPercent}% left)
-            </div>
-            <div className="text-xs text-muted-foreground">
-              {formatTokenCount(usedTokens)} / {formatTokenCount(limitTokens)} tokens used
+           <div className="relative space-y-1.5 p-3">
+             <div className="flex items-center justify-between gap-2">
+               <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                 Context window
+               </div>
+	               <DropdownMenu open={isConfigureOpen} onOpenChange={setIsConfigureOpen}>
+	                 <DropdownMenuTrigger asChild>
+	                   <Button
+	                     size="sm"
+	                     variant="ghost"
+	                     className="h-7 px-2 text-xs"
+	                   >
+	                     Configure
+	                   </Button>
+	                 </DropdownMenuTrigger>
+	                 <DropdownMenuContent align="end" className="w-72">
+	                   {contextMode === "simple" ? (
+	                     <>
+	                       <DropdownMenuLabel className="text-xs">
+	                         Chats to load (last 7 days)
+	                       </DropdownMenuLabel>
+	                       <DropdownMenuSeparator />
+	                       <DropdownMenuItem
+	                         className="text-xs"
+	                         onSelect={(e) => {
+	                           e.preventDefault();
+	                           onChangeSimpleExternalChatIds(allExternalChatsSelected ? [] : null);
+	                         }}
+	                       >
+	                         {allExternalChatsSelected ? "Deselect all" : "Reset to auto selection"}
+	                       </DropdownMenuItem>
+	                       <DropdownMenuSeparator />
+	                       <div className="max-h-64 overflow-auto py-1">
+	                         {recentExternalChats.length ? (
+	                           recentExternalChats.map((chat) => {
+	                             const checked =
+	                               simpleExternalChatIds === null ? true : simpleExternalChatIds.includes(chat.id);
+	                             return (
+	                               <DropdownMenuCheckboxItem
+	                                 key={chat.id}
+	                                 checked={checked}
+	                                 onCheckedChange={(nextChecked) => {
+	                                   toggleExternalChatId(chat.id, Boolean(nextChecked));
+	                                 }}
+	                                 onSelect={(e) => e.preventDefault()}
+	                                 className="items-start gap-2 py-2"
+	                               >
+	                                 <div className="flex flex-col">
+	                                   <div className="text-xs font-medium text-foreground">
+	                                     {chat.title || "Untitled chat"}
+	                                   </div>
+	                                 </div>
+	                               </DropdownMenuCheckboxItem>
+	                             );
+	                           })
+	                         ) : (
+	                           <DropdownMenuItem disabled className="text-xs">
+	                             No chats updated in the last week
+	                           </DropdownMenuItem>
+	                         )}
+	                       </div>
+	                     </>
+	                   ) : (
+	                     <>
+	                       <DropdownMenuLabel className="text-xs">
+	                         Topics to load
+	                       </DropdownMenuLabel>
+	                       <DropdownMenuSeparator />
+	                       <DropdownMenuItem
+	                         className="text-xs items-center justify-between"
+	                         onSelect={(e) => {
+	                           e.preventDefault();
+	                           onChangeAdvancedTopicIds(null);
+	                         }}
+	                       >
+	                         <span>Auto selection</span>
+	                         <span className="flex w-4 justify-end">
+	                           {advancedTopicIds === null && <Check className="h-4 w-4" />}
+	                         </span>
+	                       </DropdownMenuItem>
+	                       <DropdownMenuSeparator />
+
+	                       {topicsLoading ? (
+	                         <DropdownMenuItem disabled className="text-xs">
+	                           Loading topics…
+	                         </DropdownMenuItem>
+	                       ) : topicsError ? (
+	                         <DropdownMenuItem disabled className="text-xs text-red-400">
+	                           {topicsError}
+	                         </DropdownMenuItem>
+	                       ) : (
+	                         <div className="max-h-64 overflow-auto py-1">
+	                           <div className="px-2 pb-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+	                             This chat
+	                           </div>
+	                           {topicsForActiveChat.length ? (
+	                             topicsForActiveChat.map((topic) => {
+	                               const checked = Array.isArray(advancedTopicIds)
+	                                 ? advancedTopicIds.includes(topic.id)
+	                                 : false;
+	                               return (
+	                                 <DropdownMenuCheckboxItem
+	                                   key={topic.id}
+	                                   checked={checked}
+	                                   onCheckedChange={(nextChecked) => {
+	                                     toggleTopicId(topic.id, Boolean(nextChecked));
+	                                   }}
+	                                   onSelect={(e) => e.preventDefault()}
+	                                   className="items-start gap-2 py-2"
+	                                 >
+	                                   <div className="flex flex-col min-w-0">
+	                                     <div className="text-xs font-medium text-foreground truncate">
+	                                       {topic.label}
+	                                     </div>
+	                                     <div className="text-[11px] text-muted-foreground truncate">
+	                                       {topic.tokenEstimate ? `${Math.round(topic.tokenEstimate / 1000)}k tokens` : "No token estimate"}
+	                                     </div>
+	                                   </div>
+	                                 </DropdownMenuCheckboxItem>
+	                               );
+	                             })
+	                           ) : (
+	                             <DropdownMenuItem disabled className="text-xs">
+	                               No topics found for this chat
+	                             </DropdownMenuItem>
+	                           )}
+
+	                           <div className="px-2 pt-2 pb-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+	                             Other chats
+	                           </div>
+	                           {topicsForOtherChats.length ? (
+	                             topicsForOtherChats.map((topic) => {
+	                               const checked = Array.isArray(advancedTopicIds)
+	                                 ? advancedTopicIds.includes(topic.id)
+	                                 : false;
+	                               const chatLabel = topic.conversationTitle || "Untitled chat";
+	                               const projectLabel = topic.projectName ? ` • ${topic.projectName}` : "";
+	                               return (
+	                                 <DropdownMenuCheckboxItem
+	                                   key={topic.id}
+	                                   checked={checked}
+	                                   onCheckedChange={(nextChecked) => {
+	                                     toggleTopicId(topic.id, Boolean(nextChecked));
+	                                   }}
+	                                   onSelect={(e) => e.preventDefault()}
+	                                   className="items-start gap-2 py-2"
+	                                 >
+	                                   <div className="flex flex-col min-w-0">
+	                                     <div className="text-xs font-medium text-foreground truncate">
+	                                       {topic.label}
+	                                     </div>
+	                                     <div className="text-[11px] text-muted-foreground truncate">
+	                                       {chatLabel}{projectLabel}
+	                                     </div>
+	                                   </div>
+	                                 </DropdownMenuCheckboxItem>
+	                               );
+	                             })
+	                           ) : (
+	                             <DropdownMenuItem disabled className="text-xs">
+	                               No topics found in other chats
+	                             </DropdownMenuItem>
+	                           )}
+	                         </div>
+	                       )}
+	                     </>
+	                   )}
+	                 </DropdownMenuContent>
+	               </DropdownMenu>
+	             </div>
+             <div className="text-sm font-semibold">
+               {percent}% used ({remainingPercent}% left)
+             </div>
+             <div className="text-xs text-muted-foreground">
+               {formatTokenCount(usedTokens)} / {formatTokenCount(limitTokens)} tokens used
             </div>
             <div className="pt-2">
               <div className="flex items-center justify-between gap-2 text-xs">

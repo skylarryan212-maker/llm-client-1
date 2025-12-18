@@ -21,8 +21,8 @@ export async function POST() {
     if (listError) {
       return NextResponse.json({ error: listError.message }, { status: 500 });
     }
-    const exists = (list ?? []).some((b) => b.name === bucket);
-    if (!exists) {
+    const existing = (list ?? []).find((b) => b.name === bucket);
+    if (!existing) {
       const { error: createError } = await admin.storage.createBucket(bucket, {
         public: true,
         fileSizeLimit: 50 * 1024 * 1024, // 50MB
@@ -30,12 +30,19 @@ export async function POST() {
       if (createError) {
         return NextResponse.json({ error: createError.message }, { status: 500 });
       }
+    } else if (!(existing as any).public) {
+      const { error: updateError } = await admin.storage.updateBucket(bucket, {
+        public: true,
+        fileSizeLimit: 50 * 1024 * 1024, // 50MB
+      });
+      if (updateError) {
+        return NextResponse.json({ error: updateError.message }, { status: 500 });
+      }
     }
-    // Ensure public policy
+
     const { data: buckets } = await admin.storage.listBuckets();
     const target = (buckets ?? []).find((b) => b.name === bucket);
-    const isPublic = Boolean(target?.public);
-    return NextResponse.json({ ok: true, bucket, public: isPublic });
+    return NextResponse.json({ ok: true, bucket, public: Boolean((target as any)?.public) });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     return NextResponse.json({ error: msg }, { status: 500 });

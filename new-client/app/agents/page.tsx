@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Code2, Database, Menu, PenLine, TrendingUp, Workflow } from "lucide-react";
 
@@ -11,6 +11,7 @@ import { SettingsModal } from "@/components/settings-modal";
 import { useProjects } from "@/components/projects/projects-provider";
 import { useChatStore } from "@/components/chat/chat-provider";
 import { usePersistentSidebarOpen } from "@/lib/hooks/use-sidebar-open";
+import { navigateWithMainPanelFade, runMainPanelEnterIfNeeded } from "@/lib/view-transitions";
 
 const agents = [
   {
@@ -56,6 +57,11 @@ export default function AgentsPage() {
   const [isSidebarOpen, setIsSidebarOpen] = usePersistentSidebarOpen(true);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [settingsTab, setSettingsTab] = useState<'preferences' | 'data' | 'account'>('preferences');
+  const mainPanelRef = useRef<HTMLDivElement | null>(null);
+
+  useLayoutEffect(() => {
+    runMainPanelEnterIfNeeded(mainPanelRef.current);
+  }, []);
 
   const sidebarConversations = useMemo(
     () =>
@@ -87,11 +93,11 @@ export default function AgentsPage() {
   const handleChatSelect = (chatId: string) => {
     const chat = chats.find((item) => item.id === chatId);
     if (chat?.projectId) {
-      router.push(`/projects/${chat.projectId}/c/${chatId}`);
+      void navigateWithMainPanelFade(router, `/projects/${chat.projectId}/c/${chatId}`);
       return;
     }
 
-    router.push(`/c/${chatId}`);
+    void navigateWithMainPanelFade(router, `/c/${chatId}`);
   };
 
   return (
@@ -105,11 +111,11 @@ export default function AgentsPage() {
         projectChats={projectChatMap}
         onChatSelect={handleChatSelect}
         onProjectChatSelect={(projectId, chatId) =>
-          router.push(`/projects/${projectId}/c/${chatId}`)
+          void navigateWithMainPanelFade(router, `/projects/${projectId}/c/${chatId}`)
         }
-        onNewChat={() => router.push("/")}
-        onNewProject={() => router.push("/projects")}
-        onProjectSelect={(projectId) => router.push(`/projects/${projectId}`)}
+        onNewChat={() => void navigateWithMainPanelFade(router, "/")}
+        onNewProject={() => void navigateWithMainPanelFade(router, "/projects")}
+        onProjectSelect={(projectId) => void navigateWithMainPanelFade(router, `/projects/${projectId}`)}
         onSettingsOpen={() => {
           setSettingsTab('preferences')
           setIsSettingsOpen(true)
@@ -122,7 +128,12 @@ export default function AgentsPage() {
         onRefreshProjects={refreshProjects}
       />
 
-      <div className="chat-ambient-bg agents-ambient-bg flex flex-1 flex-col w-full min-w-0 min-h-0 overflow-hidden">
+      <div
+        ref={mainPanelRef}
+        data-main-panel="true"
+        className="chat-ambient-bg agents-ambient-bg flex flex-1 flex-col w-full min-w-0 min-h-0 overflow-hidden"
+        style={{ viewTransitionName: "main-panel" }}
+      >
         <div className="flex-1 overflow-y-auto">
           <div className="mx-auto max-w-7xl px-4 sm:px-6 py-8 sm:py-12 lg:py-16">
             <Button

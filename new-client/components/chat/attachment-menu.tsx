@@ -31,11 +31,13 @@ export function AttachmentMenu({
   open,
   onOpenChange,
   onPickFiles,
+  onCreateImage,
 }: {
   trigger: ReactNode;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
   onPickFiles?: () => void;
+  onCreateImage?: () => void;
 }) {
   return (
     <DropdownMenu open={open} onOpenChange={onOpenChange}>
@@ -56,6 +58,12 @@ export function AttachmentMenu({
                 event.preventDefault();
                 if (item.label === "Add photos & files") {
                   onPickFiles?.();
+                  onOpenChange?.(false);
+                  return;
+                }
+                if (item.label === "Create image") {
+                  onCreateImage?.();
+                  onOpenChange?.(false);
                   return;
                 }
                 console.log(`TODO: ${item.label}`);
@@ -80,22 +88,25 @@ export function AttachmentMenuButton({
   open,
   onOpenChange,
   onPickFiles,
+  onCreateImage,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onPickFiles?: () => void;
+  onCreateImage?: () => void;
 }) {
   return (
     <AttachmentMenu
       open={open}
       onOpenChange={onOpenChange}
       onPickFiles={onPickFiles}
+      onCreateImage={onCreateImage}
       trigger={
         <Button
           type="button"
           variant="ghost"
           size="icon"
-          className="size-8 sm:size-9 rounded-full hover:bg-accent"
+          className="h-10 w-10 rounded-full hover:bg-accent"
         >
           <svg
             xmlns="http://www.w3.org/2000/svg"

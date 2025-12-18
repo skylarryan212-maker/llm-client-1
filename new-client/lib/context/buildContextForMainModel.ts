@@ -24,12 +24,13 @@ export interface BuildContextParams {
   supabase: SupabaseClient<Database>;
   conversationId: string;
   routerDecision: RouterDecision;
+  manualTopicIds?: string[] | null;
   maxContextTokens?: number;
 }
 
 export interface BuildContextResult {
   messages: ContextMessage[];
-  source: "topic" | "fallback";
+  source: "topic" | "manual" | "fallback";
   includedTopicIds: string[];
   summaryCount: number;
   artifactCount: number;
@@ -52,12 +53,21 @@ export async function buildContextForMainModel({
   supabase,
   conversationId,
   routerDecision,
+  manualTopicIds,
   maxContextTokens = DEFAULT_MAX_TOKENS,
 }: BuildContextParams): Promise<BuildContextResult> {
-  const requestedTopicIds = [
-    routerDecision.primaryTopicId,
-    ...(routerDecision.secondaryTopicIds || []),
-  ].filter(Boolean) as string[];
+  const normalizedManualTopicIds = Array.isArray(manualTopicIds)
+    ? manualTopicIds.filter((id) => typeof id === "string" && id.trim().length > 0).map((id) => id.trim())
+    : [];
+
+  const primaryTopicId = normalizedManualTopicIds.length
+    ? normalizedManualTopicIds[0]
+    : routerDecision.primaryTopicId;
+  const secondaryTopicIds = normalizedManualTopicIds.length
+    ? normalizedManualTopicIds.slice(1)
+    : routerDecision.secondaryTopicIds || [];
+
+  const requestedTopicIds = [primaryTopicId, ...secondaryTopicIds].filter(Boolean) as string[];
 
   let topicRows: TopicRow[] = [];
   if (requestedTopicIds.length) {
@@ -72,16 +82,16 @@ export async function buildContextForMainModel({
   }
 
   const topicMap = new Map<string, TopicRow>(topicRows.map((topic) => [topic.id, topic]));
-  let primaryTopic = routerDecision.primaryTopicId
-    ? topicMap.get(routerDecision.primaryTopicId)
+  let primaryTopic = primaryTopicId
+    ? topicMap.get(primaryTopicId)
     : null;
 
-  if (!primaryTopic && routerDecision.primaryTopicId) {
+  if (!primaryTopic && primaryTopicId) {
     // Fallback: attempt to fetch the primary topic directly if not returned above
     const { data: fallbackTopic } = await supabase
       .from("conversation_topics")
       .select("*")
-      .eq("id", routerDecision.primaryTopicId)
+      .eq("id", primaryTopicId)
       .maybeSingle();
     if (fallbackTopic) {
       primaryTopic = fallbackTopic as TopicRow;
@@ -122,6 +132,12 @@ export async function buildContextForMainModel({
   let secondaryTopics = (routerDecision.secondaryTopicIds || [])
     .map((id) => topicMap.get(id))
     .filter((topic): topic is TopicRow => Boolean(topic));
+
+  if (secondaryTopicIds.length) {
+    secondaryTopics = secondaryTopicIds
+      .map((id) => topicMap.get(id))
+      .filter((topic): topic is TopicRow => Boolean(topic));
+  }
 
   secondaryTopics = secondaryTopics.filter((topic) => {
     if (topic.conversation_id === conversationId) return true;
@@ -282,7 +298,7 @@ export async function buildContextForMainModel({
 
   return {
     messages: finalMessages,
-    source: "topic",
+    source: normalizedManualTopicIds.length ? "manual" : "topic",
     includedTopicIds: Array.from(includedTopics),
     summaryCount,
     artifactCount,

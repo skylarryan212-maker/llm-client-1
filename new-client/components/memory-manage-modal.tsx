@@ -2,7 +2,13 @@
 
 import { useEffect, useState } from "react";
 import { X } from "lucide-react";
-import { fetchMemories, deleteMemory, MemoryItem, MemoryType } from "@/lib/memory";
+import {
+  fetchMemories,
+  deleteMemory,
+  MemoryItem,
+  MemoryType,
+  fetchMemoryTypes,
+} from "@/lib/memory";
 
 import { Dialog } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -34,6 +40,8 @@ export default function ManageMemoriesModal({
   const [activeTab, setActiveTab] = useState<"memories" | "instructions">("memories");
   const [query, setQuery] = useState("");
   const [type, setType] = useState<MemoryType | "all">("all");
+  const [availableTypes, setAvailableTypes] = useState<string[]>([]);
+  const [typesLoading, setTypesLoading] = useState(false);
 
   const [items, setItems] = useState<MemoryItem[]>([]);
   const [loading, setLoading] = useState(false);
@@ -51,6 +59,23 @@ export default function ManageMemoriesModal({
       setItems([]);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function loadMemoryTypes() {
+    setTypesLoading(true);
+    try {
+      const types = await fetchMemoryTypes();
+      setAvailableTypes(types);
+      if (type !== "all" && !types.includes(type)) {
+        setType("all");
+      }
+    } catch (err) {
+      console.error("Failed to load memory types:", err);
+      setAvailableTypes([]);
+      setType("all");
+    } finally {
+      setTypesLoading(false);
     }
   }
 
@@ -111,6 +136,13 @@ export default function ManageMemoriesModal({
     loadPermanentInstructions();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, type]);
+
+  useEffect(() => {
+    if (!open) return;
+    if (activeTab !== "memories") return;
+    loadMemoryTypes();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, activeTab]);
 
   useEffect(() => {
     if (!open) return;
@@ -183,13 +215,21 @@ export default function ManageMemoriesModal({
                   </SelectTrigger>
                   <SelectContent className="z-[1100]">
                     <SelectItem value="all">All types</SelectItem>
-                    <SelectItem value="preference">Preference</SelectItem>
-                    <SelectItem value="identity">Identity</SelectItem>
-                    <SelectItem value="constraint">Constraint</SelectItem>
-                    <SelectItem value="workflow">Workflow</SelectItem>
-                    <SelectItem value="project">Project</SelectItem>
-                    <SelectItem value="instruction">Instruction</SelectItem>
-                    <SelectItem value="other">Other</SelectItem>
+                    {typesLoading ? (
+                      <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                        Loading...
+                      </div>
+                    ) : availableTypes.length === 0 ? (
+                      <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                        No types found
+                      </div>
+                    ) : (
+                      availableTypes.map((t) => (
+                        <SelectItem key={t} value={t}>
+                          {t}
+                        </SelectItem>
+                      ))
+                    )}
                   </SelectContent>
                 </Select>
               </div>
@@ -218,7 +258,7 @@ export default function ManageMemoriesModal({
                           variant="destructive"
                           onClick={async () => {
                             await deleteMemory(m.id);
-                            loadMemories();
+                            await Promise.all([loadMemories(), loadMemoryTypes()]);
                           }}
                         >
                           Delete

@@ -5,6 +5,8 @@ import supabaseClient from "@/lib/supabase/browser-client";
 import type { Database } from "@/lib/supabase/types";
 import type { AssistantMessageMetadata } from "@/lib/chatTypes";
 
+const STREAMING_ACTIVE_STORAGE_KEY = "llm-client:streaming-active";
+
 export type StoredMessage = {
   id: string;
   role: "user" | "assistant";
@@ -118,7 +120,54 @@ export function ChatProvider({ children, initialChats = [], userId }: ChatProvid
             title: row.title ?? existing?.title ?? "Untitled chat",
             timestamp: lastActivity,
             projectId: row.project_id ?? existing?.projectId ?? undefined,
-            messages: messageMap.get(row.id) ?? existing?.messages ?? [],
+            messages: (() => {
+              const incoming = messageMap.get(row.id);
+              if (!incoming || incoming.length === 0) {
+                return existing?.messages ?? [];
+              }
+
+	              const incomingIds = new Set(incoming.map((m) => m.id));
+	              const latestIncomingTsMs = Math.max(
+	                ...incoming.map((m) => new Date(m.timestamp).getTime()).filter((t) => Number.isFinite(t)),
+	                0
+	              );
+	              const latestIncomingAssistantTsMs = Math.max(
+	                ...incoming
+	                  .filter((m) => m.role === "assistant")
+	                  .map((m) => new Date(m.timestamp).getTime())
+	                  .filter((t) => Number.isFinite(t)),
+	                0
+	              );
+
+	              const keepEphemeral = (existing?.messages ?? []).filter((m) => {
+	                if (!m?.id) return false;
+	                const isEphemeral = m.id.startsWith("user-") || m.id.startsWith("assistant-streaming-");
+	                if (!isEphemeral) return false;
+	                if (incomingIds.has(m.id)) return false;
+	                const ts = new Date(m.timestamp).getTime();
+	                if (!Number.isFinite(ts)) return false;
+
+	                if (m.id.startsWith("assistant-streaming-")) {
+	                  // Keep streaming placeholders until we see a newer assistant message in the server snapshot.
+	                  if (latestIncomingAssistantTsMs < ts - 1000) return true;
+
+	                  const localText = (m.content ?? "").trim();
+	                  if (!localText) return false;
+	                  const overlapping = incoming.some((row) => {
+	                    if (row.role !== "assistant") return false;
+	                    const serverText = (row.content ?? "").trim();
+	                    if (!serverText) return false;
+	                    return serverText.startsWith(localText) || localText.startsWith(serverText);
+	                  });
+	                  return !overlapping;
+	                }
+
+	                // User placeholders: keep only if it's newer than the freshest server snapshot (i.e., likely not persisted yet).
+	                return ts > latestIncomingTsMs + 1500;
+	              });
+
+              return keepEphemeral.length ? [...incoming, ...keepEphemeral] : incoming;
+            })(),
           };
         });
         merged.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
@@ -283,28 +332,83 @@ export function ChatProvider({ children, initialChats = [], userId }: ChatProvid
             if (idx === -1) return prev;
 
             const existing = prev[idx];
-            
-            // Check if this message is already in the chat (avoid duplicates)
-            // Skip if exact ID match or if it has a temporary ID and same content/role/timing
-            const alreadyExists = existing.messages.some((msg) => {
-              if (msg.id === m.id) return true;
-              // Also match temporary IDs to their persisted versions by comparing content and role
-              if ((msg.id.startsWith('user-') || msg.id.startsWith('assistant-streaming-')) &&
-                  msg.role === m.role &&
-                  msg.content === (m.content ?? '') &&
-                  Math.abs(new Date(msg.timestamp).getTime() - new Date(m.created_at ?? '').getTime()) < 1000) {
-                return true;
+
+            const incomingContent = m.content ?? "";
+            const incomingTimestamp = m.created_at ?? new Date().toISOString();
+
+            const incomingRole = (m.role as "user" | "assistant") || "assistant";
+
+            // If we have a temporary placeholder that matches this inserted message,
+            // upgrade it to the persisted ID so future UPDATE events apply.
+            // For assistant streams we intentionally allow looser matching because the
+            // client placeholder may already contain partial tokens when the server INSERT happens.
+            const tempIndex = existing.messages.findIndex((msg) => {
+              const isEphemeral =
+                msg.id.startsWith("user-") || msg.id.startsWith("assistant-streaming-");
+              if (!isEphemeral) return false;
+              if (msg.role !== incomingRole) return false;
+
+              const deltaMs = Math.abs(
+                new Date(msg.timestamp).getTime() - new Date(incomingTimestamp).getTime()
+              );
+              if (!Number.isFinite(deltaMs) || deltaMs > 30_000) return false;
+
+              if (msg.id.startsWith("assistant-streaming-") && incomingRole === "assistant") {
+                // Looser: allow either side to be prefix of the other (or empty server placeholder).
+                const a = (msg.content ?? "").trim();
+                const b = incomingContent.trim();
+                if (!a || !b) return true;
+                if (a.startsWith(b) || b.startsWith(a)) return true;
+                // Fallback: if it's the last assistant-streaming message, treat it as the same one.
+                const lastStreamingIndex = (() => {
+                  for (let i = existing.messages.length - 1; i >= 0; i -= 1) {
+                    if (existing.messages[i].id.startsWith("assistant-streaming-")) return i;
+                  }
+                  return -1;
+                })();
+                return lastStreamingIndex === existing.messages.indexOf(msg);
               }
-              return false;
+
+              // User placeholder requires stricter match
+              return msg.content === incomingContent && deltaMs < 1500;
             });
-            if (alreadyExists) return prev;
+
+            if (tempIndex >= 0) {
+              const next = [...prev];
+              const nextMessages = [...existing.messages];
+              nextMessages[tempIndex] = {
+                ...nextMessages[tempIndex],
+                id: m.id,
+                timestamp: incomingTimestamp,
+                metadata: m.metadata as AssistantMessageMetadata | Record<string, unknown> | null | undefined,
+                preamble: (m as any).preamble ?? null,
+              };
+
+              // If the inserted row has non-empty content and the placeholder is still empty (or shorter),
+              // prefer the server content.
+              if (incomingContent && incomingContent.length >= (nextMessages[tempIndex].content ?? "").length) {
+                nextMessages[tempIndex].content = incomingContent;
+              }
+              next[idx] = {
+                ...existing,
+                messages: nextMessages,
+                timestamp: new Date().toISOString(),
+              };
+              return next;
+            }
+
+            // Check if this message is already in the chat (avoid duplicates)
+            if (existing.messages.some((msg) => msg.id === m.id)) {
+              return prev;
+            }
             
             const newMessage: StoredMessage = {
               id: m.id,
               role: (m.role as "user" | "assistant") || "assistant",
-              content: m.content ?? "",
-              timestamp: m.created_at ?? new Date().toISOString(),
+              content: incomingContent,
+              timestamp: incomingTimestamp,
               metadata: m.metadata as AssistantMessageMetadata | Record<string, unknown> | null | undefined,
+              preamble: (m as any).preamble ?? null,
             };
 
             const updated: StoredChat = {
@@ -314,6 +418,40 @@ export function ChatProvider({ children, initialChats = [], userId }: ChatProvid
             };
             const next = [...prev];
             next[idx] = updated;
+            return next;
+          });
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "messages" },
+        (payload) => {
+          const m = payload.new as Database["public"]["Tables"]["messages"]["Row"] | null;
+          if (!m) return;
+
+          setChats((prev) => {
+            const idx = prev.findIndex((c) => c.id === m.conversation_id);
+            if (idx === -1) return prev;
+
+            const existing = prev[idx];
+            const messageIndex = existing.messages.findIndex((msg) => msg.id === m.id);
+            if (messageIndex === -1) return prev;
+
+            const next = [...prev];
+            const nextMessages = [...existing.messages];
+            nextMessages[messageIndex] = {
+              ...nextMessages[messageIndex],
+              content: m.content ?? "",
+              timestamp: m.created_at ?? nextMessages[messageIndex].timestamp,
+              metadata: m.metadata as AssistantMessageMetadata | Record<string, unknown> | null | undefined,
+              preamble: (m as any).preamble ?? nextMessages[messageIndex].preamble ?? null,
+            };
+
+            next[idx] = {
+              ...existing,
+              messages: nextMessages,
+              timestamp: new Date().toISOString(),
+            };
             return next;
           });
         }
@@ -371,10 +509,16 @@ export function ChatProvider({ children, initialChats = [], userId }: ChatProvid
   // Also refresh chats when tab regains focus/visibility (helps when changes are made elsewhere)
   useEffect(() => {
     const onFocus = () => {
+      try {
+        if (window.sessionStorage.getItem(STREAMING_ACTIVE_STORAGE_KEY) === "1") return;
+      } catch {}
       if (userId) refreshChats().catch(() => {});
     };
     const onVisibility = () => {
       if (document.visibilityState === "visible" && userId) {
+        try {
+          if (window.sessionStorage.getItem(STREAMING_ACTIVE_STORAGE_KEY) === "1") return;
+        } catch {}
         refreshChats().catch(() => {});
       }
     };

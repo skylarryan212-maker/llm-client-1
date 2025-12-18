@@ -57,6 +57,10 @@ export function collectCitationsFromContent(content: string): {
 
     let markdownMatch: RegExpExecArray | null;
     while ((markdownMatch = MARKDOWN_LINK_REGEX.exec(content)) !== null) {
+    // Ignore Markdown image links: ![alt](url)
+    if (markdownMatch.index > 0 && content[markdownMatch.index - 1] === "!") {
+      continue;
+    }
     const [, rawTitle, url] = markdownMatch;
     if (!url) continue;
     const normalizedUrl = normalizeUrl(url);

@@ -6,7 +6,7 @@ import { ScrollArea } from '@/components/ui/scroll-area'
 import { Plus, Sparkles, ChevronDown, ChevronRight, FolderPlus, X } from 'lucide-react'
 import Link from 'next/link'
 import { UserProfileMenu } from '@/components/user-profile-menu'
-import { usePathname } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import {
   deleteConversationAction,
   moveConversationToProjectAction,
@@ -20,6 +20,7 @@ import { Dialog } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { getProjectIcon, getProjectColor } from '@/components/project-icon-picker'
 import { useFlipListAnimation } from '@/lib/hooks/use-flip-list'
+import { navigateWithMainPanelFade } from '@/lib/view-transitions'
 
 interface Conversation {
   id: string
@@ -73,6 +74,7 @@ export function ChatSidebar({
   onRefreshChats,
   onRefreshProjects,
 }: ChatSidebarProps) {
+  const router = useRouter()
   const pathname = usePathname()
   const isAgentsPage = pathname === '/agents'
   const [projectsCollapsed, setProjectsCollapsed] = useState(false)
@@ -258,6 +260,7 @@ export function ChatSidebar({
 
       <div
         data-sidebar-open={isOpen ? 'true' : 'false'}
+        style={{ viewTransitionName: 'sidebar' }}
         className={`
         sidebar-shell fixed lg:sticky lg:top-0 lg:h-[100dvh] h-full border-r border-border bg-sidebar z-50
         transition-all duration-300 ease-in-out
@@ -302,14 +305,19 @@ export function ChatSidebar({
               {isOpen && "New Chat"}
             </Button>
             
-            <Link href="/agents" className="block">
+            <Link
+              href="/agents"
+              className="block"
+              onClick={(event) => {
+                event.preventDefault()
+                void navigateWithMainPanelFade(router, "/agents")
+                closeSidebarIfMobile()
+              }}
+            >
               <Button 
                 variant="ghost" 
                 className={`${primaryButtonClass} ${isAgentsPage ? 'bg-zinc-800 text-white hover:bg-zinc-800/90' : ''}`}
                 title={!isOpen ? "Agents" : undefined}
-                onClick={() => {
-                  closeSidebarIfMobile()
-                }}
               >
                 <Sparkles className="h-4 w-4 flex-shrink-0" />
                 {isOpen && "Agents"}
@@ -358,7 +366,8 @@ export function ChatSidebar({
                             <div key={project.id} className="space-y-1">
                               <Link
                                 href={`/projects/${project.id}`}
-                                onClick={() => {
+                                onClick={(event) => {
+                                  event.preventDefault()
                                   onProjectSelect?.(project.id)
                                   closeSidebarIfMobile()
                                 }}
@@ -439,8 +448,12 @@ export function ChatSidebar({
                                   {hasMoreChats && (
                                     <Link
                                       href={`/projects/${project.id}`}
-                                    className="block w-full rounded-lg pl-6 pr-2.5 py-1.5 text-sm text-muted-foreground hover:bg-sidebar-accent"
-                                    onClick={() => onProjectSelect?.(project.id)}
+                                      className="block w-full rounded-lg pl-6 pr-2.5 py-1.5 text-sm text-muted-foreground hover:bg-sidebar-accent"
+                                      onClick={(event) => {
+                                        event.preventDefault()
+                                        onProjectSelect?.(project.id)
+                                        closeSidebarIfMobile()
+                                      }}
                                   >
                                     See more
                                   </Link>
@@ -471,7 +484,8 @@ export function ChatSidebar({
                                     <Link
                                       key={project.id}
                                       href={`/projects/${project.id}`}
-                                      onClick={() => {
+                                      onClick={(event) => {
+                                        event.preventDefault()
                                         onProjectSelect?.(project.id)
                                         setShowMoreProjects(false)
                                       }}

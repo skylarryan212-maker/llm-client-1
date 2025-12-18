@@ -1,12 +1,31 @@
 "use client";
 
+import { useEffect } from "react";
 import type { JSX } from "react";
 import type { AssistantMessageMetadata } from "@/lib/chatTypes";
 import { StatusBubble } from "@/components/chat/status-bubble";
 
 interface MessageInsightChipsProps {
+  messageId?: string;
+  animationScopeId?: string;
   metadata?: AssistantMessageMetadata | Record<string, unknown> | null;
   onOpenSidebar?: () => void;
+}
+
+const animatedChipKeysByScope = new Map<string, Set<string>>();
+
+function getScopeSet(scopeId: string): Set<string> {
+  const existing = animatedChipKeysByScope.get(scopeId);
+  if (existing) return existing;
+  const next = new Set<string>();
+  animatedChipKeysByScope.set(scopeId, next);
+  // Prevent unbounded growth if users navigate many chats in one session.
+  while (animatedChipKeysByScope.size > 8) {
+    const oldestKey = animatedChipKeysByScope.keys().next().value as string | undefined;
+    if (!oldestKey) break;
+    animatedChipKeysByScope.delete(oldestKey);
+  }
+  return next;
 }
 
 function normalizeMetadata(
@@ -16,27 +35,25 @@ function normalizeMetadata(
   return metadata as AssistantMessageMetadata;
 }
 
-export function MessageInsightChips({ metadata, onOpenSidebar }: MessageInsightChipsProps) {
+export function MessageInsightChips({
+  messageId,
+  animationScopeId,
+  metadata,
+  onOpenSidebar,
+}: MessageInsightChipsProps) {
   const typed = normalizeMetadata(metadata);
-  if (!typed) return null;
 
-  const chips: JSX.Element[] = [];
+  const messageKey = typeof messageId === "string" && messageId.trim().length > 0 ? messageId.trim() : null;
+  const scopeKey = typeof animationScopeId === "string" && animationScopeId.trim().length > 0 ? animationScopeId.trim() : "__global__";
+  const animatedKeys = getScopeSet(scopeKey);
 
-  // Show warning if router fell back to code-based logic
-  if (typed.routedBy === "code-fallback") {
-    chips.push(
-      <StatusBubble
-        key="router-fallback"
-        label="Smart router unavailable"
-        subtext="Using fallback model selection"
-        variant="warning"
-      />
-    );
-  }
+  const hasRouterFallback = typed?.routedBy === "code-fallback";
+  const routerFallbackChipKey = messageKey && hasRouterFallback ? `${messageKey}:router-fallback` : null;
+  const animateRouterFallback = routerFallbackChipKey ? !animatedKeys.has(routerFallbackChipKey) : true;
 
-  const reasoningEffort = typed.reasoningEffort || typed.thinking?.effort;
+  const reasoningEffort = typed?.reasoningEffort || typed?.thinking?.effort;
   const explicitThought =
-    typeof typed.thoughtDurationLabel === "string" && typed.thoughtDurationLabel.trim()
+    typeof typed?.thoughtDurationLabel === "string" && typed.thoughtDurationLabel.trim()
       ? typed.thoughtDurationLabel.trim()
       : null;
   const fallbackThought =
@@ -46,9 +63,35 @@ export function MessageInsightChips({ metadata, onOpenSidebar }: MessageInsightC
       ? "Thinking a bit longer"
       : null;
   const thoughtLabel = explicitThought || fallbackThought;
-  // Show badge whenever reasoning effort is medium/high so users see the “thinking for longer” state
-  if (thoughtLabel && (reasoningEffort === "medium" || reasoningEffort === "high")) {
-    chips.push(<StatusBubble key="thought" label={thoughtLabel} onClick={onOpenSidebar} />);
+  const showThought = Boolean(typed && thoughtLabel && (reasoningEffort === "medium" || reasoningEffort === "high"));
+  const thoughtChipKey = messageKey && showThought ? `${messageKey}:thought` : null;
+  const animateThought = thoughtChipKey ? !animatedKeys.has(thoughtChipKey) : true;
+
+  useEffect(() => {
+    if (routerFallbackChipKey) animatedKeys.add(routerFallbackChipKey);
+    if (thoughtChipKey) animatedKeys.add(thoughtChipKey);
+  }, [animatedKeys, routerFallbackChipKey, thoughtChipKey]);
+
+  if (!typed) return null;
+
+  const chips: JSX.Element[] = [];
+
+  if (hasRouterFallback) {
+    chips.push(
+      <StatusBubble
+        key={`router-fallback:${scopeKey}`}
+        label="Smart router unavailable"
+        subtext="Using fallback model selection"
+        variant="warning"
+        animate={animateRouterFallback}
+      />
+    );
+  }
+
+  if (showThought) {
+    chips.push(
+      <StatusBubble key={`thought:${scopeKey}`} label={thoughtLabel!} onClick={onOpenSidebar} animate={animateThought} />
+    );
   }
 
   if (!chips.length) return null;

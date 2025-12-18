@@ -7,6 +7,7 @@ import {
   useRef,
   useCallback,
   useEffect,
+  useLayoutEffect,
   ClipboardEvent,
 } from "react";
 import { Button } from "@/components/ui/button";
@@ -30,20 +31,35 @@ type ChatComposerProps = {
   onSendMessage?: (message: string) => void;
   isStreaming?: boolean;
   onStop?: () => void;
+  onCreateImage?: () => void;
   placeholder?: string;
 };
+
+const RESTORE_FOCUS_KEY = "llm-client:composer:restore-focus";
+
+function readRestoreFocusFlag(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return window.sessionStorage.getItem(RESTORE_FOCUS_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
 
 export function ChatComposer({
   onSubmit,
   onSendMessage,
   isStreaming,
   onStop,
+  onCreateImage,
   placeholder,
 }: ChatComposerProps) {
   const [value, setValue] = useState("");
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const restoreFocusOnMountRef = useRef(readRestoreFocusFlag());
   const [attachments, setAttachments] = useState<UploadedFragment[]>([]);
   const trimmedValue = value.trim();
 
@@ -59,11 +75,11 @@ export function ChatComposer({
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const recordingChunksRef = useRef<Blob[]>([]);
   const transcriptionAbortRef = useRef<AbortController | null>(null);
-  const audioContextRef = useRef<AudioContext | null>(null);
-  const audioSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
-  const analyserRef = useRef<AnalyserNode | null>(null);
-  const waveformDataRef = useRef<Uint8Array<ArrayBuffer> | null>(null);
-  const waveformAnimationRef = useRef<number | null>(null);
+	  const audioContextRef = useRef<AudioContext | null>(null);
+	  const audioSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
+	  const analyserRef = useRef<AnalyserNode | null>(null);
+	  const waveformDataRef = useRef<Uint8Array<ArrayBuffer> | null>(null);
+	  const waveformAnimationRef = useRef<number | null>(null);
 
   // Build waveform SVG path (fluid wave style)
   const buildWaveformPath = useCallback((levels: number[], width = 200, height = 40) => {
@@ -120,6 +136,29 @@ export function ChatComposer({
     };
   }, [cleanupWaveformVisualizer]);
 
+  // If we were focused when a new chat URL navigation happened, restore focus before paint.
+  useLayoutEffect(() => {
+    if (!restoreFocusOnMountRef.current) return;
+    if (typeof window === "undefined") return;
+    try {
+      window.sessionStorage.removeItem(RESTORE_FOCUS_KEY);
+    } catch {
+      // Ignore storage failures
+    }
+    textareaRef.current?.focus({ preventScroll: true });
+  }, []);
+
+  const markRestoreFocus = useCallback(() => {
+    if (typeof window === "undefined") return;
+    try {
+      if (document.activeElement === textareaRef.current) {
+        window.sessionStorage.setItem(RESTORE_FOCUS_KEY, "1");
+      }
+    } catch {
+      // Ignore storage failures
+    }
+  }, []);
+
   // Start waveform visualizer
   const startWaveformVisualizer = useCallback(
     (stream: MediaStream) => {
@@ -142,21 +181,21 @@ export function ChatComposer({
         analyserRef.current = analyser;
         waveformDataRef.current = buffer;
 
-        const tick = () => {
-          if (!analyserRef.current || !waveformDataRef.current) return;
-          analyserRef.current.getByteTimeDomainData(waveformDataRef.current);
-          const data = waveformDataRef.current;
-          let sum = 0;
-          for (let i = 0; i < data.length; i++) {
-            sum += Math.abs(data[i] - 128);
-          }
-          const normalized = Math.min(1, sum / data.length / 64);
-          // Update all bars randomly instead of flowing
-          setWaveformLevels((prev) => {
-            return prev.map(() => normalized * (0.3 + Math.random() * 0.7));
-          });
-          waveformAnimationRef.current = requestAnimationFrame(tick);
-        };
+	        const tick = () => {
+	          if (!analyserRef.current || !waveformDataRef.current) return;
+	          analyserRef.current.getByteTimeDomainData(waveformDataRef.current);
+	          const data = waveformDataRef.current;
+	          let sum = 0;
+	          for (let i = 0; i < data.length; i++) {
+	            sum += Math.abs(data[i] - 128);
+	          }
+	          const normalized = Math.min(1, sum / data.length / 64);
+	          // Update all bars randomly instead of flowing
+	          setWaveformLevels((prev) => {
+	            return prev.map(() => normalized * (0.3 + Math.random() * 0.7));
+	          });
+	          waveformAnimationRef.current = requestAnimationFrame(tick);
+	        };
         waveformAnimationRef.current = requestAnimationFrame(tick);
         if (audioContext.resume) {
           audioContext.resume().catch(() => null);
@@ -204,7 +243,7 @@ export function ChatComposer({
   );
 
   // Transcribe audio
-  const transcribeAudio = useCallback(async (blob: Blob) => {
+	  const transcribeAudio = useCallback(async (blob: Blob) => {
     const formData = new FormData();
     formData.append("audio", blob, "voice-message.webm");
     const controller = new AbortController();
@@ -218,13 +257,17 @@ export function ChatComposer({
       if (!response.ok) {
         throw new Error("Transcription failed");
       }
-      const payload = (await response.json()) as { transcript?: string };
-      const transcript = (payload.transcript || "").trim();
-      if (transcript) {
-        setValue((prev) => {
-          if (!prev) return transcript;
-          return `${prev.trimEnd()} ${transcript}`.trim();
-        });
+	      const payload = (await response.json()) as { transcript?: string; noSpeech?: boolean };
+	      const transcript = (payload.transcript || "").trim();
+	      if (payload.noSpeech) {
+	        setRecordingError("No speech detected in the recording.");
+	        return;
+	      }
+	      if (transcript) {
+	        setValue((prev) => {
+	          if (!prev) return transcript;
+	          return `${prev.trimEnd()} ${transcript}`.trim();
+	        });
         setRecordingError(null);
       } else {
         setRecordingError("No speech detected in the recording.");
@@ -241,7 +284,7 @@ export function ChatComposer({
   }, []);
 
   // Start recording
-  const startRecording = useCallback(async () => {
+	  const startRecording = useCallback(async () => {
     if (typeof window === "undefined" || typeof MediaRecorder === "undefined") {
       setRecordingError("Voice input isn't supported in this browser.");
       return;
@@ -250,11 +293,11 @@ export function ChatComposer({
       setRecordingError("Microphone access is unavailable.");
       return;
     }
-    try {
-      setRecordingError(null);
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const recorder = new MediaRecorder(stream);
-      recordingChunksRef.current = [];
+	    try {
+	      setRecordingError(null);
+	      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+	      const recorder = new MediaRecorder(stream);
+	      recordingChunksRef.current = [];
       recorder.ondataavailable = (event) => {
         if (event.data && event.data.size > 0) {
           recordingChunksRef.current.push(event.data);
@@ -282,18 +325,18 @@ export function ChatComposer({
   }, [startWaveformVisualizer]);
 
   // Finish recording and transcribe
-  const finishRecordingAndTranscribe = useCallback(async () => {
-    if (!isRecording) return;
-    setIsRecording(false);
-    setIsTranscribing(true);
-    try {
-      const blob = await stopRecording(true);
-      if (blob) {
-        await transcribeAudio(blob);
-      } else {
-        setRecordingError("Recording was too short.");
-      }
-    } catch (error) {
+	  const finishRecordingAndTranscribe = useCallback(async () => {
+	    if (!isRecording) return;
+	    setIsRecording(false);
+	    setIsTranscribing(true);
+	    try {
+	      const blob = await stopRecording(true);
+	      if (blob) {
+	        await transcribeAudio(blob);
+	      } else {
+	        setRecordingError("Recording was too short.");
+	      }
+	    } catch (error) {
       if ((error as DOMException)?.name !== "AbortError") {
         setRecordingError("Unable to capture audio.");
       }
@@ -384,6 +427,7 @@ export function ChatComposer({
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
+      markRestoreFocus();
       e.preventDefault();
       void effectiveSubmit(value);
     }
@@ -391,6 +435,7 @@ export function ChatComposer({
 
   const handleFormSubmit = (e: FormEvent) => {
     e.preventDefault();
+    markRestoreFocus();
     void effectiveSubmit(value);
   };
 
@@ -477,7 +522,7 @@ export function ChatComposer({
           ))}
         </div>
       )}
-      <div className="composer-shell relative z-10 flex items-center gap-1.5 sm:gap-2 rounded-3xl border border-border bg-card px-2 sm:px-3 lg:px-4 py-2 sm:py-2.5 transition-all focus-within:border-ring">
+      <div className="composer-shell relative z-10 flex items-end gap-1.5 sm:gap-2 rounded-3xl border border-border bg-card px-2 sm:px-3 lg:px-4 py-2 sm:py-2.5 transition-all focus-within:border-ring">
         {isRecording ? (
           <div className="flex items-center gap-2 flex-1 w-full">
             <button
@@ -538,11 +583,13 @@ export function ChatComposer({
                 open={isMenuOpen}
                 onOpenChange={setIsMenuOpen}
                 onPickFiles={handleOpenFilePicker}
+                onCreateImage={onCreateImage}
               />
             </div>
 
             {/* Textarea */}
             <Textarea
+              ref={textareaRef}
               value={value}
               onChange={(e) => setValue(e.target.value)}
               onKeyDown={handleKeyDown}
@@ -551,7 +598,7 @@ export function ChatComposer({
               placeholder={isTranscribing ? "Transcribing…" : placeholder ?? "Message LLM Client..."}
               rows={1}
               disabled={isRecording || isTranscribing}
-              className="flex-1 min-h-[36px] max-h-[200px] border-0 bg-transparent dark:bg-transparent px-0 py-2 text-base leading-5 resize-none focus-visible:ring-0 focus-visible:ring-offset-0 shadow-none rounded-none"
+              className="flex-1 min-h-[40px] max-h-[200px] border-0 bg-transparent dark:bg-transparent px-0 py-2.5 text-base leading-5 resize-none focus-visible:ring-0 focus-visible:ring-offset-0 shadow-none rounded-none"
             />
 
             {/* Right actions: mic + send OR transcribing OR stop if streaming */}
@@ -561,7 +608,7 @@ export function ChatComposer({
                 onClick={startRecording}
                 disabled={micDisabled || isUploading}
                 aria-label="Start dictation"
-                className={`flex h-9 w-9 items-center justify-center rounded-full transition ${
+                className={`flex h-10 w-10 items-center justify-center rounded-full transition ${
                   micDisabled
                     ? "cursor-not-allowed opacity-40"
                     : "hover:bg-accent"
@@ -584,6 +631,7 @@ export function ChatComposer({
                 ) : trimmedValue ? (
                   <button
                     type="submit"
+                    onMouseDown={markRestoreFocus}
                     disabled={isUploading}
                     className="accent-send-button flex h-10 w-10 items-center justify-center rounded-full shadow-lg transition disabled:opacity-50"
                     aria-label="Send message"

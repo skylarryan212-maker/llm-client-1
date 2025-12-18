@@ -68,6 +68,23 @@ export const TOOL_CALL_PRICING_PER_1K = {
   file_search: 2.5, // Responses API file_search tool calls
 } as const;
 
+// Gemini native image generation pricing (AI Studio) as of Dec 2025.
+// Note: image output is billed per-image (token-equivalent internally); we estimate per image.
+export const GEMINI_IMAGE_PRICING = {
+  "gemini-2.5-flash-image": {
+    inputPer1M: 0.30, // USD per 1M input tokens (text/image)
+    outputPerImage: 0.039, // USD per image
+  },
+  // Assumes 1024-2048px output (~1120 tokens equivalent) => ~$0.134/image.
+  "gemini-3-pro-image-preview": {
+    inputPer1M: 2.0, // USD per 1M input tokens (text/image)
+    outputPerImage: 0.134, // USD per image (1K/2K estimate)
+  },
+} as const;
+
+// Code Interpreter pricing (per session/container lifecycle)
+export const CODE_INTERPRETER_SESSION_COST = 0.03;
+
 export function calculateCost(
   model: string,
   inputTokens: number,
@@ -101,4 +118,15 @@ export function calculateToolCallCost(type: keyof typeof TOOL_CALL_PRICING_PER_1
   const ratePer1k = TOOL_CALL_PRICING_PER_1K[type];
   if (!ratePer1k || callCount <= 0) return 0;
   return (callCount / 1000) * ratePer1k;
+}
+
+export function calculateGeminiImageCost(model: string, inputTokens: number, imageCount: number): number {
+  const pricing = GEMINI_IMAGE_PRICING[model as keyof typeof GEMINI_IMAGE_PRICING];
+  if (!pricing) {
+    console.warn(`Unknown Gemini image model for pricing: ${model}`);
+    return 0;
+  }
+  const inputCost = (Math.max(0, inputTokens) / 1_000_000) * pricing.inputPer1M;
+  const outputCost = Math.max(0, imageCount) * pricing.outputPerImage;
+  return inputCost + outputCost;
 }

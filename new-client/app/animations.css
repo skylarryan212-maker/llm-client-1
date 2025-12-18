@@ -1,4 +1,110 @@
 @layer base {
+  [data-main-panel="true"] {
+    will-change: opacity, transform;
+  }
+
+  [data-chat-body="true"] {
+    will-change: opacity, transform;
+  }
+
+  .crossfade-overlay {
+    position: fixed;
+    pointer-events: none;
+    z-index: 60;
+    opacity: 0.92;
+    transition: opacity 240ms linear;
+    overflow: hidden;
+    contain: paint;
+    background: transparent;
+  }
+
+  .crossfade-overlay.crossfade-overlay-exit {
+    opacity: 0;
+  }
+
+  .crossfade-source-hidden {
+    opacity: 0 !important;
+    transition: none !important;
+    transform: none !important;
+  }
+
+  .main-panel-exit {
+    opacity: 0;
+    transform: translateY(-8px);
+    transition: opacity 260ms ease, transform 260ms ease;
+    pointer-events: none;
+  }
+
+  @keyframes main-panel-enter {
+    from {
+      opacity: 0.08;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+
+  .main-panel-enter {
+    animation: main-panel-enter 240ms linear both;
+  }
+
+  .chat-body-exit {
+    opacity: 0;
+    transition: opacity 240ms linear;
+    pointer-events: none;
+  }
+
+  @keyframes chat-body-enter {
+    from {
+      opacity: 0.08;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+
+  .chat-body-enter {
+    animation: chat-body-enter 240ms linear both;
+  }
+
+  @supports (view-transition-name: none) {
+    ::view-transition-old(root),
+    ::view-transition-new(root) {
+      animation: none;
+    }
+
+    ::view-transition-old(sidebar),
+    ::view-transition-new(sidebar) {
+      animation: none;
+    }
+
+    ::view-transition-old(main-panel) {
+      animation: main-panel-fade-out 120ms ease-in-out both;
+    }
+
+    ::view-transition-new(main-panel) {
+      animation: main-panel-fade-in 160ms ease-in-out both;
+    }
+
+    @keyframes main-panel-fade-in {
+      from {
+        opacity: 0;
+      }
+      to {
+        opacity: 1;
+      }
+    }
+
+    @keyframes main-panel-fade-out {
+      from {
+        opacity: 1;
+      }
+      to {
+        opacity: 0;
+      }
+    }
+  }
+
   @keyframes chat-entry {
     0% {
       opacity: 0;
@@ -26,20 +132,24 @@
 @layer components {
   .chat-scroll-viewport {
     overflow-anchor: none;
+    overflow-x: hidden;
+    scrollbar-gutter: stable;
+    overscroll-behavior: contain;
   }
 
   @keyframes assistant-streaming-shimmer {
     0% {
-      transform: translateX(-100%);
+      background-position: -200% 0;
     }
     100% {
-      transform: translateX(200%);
+      background-position: 200% 0;
     }
   }
 
   .assistant-streaming {
     position: relative;
     isolation: isolate;
+    overflow: hidden;
     overflow-anchor: none;
   }
 
@@ -47,7 +157,14 @@
     content: "";
     position: absolute;
     inset: 0;
-    background: linear-gradient(120deg, transparent 10%, rgba(255, 255, 255, 0.08) 35%, transparent 60%);
+    background: linear-gradient(
+      120deg,
+      transparent 10%,
+      rgba(var(--assistant-shimmer-rgb, 255, 255, 255), 0.10) 35%,
+      transparent 60%
+    );
+    background-size: 200% 100%;
+    background-position: 0 0;
     animation: assistant-streaming-shimmer 1.4s linear infinite;
     pointer-events: none;
     opacity: 0.8;
@@ -301,8 +418,11 @@
   }
 
   .status-bubble {
-    animation: status-bubble-pop 260ms ease forwards;
+    animation: status-bubble-pop 1200ms ease-out forwards;
+    will-change: opacity, transform;
+    transform-origin: center;
   }
+
 
   @keyframes status-bubble-pop {
     0% {
@@ -376,6 +496,52 @@
 @media (prefers-reduced-motion: reduce) {
   .chat-entry-animate {
     animation: none !important;
+  }
+
+
+  [data-main-panel="true"] {
+    will-change: auto !important;
+  }
+
+  [data-chat-body="true"] {
+    will-change: auto !important;
+  }
+
+  .crossfade-overlay {
+    display: none !important;
+  }
+
+  .main-panel-exit {
+    opacity: 1 !important;
+    transform: none !important;
+    transition: none !important;
+    pointer-events: auto !important;
+  }
+
+  .main-panel-enter {
+    animation: none !important;
+  }
+
+  .chat-body-exit {
+    opacity: 1 !important;
+    transform: none !important;
+    transition: none !important;
+    pointer-events: auto !important;
+  }
+
+  .chat-body-enter {
+    animation: none !important;
+  }
+
+  @supports (view-transition-name: none) {
+    ::view-transition-old(main-panel),
+    ::view-transition-new(main-panel),
+    ::view-transition-old(sidebar),
+    ::view-transition-new(sidebar),
+    ::view-transition-old(root),
+    ::view-transition-new(root) {
+      animation: none !important;
+    }
   }
 
   .assistant-streaming::after,

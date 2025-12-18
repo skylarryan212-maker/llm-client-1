@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Menu, Plus } from "lucide-react";
 
@@ -12,6 +12,7 @@ import { ProjectCard } from "@/components/projects/project-card";
 import { NewProjectModal } from "@/components/projects/new-project-modal";
 import { usePersistentSidebarOpen } from "@/lib/hooks/use-sidebar-open";
 import { useChatStore } from "@/components/chat/chat-provider";
+import { navigateWithMainPanelFade, runMainPanelEnterIfNeeded } from "@/lib/view-transitions";
 
 export default function ProjectsPage() {
   const [isSidebarOpen, setIsSidebarOpen] = usePersistentSidebarOpen(true);
@@ -22,6 +23,11 @@ export default function ProjectsPage() {
   const { projects, addProject, refreshProjects } = useProjects();
   const { globalChats, chats, refreshChats } = useChatStore();
   const router = useRouter();
+  const mainPanelRef = useRef<HTMLDivElement | null>(null);
+
+  useLayoutEffect(() => {
+    runMainPanelEnterIfNeeded(mainPanelRef.current);
+  }, []);
 
   const handleNewProject = () => {
     setIsNewProjectOpen(true);
@@ -31,32 +37,32 @@ export default function ProjectsPage() {
     const newProject = await addProject(name);
     setSelectedProjectId(newProject.id);
     setIsNewProjectOpen(false);
-    router.push(`/projects/${newProject.id}`);
+    void navigateWithMainPanelFade(router, `/projects/${newProject.id}`);
   };
 
   const handleProjectSelect = (projectId: string) => {
     setSelectedProjectId(projectId);
-    router.push(`/projects/${projectId}`);
+    void navigateWithMainPanelFade(router, `/projects/${projectId}`);
   };
 
   const handleNewChat = () => {
-    router.push("/");
+    void navigateWithMainPanelFade(router, "/");
   };
 
   const handleChatSelect = (chatId: string) => {
     const chat = chats.find((item) => item.id === chatId);
     if (chat?.projectId) {
       setSelectedProjectId(chat.projectId);
-      router.push(`/projects/${chat.projectId}/c/${chatId}`);
+      void navigateWithMainPanelFade(router, `/projects/${chat.projectId}/c/${chatId}`);
     } else {
       setSelectedProjectId("");
-      router.push(`/c/${chatId}`);
+      void navigateWithMainPanelFade(router, `/c/${chatId}`);
     }
   };
 
   const handleProjectChatSelect = (projectIdValue: string, chatId: string) => {
     setSelectedProjectId(projectIdValue);
-    router.push(`/projects/${projectIdValue}/c/${chatId}`);
+    void navigateWithMainPanelFade(router, `/projects/${projectIdValue}/c/${chatId}`);
   };
 
   const sidebarConversations = useMemo(
@@ -110,7 +116,12 @@ export default function ProjectsPage() {
         }}
       />
 
-      <div className="flex-1 overflow-y-auto h-full">
+      <div
+        ref={mainPanelRef}
+        data-main-panel="true"
+        className="flex-1 overflow-y-auto h-full"
+        style={{ viewTransitionName: "main-panel" }}
+      >
         <div className="mx-auto max-w-6xl px-4 sm:px-6 py-8 sm:py-12 lg:py-16">
           <div className="flex items-center justify-between gap-3 mb-8">
             <div>

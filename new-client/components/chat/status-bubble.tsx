@@ -2,13 +2,14 @@
 
 import { cn } from "@/lib/utils";
 
-type StatusVariant = "default" | "extended" | "search" | "reading" | "error" | "warning";
+type StatusVariant = "default" | "extended" | "search" | "reading" | "analyzing" | "error" | "warning";
 
 interface StatusBubbleProps {
   label: string;
   variant?: StatusVariant;
   subtext?: string;
   onClick?: () => void;
+  animate?: boolean;
 }
 
 const baseClassMap: Record<StatusVariant, string> = {
@@ -16,6 +17,7 @@ const baseClassMap: Record<StatusVariant, string> = {
   extended: "border-[#4b64ff]/30 bg-[#1a1c2b]/80 text-[#b7c6ff]",
   search: "border-[#4b64ff]/30 bg-[#152033]/80 text-[#9bb8ff]",
   reading: "border-[#2f9e89]/40 bg-[#0f1f1a]/85 text-[#b8ffe8]",
+  analyzing: "border-[#a78bfa]/30 bg-[#1a162b]/85 text-[#ddd6fe]",
   error: "border-red-500/40 bg-[#30161a]/85 text-red-200",
   warning: "border-yellow-500/40 bg-[#2a2416]/85 text-yellow-200",
 };
@@ -25,15 +27,23 @@ const dotClassMap: Record<StatusVariant, string> = {
   extended: "bg-[#8ab4ff]",
   search: "bg-[#8ab4ff]",
   reading: "bg-[#53f2c7]",
+  analyzing: "bg-[#c4b5fd]",
   error: "bg-red-400",
   warning: "bg-yellow-400",
 };
 
-export function StatusBubble({ label, variant = "default", subtext, onClick }: StatusBubbleProps) {
+export function StatusBubble({
+  label,
+  variant = "default",
+  subtext,
+  onClick,
+  animate = true,
+}: StatusBubbleProps) {
   return (
     <div
       className={cn(
-        "status-bubble inline-flex max-w-full items-center rounded-full border px-3 py-1 text-xs overflow-visible",
+        "inline-flex max-w-full items-center rounded-full border px-3 py-1 text-xs overflow-visible",
+        animate ? "status-bubble" : "",
         onClick ? "cursor-pointer" : "",
         baseClassMap[variant]
       )}

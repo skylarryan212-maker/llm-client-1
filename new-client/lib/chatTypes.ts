@@ -27,4 +27,9 @@ export type AssistantMessageMetadata = {
   searchedDomains?: string[];
   searchedSiteLabel?: string;
   citations?: CitationMetadata[];
+  generatedFiles?: Array<{
+    containerId: string;
+    fileId: string;
+    filename: string;
+  }>;
 };

@@ -25,6 +25,29 @@ export async function getMemoryTypes(userId: string): Promise<string[]> {
   return types;
 }
 
+/**
+ * Get all unique memory type categories for the current user (client-side, via RLS).
+ */
+export async function fetchMemoryTypes(): Promise<string[]> {
+  const { default: browserClient } = await import("@/lib/supabase/browser-client");
+  const { data, error } = await (browserClient as any)
+    .from("memories")
+    .select("type")
+    .eq("enabled", true);
+
+  if (error) {
+    console.error("[memory] Failed to fetch memory types:", error);
+    return [];
+  }
+
+  const types = Array.isArray(data) ? data.map((row: any) => row?.type) : [];
+  const normalized = types
+    .map((t) => (t ?? "").toString().trim())
+    .filter((t) => t.length > 0);
+
+  return [...new Set(normalized)].sort((a, b) => a.localeCompare(b));
+}
+
 export interface MemoryItem {
   id: string;
   type: MemoryType;

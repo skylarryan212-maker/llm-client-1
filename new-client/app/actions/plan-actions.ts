@@ -5,6 +5,27 @@ import { getCurrentUserIdServer } from "@/lib/supabase/user";
 
 export type PlanType = "free" | "basic" | "plus" | "pro" | "dev";
 
+const BILLING_PERIOD_DAYS = 30;
+
+function addDaysIso(dateIso: string, days: number) {
+  return new Date(new Date(dateIso).getTime() + days * 24 * 60 * 60 * 1000).toISOString();
+}
+
+function computeNextPeriod(
+  startIso: string,
+  nowMs: number
+): { currentPeriodStart: string; currentPeriodEnd: string } {
+  let currentPeriodStart = startIso;
+  let currentPeriodEnd = addDaysIso(startIso, BILLING_PERIOD_DAYS);
+  let safety = 0;
+  while (new Date(currentPeriodEnd).getTime() <= nowMs && safety < 48) {
+    currentPeriodStart = currentPeriodEnd;
+    currentPeriodEnd = addDaysIso(currentPeriodStart, BILLING_PERIOD_DAYS);
+    safety += 1;
+  }
+  return { currentPeriodStart, currentPeriodEnd };
+}
+
 const UNLOCK_CODES: Record<Exclude<PlanType, "free">, string> = {
   basic: "devadmin",
   plus: "devadmin",
@@ -22,7 +43,7 @@ export async function getUserPlan(): Promise<PlanType> {
     const supabase = await supabaseServer();
     const { data, error } = await supabase
       .from("user_plans")
-      .select("plan_type, is_active")
+      .select("plan_type, is_active, cancel_at, cancel_at_period_end, current_period_start, current_period_end, created_at")
       .eq("user_id", userId)
       .eq("is_active", true)
       .single();
@@ -40,6 +61,59 @@ export async function getUserPlan(): Promise<PlanType> {
         { onConflict: "user_id" }
       );
       return "free";
+    }
+
+    const nowMs = Date.now();
+    const cancelAtIso = (data as any).cancel_at as string | null | undefined;
+    const cancelAtPeriodEnd = Boolean((data as any).cancel_at_period_end);
+
+    // Normalize / advance billing period so renewal dates don't drift.
+    if ((data.plan_type as PlanType) !== "free") {
+      const currentPeriodStartIso =
+        ((data as any).current_period_start as string | null | undefined) ??
+        ((data as any).created_at as string | null | undefined) ??
+        new Date().toISOString();
+
+      const next = computeNextPeriod(currentPeriodStartIso, nowMs);
+      const existingEndMs = (data as any).current_period_end
+        ? new Date((data as any).current_period_end as string).getTime()
+        : NaN;
+
+      if (Number.isNaN(existingEndMs) || existingEndMs !== new Date(next.currentPeriodEnd).getTime()) {
+        await supabase.from("user_plans").upsert(
+          {
+            user_id: userId,
+            plan_type: data.plan_type,
+            is_active: true,
+            current_period_start: next.currentPeriodStart,
+            current_period_end: next.currentPeriodEnd,
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: "user_id" }
+        );
+      }
+    }
+
+    // If cancellation was scheduled and the effective date has passed, downgrade now.
+    if (cancelAtPeriodEnd && cancelAtIso) {
+      const cancelAtMs = new Date(cancelAtIso).getTime();
+      if (!Number.isNaN(cancelAtMs) && cancelAtMs <= nowMs) {
+        await supabase.from("user_plans").upsert(
+          {
+            user_id: userId,
+            plan_type: "free",
+            is_active: true,
+            cancel_at: null,
+            cancel_at_period_end: false,
+            canceled_at: null,
+            current_period_start: null,
+            current_period_end: null,
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: "user_id" }
+        );
+        return "free";
+      }
     }
 
     return data.plan_type as PlanType;
@@ -69,6 +143,24 @@ export async function unlockPlanWithCode(
 
     const supabase = await supabaseServer();
 
+    const { data: current } = await supabase
+      .from("user_plans")
+      .select("plan_type, current_period_start, current_period_end")
+      .eq("user_id", userId)
+      .single();
+
+    const nowIso = new Date().toISOString();
+    const nowMs = Date.now();
+    const hasActivePeriod =
+      current?.current_period_end && new Date(current.current_period_end as any).getTime() > nowMs;
+    const shouldStartNewPeriod = !hasActivePeriod || (current?.plan_type as PlanType | undefined) === "free";
+    const period = shouldStartNewPeriod
+      ? computeNextPeriod(nowIso, nowMs)
+      : {
+          currentPeriodStart: (current as any).current_period_start as string,
+          currentPeriodEnd: (current as any).current_period_end as string,
+        };
+
     const { error: upsertError } = await supabase
       .from("user_plans")
       .upsert(
@@ -77,6 +169,11 @@ export async function unlockPlanWithCode(
           plan_type: planType,
           unlock_code: code,
           is_active: true,
+          cancel_at: null,
+          cancel_at_period_end: false,
+          canceled_at: null,
+          current_period_start: period.currentPeriodStart,
+          current_period_end: period.currentPeriodEnd,
           updated_at: new Date().toISOString(),
         },
         { onConflict: "user_id" }
@@ -109,6 +206,44 @@ export async function upgradeToPlan(
 
     const supabase = await supabaseServer();
 
+    const { data: existing } = await supabase
+      .from("user_plans")
+      .select("plan_type, cancel_at, cancel_at_period_end, current_period_start, current_period_end, created_at")
+      .eq("user_id", userId)
+      .single();
+
+    const nowIso = new Date().toISOString();
+    const nowMs = Date.now();
+
+    // Preserve billing period across cancel/reactivate and plan changes; only start a new period when moving from free
+    // or when the prior period has ended (i.e., resubscribe after expiration).
+    let currentPeriodStart: string | null = (existing as any)?.current_period_start ?? null;
+    let currentPeriodEnd: string | null = (existing as any)?.current_period_end ?? null;
+
+    if (planType === "free") {
+      currentPeriodStart = null;
+      currentPeriodEnd = null;
+    } else {
+      const existingEndMs = currentPeriodEnd ? new Date(currentPeriodEnd).getTime() : NaN;
+      const existingPlan = (existing as any)?.plan_type as PlanType | undefined;
+      const hasActivePeriod = !Number.isNaN(existingEndMs) && existingEndMs > nowMs;
+      const shouldStartNewPeriod = !hasActivePeriod || existingPlan === "free" || !existingPlan;
+      if (shouldStartNewPeriod) {
+        const period = computeNextPeriod(nowIso, nowMs);
+        currentPeriodStart = period.currentPeriodStart;
+        currentPeriodEnd = period.currentPeriodEnd;
+      } else if (currentPeriodStart) {
+        const next = computeNextPeriod(currentPeriodStart, nowMs);
+        currentPeriodStart = next.currentPeriodStart;
+        currentPeriodEnd = next.currentPeriodEnd;
+      } else {
+        const base = (existing as any)?.created_at ?? nowIso;
+        const next = computeNextPeriod(base, nowMs);
+        currentPeriodStart = next.currentPeriodStart;
+        currentPeriodEnd = next.currentPeriodEnd;
+      }
+    }
+
     const { error: upsertError } = await supabase
       .from("user_plans")
       .upsert(
@@ -116,6 +251,11 @@ export async function upgradeToPlan(
           user_id: userId,
           plan_type: planType,
           is_active: true,
+          cancel_at: null,
+          cancel_at_period_end: false,
+          canceled_at: null,
+          current_period_start: currentPeriodStart,
+          current_period_end: currentPeriodEnd,
           updated_at: new Date().toISOString(),
         },
         { onConflict: "user_id" }
@@ -152,6 +292,8 @@ export async function upgradeToPlan(
 export async function getUserPlanDetails(): Promise<{
   planType: PlanType;
   renewalDate: string | null;
+  cancelAt: string | null;
+  cancelAtPeriodEnd: boolean;
   isActive: boolean;
 } | null> {
   try {
@@ -163,7 +305,7 @@ export async function getUserPlanDetails(): Promise<{
     const supabase = await supabaseServer();
     const { data, error } = await supabase
       .from("user_plans")
-      .select("plan_type, is_active, created_at, updated_at")
+      .select("plan_type, is_active, created_at, cancel_at, cancel_at_period_end, current_period_start, current_period_end")
       .eq("user_id", userId)
       .eq("is_active", true)
       .single();
@@ -172,21 +314,35 @@ export async function getUserPlanDetails(): Promise<{
       return {
         planType: "free",
         renewalDate: null,
+        cancelAt: null,
+        cancelAtPeriodEnd: false,
         isActive: true,
       };
     }
 
-    // Calculate renewal date (30 days from updated_at or created_at)
-    const baseDate = data.updated_at || data.created_at;
-    const renewalDate = baseDate
-      ? new Date(new Date(baseDate).getTime() + 30 * 24 * 60 * 60 * 1000)
-          .toISOString()
-          .split("T")[0]
-      : null;
+    const nowMs = Date.now();
+    const planType = data.plan_type as PlanType;
+
+    let currentPeriodStart: string | null = (data as any).current_period_start ?? null;
+    let currentPeriodEnd: string | null = (data as any).current_period_end ?? null;
+    if (planType !== "free") {
+      const baseStart = currentPeriodStart ?? (data as any).created_at ?? new Date().toISOString();
+      const next = computeNextPeriod(baseStart, nowMs);
+      currentPeriodStart = next.currentPeriodStart;
+      currentPeriodEnd = next.currentPeriodEnd;
+    } else {
+      currentPeriodStart = null;
+      currentPeriodEnd = null;
+    }
+
+    const cancelAt = (data as any).cancel_at ? new Date((data as any).cancel_at).toISOString().split("T")[0] : null;
+    const cancelAtPeriodEnd = Boolean((data as any).cancel_at_period_end);
 
     return {
-      planType: data.plan_type as PlanType,
-      renewalDate,
+      planType,
+      renewalDate: currentPeriodEnd ? currentPeriodEnd.split("T")[0] : null,
+      cancelAt,
+      cancelAtPeriodEnd,
       isActive: data.is_active,
     };
   } catch (error) {
@@ -207,13 +363,48 @@ export async function cancelSubscription(): Promise<{
 
     const supabase = await supabaseServer();
 
+    const { data: current, error: currentError } = await supabase
+      .from("user_plans")
+      .select("plan_type, is_active, created_at, cancel_at, cancel_at_period_end, current_period_start, current_period_end")
+      .eq("user_id", userId)
+      .single();
+
+    if (currentError || !current) {
+      return { success: false, message: "Failed to load current subscription" };
+    }
+
+    const currentPlan = current.plan_type as PlanType;
+    if (currentPlan === "free") {
+      return { success: true, message: "You're already on the Free plan." };
+    }
+
+    if ((current as any).cancel_at_period_end && (current as any).cancel_at) {
+      const when = new Date((current as any).cancel_at as string).toLocaleDateString("en-US", {
+        month: "long",
+        day: "numeric",
+        year: "numeric",
+      });
+      return { success: true, message: `Your plan is already set to cancel on ${when}.` };
+    }
+
+    const nowIso = new Date().toISOString();
+    const nowMs = Date.now();
+    const baseStart = (current as any).current_period_start ?? (current as any).created_at ?? nowIso;
+    const next = computeNextPeriod(baseStart, nowMs);
+    const cancelAt = (current as any).current_period_end ?? next.currentPeriodEnd;
+
     const { error: upsertError } = await supabase
       .from("user_plans")
       .upsert(
         {
           user_id: userId,
-          plan_type: "free",
+          plan_type: currentPlan,
           is_active: true,
+          cancel_at: cancelAt,
+          cancel_at_period_end: true,
+          canceled_at: new Date().toISOString(),
+          current_period_start: (current as any).current_period_start ?? next.currentPeriodStart,
+          current_period_end: cancelAt,
           updated_at: new Date().toISOString(),
         },
         { onConflict: "user_id" }
@@ -227,9 +418,14 @@ export async function cancelSubscription(): Promise<{
       };
     }
 
+    const when = new Date(cancelAt).toLocaleDateString("en-US", {
+      month: "long",
+      day: "numeric",
+      year: "numeric",
+    });
     return {
       success: true,
-      message: "Subscription canceled successfully. You've been moved to the Free plan.",
+      message: `Your plan will be canceled on ${when}.`,
     };
   } catch (error) {
     console.error("Error canceling subscription:", error);

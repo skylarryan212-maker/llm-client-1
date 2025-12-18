@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState, useEffect } from "react";
+import { useMemo, useRef, useState, useEffect, useLayoutEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { Menu, Plus, ArrowLeft } from 'lucide-react'
 import { ChatContextMenu } from '@/components/chat-context-menu'
@@ -23,6 +23,7 @@ import { updateProjectIconAction } from "@/app/actions/project-actions";
 import { requestAutoNaming } from "@/lib/autoNaming";
 import { useUserIdentity } from "@/components/user-identity-provider";
 import { useFlipListAnimation } from "@/lib/hooks/use-flip-list";
+import { navigateWithMainPanelFade, runMainPanelEnterIfNeeded } from "@/lib/view-transitions";
 
 import type { StoredChat, StoredMessage } from "@/components/chat/chat-provider";
 
@@ -61,6 +62,7 @@ export default function ProjectDetailPage() {
   const { projects, addProject, refreshProjects } = useProjects();
   const { globalChats, chats, createChat, refreshChats, ensureChat } = useChatStore();
   const { isGuest } = useUserIdentity();
+  const mainPanelRef = useRef<HTMLDivElement | null>(null);
 
   const [isSidebarOpen, setIsSidebarOpen] = usePersistentSidebarOpen(true);
   const [isNewProjectOpen, setIsNewProjectOpen] = useState(false);
@@ -102,6 +104,10 @@ export default function ProjectDetailPage() {
     if (!shouldRedirectToProjects) return;
     router.push("/projects");
   }, [router, shouldRedirectToProjects]);
+
+  useLayoutEffect(() => {
+    runMainPanelEnterIfNeeded(mainPanelRef.current);
+  }, []);
 
   const sidebarConversations = useMemo(
     () =>
@@ -156,7 +162,7 @@ export default function ProjectDetailPage() {
     }
     const newProject = await addProject(name);
     setIsNewProjectOpen(false);
-    router.push(`/projects/${newProject.id}`);
+    void navigateWithMainPanelFade(router, `/projects/${newProject.id}`);
   };
 
   const handleNewChat = () => {
@@ -166,7 +172,7 @@ export default function ProjectDetailPage() {
     }
     setSelectedChatId("");
     setSelectedProjectId("");
-    router.push("/");
+    void navigateWithMainPanelFade(router, "/");
   };
 
   const handleChatSelect = (chatId: string) => {
@@ -178,10 +184,10 @@ export default function ProjectDetailPage() {
     setSelectedChatId(chatId);
     if (chat?.projectId) {
       setSelectedProjectId(chat.projectId);
-      router.push(`/projects/${chat.projectId}/c/${chatId}`);
+      void navigateWithMainPanelFade(router, `/projects/${chat.projectId}/c/${chatId}`);
     } else {
       setSelectedProjectId("");
-      router.push(`/c/${chatId}`);
+      void navigateWithMainPanelFade(router, `/c/${chatId}`);
     }
   };
 
@@ -192,7 +198,7 @@ export default function ProjectDetailPage() {
     }
     setSelectedChatId(chatId);
     setSelectedProjectId(projectIdValue);
-    router.push(`/projects/${projectIdValue}/c/${chatId}`);
+    void navigateWithMainPanelFade(router, `/projects/${projectIdValue}/c/${chatId}`);
   };
 
   const handleProjectChatSubmit = async (
@@ -230,7 +236,7 @@ export default function ProjectDetailPage() {
     requestAutoNaming(conversationId, message).catch((err) =>
       console.error("Failed to auto-name project chat:", err)
     );
-    router.push(`/projects/${projectId}/c/${chatId}`);
+    void navigateWithMainPanelFade(router, `/projects/${projectId}/c/${chatId}`);
   };
 
   const clearAction = () => {
@@ -307,7 +313,7 @@ export default function ProjectDetailPage() {
         onNewProject={handleNewProject}
         onProjectSelect={(id) => {
           setSelectedProjectId(id);
-          router.push(`/projects/${id}`);
+          void navigateWithMainPanelFade(router, `/projects/${id}`);
         }}
         selectedProjectId={selectedProjectId}
         onRefreshChats={refreshChats}
@@ -322,7 +328,12 @@ export default function ProjectDetailPage() {
         }}
       />
 
-      <div className="flex-1 overflow-y-auto h-full">
+      <div
+        ref={mainPanelRef}
+        data-main-panel="true"
+        className="flex-1 overflow-y-auto h-full"
+        style={{ viewTransitionName: "main-panel" }}
+      >
         {isGuest && (
           <div className="px-4 py-2 bg-amber-900/40 text-amber-100 text-sm flex items-center justify-between">
             <span>Guest mode: chats and projects won&apos;t be saved. Sign in to keep your work.</span>
@@ -342,7 +353,7 @@ export default function ProjectDetailPage() {
                   <Menu className="h-4 w-4" />
                 </Button>
                 <button
-                  onClick={() => router.push("/projects")}
+                  onClick={() => void navigateWithMainPanelFade(router, "/projects")}
                   className="flex items-center justify-center rounded-lg hover:bg-accent transition-colors p-2"
                   title="Back to projects"
                 >

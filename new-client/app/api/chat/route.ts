@@ -3,7 +3,7 @@ export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
 import { Buffer } from "buffer";
-import { supabaseServer } from "@/lib/supabase/server";
+import { supabaseServer, supabaseServerAdmin } from "@/lib/supabase/server";
 import { getCurrentUserIdServer } from "@/lib/supabase/user";
 import type {
   ModelFamily,
@@ -22,7 +22,7 @@ import type {
   Tool,
   ToolChoiceOptions,
 } from "openai/resources/responses/responses";
-import { calculateCost, calculateVectorStorageCost, calculateToolCallCost } from "@/lib/pricing";
+import { calculateCost, calculateGeminiImageCost, calculateVectorStorageCost, calculateToolCallCost, CODE_INTERPRETER_SESSION_COST } from "@/lib/pricing";
 import { getUserPlan } from "@/app/actions/plan-actions";
 import { getMonthlySpending } from "@/app/actions/usage-actions";
 import { hasExceededLimit, getPlanLimit } from "@/lib/usage-limits";
@@ -43,21 +43,665 @@ import { toFile } from "openai/uploads";
 import { runDecisionRouter } from "@/lib/router/decision-router";
 import { runWriterRouter } from "@/lib/router/write-router";
 import { estimateTokens } from "@/lib/tokens/estimateTokens";
+import { lookup } from "node:dns/promises";
+import { isIP } from "node:net";
 
 const CONTEXT_LIMIT_TOKENS = 350_000;
 const MEMORY_WRITES_ENABLED = true;
+const ASSISTANT_IMAGE_BUCKET = "assistant-images";
+const MAX_ASSISTANT_IMAGES_PER_MESSAGE = 20;
+const MAX_ASSISTANT_IMAGE_BYTES = 10 * 1024 * 1024; // 10MB
+const ASSISTANT_IMAGE_FETCH_TIMEOUT_MS = 8_000;
+const ASSISTANT_IMAGE_MAX_REDIRECTS = 3;
+const ALLOWED_ASSISTANT_IMAGE_MIME_TYPES = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "image/gif",
+]);
+
+function isPrivateIpAddress(ip: string): boolean {
+  // IPv4
+  if (isIP(ip) === 4) {
+    const parts = ip.split(".").map((p) => Number(p));
+    if (parts.length !== 4 || parts.some((n) => !Number.isFinite(n))) return true;
+    const [a, b] = parts;
+    if (a === 10) return true;
+    if (a === 127) return true;
+    if (a === 0) return true;
+    if (a === 169 && b === 254) return true;
+    if (a === 172 && b >= 16 && b <= 31) return true;
+    if (a === 192 && b === 168) return true;
+    return false;
+  }
+  // IPv6 (basic local/link-local checks)
+  const lower = ip.toLowerCase();
+  if (lower === "::1") return true;
+  if (lower.startsWith("fc") || lower.startsWith("fd")) return true; // unique local
+  if (lower.startsWith("fe80:")) return true; // link-local
+  return false;
+}
+
+async function assertPublicHostname(url: URL): Promise<void> {
+  const hostname = url.hostname.toLowerCase();
+  if (!hostname) throw new Error("Invalid hostname");
+  if (hostname === "localhost" || hostname.endsWith(".local")) {
+    throw new Error("Blocked hostname");
+  }
+  const ipLiteral = isIP(hostname);
+  if (ipLiteral) {
+    if (isPrivateIpAddress(hostname)) throw new Error("Blocked private IP");
+    return;
+  }
+  const records = await lookup(hostname, { all: true });
+  for (const r of records) {
+    if (r?.address && isPrivateIpAddress(r.address)) {
+      throw new Error("Blocked private DNS resolution");
+    }
+  }
+}
+
+async function fetchWithRedirectChecks(url: URL): Promise<Response> {
+  let current = url;
+  for (let i = 0; i <= ASSISTANT_IMAGE_MAX_REDIRECTS; i++) {
+    await assertPublicHostname(current);
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), ASSISTANT_IMAGE_FETCH_TIMEOUT_MS);
+    let res: Response;
+    try {
+      res = await fetch(current.toString(), {
+        redirect: "manual",
+        signal: controller.signal,
+        headers: {
+          // Encourage direct image bytes (some CDNs vary responses by UA).
+          "User-Agent": "llm-client/assistant-image-fetch",
+          Accept: "image/*",
+        },
+      });
+    } finally {
+      clearTimeout(timeout);
+    }
+
+    // Follow redirects manually so we can re-check the destination host/IP each hop.
+    if (res.status >= 300 && res.status < 400) {
+      const loc = res.headers.get("location");
+      if (!loc) throw new Error("Redirect without location");
+      current = new URL(loc, current);
+      continue;
+    }
+    return res;
+  }
+  throw new Error("Too many redirects");
+}
+
+async function fetchImageCandidate(url: URL): Promise<Response> {
+  // Retry transient errors a couple times to reduce flaky sources (e.g., Unsplash random endpoints).
+  const maxAttempts = 3;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const res = await fetchWithRedirectChecks(url);
+    if (res.ok) return res;
+    if (![429, 500, 502, 503, 504].includes(res.status) || attempt === maxAttempts) {
+      return res;
+    }
+    // Small backoff with jitter.
+    const delayMs = 150 * attempt + Math.floor(Math.random() * 150);
+    await new Promise((r) => setTimeout(r, delayMs));
+  }
+  // Unreachable, but keeps TS happy.
+  return fetchWithRedirectChecks(url);
+}
+
+function extractOgImageUrl(html: string, baseUrl: URL): string | null {
+  if (!html) return null;
+  const candidates: Array<{ key: string; value: string }> = [];
+  const metaTagRegex = /<meta\s+[^>]*>/gi;
+  const attrRegex = /([a-zA-Z_:.-]+)\s*=\s*(["'])(.*?)\2/g;
+
+  let tagMatch: RegExpExecArray | null;
+  while ((tagMatch = metaTagRegex.exec(html)) !== null) {
+    const tag = tagMatch[0] ?? "";
+    let property: string | null = null;
+    let name: string | null = null;
+    let content: string | null = null;
+
+    let attrMatch: RegExpExecArray | null;
+    while ((attrMatch = attrRegex.exec(tag)) !== null) {
+      const k = (attrMatch[1] ?? "").toLowerCase();
+      const v = (attrMatch[3] ?? "").trim();
+      if (!v) continue;
+      if (k === "property") property = v.toLowerCase();
+      if (k === "name") name = v.toLowerCase();
+      if (k === "content") content = v;
+    }
+    if (!content) continue;
+    if (property) candidates.push({ key: property, value: content });
+    if (name) candidates.push({ key: name, value: content });
+  }
+
+  const pick =
+    candidates.find((c) => c.key === "og:image:secure_url") ??
+    candidates.find((c) => c.key === "og:image") ??
+    candidates.find((c) => c.key === "twitter:image") ??
+    candidates.find((c) => c.key === "twitter:image:src");
+
+  if (!pick?.value) return null;
+  try {
+    const url = new URL(pick.value, baseUrl);
+    if (!/^https?:$/i.test(url.protocol)) return null;
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
+function extensionFromContentType(contentType: string): string {
+  const normalized = contentType.split(";")[0]?.trim().toLowerCase();
+  switch (normalized) {
+    case "image/jpeg":
+      return "jpg";
+    case "image/png":
+      return "png";
+    case "image/webp":
+      return "webp";
+    case "image/gif":
+      return "gif";
+    default:
+      return "bin";
+  }
+}
+
+type AssistantInlineImage = { url: string; sourceUrl: string; alt?: string };
+
+function extractInlineImagesFromContent(content: string): Array<{ sourceUrl: string; alt?: string }> {
+  const out: Array<{ sourceUrl: string; alt?: string }> = [];
+  if (!content) return out;
+
+  // Preserve appearance order by scanning with a combined regex.
+  const combined =
+    /!\[([^\]]*)\]\(\s*([^\s)]+)(?:\s+\"[^\"]*\")?\s*\)|<img\b[^>]*\bsrc=(["'])(.*?)\3[^>]*>/gim;
+  let m: RegExpExecArray | null;
+  while ((m = combined.exec(content)) !== null) {
+    const markdownAlt = typeof m[1] === "string" ? m[1].trim() : "";
+    const markdownUrl = typeof m[2] === "string" ? m[2].trim() : "";
+    const htmlUrl = typeof m[4] === "string" ? m[4].trim() : "";
+    const tag = m[0] ?? "";
+
+    const sourceUrl = markdownUrl || htmlUrl;
+    if (!sourceUrl) continue;
+    let alt: string | undefined = markdownAlt || undefined;
+    if (!alt && tag.toLowerCase().startsWith("<img")) {
+      const altMatch = tag.match(/\balt=(["'])(.*?)\1/i);
+      const htmlAlt = altMatch?.[2]?.trim();
+      if (htmlAlt) alt = htmlAlt;
+    }
+    out.push({ sourceUrl, alt });
+  }
+
+  return out;
+}
+
+async function ensureAssistantImageBucket(admin: any): Promise<void> {
+  const { data: list, error } = await admin.storage.listBuckets();
+  if (error) throw new Error(error.message);
+  const existing = (list ?? []).find((b: any) => b?.name === ASSISTANT_IMAGE_BUCKET);
+  if (!existing) {
+    const { error: createError } = await admin.storage.createBucket(ASSISTANT_IMAGE_BUCKET, {
+      public: true,
+      fileSizeLimit: MAX_ASSISTANT_IMAGE_BYTES,
+    });
+    if (createError) throw new Error(createError.message);
+  } else if (!existing.public) {
+    // Ensure the bucket is actually public so images render in chat history.
+    try {
+      const { error: updateError } = await admin.storage.updateBucket(ASSISTANT_IMAGE_BUCKET, {
+        public: true,
+        fileSizeLimit: MAX_ASSISTANT_IMAGE_BYTES,
+      });
+      if (updateError) throw new Error(updateError.message);
+    } catch (err) {
+      // If updateBucket isn't supported in this supabase-js version, surface a clearer error.
+      throw new Error(
+        `assistant-images bucket exists but is not public; make it public in Supabase Storage UI. (${String(
+          (err as any)?.message || err
+        )})`
+      );
+    }
+  }
+}
+
+async function uploadAssistantImageFromBase64(params: {
+  userId: string;
+  conversationId: string;
+  mimeType: string;
+  base64Data: string;
+}): Promise<string | null> {
+  const { userId, conversationId, mimeType, base64Data } = params;
+  const normalizedMime = (mimeType || "").split(";")[0].trim().toLowerCase();
+  if (!ALLOWED_ASSISTANT_IMAGE_MIME_TYPES.has(normalizedMime)) return null;
+
+  let bytes: Buffer;
+  try {
+    bytes = Buffer.from(base64Data, "base64");
+  } catch {
+    return null;
+  }
+  if (bytes.byteLength <= 0 || bytes.byteLength > MAX_ASSISTANT_IMAGE_BYTES) return null;
+
+  try {
+    const admin = await supabaseServerAdmin();
+    await ensureAssistantImageBucket(admin);
+    const ext = extensionFromContentType(normalizedMime);
+    const path = `${userId}/${conversationId}/${crypto.randomUUID()}.${ext}`;
+    const { error: uploadErr } = await admin.storage
+      .from(ASSISTANT_IMAGE_BUCKET)
+      .upload(path, bytes, { contentType: normalizedMime, upsert: false });
+    if (uploadErr) return null;
+    const { data } = admin.storage.from(ASSISTANT_IMAGE_BUCKET).getPublicUrl(path);
+    return typeof data?.publicUrl === "string" && data.publicUrl.length ? data.publicUrl : null;
+  } catch {
+    return null;
+  }
+}
+
+function resolveGeminiImageModel(choice: string | undefined | null): string | null {
+  const normalized = String(choice ?? "").trim().toLowerCase();
+  if (!normalized) return null;
+  if (normalized === "nano-banana") return "gemini-2.5-flash-image";
+  if (normalized === "nano-banana-pro") return "gemini-3-pro-image-preview";
+  if (normalized === "gemini-2.5-flash-image") return "gemini-2.5-flash-image";
+  if (normalized === "gemini-3-pro-image-preview") return "gemini-3-pro-image-preview";
+  return null;
+}
+
+// Kept for reference/debugging; streaming path is used in production image generation.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+async function callGeminiGenerateContent(params: {
+  apiKey: string;
+  model: string;
+  prompt: string;
+}): Promise<{
+  text: string;
+  images: Array<{ mimeType: string; data: string }>;
+  usage: { inputTokens: number; outputTokens: number; totalTokens: number } | null;
+}> {
+  const { apiKey, model, prompt } = params;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
+    model
+  )}:generateContent?key=${encodeURIComponent(apiKey)}`;
+
+  const body = {
+    contents: [
+      {
+        role: "user",
+        parts: [{ text: prompt }],
+      },
+    ],
+  };
+
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+
+  if (!res.ok) {
+    const errText = await res.text().catch(() => "");
+    const trimmed = errText.length > 400 ? `${errText.slice(0, 400)}…` : errText;
+    throw new Error(`Gemini API error (${res.status}): ${trimmed || res.statusText}`);
+  }
+
+  const payload = (await res.json()) as any;
+  const parts: any[] = payload?.candidates?.[0]?.content?.parts ?? [];
+  const images: Array<{ mimeType: string; data: string }> = [];
+  const texts: string[] = [];
+
+  for (const part of parts) {
+    const text = typeof part?.text === "string" ? part.text : null;
+    if (text) texts.push(text);
+
+    const inline = part?.inlineData ?? part?.inline_data ?? null;
+    const mimeType =
+      typeof inline?.mimeType === "string"
+        ? inline.mimeType
+        : typeof inline?.mime_type === "string"
+          ? inline.mime_type
+          : null;
+    const data = typeof inline?.data === "string" ? inline.data : null;
+    if (mimeType && data) {
+      images.push({ mimeType, data });
+    }
+  }
+
+  const usageMeta = payload?.usageMetadata ?? payload?.usage_metadata ?? null;
+  const inputTokens =
+    Number(usageMeta?.promptTokenCount ?? usageMeta?.prompt_token_count ?? 0) || 0;
+  const outputTokens =
+    Number(usageMeta?.candidatesTokenCount ?? usageMeta?.candidates_token_count ?? 0) || 0;
+  const totalTokens =
+    Number(usageMeta?.totalTokenCount ?? usageMeta?.total_token_count ?? 0) ||
+    inputTokens + outputTokens;
+
+  return {
+    text: texts.filter(Boolean).join("\n\n").trim(),
+    images,
+    usage: usageMeta ? { inputTokens, outputTokens, totalTokens } : null,
+  };
+}
+
+async function callGeminiStreamGenerateContent(params: {
+  apiKey: string;
+  model: string;
+  prompt: string;
+  onTextDelta: (delta: string) => void | Promise<void>;
+}): Promise<{
+  fullText: string;
+  image: { mimeType: string; data: string } | null;
+  usage: { inputTokens: number; outputTokens: number; totalTokens: number } | null;
+}> {
+  const { apiKey, model, prompt, onTextDelta } = params;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
+    model
+  )}:streamGenerateContent?key=${encodeURIComponent(apiKey)}`;
+
+  const body = {
+    contents: [
+      {
+        role: "user",
+        parts: [{ text: prompt }],
+      },
+    ],
+  };
+
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "text/event-stream",
+    },
+    body: JSON.stringify(body),
+  });
+
+  if (!res.ok) {
+    const errText = await res.text().catch(() => "");
+    const trimmed = errText.length > 400 ? `${errText.slice(0, 400)}…` : errText;
+    throw new Error(`Gemini API error (${res.status}): ${trimmed || res.statusText}`);
+  }
+
+  const reader = res.body?.getReader();
+  if (!reader) {
+    throw new Error("Gemini streaming response had no body");
+  }
+
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let fullText = "";
+  let image: { mimeType: string; data: string } | null = null;
+  let usage: { inputTokens: number; outputTokens: number; totalTokens: number } | null = null;
+
+  const extractFromEvent = async (payload: any) => {
+    const parts: any[] = payload?.candidates?.[0]?.content?.parts ?? [];
+
+    // Text: sometimes streamed as cumulative, sometimes as deltas; normalize to deltas.
+    const chunkText = parts
+      .map((p) => (typeof p?.text === "string" ? p.text : ""))
+      .filter(Boolean)
+      .join("");
+    if (chunkText) {
+      let delta = chunkText;
+      if (fullText && chunkText.startsWith(fullText)) {
+        delta = chunkText.slice(fullText.length);
+      } else if (fullText && fullText.startsWith(chunkText)) {
+        delta = "";
+      }
+      if (delta) {
+        fullText += delta;
+        await onTextDelta(delta);
+      } else if (!fullText) {
+        // If the first chunk is cumulative, capture it.
+        fullText = chunkText;
+        await onTextDelta(chunkText);
+      }
+    }
+
+    // Image: usually arrives near the end
+    if (!image) {
+      for (const part of parts) {
+        const inline = part?.inlineData ?? part?.inline_data ?? null;
+        const mimeType =
+          typeof inline?.mimeType === "string"
+            ? inline.mimeType
+            : typeof inline?.mime_type === "string"
+              ? inline.mime_type
+              : null;
+        const data = typeof inline?.data === "string" ? inline.data : null;
+        if (mimeType && data) {
+          image = { mimeType, data };
+          break;
+        }
+      }
+    }
+
+    // Usage metadata may be included in later events
+    const usageMeta = payload?.usageMetadata ?? payload?.usage_metadata ?? null;
+    if (usageMeta) {
+      const inputTokens =
+        Number(usageMeta?.promptTokenCount ?? usageMeta?.prompt_token_count ?? 0) || 0;
+      const outputTokens =
+        Number(usageMeta?.candidatesTokenCount ?? usageMeta?.candidates_token_count ?? 0) || 0;
+      const totalTokens =
+        Number(usageMeta?.totalTokenCount ?? usageMeta?.total_token_count ?? 0) ||
+        inputTokens + outputTokens;
+      usage = { inputTokens, outputTokens, totalTokens };
+    }
+  };
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      // SSE events are separated by blank lines.
+      while (true) {
+        const sep = buffer.indexOf("\n\n");
+        if (sep === -1) break;
+        const rawEvent = buffer.slice(0, sep);
+        buffer = buffer.slice(sep + 2);
+
+        const lines = rawEvent
+          .split("\n")
+          .map((l) => l.trimEnd())
+          .filter(Boolean);
+        const dataLines = lines
+          .filter((l) => l.startsWith("data:"))
+          .map((l) => l.slice(5).trimStart());
+        if (!dataLines.length) continue;
+
+        const dataStr = dataLines.join("\n").trim();
+        if (!dataStr || dataStr === "[DONE]") continue;
+
+        try {
+          const payload = JSON.parse(dataStr);
+          await extractFromEvent(payload);
+        } catch {
+          // ignore malformed chunks
+        }
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  return { fullText: fullText.trim(), image, usage };
+}
+
+async function rehostAssistantInlineImages(params: {
+  userId: string;
+  conversationId: string;
+  content: string;
+}): Promise<{
+  content: string;
+  images: AssistantInlineImage[];
+  totalFound: number;
+  totalKept: number;
+}> {
+  const found = extractInlineImagesFromContent(params.content);
+  if (!found.length) {
+    return { content: params.content, images: [], totalFound: 0, totalKept: 0 };
+  }
+
+  const totalFound = found.length;
+  const kept = found.slice(0, MAX_ASSISTANT_IMAGES_PER_MESSAGE);
+  const uniqueUrls: string[] = [];
+  const seen = new Set<string>();
+  for (const img of kept) {
+    if (!img.sourceUrl) continue;
+    if (seen.has(img.sourceUrl)) continue;
+    seen.add(img.sourceUrl);
+    uniqueUrls.push(img.sourceUrl);
+  }
+
+  let admin: any = null;
+  try {
+    admin = await supabaseServerAdmin();
+    await ensureAssistantImageBucket(admin);
+  } catch (err) {
+    admin = null;
+  }
+
+  const urlToHosted = new Map<string, string>();
+  const concurrency = 4;
+  let cursor = 0;
+
+  const worker = async () => {
+    while (cursor < uniqueUrls.length) {
+      const idx = cursor++;
+      const source = uniqueUrls[idx];
+      try {
+        const url = new URL(source);
+        if (!/^https?:$/i.test(url.protocol)) continue;
+        const res = await fetchImageCandidate(url);
+        if (!res.ok) continue;
+
+        const contentType = (res.headers.get("content-type") || "").split(";")[0].trim().toLowerCase();
+        let directImageUrl: string | null = null;
+        let directImageType: string | null = null;
+        let directImageBytes: ArrayBuffer | null = null;
+
+        if (ALLOWED_ASSISTANT_IMAGE_MIME_TYPES.has(contentType)) {
+          directImageUrl = res.url || url.toString();
+          directImageType = contentType;
+          directImageBytes = await res.arrayBuffer();
+        } else if (contentType.startsWith("text/html")) {
+          // Try to extract an OG image and fetch that instead.
+          const buf = await res.arrayBuffer();
+          const slice = buf.byteLength > 512_000 ? buf.slice(0, 512_000) : buf;
+          const html = new TextDecoder("utf-8").decode(slice);
+          const og = extractOgImageUrl(html, url);
+          if (og) {
+            const ogUrl = new URL(og);
+            const ogRes = await fetchImageCandidate(ogUrl);
+            if (ogRes.ok) {
+              const ogType = (ogRes.headers.get("content-type") || "")
+                .split(";")[0]
+                .trim()
+                .toLowerCase();
+              if (ALLOWED_ASSISTANT_IMAGE_MIME_TYPES.has(ogType)) {
+                directImageUrl = ogRes.url || ogUrl.toString();
+                directImageType = ogType;
+                directImageBytes = await ogRes.arrayBuffer();
+              }
+            }
+          }
+        }
+
+        if (!directImageUrl || !directImageType || !directImageBytes) continue;
+        if (directImageBytes.byteLength > MAX_ASSISTANT_IMAGE_BYTES) continue;
+
+        // Best-effort: if we can't rehost (no admin), still rewrite to the direct image URL.
+        if (!admin) {
+          urlToHosted.set(source, directImageUrl);
+          continue;
+        }
+
+        const ext = extensionFromContentType(directImageType);
+        const path = `${params.userId}/${params.conversationId}/${crypto.randomUUID()}.${ext}`;
+        const { error: uploadErr } = await admin.storage
+          .from(ASSISTANT_IMAGE_BUCKET)
+          .upload(path, Buffer.from(directImageBytes), { contentType: directImageType, upsert: false });
+        if (uploadErr) {
+          urlToHosted.set(source, directImageUrl);
+          continue;
+        }
+        const { data } = admin.storage.from(ASSISTANT_IMAGE_BUCKET).getPublicUrl(path);
+        if (data?.publicUrl) urlToHosted.set(source, data.publicUrl);
+      } catch {
+        // Ignore individual image failures
+      }
+    }
+  };
+
+  await Promise.all(Array.from({ length: Math.min(concurrency, uniqueUrls.length) }, worker));
+
+  let seenIndex = 0;
+  const combined =
+    /!\[([^\]]*)\]\(\s*([^\s)]+)(?:\s+\"[^\"]*\")?\s*\)|<img\b[^>]*\bsrc=(["'])(.*?)\3[^>]*>/gim;
+  let nextContent = params.content.replace(combined, (match, mdAlt, mdUrl, _q, htmlUrl) => {
+    const currentIndex = seenIndex++;
+    if (currentIndex >= MAX_ASSISTANT_IMAGES_PER_MESSAGE) return "";
+    const originalUrl = String(mdUrl ?? htmlUrl ?? "").trim();
+    if (!originalUrl) return match;
+    const hosted = urlToHosted.get(originalUrl);
+    if (!hosted) return match;
+    if (typeof mdUrl === "string" && mdUrl) {
+      return `![${String(mdAlt ?? "")}](${hosted})`;
+    }
+    // HTML <img>
+    return match.replace(originalUrl, hosted);
+  });
+  if (totalFound > MAX_ASSISTANT_IMAGES_PER_MESSAGE) {
+    nextContent += `\n\n_(Showing ${MAX_ASSISTANT_IMAGES_PER_MESSAGE} of ${totalFound} images.)_`;
+  }
+
+  const images: AssistantInlineImage[] = kept
+    .map((img) => {
+      const hosted = urlToHosted.get(img.sourceUrl);
+      if (!hosted) return null;
+      return { url: hosted, sourceUrl: img.sourceUrl, alt: img.alt };
+    })
+    .filter(Boolean) as AssistantInlineImage[];
+
+  return {
+    content: nextContent,
+    images,
+    totalFound,
+    totalKept: kept.length,
+  };
+}
 
 async function buildSimpleContextMessages(
   supabase: any,
   conversationId: string,
+  userId: string,
+  includeExternalChats: boolean,
+  externalChatIds: string[] | undefined,
   maxTokens: number
 ): Promise<{
-  messages: Array<{ role: "user" | "assistant"; content: string; type: "message" }>;
+  messages: Array<{ role: "system" | "user" | "assistant"; content: string; type: "message" }>;
   source: "simple";
   includedTopicIds: string[];
   summaryCount: number;
   artifactCount: number;
-  debug?: { keptMessages: number; totalMessages: number; tokensUsed: number; budget: number };
+  debug?: {
+    keptMessages: number;
+    totalMessages: number;
+    tokensUsed: number;
+    budget: number;
+    externalChatsIncluded: number;
+    externalChatsConsidered: number;
+    externalTokensUsed: number;
+    externalChatIdsIncluded?: string[];
+  };
 }> {
   const { data } = await supabase
     .from("messages")
@@ -79,14 +723,158 @@ async function buildSimpleContextMessages(
     selected.push(rows[i]);
   }
   selected.reverse();
-  const messages = selected.map((msg) => {
+  const messages: Array<{
+    role: "system" | "user" | "assistant";
+    content: string;
+    type: "message";
+  }> = selected.map((msg) => {
     const role: "user" | "assistant" = msg.role === "assistant" ? "assistant" : "user";
     return {
       role,
       content: msg.content ?? "",
-      type: "message" as const,
+      type: "message",
     };
   });
+
+  let externalChatsIncluded = 0;
+  let externalChatsConsidered = 0;
+  let externalTokensUsed = 0;
+  const externalChatIdsIncluded: string[] = [];
+
+  if (includeExternalChats) {
+    const hasExplicitSelection = Array.isArray(externalChatIds);
+    const normalizedExternalIds = hasExplicitSelection
+      ? externalChatIds.filter((id) => typeof id === "string" && id && id !== conversationId)
+      : [];
+
+    // Explicit selection of zero chats means "include none".
+    if (hasExplicitSelection && normalizedExternalIds.length === 0) {
+      return {
+        messages,
+        source: "simple",
+        includedTopicIds: [],
+        summaryCount: 0,
+        artifactCount: 0,
+        debug: {
+          keptMessages: selected.length,
+          totalMessages: rows.length,
+          tokensUsed,
+          budget: maxTokens,
+          externalChatsIncluded: 0,
+          externalChatsConsidered: 0,
+          externalTokensUsed: 0,
+        },
+      };
+    }
+
+    const cutoffIso = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+    const remainingBudget = Math.max(0, maxTokens - tokensUsed);
+
+    // Only attempt external context if there's meaningful room left.
+    if (remainingBudget > 500) {
+      const recentOtherMessageRowsQuery = supabase
+        .from("messages")
+        .select("conversation_id, created_at")
+        .gte("created_at", cutoffIso)
+        .order("created_at", { ascending: false })
+        .limit(4000);
+
+      const { data: recentOtherMessageRows } = hasExplicitSelection
+        ? await recentOtherMessageRowsQuery.in(
+            "conversation_id",
+            // Keep this capped so the query stays fast even if the client sends a large list.
+            normalizedExternalIds.slice(0, 200)
+          )
+        : await recentOtherMessageRowsQuery.neq("conversation_id", conversationId);
+
+      const rows = Array.isArray(recentOtherMessageRows) ? recentOtherMessageRows : [];
+      const mostRecentByConversation = new Map<string, string>();
+      for (const row of rows) {
+        const cid = (row as any).conversation_id as string | undefined;
+        const createdAt = (row as any).created_at as string | undefined;
+        if (!cid || !createdAt) continue;
+        if (cid === conversationId) continue;
+        if (!mostRecentByConversation.has(cid)) {
+          mostRecentByConversation.set(cid, createdAt);
+        }
+      }
+
+      const sortedConversationIds = Array.from(mostRecentByConversation.entries())
+        .sort((a, b) => new Date(b[1]).getTime() - new Date(a[1]).getTime())
+        .map(([cid]) => cid);
+
+      externalChatsConsidered = sortedConversationIds.length;
+
+      const maxChatsToConsider = 20;
+      const candidateIds = sortedConversationIds.slice(0, maxChatsToConsider);
+
+      const { data: convoRows } = await supabase
+        .from("conversations")
+        .select("id, title")
+        .eq("user_id", userId)
+        .in("id", candidateIds);
+
+      const titleById = new Map<string, string>();
+      if (Array.isArray(convoRows)) {
+        for (const row of convoRows as any[]) {
+          if (row?.id) {
+            titleById.set(row.id as string, (row.title as string) || "Untitled chat");
+          }
+        }
+      }
+
+      const blocks: string[] = [];
+      for (const cid of candidateIds) {
+        const lastUsedIso = mostRecentByConversation.get(cid);
+        if (!lastUsedIso) continue;
+        const title = titleById.get(cid) ?? "Untitled chat";
+
+        const { data: chatMessages } = await supabase
+          .from("messages")
+          .select("role, content, created_at")
+          .eq("conversation_id", cid)
+          .order("created_at", { ascending: true });
+
+        const chatRows = Array.isArray(chatMessages) ? (chatMessages as any[]) : [];
+        if (!chatRows.length) continue;
+
+        let block = `\n=== Other chat (read-only) ===\nTitle: ${title}\nChat ID: ${cid}\nLast active: ${new Date(lastUsedIso).toISOString()}\n`;
+        for (const m of chatRows) {
+          const role = m?.role === "assistant" ? "Assistant" : "User";
+          const content = (m?.content as string) ?? "";
+          if (!content.trim()) continue;
+          block += `\n${role}: ${content}`;
+        }
+        block += "\n\n=== End other chat ===\n";
+
+        const tok = Math.max(0, estimateTokens(block));
+        if (externalTokensUsed + tok > remainingBudget) {
+          // Oldest chats are at the end; stop once we can't fit the next one.
+          break;
+        }
+        externalTokensUsed += tok;
+        blocks.push(block);
+        externalChatsIncluded += 1;
+        externalChatIdsIncluded.push(cid);
+      }
+
+      if (blocks.length) {
+        const externalIntro =
+          `The following are messages from OTHER chats by the same user. ` +
+          `They are provided as optional background context to help you answer. ` +
+          `If the user asks about details that appear here (e.g., their name, preferences, prior decisions), ` +
+          `you MAY answer using this information; when helpful, clarify that it came from another chat and ask for confirmation.\n`;
+
+        messages.unshift({
+          role: "system",
+          content: externalIntro + blocks.join("\n"),
+          type: "message",
+        });
+
+        tokensUsed += externalTokensUsed;
+      }
+    }
+  }
 
   return {
     messages,
@@ -99,6 +887,10 @@ async function buildSimpleContextMessages(
       totalMessages: rows.length,
       tokensUsed,
       budget: maxTokens,
+      externalChatsIncluded,
+      externalChatsConsidered,
+      externalTokensUsed,
+      externalChatIdsIncluded,
     },
   };
 }
@@ -221,14 +1013,18 @@ interface ChatRequestBody {
   conversationId: string;
   projectId?: string;
   message: string;
+  generationMode?: "chat" | "image";
+  imageModel?: string;
   modelFamilyOverride?: ModelFamily;
   speedModeOverride?: SpeedMode;
   reasoningEffortOverride?: ReasoningEffort;
   forceWebSearch?: boolean;
   skipUserInsert?: boolean;
   simpleContextMode?: boolean;
+  simpleContextExternalChatIds?: string[];
+  advancedContextTopicIds?: string[];
   attachments?: Array<{ name?: string; mime?: string; dataUrl?: string; url?: string }>;
-  location?: { lat: number; lng: number; city: string };
+  location?: { lat: number; lng: number; city: string; timezone?: string };
   timezone?: string;
   clientNow?: number;
 }
@@ -241,7 +1037,152 @@ type SearchStatusEvent =
   | { type: "file-search-complete"; query: string }
   | { type: "file-reading-start" }
   | { type: "file-reading-complete" }
-  | { type: "file-reading-error"; message?: string };
+  | { type: "file-reading-error"; message?: string }
+  | { type: "code-interpreter-start" }
+  | { type: "code-interpreter-complete" }
+  | { type: "code-interpreter-error"; message?: string };
+
+type CodeInterpreterFileRef = {
+  containerId: string;
+  fileId: string;
+  filename: string;
+};
+
+function extractCodeInterpreterFilesFromOutput(output: any): CodeInterpreterFileRef[] {
+  if (!Array.isArray(output)) return [];
+  const results: CodeInterpreterFileRef[] = [];
+  const seen = new Set<string>();
+
+  const visitAnnotations = (annotations: any) => {
+    if (!Array.isArray(annotations)) return;
+    for (const ann of annotations) {
+      if (!ann || ann.type !== "container_file_citation") continue;
+      const containerId = typeof ann.container_id === "string" ? ann.container_id : null;
+      const fileId = typeof ann.file_id === "string" ? ann.file_id : null;
+      const filename = typeof ann.filename === "string" ? ann.filename : null;
+      if (!containerId || !fileId || !filename) continue;
+      const key = `${containerId}:${fileId}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      results.push({ containerId, fileId, filename });
+    }
+  };
+
+  for (const item of output) {
+    if (!item) continue;
+    // Most commonly: { type: "message", content: [{ annotations: [...] }, ...] }
+    if (Array.isArray(item.content)) {
+      for (const part of item.content) {
+        visitAnnotations(part?.annotations);
+      }
+    }
+    // Sometimes nested annotations
+    visitAnnotations((item as any)?.annotations);
+  }
+
+  return results;
+}
+
+function escapeRegExp(input: string): string {
+  return input.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function rewriteCodeInterpreterDownloadLinks(options: {
+  content: string;
+  messageId: string;
+  files: CodeInterpreterFileRef[];
+}): string {
+  const { content, messageId, files } = options;
+  if (!content || !messageId || !Array.isArray(files) || files.length === 0) return content;
+
+  let updated = content;
+
+  for (const file of files) {
+    if (!file?.filename || !file?.containerId || !file?.fileId) continue;
+    const downloadUrl = `/api/code-interpreter/download?messageId=${encodeURIComponent(
+      messageId
+    )}&containerId=${encodeURIComponent(file.containerId)}&fileId=${encodeURIComponent(file.fileId)}`;
+
+    const raw = file.filename;
+    const encoded = encodeURIComponent(raw);
+    const candidates = new Set<string>([
+      `sandbox:/mnt/data/${raw}`,
+      `sandbox:///mnt/data/${raw}`,
+      `/mnt/data/${raw}`,
+      `mnt/data/${raw}`,
+      `./mnt/data/${raw}`,
+      `sandbox:/mnt/data/${encoded}`,
+      `sandbox:///mnt/data/${encoded}`,
+      `/mnt/data/${encoded}`,
+      `mnt/data/${encoded}`,
+      `./mnt/data/${encoded}`,
+    ]);
+
+    for (const candidate of candidates) {
+      if (updated.includes(candidate)) {
+        updated = updated.split(candidate).join(downloadUrl);
+      }
+    }
+
+    // Also catch any scheme variations that still end with the filename.
+    const filenamePattern = escapeRegExp(raw);
+    const schemeRegex = new RegExp(
+      String.raw`(?:sandbox:\/+)?(?:\.\/*)?\/?mnt\/data\/${filenamePattern}`,
+      "gi"
+    );
+    updated = updated.replace(schemeRegex, downloadUrl);
+  }
+
+  return updated;
+}
+
+function extractContainerIdFromCiEvent(event: any): string | null {
+  if (!event || typeof event !== "object") return null;
+  const candidates = [
+    (event as any).container_id,
+    (event as any).containerId,
+    (event as any)?.item?.container_id,
+    (event as any)?.item?.containerId,
+    (event as any)?.code_interpreter_call?.container_id,
+    (event as any)?.code_interpreter_call?.containerId,
+  ];
+  for (const candidate of candidates) {
+    if (typeof candidate === "string" && candidate.trim()) return candidate.trim();
+  }
+  return null;
+}
+
+
+function getApproximateLocationFromHeaders(
+  request: NextRequest
+): { location: { lat: number; lng: number; city: string; timezone?: string } | null; timezone: string | null } {
+  const headers = request.headers;
+  const cityHeader = headers.get("x-vercel-ip-city") || headers.get("cf-ipcity") || "";
+  const regionHeader = headers.get("x-vercel-ip-country-region") || headers.get("cf-region") || "";
+  const countryHeader = headers.get("x-vercel-ip-country") || headers.get("cf-ipcountry") || "";
+  const timezoneHeader = headers.get("x-vercel-ip-timezone") || headers.get("cf-timezone") || null;
+  const latStr = headers.get("x-vercel-ip-latitude") || headers.get("cf-iplatitude");
+  const lngStr = headers.get("x-vercel-ip-longitude") || headers.get("cf-iplongitude");
+
+  const lat = latStr ? parseFloat(latStr) : NaN;
+  const lng = lngStr ? parseFloat(lngStr) : NaN;
+  const hasCoords = Number.isFinite(lat) && Number.isFinite(lng);
+
+  const labelParts = [cityHeader, regionHeader, countryHeader].filter(Boolean);
+  const cityLabel = labelParts.join(", ") || (hasCoords ? `${lat.toFixed(2)}, ${lng.toFixed(2)}` : "");
+
+  const location =
+    hasCoords && cityLabel
+      ? {
+          lat,
+          lng,
+          city: cityLabel,
+          timezone: timezoneHeader || undefined,
+        }
+      : null;
+
+  return { location, timezone: timezoneHeader };
+}
 
 function extractKeywords(text: string, topicLabel?: string | null): string[] {
   const STOP = new Set([
@@ -336,33 +1277,32 @@ function buildAutoTopicSummary(message: string): string | null {
 
 const BASE_SYSTEM_PROMPT =
   "**CRITICAL RESPONSE RULE: You MUST ALWAYS provide a text response to the user. NEVER end a turn with only tool calls. Even if you call a function, you must follow it with explanatory text.**\\n\\n" +
-  "You are a web-connected assistant with access to multiple tools for enhanced capabilities:\\n" +
-  "- `web_search`: Live internet search for current events, weather, news, prices, etc.\\n" +
-  "- `file_search`: Semantic search through uploaded documents\\n\\n" +
+  "# Identity\\n" +
+  "You are a helpful, web-connected assistant. You follow the user's request and the developer instructions in this prompt.\\n\\n" +
+  "# Tools\\n" +
+  "You can use these tools when helpful:\\n" +
+  "- `web_search`: live internet search for current facts (news, prices, schedules, weather, releases).\\n" +
+  "- `file_search`: semantic search through uploaded documents (use it to read and quote attachments).\\n\\n" +
   "**Memory Behavior:**\\n" +
-  "- User memories are preloaded in the 'Saved Memories' section below\\n" +
-  "- When asked 'what do you know about me', respond based on the memories listed in your instructions\\n" +
-  "- Do NOT say you need to search or list memories - just use what's already provided\\n" +
-  "- Memories are automatically saved based on what users tell you - no manual saving needed\\n\\n" +
+  "- Saved memories may be provided below in a 'Saved Memories' section. Use them to personalize answers when relevant.\\n" +
+  "- If asked what you know about the user, answer based only on the memories listed in your instructions.\\n" +
+  "- Do not mention that you are using memories or that you are reading an instructions section; just answer.\\n" +
+  "- Do not invent memories.\\n\\n" +
   "**Web Search Rules:**\\n" +
-  "- Use internal knowledge for timeless concepts, math, or historical context.\\n" +
-  "- For questions about current events, market conditions, weather, schedules, releases, or other fast-changing facts, prefer calling `web_search` to gather fresh data.\\n" +
-  "- CRITICAL CITATION RULES: When `web_search` returns results, you MUST cite sources properly:\\n" +
-  "  * ALWAYS use inline markdown links: [domain.com](https://full-url.com)\\n" +
-  "  * NEVER cite without embedding the actual URL in markdown format\\n" +
-  "  * NEVER write bare domains like '(Source: example.com)' without making them clickable links\\n" +
-  "  * Example correct: 'According to [Wikipedia](https://en.wikipedia.org/wiki/Example), ...'\\n" +
-  "  * Example wrong: 'According to Wikipedia, ...' or 'Source: wikipedia.org'\\n" +
-  "  * At the end of your response, include a 'Sources:' section with numbered list of all cited links\\n" +
-  "- Never claim you lack internet access or that your knowledge is outdated in a turn where tool outputs were provided.\\n" +
-  "- If the tool returns little or no information, acknowledge that gap before relying on older knowledge.\\n" +
-  "- Do not send capability or identity questions to `web_search`; answer those directly.\\n\\n" +
+  "- Use internal knowledge for timeless concepts, math, and stable historical context.\\n" +
+  "- For fast-changing or time-sensitive questions, prefer calling `web_search` to get fresh data.\\n" +
+  "- Do not send capability/identity questions to `web_search`; answer those directly.\\n" +
+  "- If `web_search` returns little/no useful information, explicitly say so before relying on older knowledge.\\n" +
+  "- CRITICAL CITATION RULES (when you use `web_search` results):\\n" +
+  "  * Cite with inline markdown links: [source-name](https://full-url.com)\\n" +
+  "  * Never cite without an actual URL, and never write bare domains like '(Source: example.com)'.\\n" +
+  "  * Do not fabricate sources.\\n" +
+  "  * End with a 'Sources:' section listing all cited links as a numbered list.\\n\\n" +
   "**General Rules:**\\n" +
-  "- Keep answers clear and grounded, blending background context with any live data you retrieved.\\n" +
-  "- Attachments (uploads or URLs) are provided to you via `file_search`/vector stores and `input_file` for documents, and `input_image` for images. Use `file_search` to read and quote from attached documents; do not ask the user to re-upload.\\n" +
+  "- Be clear, direct, and grounded. Use the provided context; do not hallucinate details.\\n" +
+  "- If you are uncertain, ask a single focused clarifying question (unless the user explicitly asked for options/steps, then provide them).\\n" +
+  "- Attachments (uploads or URLs) are provided via `file_search`/vector stores and `input_file` for documents, and `input_image` for images. Use `file_search` to read and quote from attached documents; do not ask the user to re-upload.\\n" +
   "- If an attachment is an image, it is sent as a vision input; describe it and extract visible text when helpful.\\n" +
-  "- If guidelines feel ambiguous or overly strict, use your best judgment to provide a helpful, age-appropriate answer rather than defaulting to refusal.\\n" +
-  "- Balance safety with usefulness: apply policies with nuance, offer safer alternatives when needed, and avoid unnecessary refusals when you can still help responsibly.\\n" +
   "- IMPORTANT: When a user asks to 'list my prompts' or 'show my messages', only list the TEXT they typed. Do NOT list file contents, document excerpts, or attachment names as if they were prompts. The marker '[Files attached]' indicates files were included but is not part of the prompt.";
 
 function stripMemoryBehaviorBlock(prompt: string): string {
@@ -428,11 +1368,32 @@ function buildSystemPromptWithPersonalization(
   // Add base style instruction
   if (settings.baseStyle) {
     const styleMap: Record<string, string> = {
-      Professional: "Maintain a professional, formal tone in your responses.",
-      Friendly: "Be warm, conversational, and friendly in your responses.",
-      Concise: "Keep your responses brief and to the point, avoiding unnecessary elaboration.",
-      Creative: "Be imaginative, expressive, and engaging in your responses.",
-      Robot: "Respond in a terse, plain, robotic tone; be concise and unadorned.",
+      Professional: `STYLE PRESET: Professional
+- Tone: formal, neutral, businesslike.
+- Language: complete sentences; avoid slang; avoid filler; avoid emojis.
+- Structure: start with the direct answer, then short supporting details. Use headings only if needed.
+- Do not: chatty banter, jokes, excessive enthusiasm, or casual asides.`,
+      Friendly: `STYLE PRESET: Friendly
+- Tone: warm, supportive, personable (but not dramatic).
+- Language: simple and conversational; gentle phrasing; acknowledge the user’s intent briefly.
+- Structure: answer directly, then offer 1 helpful next step or 1 clarifying question if needed.
+- Do not: emojis, overly formal wording, or robotic phrasing.`,
+      Concise: `STYLE PRESET: Concise
+- Output length: keep it short; default to 1–3 sentences.
+- Structure: answer-first. No preamble. No recap. No extra tips unless asked.
+- Formatting: avoid lists unless the user explicitly asks for options or steps.
+- Do not: filler, hedging, long explanations, or multiple follow-up questions.`,
+      Creative: `STYLE PRESET: Creative
+- Tone: imaginative, vivid, and engaging (still accurate).
+- Language: use evocative phrasing, metaphors, and varied sentence rhythm when appropriate.
+- Structure: answer the request, then optionally add 1–2 creative variations or ideas.
+- Do not: dry corporate tone, unnecessary disclaimers, or generic “here are options” boilerplate.`,
+      Robot: `STYLE PRESET: Robot
+- Tone: emotionless, expressionless, direct, efficient.
+- Language: no niceties; no enthusiasm; no empathy phrasing; no exclamation points; avoid contractions.
+- Structure: answer-only. Prefer 1–2 short sentences. No “quick options” or suggestions unless asked.
+- Formatting: avoid lists unless the user explicitly requests a list.
+- Do not: greetings, sign-offs, jokes, or small talk.`,
     };
     const styleInstruction = styleMap[settings.baseStyle];
     if (styleInstruction) {
@@ -464,6 +1425,28 @@ function buildSystemPromptWithPersonalization(
   }
 
   return prompt;
+}
+
+type TextVerbosity = "low" | "medium" | "high";
+
+function getStyleTuning(baseStyle?: string): {
+  textVerbosity?: TextVerbosity;
+  temperature?: number;
+} {
+  switch (baseStyle) {
+    case "Concise":
+      return { textVerbosity: "low", temperature: 0.2 };
+    case "Robot":
+      return { textVerbosity: "low", temperature: 0.1 };
+    case "Professional":
+      return { textVerbosity: "low", temperature: 0.2 };
+    case "Friendly":
+      return { textVerbosity: "medium", temperature: 0.7 };
+    case "Creative":
+      return { textVerbosity: "high", temperature: 1.1 };
+    default:
+      return { textVerbosity: "medium", temperature: 0.8 };
+  }
 }
 
 const FORCE_WEB_SEARCH_PROMPT =
@@ -850,10 +1833,33 @@ export async function POST(request: NextRequest) {
       conversationId: body.conversationId,
       projectId: body.projectId,
       messagePreview: typeof body.message === 'string' ? body.message.slice(0,80) : null,
+      generationMode: body.generationMode ?? "chat",
+      imageModel: body.imageModel ?? null,
       skipUserInsert: body.skipUserInsert,
       timestamp: Date.now(),
     });
-    const { conversationId, projectId, message, modelFamilyOverride, speedModeOverride, reasoningEffortOverride, skipUserInsert, forceWebSearch = false, attachments, location, timezone, clientNow, simpleContextMode = false } = body;
+	    const {
+	      conversationId,
+	      projectId,
+	      message,
+        generationMode = "chat",
+        imageModel,
+	      modelFamilyOverride,
+	      speedModeOverride,
+	      reasoningEffortOverride,
+	      skipUserInsert,
+	      forceWebSearch = false,
+	      attachments,
+	      location,
+	      timezone,
+	      clientNow,
+	      simpleContextMode = false,
+	      simpleContextExternalChatIds,
+	      advancedContextTopicIds,
+	    } = body;
+    const headerGeo = getApproximateLocationFromHeaders(request);
+    const effectiveLocation = location ?? headerGeo.location ?? null;
+    const effectiveTimezone = timezone ?? location?.timezone ?? headerGeo.timezone ?? null;
 
     const extractReasoningText = (reasoning: any): string => {
       if (!reasoning) return "";
@@ -990,6 +1996,20 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Code Interpreter session tracking is stored in conversation.metadata so we can reuse the same container.
+    let conversationMetadata: any =
+      conversation.metadata && typeof conversation.metadata === "object" ? (conversation.metadata as any) : {};
+    const ciMeta = conversationMetadata.codeInterpreter && typeof conversationMetadata.codeInterpreter === "object"
+      ? conversationMetadata.codeInterpreter
+      : {};
+    const configuredCiContainerId =
+      typeof ciMeta.containerId === "string" && ciMeta.containerId.trim().length > 0
+        ? ciMeta.containerId.trim()
+        : null;
+    const billedCiContainerIds: string[] = Array.isArray(ciMeta.billedContainerIds)
+      ? ciMeta.billedContainerIds.filter((id: any) => typeof id === "string" && id.trim().length > 0).map((id: string) => id.trim())
+      : [];
+
     // Load last few messages to check for OpenAI response ID (for context chaining)
     const { data: recentMessages, error: messagesError } = await supabaseAny
       .from("messages")
@@ -1102,6 +2122,172 @@ export async function POST(request: NextRequest) {
       if (latestFromHistory) {
         userMessageRow = latestFromHistory as MessageRow;
       }
+    }
+
+    if (generationMode === "image") {
+      const apiKey = process.env.GOOGLE_API_KEY;
+      if (!apiKey) {
+        return NextResponse.json(
+          { error: "Missing GOOGLE_API_KEY environment variable" },
+          { status: 500 }
+        );
+      }
+
+      const resolvedModel = resolveGeminiImageModel(imageModel);
+      if (!resolvedModel) {
+        return NextResponse.json(
+          {
+            error: "Invalid image model",
+            details: 'Use imageModel "nano-banana" or "nano-banana-pro".',
+          },
+          { status: 400 }
+        );
+      }
+
+      const encoder = new TextEncoder();
+      const requestStartMs = Date.now();
+
+      const readableStream = new ReadableStream({
+        async start(controller) {
+          const enqueueJson = (obj: Record<string, unknown>) =>
+            controller.enqueue(encoder.encode(JSON.stringify(obj) + "\n"));
+
+          try {
+            const result = await callGeminiStreamGenerateContent({
+              apiKey,
+              model: resolvedModel,
+              prompt: message,
+              onTextDelta: async (delta) => {
+                if (!delta) return;
+                enqueueJson({ token: delta });
+              },
+            });
+
+            const firstImage = result.image;
+            if (!firstImage?.data || !firstImage?.mimeType) {
+              enqueueJson({ error: "Gemini did not return an image for this prompt." });
+              enqueueJson({ done: true });
+              controller.close();
+              return;
+            }
+
+            const hostedUrl =
+              (await uploadAssistantImageFromBase64({
+                userId,
+                conversationId,
+                mimeType: firstImage.mimeType,
+                base64Data: firstImage.data,
+              })) ??
+              `data:${firstImage.mimeType};base64,${firstImage.data}`;
+
+            // Emit only the image Markdown at the end (text already streamed above).
+            enqueueJson({ token: `\n\n![Generated image](${hostedUrl})` });
+
+            const assistantContent = [result.fullText?.trim() ? result.fullText.trim() : null, `![Generated image](${hostedUrl})`]
+              .filter(Boolean)
+              .join("\n\n");
+
+            const thinkingDurationMs = Math.max(Date.now() - requestStartMs, 0);
+            const metadataPayload = buildAssistantMetadataPayload({
+              base: {
+                modelUsed: resolvedModel,
+                reasoningEffort: "none",
+                resolvedFamily: resolvedModel,
+                speedModeUsed: "auto",
+                userRequestedFamily: "auto",
+                userRequestedSpeedMode: "auto",
+                userRequestedReasoningEffort: undefined,
+                routedBy: "code",
+              },
+              content: assistantContent,
+              thinkingDurationMs,
+            });
+            (metadataPayload as any).imageGeneration = {
+              provider: "gemini",
+              model: resolvedModel,
+              choice: imageModel ?? null,
+            };
+            // Image generations should not show "Sources" (the image URL is our own hosted asset).
+            (metadataPayload as any).citations = [];
+            (metadataPayload as any).searchedDomains = [];
+            delete (metadataPayload as any).searchedSiteLabel;
+
+            let assistantMessageRow: MessageRow | null = null;
+            try {
+              const { data: insertedRow, error: assistantError } = await supabaseAny
+                .from("messages")
+                .insert({
+                  user_id: userId,
+                  conversation_id: conversationId,
+                  role: "assistant",
+                  content: assistantContent,
+                  openai_response_id: null,
+                  metadata: metadataPayload,
+                  preamble: null,
+                  topic_id: null,
+                })
+                .select()
+                .single();
+
+              if (assistantError || !insertedRow) {
+                console.error("[gemini-image] Failed to save assistant message:", assistantError);
+              } else {
+                assistantMessageRow = insertedRow as MessageRow;
+              }
+            } catch (persistErr) {
+              console.error("[gemini-image] Failed to persist assistant message:", persistErr);
+            }
+
+            try {
+              const inputTokens = result.usage?.inputTokens ?? 0;
+              const outputTokens = result.usage?.outputTokens ?? 0;
+              const estimatedCost = calculateGeminiImageCost(resolvedModel, inputTokens, 1);
+              await logUsageRecord({
+                userId,
+                conversationId,
+                model: resolvedModel,
+                inputTokens,
+                cachedTokens: 0,
+                outputTokens,
+                estimatedCost,
+              });
+              console.log(
+                `[usage] Logged Gemini image model=${resolvedModel} input=${inputTokens} output=${outputTokens} cost=$${estimatedCost.toFixed(6)}`
+              );
+            } catch (usageErr) {
+              console.error("[usage] Failed to log Gemini image usage:", usageErr);
+            }
+
+            enqueueJson({
+              meta: {
+                assistantMessageRowId: assistantMessageRow?.id ?? `error-${Date.now()}`,
+                userMessageRowId: userMessageRow?.id,
+                model: resolvedModel,
+                reasoningEffort: "none",
+                resolvedFamily: resolvedModel,
+                speedModeUsed: "auto",
+                finalContent: assistantContent,
+                metadata: metadataPayload,
+              },
+            });
+
+            enqueueJson({ done: true });
+          } catch (error) {
+            console.error("[gemini-image] Stream error:", error);
+            enqueueJson({ error: error instanceof Error ? error.message : String(error) });
+            enqueueJson({ done: true });
+          } finally {
+            controller.close();
+          }
+        },
+      });
+
+      return new Response(readableStream, {
+        headers: {
+          "Content-Type": "application/x-ndjson",
+          "Cache-Control": "no-cache",
+        },
+      });
     }
 
     try {
@@ -1271,31 +2457,101 @@ export async function POST(request: NextRequest) {
     };
     const reasoningEffort = decision.effort ?? "none";
 
+    // Load personalization settings (used for both context building and memory selection)
+    const personalizationSettings = await loadPersonalizationSettingsServer(userId);
+    try {
+      console.log("[personalization] loaded", {
+        baseStyle: personalizationSettings?.baseStyle ?? null,
+        referenceSavedMemories: Boolean(personalizationSettings?.referenceSavedMemories),
+        referenceChatHistory: Boolean(personalizationSettings?.referenceChatHistory),
+        allowSavingMemory: Boolean(personalizationSettings?.allowSavingMemory),
+        customInstructionsChars: personalizationSettings?.customInstructions?.length ?? 0,
+      });
+    } catch {
+      // ignore logging errors
+    }
+
     let contextMessages;
     let contextSource: string;
     let includedTopicIds: string[] = [];
     let summaryCount = 0;
     let artifactMessagesCount = 0;
-    if (simpleContextMode) {
-      const simpleContext = await buildSimpleContextMessages(supabaseAny, conversationId, CONTEXT_LIMIT_TOKENS);
+	    if (simpleContextMode) {
+	      const normalizedExternalChatIds = Array.isArray(simpleContextExternalChatIds)
+	        ? simpleContextExternalChatIds.filter((id) => typeof id === "string")
+	        : undefined;
+	      const simpleContext = await buildSimpleContextMessages(
+        supabaseAny,
+        conversationId,
+        userId,
+        Boolean(personalizationSettings?.referenceChatHistory),
+        normalizedExternalChatIds,
+        CONTEXT_LIMIT_TOKENS
+      );
       contextMessages = simpleContext.messages;
       contextSource = simpleContext.source;
       includedTopicIds = simpleContext.includedTopicIds;
       summaryCount = simpleContext.summaryCount;
       artifactMessagesCount = simpleContext.artifactCount;
       console.log(
-        `[context-builder] simple mode - context ${contextMessages.length} msgs (tokens: ${simpleContext.debug?.tokensUsed ?? "n/a"}/${simpleContext.debug?.budget ?? CONTEXT_LIMIT_TOKENS})`
-      );
-    } else {
-      const contextResult = await buildContextForMainModel({
-        supabase: supabaseAny,
-        conversationId,
-        routerDecision: resolvedTopicDecision,
-      });
-      contextMessages = contextResult.messages;
-      contextSource = contextResult.source;
-      includedTopicIds = contextResult.includedTopicIds;
-      summaryCount = contextResult.summaryCount;
+	        `[context-builder] simple mode - context ${contextMessages.length} msgs (tokens: ${simpleContext.debug?.tokensUsed ?? "n/a"}/${simpleContext.debug?.budget ?? CONTEXT_LIMIT_TOKENS}, external chats: ${simpleContext.debug?.externalChatsIncluded ?? 0}/${simpleContext.debug?.externalChatsConsidered ?? 0})`
+	      );
+	    } else {
+	      let manualTopicIds: string[] | null = null;
+	      const requestedManualTopicIds = Array.isArray(advancedContextTopicIds)
+	        ? advancedContextTopicIds.filter((id) => typeof id === "string" && id.trim().length > 0).map((id) => id.trim())
+	        : [];
+
+	      if (requestedManualTopicIds.length) {
+	        try {
+	          const { data: topicsById } = await supabaseAny
+	            .from("conversation_topics")
+	            .select("id, conversation_id")
+	            .in("id", requestedManualTopicIds)
+	            .limit(Math.min(requestedManualTopicIds.length, 200));
+
+	          const topicRowsById = new Map<string, { id: string; conversation_id: string }>();
+	          const convoIds = new Set<string>();
+	          (Array.isArray(topicsById) ? topicsById : []).forEach((row: any) => {
+	            if (!row?.id || !row?.conversation_id) return;
+	            topicRowsById.set(String(row.id), { id: String(row.id), conversation_id: String(row.conversation_id) });
+	            convoIds.add(String(row.conversation_id));
+	          });
+
+	          if (convoIds.size) {
+	            const { data: convRows } = await supabaseAny
+	              .from("conversations")
+	              .select("id")
+	              .eq("user_id", userId)
+	              .in("id", Array.from(convoIds));
+
+	            const allowedConversationIds = new Set<string>(
+	              (Array.isArray(convRows) ? convRows : []).map((c: any) => String(c.id)).filter(Boolean)
+	            );
+
+	            const allowedTopicIds = requestedManualTopicIds.filter((id) => {
+	              const topic = topicRowsById.get(id);
+	              return topic ? allowedConversationIds.has(topic.conversation_id) : false;
+	            });
+
+	            manualTopicIds = allowedTopicIds.length ? allowedTopicIds : null;
+	          }
+	        } catch (err) {
+	          console.warn("[context-builder] Failed to validate manual topics; falling back to auto:", err);
+	          manualTopicIds = null;
+	        }
+	      }
+
+	      const contextResult = await buildContextForMainModel({
+	        supabase: supabaseAny,
+	        conversationId,
+	        routerDecision: resolvedTopicDecision,
+	        manualTopicIds,
+	      });
+	      contextMessages = contextResult.messages;
+	      contextSource = contextResult.source;
+	      includedTopicIds = contextResult.includedTopicIds;
+	      summaryCount = contextResult.summaryCount;
       artifactMessagesCount = contextResult.artifactCount;
       console.log(
         `[context-builder] ${contextSource} mode - context ${contextMessages.length} msgs (summaries: ${summaryCount}, artifacts: ${artifactMessagesCount}, topics: ${
@@ -1307,8 +2563,6 @@ export async function POST(request: NextRequest) {
     const allowWebSearch = true;
     const requireWebSearch = forceWebSearch;
 
-    // Load personalization settings and relevant memories using router's memory strategy
-    const personalizationSettings = await loadPersonalizationSettingsServer(userId);
     const permanentInstructionWrites = (modelConfig as any).permanentInstructionsToWrite || [];
     let permanentInstructionDeletes = (modelConfig as any).permanentInstructionsToDelete || [];
 
@@ -1672,10 +2926,10 @@ export async function POST(request: NextRequest) {
 
     const clientLocalTime = (() => {
       try {
-        if (timezone) {
+        if (effectiveTimezone) {
           const ts = typeof clientNow === "number" ? clientNow : Date.now();
           return new Date(ts).toLocaleString("en-US", {
-            timeZone: timezone,
+            timeZone: effectiveTimezone,
             dateStyle: "full",
             timeStyle: "long",
           });
@@ -1686,28 +2940,33 @@ export async function POST(request: NextRequest) {
       return null;
     })();
 
-    const personalizationEnabled = Boolean(personalizationSettings?.referenceSavedMemories);
+    // Base style + custom instructions should apply even when the user disables
+    // saved-memory referencing (privacy). Only the memory blocks themselves are gated.
+    const memoryReferenceEnabled = Boolean(personalizationSettings?.referenceSavedMemories);
 
     const baseSystemInstructions = [
-      personalizationEnabled ? BASE_SYSTEM_PROMPT : stripMemoryBehaviorBlock(BASE_SYSTEM_PROMPT),
+      memoryReferenceEnabled
+        ? BASE_SYSTEM_PROMPT
+        : stripMemoryBehaviorBlock(BASE_SYSTEM_PROMPT),
       workspaceInstruction,
+      `When it is helpful to show images (e.g., the user asks for pictures), you may include inline images using Markdown image syntax like ![alt](https://...direct-image-url). Limit to at most ${MAX_ASSISTANT_IMAGES_PER_MESSAGE} images per message.\n- Prefer DIRECT image URLs that return an image content-type (image/jpeg, image/png, image/webp, image/gif).\n- Avoid unstable random-image endpoints like source.unsplash.com (they often fail or change). If you use Unsplash, prefer direct images.unsplash.com URLs or a normal page URL with an OG image.\n- If you only have a page URL, include it as an image URL (the server will try to resolve an OG image).`,
       "You can inline-read files when the user includes tokens like <<file:relative/path/to/file>> in their prompt. Replace those tokens with the file content and use it in your reasoning.",
-      ...(location ? [`User's location: ${location.city} (${location.lat.toFixed(4)}, ${location.lng.toFixed(4)}). Use this for location-specific queries like weather, local events, or "near me" searches.`] : []),
-      ...(timezone
+      ...(effectiveLocation ? [`User's location: ${effectiveLocation.city} (${effectiveLocation.lat.toFixed(4)}, ${effectiveLocation.lng.toFixed(4)}). Use this for location-specific queries like weather, local events, or "near me" searches.`] : []),
+      ...(effectiveTimezone
         ? [
             (() => {
               let localTimeInfo = "";
               try {
                 const ts = typeof clientNow === "number" ? clientNow : Date.now();
                 localTimeInfo = new Date(ts).toLocaleString("en-US", {
-                  timeZone: timezone,
+                  timeZone: effectiveTimezone,
                   dateStyle: "full",
                   timeStyle: "long",
                 });
               } catch {
                 localTimeInfo = "";
               }
-              return `User timezone: ${timezone}. ${
+              return `User timezone: ${effectiveTimezone}. ${
                 localTimeInfo ? `Current local date/time (user): ${localTimeInfo}. ` : ""
               }Always interpret relative dates ("today", "tomorrow", etc.) using this timezone and current local time. Do NOT assume UTC.`;
             })()
@@ -1720,9 +2979,9 @@ export async function POST(request: NextRequest) {
 
     const systemInstructions = buildSystemPromptWithPersonalization(
       baseSystemInstructions,
-      personalizationEnabled ? personalizationSettings : {},
-      personalizationEnabled ? relevantMemories : [],
-      personalizationEnabled ? permanentInstructions : []
+      personalizationSettings ?? {},
+      memoryReferenceEnabled ? relevantMemories : [],
+      permanentInstructions
     );
 
     // Build user content with native image inputs when available to leverage model vision
@@ -1813,14 +3072,6 @@ export async function POST(request: NextRequest) {
     // Memory management is now handled by the router model
     // No need for save_memory tool - router decides what to save based on user prompts
     
-    const toolsForRequest: any[] = [];
-    
-    if (allowWebSearch) {
-      toolsForRequest.push(webSearchTool);
-    }
-    if (vectorStoreId) {
-      toolsForRequest.push(fileSearchTool as Tool);
-    }
     const toolChoice: ToolChoiceOptions | undefined = allowWebSearch
       ? requireWebSearch
         ? "required"
@@ -1829,6 +3080,69 @@ export async function POST(request: NextRequest) {
     let responseStream: any;
     let webSearchCallCount = 0;
     let fileSearchCallCount = 0;
+    let discoveredCiContainerId: string | null = configuredCiContainerId;
+    let codeInterpreterUsed = false;
+    let ciStatusActive = false;
+
+    const persistCodeInterpreterSessionIfNeeded = async (containerId: string) => {
+      if (!containerId) return;
+
+      const nextBilled = billedCiContainerIds.includes(containerId)
+        ? billedCiContainerIds
+        : [...billedCiContainerIds, containerId];
+
+      const shouldLogCost = !billedCiContainerIds.includes(containerId);
+
+      const nextConversationMetadata = {
+        ...conversationMetadata,
+        codeInterpreter: {
+          ...(ciMeta || {}),
+          containerId,
+          billedContainerIds: nextBilled,
+        },
+      };
+
+      // Persist container id/billing so future calls reuse the same session.
+      try {
+        await supabaseAny.from("conversations").update({ metadata: nextConversationMetadata }).eq("id", conversationId);
+        conversationMetadata = nextConversationMetadata;
+        (conversation as any).metadata = nextConversationMetadata;
+      } catch (err) {
+        console.warn("[code-interpreter] Failed to persist conversation metadata:", err);
+      }
+
+      if (shouldLogCost) {
+        try {
+          await logUsageRecord({
+            userId,
+            conversationId,
+            model: "tool:code_interpreter",
+            inputTokens: 0,
+            cachedTokens: 0,
+            outputTokens: 0,
+            estimatedCost: CODE_INTERPRETER_SESSION_COST,
+          });
+          billedCiContainerIds.push(containerId);
+          console.log(`[usage] Logged code_interpreter session container=${containerId} cost=$${CODE_INTERPRETER_SESSION_COST.toFixed(2)}`);
+        } catch (err) {
+          console.error("[usage] Failed to log code_interpreter session cost:", err);
+        }
+      }
+    };
+
+    // Use a stable container once we've discovered/persisted one; otherwise allow the API to create one lazily.
+    const codeInterpreterTool: any = configuredCiContainerId
+      ? { type: "code_interpreter", container: configuredCiContainerId }
+      : { type: "code_interpreter", container: { type: "auto", memory_limit: "4g" } };
+
+    const toolsForRequest: any[] = [];
+    if (allowWebSearch) {
+      toolsForRequest.push(webSearchTool);
+    }
+    if (vectorStoreId) {
+      toolsForRequest.push(fileSearchTool as Tool);
+    }
+    toolsForRequest.push(codeInterpreterTool);
 
     const logVectorStorageDaily = async () => {
       if (!userId) return;
@@ -1924,6 +3238,14 @@ export async function POST(request: NextRequest) {
           ...(userMessageRow?.id ? { message_id: userMessageRow.id } : {}),
         },
       };
+      const styleTuning = getStyleTuning(personalizationSettings?.baseStyle);
+      if (styleTuning.textVerbosity) {
+        streamOptions.text = { format: { type: "text" }, verbosity: styleTuning.textVerbosity };
+      }
+      const supportsTemperature = !/^gpt-5(\b|[-.])/i.test(modelConfig.model);
+      if (supportsTemperature && typeof styleTuning.temperature === "number") {
+        streamOptions.temperature = styleTuning.temperature;
+      }
       if (supportsExtendedCache) {
         streamOptions.prompt_cache_retention = "24h";
       }
@@ -2171,6 +3493,31 @@ export async function POST(request: NextRequest) {
                 enqueueJson({ preamble_delta: text });
               }
             } else if (
+              typeof (event as any)?.type === "string" &&
+              String((event as any).type).toLowerCase().includes("code_interpreter")
+            ) {
+              codeInterpreterUsed = true;
+              const maybeContainer = extractContainerIdFromCiEvent(event);
+              if (maybeContainer) {
+                discoveredCiContainerId = maybeContainer;
+              }
+
+              const t = String((event as any).type).toLowerCase();
+              const isStart = t.includes("in_progress") || t.includes("running") || t.includes("started");
+              const isDone = t.includes("completed") || t.includes("done");
+              const isError = t.includes("failed") || t.includes("error");
+
+              if (isStart && !ciStatusActive) {
+                ciStatusActive = true;
+                sendStatusUpdate({ type: "code-interpreter-start" });
+              } else if (isDone && ciStatusActive) {
+                ciStatusActive = false;
+                sendStatusUpdate({ type: "code-interpreter-complete" });
+              } else if (isError) {
+                ciStatusActive = false;
+                sendStatusUpdate({ type: "code-interpreter-error" });
+              }
+            } else if (
               event.type === "response.web_search_call.in_progress" ||
               event.type === "response.web_search_call.searching"
             ) {
@@ -2229,11 +3576,41 @@ export async function POST(request: NextRequest) {
           if (finalResponse.output_text) {
             assistantContent = finalResponse.output_text;
           }
+
+          // Rehost any inline images the assistant included in the message so they persist in chat history.
+          let rehostedImages: AssistantInlineImage[] = [];
+          try {
+            const rehosted = await rehostAssistantInlineImages({
+              userId,
+              conversationId,
+              content: assistantContent,
+            });
+            assistantContent = rehosted.content;
+            rehostedImages = rehosted.images;
+          } catch (imgErr) {
+            console.warn("[assistant-images] Rehosting skipped:", imgErr);
+          }
           if (!preambleBuffer) {
             const extracted = extractReasoningFromOutput((finalResponse as any)?.output);
             if (extracted) {
               preambleBuffer = extracted;
               enqueueJson({ preamble: extracted });
+            }
+          }
+
+          const codeInterpreterFiles = extractCodeInterpreterFilesFromOutput((finalResponse as any)?.output);
+          if (codeInterpreterFiles.length) {
+            codeInterpreterUsed = true;
+            if (!discoveredCiContainerId) {
+              discoveredCiContainerId = codeInterpreterFiles[0]?.containerId ?? null;
+            }
+          }
+
+          if (codeInterpreterUsed && discoveredCiContainerId) {
+            await persistCodeInterpreterSessionIfNeeded(discoveredCiContainerId);
+            if (ciStatusActive) {
+              ciStatusActive = false;
+              enqueueJson({ status: { type: "code-interpreter-complete" } });
             }
           }
 
@@ -2377,6 +3754,9 @@ export async function POST(request: NextRequest) {
             content: assistantContent,
             thinkingDurationMs,
           });
+          if (rehostedImages.length) {
+            (metadataPayload as any).inlineImages = rehostedImages;
+          }
           const combinedDomains = mergeDomainLabels(
             metadataPayload.searchedDomains,
             liveSearchDomainList
@@ -2390,6 +3770,9 @@ export async function POST(request: NextRequest) {
           if (preambleBuffer) {
             (metadataPayload as any).preamble = preambleBuffer;
           }
+          if (codeInterpreterFiles.length) {
+            (metadataPayload as any).generatedFiles = codeInterpreterFiles;
+          }
 
           const resolveAssistantRow = async (): Promise<MessageRow | null> => {
             if (assistantMessageRow) {
@@ -2402,17 +3785,25 @@ export async function POST(request: NextRequest) {
             return null;
           };
 
-          let persistedAssistantRow = await resolveAssistantRow();
+	          let persistedAssistantRow = await resolveAssistantRow();
 
-          if (persistedAssistantRow) {
-            const { data: updatedRow, error: updateErr } = await supabaseAny
-              .from("messages")
-              .update({
-                content: assistantContent,
-                openai_response_id: finalResponse.id || null,
-                metadata: metadataPayload,
-                preamble: preambleBuffer || null,
-              })
+	          if (persistedAssistantRow) {
+	            const contentToPersist =
+	              codeInterpreterFiles.length > 0
+	                ? rewriteCodeInterpreterDownloadLinks({
+	                    content: assistantContent,
+	                    messageId: persistedAssistantRow.id,
+	                    files: codeInterpreterFiles,
+	                  })
+	                : assistantContent;
+	            const { data: updatedRow, error: updateErr } = await supabaseAny
+	              .from("messages")
+	              .update({
+	                content: contentToPersist,
+	                openai_response_id: finalResponse.id || null,
+	                metadata: metadataPayload,
+	                preamble: preambleBuffer || null,
+	              })
               .eq("id", persistedAssistantRow.id)
               .select()
               .single();
@@ -2425,29 +3816,44 @@ export async function POST(request: NextRequest) {
             }
           }
 
-          if (!persistedAssistantRow) {
-            const { data: insertedRow, error: assistantError } = await supabaseAny
-              .from("messages")
-              .insert({
-                user_id: userId,
-                conversation_id: conversationId,
-                role: "assistant",
-                content: assistantContent,
-                openai_response_id: finalResponse.id || null,
-                metadata: metadataPayload,
-                preamble: preambleBuffer || null,
-                topic_id: resolvedTopicDecision.primaryTopicId ?? null,
-              })
-              .select()
-              .single();
+	          if (!persistedAssistantRow) {
+	            const { data: insertedRow, error: assistantError } = await supabaseAny
+	              .from("messages")
+	              .insert({
+	                user_id: userId,
+	                conversation_id: conversationId,
+	                role: "assistant",
+	                content: assistantContent,
+	                openai_response_id: finalResponse.id || null,
+	                metadata: metadataPayload,
+	                preamble: preambleBuffer || null,
+	                topic_id: resolvedTopicDecision.primaryTopicId ?? null,
+	              })
+	              .select()
+	              .single();
 
             if (assistantError || !insertedRow) {
               console.error("Failed to save assistant message:", assistantError);
-            } else {
-              assistantMessageRow = insertedRow as MessageRow;
-              persistedAssistantRow = assistantMessageRow;
-            }
-          }
+	            } else {
+	              assistantMessageRow = insertedRow as MessageRow;
+	              persistedAssistantRow = assistantMessageRow;
+
+	              if (codeInterpreterFiles.length > 0) {
+	                const rewrittenContent = rewriteCodeInterpreterDownloadLinks({
+	                  content: assistantContent,
+	                  messageId: persistedAssistantRow.id,
+	                  files: codeInterpreterFiles,
+	                });
+	                if (rewrittenContent !== assistantContent) {
+	                  await supabaseAny
+	                    .from("messages")
+	                    .update({ content: rewrittenContent })
+	                    .eq("id", persistedAssistantRow.id);
+	                  persistedAssistantRow = { ...persistedAssistantRow, content: rewrittenContent } as any;
+	                }
+	              }
+	            }
+	          }
 
           const assistantRowForMeta = persistedAssistantRow;
 
@@ -2460,6 +3866,7 @@ export async function POST(request: NextRequest) {
                 reasoningEffort,
                 resolvedFamily: modelConfig.resolvedFamily,
                 speedModeUsed: speedMode,
+                finalContent: assistantContent,
                 metadata: metadataPayload,
                 ...(contextUsage ? { contextUsage } : {}),
               },
@@ -2541,6 +3948,7 @@ export async function POST(request: NextRequest) {
                 reasoningEffort,
                 resolvedFamily: modelConfig.resolvedFamily,
                 speedModeUsed: speedMode,
+                finalContent: assistantRowForMeta.content ?? assistantContent,
                 metadata:
                   (assistantRowForMeta.metadata as AssistantMessageMetadata | null) ??
                   metadataPayload,
