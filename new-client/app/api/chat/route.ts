@@ -277,7 +277,10 @@ async function uploadAssistantImageFromBase64(params: {
 }): Promise<string | null> {
   const { userId, conversationId, mimeType, base64Data } = params;
   const normalizedMime = (mimeType || "").split(";")[0].trim().toLowerCase();
-  if (!ALLOWED_ASSISTANT_IMAGE_MIME_TYPES.has(normalizedMime)) return null;
+  if (!ALLOWED_ASSISTANT_IMAGE_MIME_TYPES.has(normalizedMime)) {
+    console.warn("[assistant-images] Unsupported MIME type:", normalizedMime);
+    return null;
+  }
 
   let bytes: Buffer;
   try {
@@ -295,10 +298,21 @@ async function uploadAssistantImageFromBase64(params: {
     const { error: uploadErr } = await admin.storage
       .from(ASSISTANT_IMAGE_BUCKET)
       .upload(path, bytes, { contentType: normalizedMime, upsert: false });
-    if (uploadErr) return null;
+    if (uploadErr) {
+      console.warn("[assistant-images] Upload error:", uploadErr.message);
+      return null;
+    }
     const { data } = admin.storage.from(ASSISTANT_IMAGE_BUCKET).getPublicUrl(path);
-    return typeof data?.publicUrl === "string" && data.publicUrl.length ? data.publicUrl : null;
-  } catch {
+    const publicUrl = typeof data?.publicUrl === "string" && data.publicUrl.length ? data.publicUrl : null;
+    if (!publicUrl) {
+      console.warn("[assistant-images] Missing public URL after upload:", { path });
+    }
+    return publicUrl;
+  } catch (err) {
+    console.warn(
+      "[assistant-images] Failed to upload to Supabase Storage (falling back to data URL):",
+      err instanceof Error ? err.message : String(err)
+    );
     return null;
   }
 }
@@ -336,11 +350,14 @@ async function callGeminiGenerateContent(params: {
         parts: [{ text: prompt }],
       },
     ],
+    generationConfig: {
+      responseModalities: ["TEXT", "IMAGE"],
+    },
   };
 
   const res = await fetch(url, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
     body: JSON.stringify(body),
   });
 
@@ -401,7 +418,7 @@ async function callGeminiStreamGenerateContent(params: {
   const { apiKey, model, prompt, onTextDelta } = params;
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
     model
-  )}:streamGenerateContent?key=${encodeURIComponent(apiKey)}`;
+  )}:streamGenerateContent?alt=sse&key=${encodeURIComponent(apiKey)}`;
 
   const body = {
     contents: [
@@ -410,6 +427,9 @@ async function callGeminiStreamGenerateContent(params: {
         parts: [{ text: prompt }],
       },
     ],
+    generationConfig: {
+      responseModalities: ["TEXT", "IMAGE"],
+    },
   };
 
   const res = await fetch(url, {
@@ -417,6 +437,7 @@ async function callGeminiStreamGenerateContent(params: {
     headers: {
       "Content-Type": "application/json",
       Accept: "text/event-stream",
+      "x-goog-api-key": apiKey,
     },
     body: JSON.stringify(body),
   });
@@ -503,13 +524,17 @@ async function callGeminiStreamGenerateContent(params: {
 
       // SSE events are separated by blank lines.
       while (true) {
-        const sep = buffer.indexOf("\n\n");
+        const sepLf = buffer.indexOf("\n\n");
+        const sepCrLf = buffer.indexOf("\r\n\r\n");
+        const sep =
+          sepLf !== -1 && (sepCrLf === -1 || sepLf < sepCrLf) ? sepLf : sepCrLf;
+        const sepLen = sep === sepCrLf ? 4 : 2;
         if (sep === -1) break;
         const rawEvent = buffer.slice(0, sep);
-        buffer = buffer.slice(sep + 2);
+        buffer = buffer.slice(sep + sepLen);
 
         const lines = rawEvent
-          .split("\n")
+          .split(/\r?\n/)
           .map((l) => l.trimEnd())
           .filter(Boolean);
         const dataLines = lines
@@ -2144,6 +2169,13 @@ export async function POST(request: NextRequest) {
         );
       }
 
+      console.log("[gemini-image] Starting", {
+        model: resolvedModel,
+        choice: imageModel ?? null,
+        conversationId,
+        userId,
+      });
+
       const encoder = new TextEncoder();
       const requestStartMs = Date.now();
 
@@ -2164,7 +2196,17 @@ export async function POST(request: NextRequest) {
             });
 
             const firstImage = result.image;
+            console.log("[gemini-image] Model response received", {
+              model: resolvedModel,
+              textChars: result.fullText?.length ?? 0,
+              mimeType: firstImage?.mimeType ?? null,
+              imageBase64Chars: firstImage?.data?.length ?? 0,
+            });
             if (!firstImage?.data || !firstImage?.mimeType) {
+              console.warn("[gemini-image] No image part returned from Gemini", {
+                model: resolvedModel,
+                choice: imageModel ?? null,
+              });
               enqueueJson({ error: "Gemini did not return an image for this prompt." });
               enqueueJson({ done: true });
               controller.close();
@@ -2179,6 +2221,12 @@ export async function POST(request: NextRequest) {
                 base64Data: firstImage.data,
               })) ??
               `data:${firstImage.mimeType};base64,${firstImage.data}`;
+
+            if (hostedUrl.startsWith("data:")) {
+              console.warn("[gemini-image] Using data URL fallback (not stored in Supabase Storage)");
+            } else {
+              console.log("[gemini-image] Image stored in Supabase Storage");
+            }
 
             // Emit only the image Markdown at the end (text already streamed above).
             enqueueJson({ token: `\n\n![Generated image](${hostedUrl})` });
