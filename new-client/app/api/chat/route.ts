@@ -1937,6 +1937,7 @@ export async function POST(request: NextRequest) {
         { status: 401 }
       );
     }
+    const personalizationSettingsPromise = loadPersonalizationSettingsServer(userId);
 
     // Check usage limits and calculate usage percentage for progressive restrictions
     const userPlan = await getUserPlan();
@@ -2505,7 +2506,7 @@ export async function POST(request: NextRequest) {
     const reasoningEffort = decision.effort ?? "none";
 
     // Load personalization settings (used for both context building and memory selection)
-    const personalizationSettings = await loadPersonalizationSettingsServer(userId);
+    const personalizationSettings = await personalizationSettingsPromise;
     try {
       console.log("[personalization] loaded", {
         baseStyle: personalizationSettings?.baseStyle ?? null,
