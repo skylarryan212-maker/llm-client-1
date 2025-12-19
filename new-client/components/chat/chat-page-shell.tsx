@@ -678,6 +678,7 @@ export default function ChatPageShell({
         return rest;
       }
       if (!Object.prototype.hasOwnProperty.call(prev, NEW_CHAT_SELECTION_KEY)) return prev;
+      const draft = prev[NEW_CHAT_SELECTION_KEY];
       const rest = { ...prev };
       delete rest[NEW_CHAT_SELECTION_KEY];
       return { ...rest, [selectionChatIdForContext]: draft };

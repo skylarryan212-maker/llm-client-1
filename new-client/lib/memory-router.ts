@@ -26,7 +26,7 @@ export async function getRelevantMemories(
   settings: PersonalizationMemorySettings,
   strategy: MemoryStrategy,
   userId?: string,
-  conversationId?: string,
+  _conversationId?: string,
   options?: MemoryFetchOptions,
 ): Promise<MemoryItem[]> {
   if (!settings.referenceSavedMemories) return [];
@@ -43,7 +43,6 @@ export async function getRelevantMemories(
     types,
     limit,
     userId,
-    conversationId,
   });
   
   console.log(`[memory-router] Loaded ${memories.length} memories using strategy:`, JSON.stringify(strategy));
