@@ -2411,7 +2411,7 @@ export async function POST(request: NextRequest) {
         ? topicsForRouter.find((t: any) => t.id === activeTopicId) || null
         : null;
 
-    const allowLLMRouters = !forceSpeedMode && !effectiveSimpleContextMode;
+    const allowLLMRouters = !forceSpeedMode;
     const decision = await runDecisionRouter({
       input: {
         userMessage: message,
