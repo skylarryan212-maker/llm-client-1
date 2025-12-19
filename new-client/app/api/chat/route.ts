@@ -2402,8 +2402,40 @@ export async function POST(request: NextRequest) {
     });
     console.log("[decision-router] output:", JSON.stringify(decision, null, 2));
 
-    // Writer router for topic metadata and memory/permanent instructions
-    const writer = await runWriterRouter(
+    // Create a stub topic immediately for new-topic actions so downstream work (and the OpenAI call)
+    // has a concrete topic_id. Writer router will refine metadata later.
+    let resolvedPrimaryTopicId: string | null = decision.primaryTopicId ?? null;
+    if (decision.topicAction === "new" && !resolvedPrimaryTopicId) {
+      const stubLabel = buildAutoTopicLabel(message);
+      const stubDescription = buildAutoTopicDescription(message);
+      const stubSummary = buildAutoTopicSummary(message);
+      try {
+        const { data: stubTopic, error: stubErr } = await supabaseAny
+          .from("conversation_topics")
+          .insert([
+            {
+              conversation_id: conversationId,
+              label: stubLabel.slice(0, 120),
+              description: stubDescription?.slice(0, 500) ?? null,
+              summary: stubSummary?.slice(0, 500) ?? null,
+              parent_topic_id: decision.newParentTopicId ?? null,
+            },
+          ])
+          .select()
+          .single();
+        if (stubErr || !stubTopic) {
+          console.error("[topic-router] Failed to create stub topic:", stubErr);
+        } else {
+          resolvedPrimaryTopicId = stubTopic.id;
+          console.log(`[topic-router] Created stub topic ${stubTopic.id} label="${stubTopic.label}"`);
+        }
+      } catch (stubCreateErr) {
+        console.error("[topic-router] Exception creating stub topic:", stubCreateErr);
+      }
+    }
+
+    // Kick off writer router for topic metadata and memory/permanent instructions (do not block OpenAI call)
+    const writerPromise = runWriterRouter(
       {
         userMessageText: message,
         recentMessages: (recentMessages || []).slice(-6).map((m: any) => ({
@@ -2417,43 +2449,10 @@ export async function POST(request: NextRequest) {
         },
       },
       decision.topicAction
-    );
-    console.log("[writer-router] output:", JSON.stringify(writer, null, 2));
-
-    // Execute topic create/update based on writer output
-    let resolvedPrimaryTopicId: string | null = decision.primaryTopicId ?? null;
-    if (writer.topicWrite.action === "create") {
-      const normalizeTopicText = (value?: string | null) => {
-        if (!value) return null;
-        const trimmed = value.trim();
-        if (!trimmed) return null;
-        const lower = trimmed.toLowerCase();
-        if (["none", "null", "n/a", "na", "skip"].includes(lower)) return null;
-        return trimmed;
-      };
-      const label = normalizeTopicText(writer.topicWrite.label) || buildAutoTopicLabel(message);
-      const description = normalizeTopicText(writer.topicWrite.description) || buildAutoTopicDescription(message);
-      const summary = normalizeTopicText(writer.topicWrite.summary) || buildAutoTopicSummary(message);
-      const { data: insertedTopic, error: topicErr } = await supabaseAny
-        .from("conversation_topics")
-        .insert([
-          {
-            conversation_id: conversationId,
-            label: label.slice(0, 120),
-            description: description?.slice(0, 500) ?? null,
-            summary: summary?.slice(0, 500) ?? null,
-            parent_topic_id: decision.newParentTopicId ?? null,
-          },
-        ])
-        .select()
-        .single();
-      if (topicErr || !insertedTopic) {
-        console.error("[topic-router] Failed to create topic:", topicErr);
-      } else {
-        resolvedPrimaryTopicId = insertedTopic.id;
-        console.log(`[topic-router] Created topic ${insertedTopic.id} label="${insertedTopic.label}"`);
-      }
-    }
+    ).catch((err) => {
+      console.error("[writer-router] failed to start:", err);
+      return null as any;
+    });
 
     // Tag user message with topic if available
     if (userMessageRow && resolvedPrimaryTopicId && userMessageRow.topic_id !== resolvedPrimaryTopicId) {
@@ -2498,10 +2497,10 @@ export async function POST(request: NextRequest) {
       reasoning: { effort: decision.effort },
       routedBy: "code" as const,
       availableMemoryTypes: decision.memoryTypesToLoad,
-      memoriesToWrite: writer.memoriesToWrite,
-      memoriesToDelete: writer.memoriesToDelete,
-      permanentInstructionsToWrite: writer.permanentInstructionsToWrite,
-      permanentInstructionsToDelete: writer.permanentInstructionsToDelete,
+      memoriesToWrite: [] as any[],
+      memoriesToDelete: [] as any[],
+      permanentInstructionsToWrite: [] as any[],
+      permanentInstructionsToDelete: [] as any[],
     };
     const reasoningEffort = decision.effort ?? "none";
 
@@ -3902,6 +3901,154 @@ export async function POST(request: NextRequest) {
 	              }
 	            }
 	          }
+
+          // Await writer router now that the main model call is complete.
+          let writer: Awaited<ReturnType<typeof runWriterRouter>> | null = null;
+          try {
+            writer = await writerPromise;
+            console.log("[writer-router] output (post-stream):", JSON.stringify(writer, null, 2));
+          } catch (writerErr) {
+            console.error("[writer-router] failed post-stream:", writerErr);
+          }
+
+          // Upgrade stub topic metadata (or create if stub failed) based on writer output.
+          if (writer?.topicWrite?.action === "create") {
+            const normalizeTopicText = (value?: string | null) => {
+              if (!value) return null;
+              const trimmed = value.trim();
+              if (!trimmed) return null;
+              const lower = trimmed.toLowerCase();
+              if (["none", "null", "n/a", "na", "skip"].includes(lower)) return null;
+              return trimmed;
+            };
+            const label = normalizeTopicText(writer.topicWrite.label) || buildAutoTopicLabel(message);
+            const description = normalizeTopicText(writer.topicWrite.description) || buildAutoTopicDescription(message);
+            const summary = normalizeTopicText(writer.topicWrite.summary) || buildAutoTopicSummary(message);
+
+            if (resolvedPrimaryTopicId) {
+              const { error: updateErr } = await supabaseAny
+                .from("conversation_topics")
+                .update({
+                  label: label.slice(0, 120),
+                  description: description?.slice(0, 500) ?? null,
+                  summary: summary?.slice(0, 500) ?? null,
+                })
+                .eq("id", resolvedPrimaryTopicId);
+              if (updateErr) {
+                console.error("[topic-router] Failed to update stub topic metadata:", updateErr);
+              } else {
+                console.log(`[topic-router] Updated stub topic ${resolvedPrimaryTopicId} metadata from writer router`);
+              }
+            } else {
+              const { data: insertedTopic, error: topicErr } = await supabaseAny
+                .from("conversation_topics")
+                .insert([
+                  {
+                    conversation_id: conversationId,
+                    label: label.slice(0, 120),
+                    description: description?.slice(0, 500) ?? null,
+                    summary: summary?.slice(0, 500) ?? null,
+                    parent_topic_id: decision.newParentTopicId ?? null,
+                  },
+                ])
+                .select()
+                .single();
+              if (topicErr || !insertedTopic) {
+                console.error("[topic-router] Failed to create topic:", topicErr);
+              } else {
+                resolvedPrimaryTopicId = insertedTopic.id;
+                console.log(`[topic-router] Created topic ${insertedTopic.id} label="${insertedTopic.label}"`);
+              }
+            }
+          }
+
+          // Capture writer outputs for downstream persistence.
+          if (writer) {
+            (modelConfig as any).memoriesToWrite = writer.memoriesToWrite || [];
+            (modelConfig as any).memoriesToDelete = writer.memoriesToDelete || [];
+            (modelConfig as any).permanentInstructionsToWrite = writer.permanentInstructionsToWrite || [];
+            (modelConfig as any).permanentInstructionsToDelete = writer.permanentInstructionsToDelete || [];
+          }
+
+          // Apply permanent instruction writes/deletes after streaming (router + heuristics).
+          {
+            const permanentInstructionWrites = (modelConfig as any).permanentInstructionsToWrite || [];
+            let permanentInstructionDeletes = (modelConfig as any).permanentInstructionsToDelete || [];
+
+            const loadedInstructions = permanentInstructionState?.instructions ?? [];
+            const lowerMsg = message.toLowerCase();
+            const existingDeleteIds = new Set(
+              (permanentInstructionDeletes || []).map((d: any) => d?.id).filter(Boolean)
+            );
+            const deleteCandidates: { id: string; reason?: string }[] = [];
+            const addDeleteIfMissing = (id: string, reason?: string) => {
+              if (!id || existingDeleteIds.has(id)) return;
+              existingDeleteIds.add(id);
+              deleteCandidates.push({ id, reason });
+            };
+
+            const wantsFullClear = false;
+            if (wantsFullClear) {
+              for (const inst of loadedInstructions) {
+                addDeleteIfMissing(inst.id, "User requested to clear permanent instructions");
+              }
+            } else {
+              const userWantsNicknameRemoved = /stop\s+call(?:ing)?\s+me|don['ƒ?T]t\s+call\s+me|do\s+not\s+call\s+me|forget\s+.*call\s+me/i.test(
+                lowerMsg
+              );
+              const nameMatch = lowerMsg.match(/call\s+me\s+([a-z0-9 .,'\"-]+)/i);
+              const nameToken = nameMatch?.[1]?.trim().toLowerCase();
+
+              for (const inst of loadedInstructions) {
+                const text = `${inst.title || ""} ${inst.content}`.toLowerCase();
+                const isNickname = text.includes("call me") || text.includes("address") || text.includes("nickname");
+                const mentionsName = nameToken ? text.includes(nameToken) : false;
+
+                if (userWantsNicknameRemoved && (isNickname || mentionsName)) {
+                  addDeleteIfMissing(inst.id, "User revoked nickname");
+                } else if (nameToken && text.includes(nameToken) && lowerMsg.includes("forget")) {
+                  addDeleteIfMissing(inst.id, "User revoked a named permanent instruction");
+                }
+              }
+            }
+
+            if (deleteCandidates.length) {
+              permanentInstructionDeletes = [
+                ...(permanentInstructionDeletes || []),
+                ...deleteCandidates,
+              ];
+            }
+
+            let permanentInstructionsChanged = false;
+            if (permanentInstructionWrites.length || permanentInstructionDeletes.length) {
+              try {
+                permanentInstructionsChanged = await applyPermanentInstructionMutations({
+                  supabase: supabaseAny,
+                  userId,
+                  conversationId,
+                  writes: permanentInstructionWrites,
+                  deletes: permanentInstructionDeletes,
+                });
+              } catch (permErr) {
+                console.error("[permanent-instructions] Failed to apply router instructions:", permErr);
+              }
+            }
+
+            if (permanentInstructionsChanged) {
+              try {
+                const loadResult = await loadPermanentInstructions({
+                  supabase: supabaseAny,
+                  userId,
+                  conversationId,
+                  conversation,
+                  forceRefresh: true,
+                });
+                permanentInstructionState = loadResult;
+              } catch (permReloadErr) {
+                console.error("[permanent-instructions] Failed to refresh instructions:", permReloadErr);
+              }
+            }
+          }
 
           const assistantRowForMeta = persistedAssistantRow;
 
