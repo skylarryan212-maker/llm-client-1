@@ -224,6 +224,7 @@ export function PersonalizationPanel() {
             onChange={(e) => update("customInstructions", e.target.value)}
             placeholder="Tell the assistant how to respond (e.g., be concise, point out flaws, avoid long messages unless asked)."
             rows={4}
+            className="resize-none h-28"
           />
         </div>
       </section>
