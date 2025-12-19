@@ -4022,14 +4022,17 @@ function ContextUsageIndicator({
       className="relative flex items-center gap-2 text-xs text-muted-foreground"
       onMouseEnter={() => setIsOpen(true)}
       onMouseLeave={() => {
-        if (!isPinned) setIsOpen(false);
+        if (isPinned || isConfigureOpen) return;
+        setIsOpen(false);
       }}
       onFocus={() => setIsOpen(true)}
       onBlur={() => {
-        if (!isPinned) setIsOpen(false);
+        if (isPinned || isConfigureOpen) return;
+        setIsOpen(false);
       }}
       tabIndex={0}
       aria-label="Context window usage"
+      data-context-usage-indicator
     >
       <div
         className="relative h-7 w-7 cursor-pointer"
@@ -4074,22 +4077,50 @@ function ContextUsageIndicator({
 
       {isOpen ? (
         <div className="absolute right-0 top-[115%] z-30 w-64 rounded-lg border border-border/80 bg-card/95 text-foreground shadow-xl backdrop-blur-sm">
-           <div className="relative space-y-1.5 p-3">
-             <div className="flex items-center justify-between gap-2">
-               <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-                 Context window
-               </div>
-	               <DropdownMenu open={isConfigureOpen} onOpenChange={setIsConfigureOpen}>
-	                 <DropdownMenuTrigger asChild>
-	                   <Button
-	                     size="sm"
-	                     variant="ghost"
-	                     className="h-7 px-2 text-xs"
-	                   >
-	                     Configure
-	                   </Button>
-	                 </DropdownMenuTrigger>
-	                 <DropdownMenuContent align="end" className="w-72">
+          <div className="relative space-y-1.5 p-3">
+            <div className="flex items-center justify-between gap-2">
+              <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                Context window
+              </div>
+              <DropdownMenu
+                open={isConfigureOpen}
+                onOpenChange={(open) => {
+                  setIsConfigureOpen(open);
+                  if (open) {
+                    setIsOpen(true);
+                  } else if (!isPinned) {
+                    setIsOpen(false);
+                  }
+                }}
+              >
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-7 px-2 text-xs"
+                  >
+                    Configure
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent
+                  align="end"
+                  className="w-72"
+                  onCloseAutoFocus={(e) => {
+                    // Keep the hover card open if pinned; otherwise allow it to close.
+                    if (isPinned) {
+                      e.preventDefault();
+                      setIsOpen(true);
+                    }
+                  }}
+                  onOpenAutoFocus={(e) => {
+                    // Prevent focus trap stealing focus from the hover card toggle.
+                    e.preventDefault();
+                  }}
+                  onEscapeKeyDown={() => {
+                    setIsConfigureOpen(false);
+                    if (!isPinned) setIsOpen(false);
+                  }}
+                >
 	                   {contextMode === "simple" ? (
 	                     <>
 	                       <DropdownMenuLabel className="text-xs">
