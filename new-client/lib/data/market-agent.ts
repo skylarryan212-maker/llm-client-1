@@ -1,4 +1,4 @@
-import { supabaseServer } from "@/lib/supabase/server";
+import { supabaseServer, supabaseServerAdmin } from "@/lib/supabase/server";
 import { requireUserIdServer } from "@/lib/supabase/user";
 import type { Database, Json } from "@/lib/supabase/types";
 
@@ -67,24 +67,23 @@ export async function listMarketAgentInstances(): Promise<MarketAgentInstanceWit
 
 export async function getMarketAgentInstance(instanceId: string): Promise<MarketAgentInstanceWithWatchlist | null> {
   if (!isValidUuid(instanceId)) return null;
-  const supabase = await supabaseServer();
   const userId = await requireUserIdServer();
-  const supabaseAny = supabase as any;
+  const admin = await supabaseServerAdmin();
+  const adminAny = admin as any;
 
-  const { data: instance, error } = await supabaseAny
+  const { data: instance, error } = await adminAny
     .from("market_agent_instances")
     .select("*")
     .eq("id", instanceId)
-    .eq("user_id", userId)
     .maybeSingle();
 
   if (error) {
     throw new Error(`Failed to load market agent instance: ${error.message}`);
   }
 
-  if (!instance) return null;
+  if (!instance || instance.user_id !== userId) return null;
 
-  const { data: watchlistRows } = await supabaseAny
+  const { data: watchlistRows } = await adminAny
     .from("market_agent_watchlist_items")
     .select("symbol")
     .eq("instance_id", instanceId);
@@ -97,11 +96,11 @@ export async function getMarketAgentInstance(instanceId: string): Promise<Market
 
 export async function getMarketAgentState(instanceId: string): Promise<MarketAgentStateRow | null> {
   if (!isValidUuid(instanceId)) return null;
-  const supabase = await supabaseServer();
   const userId = await requireUserIdServer();
-  const supabaseAny = supabase as any;
+  const admin = await supabaseServerAdmin();
+  const adminAny = admin as any;
 
-  const { data, error } = await supabaseAny
+  const { data, error } = await adminAny
     .from("market_agent_state")
     .select("*")
     .eq("instance_id", instanceId)
@@ -114,7 +113,7 @@ export async function getMarketAgentState(instanceId: string): Promise<MarketAge
 
   // Ensure ownership by joining instances (RLS already covers, but add safety)
   if (data) {
-    const { data: instance } = await supabaseAny
+    const { data: instance } = await adminAny
       .from("market_agent_instances")
       .select("user_id")
       .eq("id", instanceId)
@@ -130,11 +129,19 @@ export async function getMarketAgentEvents(params: {
   limit?: number;
   beforeTs?: string;
 }): Promise<MarketAgentEventRow[]> {
-  const supabase = await supabaseServer();
-  await requireUserIdServer();
-  const supabaseAny = supabase as any;
+  const admin = await supabaseServerAdmin();
+  const userId = await requireUserIdServer();
+  const adminAny = admin as any;
 
-  let query = supabaseAny
+  // Verify ownership
+  const { data: instance } = await adminAny
+    .from("market_agent_instances")
+    .select("user_id")
+    .eq("id", params.instanceId)
+    .maybeSingle();
+  if (!instance || instance.user_id !== userId) return [];
+
+  let query = adminAny
     .from("market_agent_events")
     .select("*")
     .eq("instance_id", params.instanceId)
@@ -158,11 +165,11 @@ export async function getMarketAgentEvents(params: {
 }
 
 export async function getLatestMarketAgentEvents(limit = 10): Promise<MarketAgentEventRow[]> {
-  const supabase = await supabaseServer();
-  await requireUserIdServer();
-  const supabaseAny = supabase as any;
+  const admin = await supabaseServerAdmin();
+  const userId = await requireUserIdServer();
+  const adminAny = admin as any;
 
-  const { data, error } = await supabaseAny
+  const { data, error } = await adminAny
     .from("market_agent_events")
     .select("*")
     .order("ts", { ascending: false })
@@ -182,13 +189,13 @@ export async function getMarketAgentFeed(params?: {
   events: MarketAgentFeedEvent[];
   instances: MarketAgentInstanceWithWatchlist[];
 }> {
-  const supabase = await supabaseServer();
-  await requireUserIdServer();
-  const supabaseAny = supabase as any;
+  const admin = await supabaseServerAdmin();
+  const userId = await requireUserIdServer();
+  const adminAny = admin as any;
 
   const eventLimit = params?.limit && params.limit > 0 ? params.limit : 15;
 
-  let eventsQuery = supabaseAny
+  let eventsQuery = adminAny
     .from("market_agent_events")
     .select("*")
     .order("ts", { ascending: false })
@@ -203,6 +210,7 @@ export async function getMarketAgentFeed(params?: {
     throw new Error(`Failed to load market agent feed: ${error.message}`);
   }
 
+  // Instances still come from RLS-scoped list to respect ownership
   const instances = await listMarketAgentInstances();
   const instanceMap = new Map(instances.map((inst) => [inst.id, inst] as const));
 
