@@ -90,7 +90,11 @@ function parseJsonLoose(raw: string) {
   }
 }
 
-export async function runWriterRouter(input: WriterRouterInput, topicAction: "continue_active" | "new" | "reopen_existing"): Promise<WriterRouterOutput> {
+export async function runWriterRouter(
+  input: WriterRouterInput,
+  topicAction: "continue_active" | "new" | "reopen_existing",
+  options?: { allowLLM?: boolean }
+): Promise<WriterRouterOutput> {
 const systemPrompt = `You decide topic metadata updates and memory/permanent instruction writes. Respond with ONE JSON object only.
 CRITICAL: Return STRICT JSON matching the schema. No prose, no markdown, no comments.
 {
@@ -233,6 +237,12 @@ Rules:
       permanentInstructionsToDelete: [],
     };
   };
+
+  const allowLLM = options?.allowLLM !== false;
+
+  if (!allowLLM) {
+    return fallback();
+  }
 
   try {
     const { text } = await callDeepInfraLlama({

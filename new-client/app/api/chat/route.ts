@@ -1043,6 +1043,7 @@ interface ChatRequestBody {
   modelFamilyOverride?: ModelFamily;
   speedModeOverride?: SpeedMode;
   reasoningEffortOverride?: ReasoningEffort;
+  speedModeEnabled?: boolean;
   forceWebSearch?: boolean;
   skipUserInsert?: boolean;
   simpleContextMode?: boolean;
@@ -1872,6 +1873,7 @@ export async function POST(request: NextRequest) {
 	      modelFamilyOverride,
 	      speedModeOverride,
 	      reasoningEffortOverride,
+        speedModeEnabled = false,
 	      skipUserInsert,
 	      forceWebSearch = false,
 	      attachments,
@@ -1962,8 +1964,12 @@ export async function POST(request: NextRequest) {
 
     // Validate and normalize model settings with progressive restrictions based on usage
     let modelFamily = normalizeModelFamily(modelFamilyOverride ?? "auto");
+    const forceSpeedMode = Boolean(speedModeEnabled);
     const speedMode = normalizeSpeedMode(speedModeOverride ?? "auto");
     const reasoningEffortHint = reasoningEffortOverride;
+    if (forceSpeedMode && modelFamily === "auto") {
+      modelFamily = "gpt-5-nano";
+    }
     
     // Progressive model restrictions based on usage percentage
     if (usagePercentage >= 95) {
@@ -1999,10 +2005,12 @@ export async function POST(request: NextRequest) {
         { status: 404 }
       );
     }
+    const effectiveSimpleContextMode = forceSpeedMode ? true : simpleContextMode;
+    const effectiveAdvancedContextTopicIds = forceSpeedMode ? [] : advancedContextTopicIds;
 
     // Kick off simple context in parallel (only needs personalization + supabase + user/conversation ids)
     const simpleContextPromise =
-      simpleContextMode && personalizationSettingsPromise
+      effectiveSimpleContextMode && personalizationSettingsPromise
         ? (async () => {
             const personalizationSettings = await personalizationSettingsPromise;
             const normalizedExternalChatIds = Array.isArray(simpleContextExternalChatIds)
@@ -2419,6 +2427,7 @@ export async function POST(request: NextRequest) {
         topics: Array.isArray(topicsForRouter) ? topicsForRouter : [],
         artifacts: Array.isArray(artifactsForRouter) ? artifactsForRouter : [],
       },
+      allowLLM: !forceSpeedMode,
     });
     console.log("[decision-router] output:", JSON.stringify(decision, null, 2));
 
@@ -2468,7 +2477,8 @@ export async function POST(request: NextRequest) {
           description: currentTopicMeta?.description ?? null,
         },
       },
-      decision.topicAction
+      decision.topicAction,
+      { allowLLM: !forceSpeedMode }
     ).catch((err) => {
       console.error("[writer-router] failed to start:", err);
       return null as any;
@@ -2543,7 +2553,7 @@ export async function POST(request: NextRequest) {
     let includedTopicIds: string[] = [];
     let summaryCount = 0;
     let artifactMessagesCount = 0;
-	    if (simpleContextMode && simpleContextPromise) {
+	    if (effectiveSimpleContextMode && simpleContextPromise) {
 	      const simpleContext = await simpleContextPromise;
 	      contextMessages = simpleContext.messages;
 	      contextSource = simpleContext.source;
@@ -2555,8 +2565,8 @@ export async function POST(request: NextRequest) {
 	      );
 	    } else {
 	      let manualTopicIds: string[] | null = null;
-	      const requestedManualTopicIds = Array.isArray(advancedContextTopicIds)
-	        ? advancedContextTopicIds.filter((id) => typeof id === "string" && id.trim().length > 0).map((id) => id.trim())
+	      const requestedManualTopicIds = Array.isArray(effectiveAdvancedContextTopicIds)
+	        ? effectiveAdvancedContextTopicIds.filter((id) => typeof id === "string" && id.trim().length > 0).map((id) => id.trim())
 	        : [];
 
 	      if (requestedManualTopicIds.length) {

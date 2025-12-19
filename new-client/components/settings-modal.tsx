@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { X, Palette, Database, UserCircle, ChevronDown } from 'lucide-react'
+import { X, Palette, Database, UserCircle, ChevronDown, Info } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { useRouter } from 'next/navigation'
@@ -37,6 +37,7 @@ interface SettingsModalProps {
 }
 
 type TabType = 'preferences' | 'data' | 'account'
+const SPEED_MODE_STORAGE_KEY = "llm-client-speed-mode"
 
 export function SettingsModal({ isOpen, onClose, initialTab = 'preferences' }: SettingsModalProps) {
   const router = useRouter()
@@ -44,6 +45,7 @@ export function SettingsModal({ isOpen, onClose, initialTab = 'preferences' }: S
   const [accentColor, setAccentColor] = useState('white')
   const { plan, refreshPlan } = useUserPlan()
   const [contextModeGlobal, setContextModeGlobal] = useState<"advanced" | "simple">("advanced")
+  const [speedModeEnabled, setSpeedModeEnabled] = useState(false)
   const { fullName, email, isGuest } = useUserIdentity()
   const { refreshChats } = useChatStore()
 
@@ -111,6 +113,10 @@ export function SettingsModal({ isOpen, onClose, initialTab = 'preferences' }: S
     if (isOpen) {
       let alive = true
       setActiveTab(initialTab)
+      try {
+        const storedSpeedMode = window.localStorage.getItem(SPEED_MODE_STORAGE_KEY)
+        setSpeedModeEnabled(storedSpeedMode === "1")
+      } catch {}
       const styleEl = document.getElementById('accent-color-override')
       if (styleEl) {
         const content = styleEl.textContent || ''
@@ -192,6 +198,31 @@ export function SettingsModal({ isOpen, onClose, initialTab = 'preferences' }: S
           console.error('Failed to save accent color:', result.error)
         }
       })
+  }
+
+  const handleSpeedModeToggle = (nextEnabled: boolean) => {
+    setSpeedModeEnabled(nextEnabled)
+    try {
+      if (nextEnabled) {
+        window.localStorage.setItem(SPEED_MODE_STORAGE_KEY, "1")
+      } else {
+        window.localStorage.removeItem(SPEED_MODE_STORAGE_KEY)
+      }
+      window.dispatchEvent(new CustomEvent("speedModeChange", { detail: nextEnabled }))
+    } catch {}
+
+    if (nextEnabled) {
+      setContextModeGlobal("simple")
+      try {
+        window.localStorage.setItem("context-mode-global", "simple")
+        window.dispatchEvent(
+          new CustomEvent("contextModeGlobalChange", { detail: "simple" })
+        )
+      } catch {}
+      if (!isGuest) {
+        saveContextModeGlobalPreference("simple").catch(() => {})
+      }
+    }
   }
 
   const handleChangePlan = () => {
@@ -378,6 +409,8 @@ export function SettingsModal({ isOpen, onClose, initialTab = 'preferences' }: S
                     variant="outline"
                     size="sm"
                     className="h-9 px-3 text-sm"
+                    disabled={speedModeEnabled}
+                    title={speedModeEnabled ? "Speed Mode forces simple context." : undefined}
                     onClick={() => {
                       const next = contextModeGlobal === "simple" ? "advanced" : "simple"
                       setContextModeGlobal(next)
@@ -399,6 +432,21 @@ export function SettingsModal({ isOpen, onClose, initialTab = 'preferences' }: S
                     }}
                   >
                     {contextModeGlobal === "simple" ? "Simple" : "Advanced"}
+                  </Button>
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Label className="text-base">Speed Mode</Label>
+                    <Info className="h-4 w-4 text-muted-foreground" aria-hidden title="Disables auto model selection and advanced context to keep responses fast." />
+                  </div>
+                  <Button
+                    variant={speedModeEnabled ? "secondary" : "outline"}
+                    size="sm"
+                    className="h-9 px-3 text-sm"
+                    onClick={() => handleSpeedModeToggle(!speedModeEnabled)}
+                  >
+                    {speedModeEnabled ? "On" : "Off"}
                   </Button>
                 </div>
               </div>

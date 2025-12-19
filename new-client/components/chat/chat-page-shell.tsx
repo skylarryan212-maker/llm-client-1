@@ -37,7 +37,7 @@ import { NewProjectModal } from "@/components/projects/new-project-modal";
 import { StoredMessage, type StoredChat, useChatStore } from "@/components/chat/chat-provider";
 import { usePersistentSidebarOpen } from "@/lib/hooks/use-sidebar-open";
 import { getModelAndReasoningConfig, getModelSettingsFromDisplayName } from "@/lib/modelConfig";
-import type { ModelFamily, SpeedMode, ReasoningEffort } from "@/lib/modelConfig";
+import type { ModelFamily, SpeedMode, ReasoningEffort, ModelSettings } from "@/lib/modelConfig";
 import { isPlaceholderTitle } from "@/lib/conversation-utils";
 import { requestAutoNaming } from "@/lib/autoNaming";
 import type { AssistantMessageMetadata } from "@/lib/chatTypes";
@@ -122,6 +122,7 @@ const getAutoStreamPrefsKey = (conversationId: string) =>
   `${AUTO_STREAM_PREFS_KEY_PREFIX}${conversationId}`;
 const CONTEXT_MODE_BY_CHAT_KEY = "llm-client-context-mode-by-chat";
 const MODEL_SELECTION_STORAGE_KEY = "llm-client-model-selection";
+const SPEED_MODE_STORAGE_KEY = "llm-client-speed-mode";
 const SIMPLE_CONTEXT_EXTERNAL_CHAT_SELECTION_KEY =
   "llm-client:simple-context-external-chat-ids-by-chat";
 const ADVANCED_CONTEXT_TOPIC_SELECTION_KEY =
@@ -212,6 +213,38 @@ function loadInitialContextModeByChat(): Record<string, "advanced" | "simple"> {
   return {};
 }
 
+function loadInitialSpeedModeEnabled(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return window.localStorage.getItem(SPEED_MODE_STORAGE_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function normalizeModelForSpeedMode(displayName: string): string {
+  const normalized = (displayName || "").toLowerCase();
+  if (normalized.includes("nano")) return "GPT 5 Nano";
+  if (normalized.includes("mini")) return "GPT 5 Mini";
+  if (normalized.includes("pro")) return "GPT 5.2 Pro";
+  if (normalized.includes("5.2")) return "GPT 5.2";
+  return "GPT 5 Nano";
+}
+
+function getSpeedModeModelSettings(displayName: string): ModelSettings {
+  const normalizedDisplay = normalizeModelForSpeedMode(displayName);
+  switch (normalizedDisplay) {
+    case "GPT 5 Mini":
+      return { modelFamily: "gpt-5-mini", speedMode: "auto", reasoningEffort: "low" };
+    case "GPT 5.2":
+      return { modelFamily: "gpt-5.2", speedMode: "auto", reasoningEffort: "medium" };
+    case "GPT 5.2 Pro":
+      return { modelFamily: "gpt-5.2-pro", speedMode: "auto", reasoningEffort: "high" };
+    default:
+      return { modelFamily: "gpt-5-nano", speedMode: "auto", reasoningEffort: "minimal" };
+  }
+}
+
 function mergeThinkingTimingIntoMetadata(
   metadata: AssistantMessageMetadata | null,
   timing: ThinkingTimingInfo | null
@@ -293,7 +326,8 @@ export default function ChatPageShell({
     "nano-banana"
   );
   const [referenceChatHistoryEnabled, setReferenceChatHistoryEnabled] = useState(true);
-	  const hasLoadedModelSelectionRef = useRef(false);
+  const [speedModeEnabled, setSpeedModeEnabled] = useState(loadInitialSpeedModeEnabled);
+  const hasLoadedModelSelectionRef = useRef(false);
   const [selectedChatId, setSelectedChatId] = useState<string | null>(
     activeConversationId ?? null
   );
@@ -345,6 +379,36 @@ export default function ChatPageShell({
 	    hasLoadedModelSelectionRef.current = true;
 	  }, []);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const syncSpeedMode = () => {
+      setSpeedModeEnabled(loadInitialSpeedModeEnabled());
+    };
+
+    const handleSpeedModeEvent = (event: Event) => {
+      const detail = (event as CustomEvent<boolean>).detail;
+      if (typeof detail === "boolean") {
+        setSpeedModeEnabled(detail);
+        return;
+      }
+      syncSpeedMode();
+    };
+
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key && event.key !== SPEED_MODE_STORAGE_KEY) return;
+      syncSpeedMode();
+    };
+
+    syncSpeedMode();
+    window.addEventListener("speedModeChange", handleSpeedModeEvent as EventListener);
+    window.addEventListener("storage", handleStorage);
+    return () => {
+      window.removeEventListener("speedModeChange", handleSpeedModeEvent as EventListener);
+      window.removeEventListener("storage", handleStorage);
+    };
+  }, []);
+
     // Ensure the Supabase attachments bucket is readable so image/file attachments render.
     useEffect(() => {
       if (typeof window === "undefined") return;
@@ -375,6 +439,11 @@ export default function ChatPageShell({
   const [showOtherModels, setShowOtherModels] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
   const NEW_CHAT_SELECTION_KEY = "__new_chat__";
+  useEffect(() => {
+    if (!speedModeEnabled) return;
+    setCurrentModel((prev) => normalizeModelForSpeedMode(prev));
+    setShowOtherModels(false);
+  }, [speedModeEnabled]);
   const [contextUsageByChat, setContextUsageByChat] = useState<Record<string, ContextUsageSnapshot>>({});
   const [contextModeGlobal, setContextModeGlobal] = useState<"advanced" | "simple">(loadInitialContextModeGlobal);
   const [contextModeByChat, setContextModeByChat] = useState<Record<string, "advanced" | "simple">>(
@@ -692,12 +761,29 @@ export default function ChatPageShell({
       cachedTokens: 0,
       outputTokens: 0,
     };
-  const currentContextMode =
+  const baseContextMode =
     (effectiveChatId && contextModeByChat[effectiveChatId]) || contextModeGlobal;
-	  const useSimpleContext = currentContextMode === "simple";
+  const currentContextMode = speedModeEnabled ? "simple" : baseContextMode;
+  const useSimpleContext = currentContextMode === "simple";
 	  const advancedTopicIdsForActiveChat =
 	    (advancedTopicSelectionByChat[selectionKeyForContext] ?? null) ?? null;
 	  const pathname = usePathname();
+  const effectiveModelDisplay = speedModeEnabled ? normalizeModelForSpeedMode(currentModel) : currentModel;
+  const modelTriggerLabel = isImageMode
+    ? currentImageModel === "nano-banana"
+      ? "Nano Banana"
+      : "Nano Banana Pro"
+    : speedModeEnabled
+      ? effectiveModelDisplay
+      : currentModel === "Auto"
+        ? "GPT 5.2"
+        : currentModel === "Instant"
+          ? "GPT 5.2 Instant"
+          : currentModel === "Thinking"
+            ? "GPT 5.2 Thinking"
+            : currentModel === "Pro"
+              ? "GPT 5.2 Pro"
+              : currentModel;
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -1605,13 +1691,18 @@ export default function ChatPageShell({
     setIsStreaming(true);
     setActiveIndicatorMessageId(assistantId);
     responseTimingRef.current.assistantMessageId = assistantId;
+    const guestModelDisplay = speedModeEnabled
+      ? normalizeModelForSpeedMode(currentModel)
+      : currentModel;
     const {
       modelFamily: guestModelFamily,
       speedMode: guestSpeedMode,
       reasoningEffort: guestReasoningEffort,
-    } = getModelSettingsFromDisplayName(currentModel);
+    } = speedModeEnabled
+      ? getSpeedModeModelSettings(guestModelDisplay)
+      : getModelSettingsFromDisplayName(guestModelDisplay);
     const guestPreviewFamily: ModelFamily =
-      currentModel === "Auto" ? "gpt-5-mini" : guestModelFamily;
+      guestModelFamily === "auto" ? "gpt-5-mini" : guestModelFamily;
     const guestPreviewConfig = getModelAndReasoningConfig(
       guestPreviewFamily,
       guestSpeedMode,
@@ -1627,7 +1718,7 @@ export default function ChatPageShell({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           message: userMessage,
-          model: currentModel,
+          model: guestModelDisplay,
           previousResponseId: guestResponseIdsRef.current[chatId],
           history,
         }),
@@ -2090,13 +2181,18 @@ export default function ChatPageShell({
       responseTimingRef.current.assistantMessageId = assistantMessageId;
 
       // Get model settings from current display selection
+      const selectedModelDisplay = speedModeEnabled
+        ? normalizeModelForSpeedMode(currentModel)
+        : currentModel;
       const {
         modelFamily,
         speedMode,
         reasoningEffort: reasoningEffortOverride,
-      } = getModelSettingsFromDisplayName(currentModel);
+      } = speedModeEnabled
+        ? getSpeedModeModelSettings(selectedModelDisplay)
+        : getModelSettingsFromDisplayName(selectedModelDisplay);
       const previewFamilyForReasoning: ModelFamily =
-        currentModel === "Auto" ? "gpt-5-mini" : modelFamily;
+        modelFamily === "auto" ? "gpt-5-mini" : modelFamily;
       const previewModelConfig = getModelAndReasoningConfig(
         previewFamilyForReasoning,
         speedMode,
@@ -2151,6 +2247,7 @@ export default function ChatPageShell({
             modelFamilyOverride: modelFamily,
             speedModeOverride: speedMode,
             reasoningEffortOverride: reasoningEffortOverride,
+            speedModeEnabled,
             skipUserInsert,
             attachments,
             location: locationData,
@@ -2664,22 +2761,32 @@ export default function ChatPageShell({
     // Map retry model name to model settings (without changing the UI dropdown)
     let retryModelFamily: ModelFamily = "gpt-5-mini";
     let retrySpeedMode: SpeedMode = "auto";
+    let retryReasoningOverride: ReasoningEffort | undefined;
     if (retryModelName === "GPT 5 Nano") {
       retryModelFamily = "gpt-5-nano";
       retrySpeedMode = "auto";
+      retryReasoningOverride = speedModeEnabled ? "minimal" : undefined;
     } else if (retryModelName === "GPT 5 Mini") {
       retryModelFamily = "gpt-5-mini";
       retrySpeedMode = "auto";
+      retryReasoningOverride = speedModeEnabled ? "low" : undefined;
     } else if (retryModelName === "GPT 5.2") {
       retryModelFamily = "gpt-5.2";
       retrySpeedMode = "auto";
+      retryReasoningOverride = speedModeEnabled ? "medium" : undefined;
     } else if (retryModelName === "GPT 5.2 Pro" || retryModelName === "GPT 5 Pro") {
       retryModelFamily = "gpt-5.2-pro";
       retrySpeedMode = "auto";
+      retryReasoningOverride = speedModeEnabled ? "high" : undefined;
     }
     const retryPreviewConfig = isImageRetry
       ? null
-      : getModelAndReasoningConfig(retryModelFamily, retrySpeedMode, userMessage.content);
+      : getModelAndReasoningConfig(
+          retryModelFamily,
+          retrySpeedMode,
+          userMessage.content,
+          retryReasoningOverride
+        );
 
     // Start timing and show thinking indicator BEFORE removing message
     startResponseTiming();
@@ -2745,7 +2852,8 @@ export default function ChatPageShell({
           imageModel: retryGenerationMode === "image" ? retryImageModel : undefined,
           modelFamilyOverride: retryModelFamily,
           speedModeOverride: retrySpeedMode,
-          reasoningEffortOverride: undefined, // Let API auto-calculate
+          reasoningEffortOverride: retryReasoningOverride,
+          speedModeEnabled,
           skipUserInsert: true,
           location: locationData,
           clientNow: Date.now(),
@@ -3315,23 +3423,11 @@ export default function ChatPageShell({
             >
               <DropdownMenuTrigger asChild>
                 <Button
-                  variant="ghost"
-                  size="sm"
-                  className="h-9 w-auto gap-1.5 border-0 px-2 text-base font-semibold focus-visible:bg-transparent focus-visible:outline-none focus-visible:ring-0"
-                >
-                  {isImageMode
-                    ? currentImageModel === "nano-banana"
-                      ? "Nano Banana"
-                      : "Nano Banana Pro"
-                    : currentModel === "Auto"
-                      ? "GPT 5.2"
-                      : currentModel === "Instant"
-                        ? "GPT 5.2 Instant"
-                        : currentModel === "Thinking"
-                          ? "GPT 5.2 Thinking"
-                          : currentModel === "Pro"
-                            ? "GPT 5.2 Pro"
-                            : currentModel}
+                variant="ghost"
+                size="sm"
+                className="h-9 w-auto gap-1.5 border-0 px-2 text-base font-semibold focus-visible:bg-transparent focus-visible:outline-none focus-visible:ring-0"
+              >
+                  {modelTriggerLabel}
                   <ChevronDown className="h-4 w-4 text-muted-foreground" />
                 </Button>
               </DropdownMenuTrigger>
@@ -3381,165 +3477,223 @@ export default function ChatPageShell({
                     sideOffset={8}
                     className="w-auto min-w-[220px] max-w-[90vw] sm:w-64 space-y-1 py-2"
                   >
-                  <div className="px-3 pb-1 text-sm font-semibold text-muted-foreground">
-                    GPT 5.2
-                  </div>
-                  <DropdownMenuItem
-                    className="items-center gap-3 px-3 py-2"
-                    onSelect={() => setCurrentModel("Auto")}
-                  >
-                    <div className="flex flex-1 flex-col">
-                      <span className="font-medium leading-none">Auto</span>
-                      <span className="text-xs text-muted-foreground">
-                        Auto routing
-                      </span>
-                    </div>
-                    <span className="flex w-4 justify-end">
-                      {currentModel === "Auto" && <Check className="h-4 w-4" />}
-                    </span>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    className="items-center gap-3 px-3 py-2"
-                    onSelect={() => setCurrentModel("Instant")}
-                  >
-                    <div className="flex flex-1 flex-col">
-                      <span className="font-medium leading-none">Instant</span>
-                      <span className="text-xs text-muted-foreground">
-                        Answers right away
-                      </span>
-                    </div>
-                    <span className="flex w-4 justify-end">
-                      {currentModel === "Instant" && <Check className="h-4 w-4" />}
-                    </span>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    className="items-center gap-3 px-3 py-2"
-                    onSelect={() => setCurrentModel("Thinking")}
-                  >
-                    <div className="flex flex-1 flex-col">
-                      <span className="font-medium leading-none">Thinking</span>
-                      <span className="text-xs text-muted-foreground">
-                        Thinks longer for better answers
-                      </span>
-                    </div>
-                    <span className="flex w-4 justify-end">
-                      {currentModel === "Thinking" && <Check className="h-4 w-4" />}
-                    </span>
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    className="items-center gap-3 px-3 py-2"
-                    onSelect={() => setCurrentModel("Pro")}
-                  >
-                    <div className="flex flex-1 flex-col">
-                      <span className="font-medium leading-none">Pro</span>
-                      <span className="text-xs text-muted-foreground">Highest quality GPT 5.2</span>
-                    </div>
-                    <span className="flex w-4 justify-end">
-                      {currentModel === "Pro" && <Check className="h-4 w-4" />}
-                    </span>
-                  </DropdownMenuItem>
+                    {speedModeEnabled ? (
+                      <>
+                        <div className="px-3 pb-1 text-sm font-semibold text-muted-foreground">
+                          Model
+                        </div>
+                        <DropdownMenuItem
+                          className="items-center gap-3 px-3 py-2"
+                          onSelect={() => setCurrentModel("GPT 5 Nano")}
+                        >
+                          <div className="flex flex-1 flex-col">
+                            <span className="font-medium leading-none">GPT 5 Nano</span>
+                            <span className="text-xs text-muted-foreground">Minimal reasoning</span>
+                          </div>
+                          <span className="flex w-4 justify-end">
+                            {effectiveModelDisplay === "GPT 5 Nano" && <Check className="h-4 w-4" />}
+                          </span>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          className="items-center gap-3 px-3 py-2"
+                          onSelect={() => setCurrentModel("GPT 5 Mini")}
+                        >
+                          <div className="flex flex-1 flex-col">
+                            <span className="font-medium leading-none">GPT 5 Mini</span>
+                            <span className="text-xs text-muted-foreground">Low reasoning</span>
+                          </div>
+                          <span className="flex w-4 justify-end">
+                            {effectiveModelDisplay === "GPT 5 Mini" && <Check className="h-4 w-4" />}
+                          </span>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          className="items-center gap-3 px-3 py-2"
+                          onSelect={() => setCurrentModel("GPT 5.2")}
+                        >
+                          <div className="flex flex-1 flex-col">
+                            <span className="font-medium leading-none">GPT 5.2</span>
+                            <span className="text-xs text-muted-foreground">Medium reasoning</span>
+                          </div>
+                          <span className="flex w-4 justify-end">
+                            {effectiveModelDisplay === "GPT 5.2" && <Check className="h-4 w-4" />}
+                          </span>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          className="items-center gap-3 px-3 py-2"
+                          onSelect={() => setCurrentModel("GPT 5.2 Pro")}
+                        >
+                          <div className="flex flex-1 flex-col">
+                            <span className="font-medium leading-none">GPT 5.2 Pro</span>
+                            <span className="text-xs text-muted-foreground">High reasoning</span>
+                          </div>
+                          <span className="flex w-4 justify-end">
+                            {effectiveModelDisplay === "GPT 5.2 Pro" && <Check className="h-4 w-4" />}
+                          </span>
+                        </DropdownMenuItem>
+                      </>
+                    ) : (
+                      <>
+                        <div className="px-3 pb-1 text-sm font-semibold text-muted-foreground">
+                          GPT 5.2
+                        </div>
+                        <DropdownMenuItem
+                          className="items-center gap-3 px-3 py-2"
+                          onSelect={() => setCurrentModel("Auto")}
+                        >
+                          <div className="flex flex-1 flex-col">
+                            <span className="font-medium leading-none">Auto</span>
+                            <span className="text-xs text-muted-foreground">
+                              Auto routing
+                            </span>
+                          </div>
+                          <span className="flex w-4 justify-end">
+                            {currentModel === "Auto" && <Check className="h-4 w-4" />}
+                          </span>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          className="items-center gap-3 px-3 py-2"
+                          onSelect={() => setCurrentModel("Instant")}
+                        >
+                          <div className="flex flex-1 flex-col">
+                            <span className="font-medium leading-none">Instant</span>
+                            <span className="text-xs text-muted-foreground">
+                              Answers right away
+                            </span>
+                          </div>
+                          <span className="flex w-4 justify-end">
+                            {currentModel === "Instant" && <Check className="h-4 w-4" />}
+                          </span>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          className="items-center gap-3 px-3 py-2"
+                          onSelect={() => setCurrentModel("Thinking")}
+                        >
+                          <div className="flex flex-1 flex-col">
+                            <span className="font-medium leading-none">Thinking</span>
+                            <span className="text-xs text-muted-foreground">
+                              Thinks longer for better answers
+                            </span>
+                          </div>
+                          <span className="flex w-4 justify-end">
+                            {currentModel === "Thinking" && <Check className="h-4 w-4" />}
+                          </span>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          className="items-center gap-3 px-3 py-2"
+                          onSelect={() => setCurrentModel("Pro")}
+                        >
+                          <div className="flex flex-1 flex-col">
+                            <span className="font-medium leading-none">Pro</span>
+                            <span className="text-xs text-muted-foreground">Highest quality GPT 5.2</span>
+                          </div>
+                          <span className="flex w-4 justify-end">
+                            {currentModel === "Pro" && <Check className="h-4 w-4" />}
+                          </span>
+                        </DropdownMenuItem>
 
-                  <div className="px-2">
-                    <div className="h-px bg-border" />
-                  </div>
+                        <div className="px-2">
+                          <div className="h-px bg-border" />
+                        </div>
 
-                  <DropdownMenuItem
-                    className="items-center gap-3 px-3 py-2"
-                    onSelect={(e) => {
-                      e.preventDefault();
-                      setShowOtherModels((open) => !open);
-                    }}
-                  >
-                    <div className="flex flex-1 flex-col text-left">
-                      <span className="font-medium leading-none">
-                        Other models
-                      </span>
-                    </div>
-                    <ChevronDown
-                      className={`h-4 w-4 text-muted-foreground transition-transform ${showOtherModels ? "rotate-180" : ""}`}
-                    />
-                  </DropdownMenuItem>
-                  {showOtherModels && (
-                    <div className="mt-1 space-y-1 rounded-md border border-border/70 bg-popover px-2 py-2 text-foreground shadow-sm origin-top animate-in fade-in-0 zoom-in-95 duration-150">
-                      <div className="px-3 pb-1 text-sm font-semibold text-muted-foreground">
-                        GPT 5 Nano
-                      </div>
-                      <DropdownMenuItem
-                        className="items-center gap-3 px-3 py-2"
-                        onSelect={() => setCurrentModel("GPT 5 Nano Auto")}
-                      >
-                        <div className="flex flex-1 flex-col">
-                          <span className="font-medium leading-none">Auto</span>
-                        </div>
-                        <span className="flex w-4 justify-end">
-                          {currentModel === "GPT 5 Nano Auto" && <Check className="h-4 w-4" />}
-                        </span>
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        className="items-center gap-3 px-3 py-2"
-                        onSelect={() => setCurrentModel("GPT 5 Nano Instant")}
-                      >
-                        <div className="flex flex-1 flex-col">
-                          <span className="font-medium leading-none">Instant</span>
-                        </div>
-                        <span className="flex w-4 justify-end">
-                          {currentModel === "GPT 5 Nano Instant" && <Check className="h-4 w-4" />}
-                        </span>
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        className="items-center gap-3 px-3 py-2"
-                        onSelect={() => setCurrentModel("GPT 5 Nano Thinking")}
-                      >
-                        <div className="flex flex-1 flex-col">
-                          <span className="font-medium leading-none">Thinking</span>
-                        </div>
-                        <span className="flex w-4 justify-end">
-                          {currentModel === "GPT 5 Nano Thinking" && <Check className="h-4 w-4" />}
-                        </span>
-                      </DropdownMenuItem>
+                        <DropdownMenuItem
+                          className="items-center gap-3 px-3 py-2"
+                          onSelect={(e) => {
+                            e.preventDefault();
+                            setShowOtherModels((open) => !open);
+                          }}
+                        >
+                          <div className="flex flex-1 flex-col text-left">
+                            <span className="font-medium leading-none">
+                              Other models
+                            </span>
+                          </div>
+                          <ChevronDown
+                            className={`h-4 w-4 text-muted-foreground transition-transform ${showOtherModels ? "rotate-180" : ""}`}
+                          />
+                        </DropdownMenuItem>
+                        {showOtherModels && (
+                          <div className="mt-1 space-y-1 rounded-md border border-border/70 bg-popover px-2 py-2 text-foreground shadow-sm origin-top animate-in fade-in-0 zoom-in-95 duration-150">
+                            <div className="px-3 pb-1 text-sm font-semibold text-muted-foreground">
+                              GPT 5 Nano
+                            </div>
+                            <DropdownMenuItem
+                              className="items-center gap-3 px-3 py-2"
+                              onSelect={() => setCurrentModel("GPT 5 Nano Auto")}
+                            >
+                              <div className="flex flex-1 flex-col">
+                                <span className="font-medium leading-none">Auto</span>
+                              </div>
+                              <span className="flex w-4 justify-end">
+                                {currentModel === "GPT 5 Nano Auto" && <Check className="h-4 w-4" />}
+                              </span>
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              className="items-center gap-3 px-3 py-2"
+                              onSelect={() => setCurrentModel("GPT 5 Nano Instant")}
+                            >
+                              <div className="flex flex-1 flex-col">
+                                <span className="font-medium leading-none">Instant</span>
+                              </div>
+                              <span className="flex w-4 justify-end">
+                                {currentModel === "GPT 5 Nano Instant" && <Check className="h-4 w-4" />}
+                              </span>
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              className="items-center gap-3 px-3 py-2"
+                              onSelect={() => setCurrentModel("GPT 5 Nano Thinking")}
+                            >
+                              <div className="flex flex-1 flex-col">
+                                <span className="font-medium leading-none">Thinking</span>
+                              </div>
+                              <span className="flex w-4 justify-end">
+                                {currentModel === "GPT 5 Nano Thinking" && <Check className="h-4 w-4" />}
+                              </span>
+                            </DropdownMenuItem>
 
-                      <div className="px-2">
-                        <div className="h-px bg-border" />
-                      </div>
+                            <div className="px-2">
+                              <div className="h-px bg-border" />
+                            </div>
 
-                      <div className="px-3 pb-1 text-sm font-semibold text-muted-foreground">
-                        GPT 5 Mini
-                      </div>
-                      <DropdownMenuItem
-                        className="items-center gap-3 px-3 py-2"
-                        onSelect={() => setCurrentModel("GPT 5 Mini Auto")}
-                      >
-                        <div className="flex flex-1 flex-col">
-                          <span className="font-medium leading-none">Auto</span>
-                        </div>
-                        <span className="flex w-4 justify-end">
-                          {currentModel === "GPT 5 Mini Auto" && <Check className="h-4 w-4" />}
-                        </span>
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        className="items-center gap-3 px-3 py-2"
-                        onSelect={() => setCurrentModel("GPT 5 Mini Instant")}
-                      >
-                        <div className="flex flex-1 flex-col">
-                          <span className="font-medium leading-none">Instant</span>
-                        </div>
-                        <span className="flex w-4 justify-end">
-                          {currentModel === "GPT 5 Mini Instant" && <Check className="h-4 w-4" />}
-                        </span>
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        className="items-center gap-3 px-3 py-2"
-                        onSelect={() => setCurrentModel("GPT 5 Mini Thinking")}
-                      >
-                        <div className="flex flex-1 flex-col">
-                          <span className="font-medium leading-none">Thinking</span>
-                        </div>
-                        <span className="flex w-4 justify-end">
-                          {currentModel === "GPT 5 Mini Thinking" && <Check className="h-4 w-4" />}
-                        </span>
-                      </DropdownMenuItem>
-                    </div>
-                  )}
+                            <div className="px-3 pb-1 text-sm font-semibold text-muted-foreground">
+                              GPT 5 Mini
+                            </div>
+                            <DropdownMenuItem
+                              className="items-center gap-3 px-3 py-2"
+                              onSelect={() => setCurrentModel("GPT 5 Mini Auto")}
+                            >
+                              <div className="flex flex-1 flex-col">
+                                <span className="font-medium leading-none">Auto</span>
+                              </div>
+                              <span className="flex w-4 justify-end">
+                                {currentModel === "GPT 5 Mini Auto" && <Check className="h-4 w-4" />}
+                              </span>
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              className="items-center gap-3 px-3 py-2"
+                              onSelect={() => setCurrentModel("GPT 5 Mini Instant")}
+                            >
+                              <div className="flex flex-1 flex-col">
+                                <span className="font-medium leading-none">Instant</span>
+                              </div>
+                              <span className="flex w-4 justify-end">
+                                {currentModel === "GPT 5 Mini Instant" && <Check className="h-4 w-4" />}
+                              </span>
+                            </DropdownMenuItem>
+                            <DropdownMenuItem
+                              className="items-center gap-3 px-3 py-2"
+                              onSelect={() => setCurrentModel("GPT 5 Mini Thinking")}
+                            >
+                              <div className="flex flex-1 flex-col">
+                                <span className="font-medium leading-none">Thinking</span>
+                              </div>
+                              <span className="flex w-4 justify-end">
+                                {currentModel === "GPT 5 Mini Thinking" && <Check className="h-4 w-4" />}
+                              </span>
+                            </DropdownMenuItem>
+                          </div>
+                        )}
+                      </>
+                    )}
                 </DropdownMenuContent>
                 )
               ) : (
@@ -3593,6 +3747,9 @@ export default function ChatPageShell({
 	                });
 	              }}
 	              onToggleMode={(next) => {
+                  if (speedModeEnabled && next === "advanced") {
+                    return;
+                  }
 	                if (!effectiveChatId) {
 	                  setContextModeGlobal(next);
 	                  try {
@@ -3609,12 +3766,13 @@ export default function ChatPageShell({
                   }
                    return;
                  }
-                 setContextModeByChat((prev) => ({
-                   ...prev,
-                   [effectiveChatId]: next,
-                }));
-              }}
-            />
+	                  setContextModeByChat((prev) => ({
+	                    ...prev,
+	                    [effectiveChatId]: next,
+	                  }));
+	              }}
+	              speedModeEnabled={speedModeEnabled}
+	            />
             {isGuest ? (
               <>
                 <Button
@@ -3950,6 +4108,7 @@ function ContextUsageIndicator({
   advancedTopicIds,
   onChangeAdvancedTopicIds,
   onToggleMode,
+  speedModeEnabled,
 }: {
   usage: ContextUsageSnapshot;
   contextMode: "advanced" | "simple";
@@ -3960,6 +4119,7 @@ function ContextUsageIndicator({
   advancedTopicIds: string[] | null;
   onChangeAdvancedTopicIds: React.Dispatch<React.SetStateAction<string[] | null>>;
   onToggleMode: (next: "advanced" | "simple") => void;
+  speedModeEnabled: boolean;
 }) {
   const [isOpen, setIsOpen] = useState(false);
   const [isPinned, setIsPinned] = useState(false);
@@ -4370,6 +4530,8 @@ function ContextUsageIndicator({
                   size="sm"
                   variant="outline"
                   className="h-7 px-2 text-xs"
+                  disabled={speedModeEnabled}
+                  title={speedModeEnabled ? "Speed Mode forces simple context." : undefined}
                   onClick={() => onToggleMode(contextMode === "simple" ? "advanced" : "simple")}
                 >
                   {contextMode === "simple" ? "Simple" : "Advanced"}

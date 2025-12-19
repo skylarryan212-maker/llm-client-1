@@ -503,19 +503,22 @@ export function getModelSettingsFromDisplayName(displayName: string): ModelSetti
   if (displayName === "GPT 5 Nano Auto") return { modelFamily: "gpt-5-nano", speedMode: "auto" };
   if (displayName === "GPT 5 Nano Instant") return { modelFamily: "gpt-5-nano", speedMode: "instant", reasoningEffort: "low" };
   if (displayName === "GPT 5 Nano Thinking") return { modelFamily: "gpt-5-nano", speedMode: "thinking", reasoningEffort: "medium" };
+  if (displayName === "GPT 5 Nano") return { modelFamily: "gpt-5-nano", speedMode: "auto", reasoningEffort: "minimal" };
 
   // GPT 5 Mini options
   if (displayName === "GPT 5 Mini Auto") return { modelFamily: "gpt-5-mini", speedMode: "auto" };
   if (displayName === "GPT 5 Mini Instant") return { modelFamily: "gpt-5-mini", speedMode: "instant", reasoningEffort: "low" };
   if (displayName === "GPT 5 Mini Thinking") return { modelFamily: "gpt-5-mini", speedMode: "thinking", reasoningEffort: "medium" };
+  if (displayName === "GPT 5 Mini") return { modelFamily: "gpt-5-mini", speedMode: "auto", reasoningEffort: "low" };
 
   // GPT 5.2 options (explicit)
   if (displayName === "GPT 5.2 Auto") return { modelFamily: "gpt-5.2", speedMode: "auto" };
   if (displayName === "GPT 5.2 Instant") return { modelFamily: "gpt-5.2", speedMode: "instant", reasoningEffort: "low" };
   if (displayName === "GPT 5.2 Thinking") return { modelFamily: "gpt-5.2", speedMode: "thinking", reasoningEffort: "medium" };
+  if (displayName === "GPT 5.2") return { modelFamily: "gpt-5.2", speedMode: "auto", reasoningEffort: "medium" };
 
   // GPT 5.2 Pro
-  if (displayName === "GPT 5.2 Pro") return { modelFamily: "gpt-5.2-pro", speedMode: "auto" };
+  if (displayName === "GPT 5.2 Pro") return { modelFamily: "gpt-5.2-pro", speedMode: "auto", reasoningEffort: "high" };
 
   // Default
   return { modelFamily: "auto", speedMode: "auto" };

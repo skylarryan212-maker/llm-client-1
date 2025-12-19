@@ -47,8 +47,9 @@ export type DecisionRouterOutput = {
 
 export async function runDecisionRouter(params: {
   input: DecisionRouterInput;
+  allowLLM?: boolean;
 }): Promise<DecisionRouterOutput> {
-  const { input } = params;
+  const { input, allowLLM = true } = params;
 
   // Build prompt context
   const recentSection =
@@ -208,6 +209,10 @@ Return only the "labels" object matching the output schema.`;
       memoryTypesToLoad,
     };
   };
+
+  if (!allowLLM) {
+    return fallback();
+  }
 
   try {
     const { text } = await callDeepInfraLlama({
