@@ -117,11 +117,10 @@ Rules:
 - secondaryTopicIds: subset of provided topic ids, exclude primary; may be empty.
 - newParentTopicId: null or a provided topic id.
 - Model selection:
-  * Default to the cheapest safe model: gpt-5-nano for greetings, short factual answers, quick rewrites/classifications, short summaries, or yes/no/definition questions.
-  * Use gpt-5-mini for typical multi-step reasoning, moderate code/math, and medium-length writing/editing.
-  * Use gpt-5.2 only for clearly complex/long tasks (heavy code/debugging, research, system design) OR actionable/personalized requests in high-stakes domains (legal/financial/safety/security/privacy).
+  * Strongly prefer gpt-5-nano when the ask is short/straightforward: greetings/acknowledgements, short factual Q/A, short rewrites/summaries, classification/tagging, simple comparisons or 1-2 step instructions, no code or only trivial code edits (<10 lines), and user text length under ~120 words. Default to nano unless there is a clear reason to upgrade.
+  * Use gpt-5-mini when the request needs multi-step reasoning (3-5 steps), small but non-trivial code (single file, short functions, small bug fixes), moderate math, medium-length writing/planning, or the user text is moderately long/ambiguous (~120-400 words) and needs reasoning. If unsure between nano vs mini, choose nano.
+  * Use gpt-5.2 only for clearly complex/long tasks: multi-file or large code changes, refactors, debugging with stack traces, long-form writing (>400 words), deep planning/architecture, heavy math/proofs, or high-stakes domains (legal/financial/safety/security/privacy). If unsure between mini vs 5.2, choose mini.
   * ONLY use gpt-5.2-pro if the user explicitly prefers it AND the task is extremely high-stakes + complex. Otherwise downgrade to gpt-5.2/mini/nano.
-  * When unsure, choose the cheaper model.
 - Effort selection:
   * Effort is for the downstream chat model's response (not for routing).
   * Default to minimal/low; use medium only when strong complexity indicators are present.
