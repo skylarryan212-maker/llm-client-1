@@ -46,6 +46,12 @@ function normalizePlanType(value: string | null | undefined): PlanType {
   }
 }
 
+function toStoragePlanType(plan: PlanType): PlanType | "dev" {
+  // Database check constraint still expects legacy values. Store compatible values.
+  if (plan === "max") return "dev";
+  return plan;
+}
+
 export async function getUserPlan(): Promise<PlanType> {
   try {
     const userId = await getCurrentUserIdServer();
@@ -78,12 +84,13 @@ export async function getUserPlan(): Promise<PlanType> {
 
     const normalizedPlan = normalizePlanType((data as any).plan_type as string | null | undefined);
 
-    // If we loaded a legacy plan value, normalize it in the table.
-    if (normalizedPlan !== (data as any).plan_type) {
+    // If we loaded a legacy plan value, normalize it for return; keep storage compatible with DB constraint.
+    const storagePlanType = toStoragePlanType(normalizedPlan);
+    if (storagePlanType !== (data as any).plan_type) {
       await supabase
         .from("user_plans")
         .update({
-          plan_type: normalizedPlan,
+          plan_type: storagePlanType,
           updated_at: new Date().toISOString(),
         })
         .eq("user_id", userId);
@@ -190,18 +197,18 @@ export async function unlockPlanWithCode(
     const { error: upsertError } = await supabase
       .from("user_plans")
       .upsert(
-        {
-          user_id: userId,
-          plan_type: planType,
-          unlock_code: code,
-          is_active: true,
-          cancel_at: null,
-          cancel_at_period_end: false,
-          canceled_at: null,
-          current_period_start: period.currentPeriodStart,
-          current_period_end: period.currentPeriodEnd,
-          updated_at: new Date().toISOString(),
-        },
+          {
+            user_id: userId,
+            plan_type: toStoragePlanType(planType),
+            unlock_code: code,
+            is_active: true,
+            cancel_at: null,
+            cancel_at_period_end: false,
+            canceled_at: null,
+            current_period_start: period.currentPeriodStart,
+            current_period_end: period.currentPeriodEnd,
+            updated_at: new Date().toISOString(),
+          },
         { onConflict: "user_id" }
       );
 
@@ -277,7 +284,7 @@ export async function upgradeToPlan(
       .upsert(
         {
           user_id: userId,
-          plan_type: planType,
+          plan_type: toStoragePlanType(planType),
           is_active: true,
           cancel_at: null,
           cancel_at_period_end: false,
