@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { getUserPlan, type PlanType } from "@/app/actions/plan-actions";
 
 const PLAN_CACHE_KEY = "user_plan_cache";
@@ -82,7 +82,7 @@ export function useUserPlan() {
     };
   }, []);
 
-  const refreshPlan = async () => {
+  const refreshPlan = useCallback(async () => {
     setIsLoading(true);
     try {
       const userPlan = await getUserPlan();
@@ -94,7 +94,7 @@ export function useUserPlan() {
       setIsLoading(false);
       setHydrated(true);
     }
-  };
+  }, []);
 
   return { plan, isLoading, hydrated, refreshPlan };
 }
