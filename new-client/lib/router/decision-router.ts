@@ -50,22 +50,6 @@ export async function runDecisionRouter(params: {
 }): Promise<DecisionRouterOutput> {
   const { input } = params;
 
-  const cleanMessage = (input.userMessage || "").toLowerCase();
-  const isSimple =
-    cleanMessage.length < 200 &&
-    !/\b(code|debug|optimize|architecture|legal|financial|contract|regulation|compliance|safety|medical|diagnosis|research|analysis|proof|algorithm|design|strategy|roadmap)\b/i.test(
-      input.userMessage || ""
-    );
-  const isHighStakes =
-    /\b(legal|contract|financial|investment|trading|tax|regulation|compliance|safety|security|privacy|medical|diagnosis|clinical|pharma|liability|risk)\b/i.test(
-      input.userMessage || ""
-    );
-  const isHeavyReasoning =
-    cleanMessage.length > 500 ||
-    /\b(system design|architecture|performance|optimi[sz]e|scalability|benchmark|proof|algorithm|research|whitepaper|longform|multi-step|debug|stack\s?trace|crash)\b/i.test(
-      input.userMessage || ""
-    );
-
   // Build prompt context
   const recentSection =
     input.recentMessages && input.recentMessages.length
@@ -255,11 +239,7 @@ Return only the "labels" object matching the output schema.`;
     }
 
     const validEfforts: ReasoningEffort[] = ["none", "minimal", "low", "medium", "high", "xhigh"];
-    let effort: ReasoningEffort = validEfforts.includes(labels.effort) ? labels.effort : "minimal";
-    const fullModel = labels.model === "gpt-5.2" || labels.model === "gpt-5.2-pro";
-    if (!fullModel && (effort === "none" || effort === "xhigh")) {
-      effort = effort === "none" ? "minimal" : "high";
-    }
+    const effort: ReasoningEffort = validEfforts.includes(labels.effort) ? labels.effort : "minimal";
 
     // Enforce model preference if provided
     const userForcedModel = input.modelPreference !== "auto";
@@ -271,53 +251,6 @@ Return only the "labels" object matching the output schema.`;
     const userRequestedPro = input.modelPreference === "gpt-5.2-pro";
     if (!userForcedModel && model === "gpt-5.2-pro" && !userRequestedPro) {
       model = "gpt-5.2";
-    }
-
-    // Downgrade for simple/low-stakes tasks only when user didn't force a model.
-    if (!userForcedModel) {
-      if (isSimple) {
-        model = cleanMessage.length < 120 ? "gpt-5-nano" : "gpt-5-mini";
-        effort = effort === "high" || effort === "xhigh" ? "minimal" : effort;
-        if (effort === "none") effort = "minimal";
-      } else {
-        // If not explicitly high-stakes/heavy, bias to mini unless complexity is clear.
-        const allowHeavyModel = isHighStakes || isHeavyReasoning;
-        if (!allowHeavyModel && model === "gpt-5.2-pro" && !userRequestedPro) {
-          model = "gpt-5.2";
-        }
-        if (!allowHeavyModel && model === "gpt-5.2" && input.modelPreference === "auto") {
-          model = "gpt-5-mini";
-        }
-        if (!allowHeavyModel && model === "gpt-5-mini" && cleanMessage.length < 140) {
-          model = "gpt-5-nano";
-        }
-      }
-    }
-
-    // Effort tuning: avoid overusing "medium" in speedMode="auto" when the prompt isn't complex/high-stakes.
-    if (input.speedMode === "auto") {
-      if (isSimple) {
-        effort = cleanMessage.length < 120 ? "minimal" : "low";
-      } else if (!isHighStakes && !isHeavyReasoning && effort === "medium") {
-        effort = "low";
-      }
-    }
-
-    // Force effort ranges by speed mode
-    if (input.speedMode === "instant") {
-      if (!["none", "minimal", "low"].includes(effort)) {
-        effort = "minimal";
-      }
-    } else if (input.speedMode === "thinking") {
-      if (!["medium", "high", "xhigh"].includes(effort)) {
-        effort = "medium";
-      }
-    }
-
-    // Effort sanity for small models
-    if ((model === "gpt-5-nano" || model === "gpt-5-mini")) {
-      if (effort === "none") effort = "minimal";
-      if (effort === "high" || effort === "xhigh") effort = "medium";
     }
     // Enforce new topic invariants
     let secondaryTopicIds =
