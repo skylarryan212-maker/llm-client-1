@@ -38,6 +38,10 @@ export function MarkdownContent({ content, messageId, generatedFiles }: Markdown
   const [lightboxAlt, setLightboxAlt] = useState<string>('')
   const [lightboxCopied, setLightboxCopied] = useState(false)
   const [lightboxOriginalSrc, setLightboxOriginalSrc] = useState<string | null>(null)
+  const safeContent = useMemo(() => {
+    // Escape $ when immediately followed by a digit to avoid accidental math-mode rendering (pricing, counts).
+    return content.replace(/(^|[^\\])\$(\d)/g, '$1\\\\$$2')
+  }, [content])
 
   const handleCopyCode = async (code: string) => {
     await navigator.clipboard.writeText(code)
@@ -279,6 +283,7 @@ export function MarkdownContent({ content, messageId, generatedFiles }: Markdown
       <ReactMarkdown
         remarkPlugins={[remarkGfm, remarkMath]}
         rehypePlugins={[rehypeKatex, rehypeRaw]}
+        children={safeContent}
         components={{
         // Headings
         h1: withoutNode((props) => (
