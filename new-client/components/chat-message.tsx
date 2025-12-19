@@ -30,6 +30,7 @@ interface ChatMessageProps {
   enableEntryAnimation?: boolean
   suppressPreStreamAnimation?: boolean
   showModelActions?: boolean
+  modelTagClickable?: boolean
 }
 
 export function ChatMessage({
@@ -46,6 +47,7 @@ export function ChatMessage({
   enableEntryAnimation = false,
   suppressPreStreamAnimation = false,
   showModelActions = true,
+  modelTagClickable = true,
 }: ChatMessageProps) {
   const [copied, setCopied] = useState(false)
   const [retryModel, setRetryModel] = useState('')
@@ -189,11 +191,6 @@ export function ChatMessage({
           )}
           <div className="relative w-full flex justify-end">
             <div
-              className="absolute inset-x-0 -top-24 -bottom-24 pointer-events-auto"
-              onMouseEnter={() => setShowUserCopyHover(true)}
-              onMouseLeave={() => setShowUserCopyHover(false)}
-            />
-            <div
               className="relative max-w-[92%] sm:max-w-[85%] pb-6 min-w-0"
               onMouseEnter={() => setShowUserCopyHover(true)}
               onMouseLeave={() => setShowUserCopyHover(false)}
@@ -296,51 +293,57 @@ export function ChatMessage({
                 )}
                 
                 {!isGuest && displayModelName && showModelActions && (
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" size="sm" className="h-8 text-xs text-muted-foreground hover:text-foreground flex-shrink-0">
-                        {displayModelName}
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent
-                      align="start"
-                      className="w-auto min-w-max max-w-[90vw] whitespace-nowrap overflow-x-auto"
-                    >
-                      <DropdownMenuRadioGroup value={retryModel} onValueChange={handleRetryWithModel}>
-                        {isGeminiImageMessage ? (
-                          <>
-                            <DropdownMenuRadioItem value="Nano Banana">
-                              <span className="flex-1 whitespace-nowrap">Retry with Nano Banana</span>
-                              {displayModelName === 'Nano Banana' && <span className="text-xs text-muted-foreground ml-2">(current)</span>}
-                            </DropdownMenuRadioItem>
-                            <DropdownMenuRadioItem value="Nano Banana Pro">
-                              <span className="flex-1 whitespace-nowrap">Retry with Nano Banana Pro</span>
-                              {displayModelName === 'Nano Banana Pro' && <span className="text-xs text-muted-foreground ml-2">(current)</span>}
-                            </DropdownMenuRadioItem>
-                          </>
-                        ) : (
-                          <>
-                            <DropdownMenuRadioItem value="GPT 5 Nano">
-                              <span className="flex-1 whitespace-nowrap">Retry with GPT 5 Nano</span>
-                              {displayModelName === 'GPT 5 Nano' && <span className="text-xs text-muted-foreground ml-2">(current)</span>}
-                            </DropdownMenuRadioItem>
-                            <DropdownMenuRadioItem value="GPT 5 Mini">
-                              <span className="flex-1 whitespace-nowrap">Retry with GPT 5 Mini</span>
-                              {displayModelName === 'GPT 5 Mini' && <span className="text-xs text-muted-foreground ml-2">(current)</span>}
-                            </DropdownMenuRadioItem>
-                            <DropdownMenuRadioItem value="GPT 5.2">
-                              <span className="flex-1 whitespace-nowrap">Retry with GPT 5.2</span>
-                              {displayModelName === 'GPT 5.2' && <span className="text-xs text-muted-foreground ml-2">(current)</span>}
-                            </DropdownMenuRadioItem>
-                            <DropdownMenuRadioItem value="GPT 5.2 Pro">
-                              <span className="flex-1 whitespace-nowrap">Retry with GPT 5.2 Pro</span>
-                              {displayModelName === 'GPT 5.2 Pro' && <span className="text-xs text-muted-foreground ml-2">(current)</span>}
-                            </DropdownMenuRadioItem>
-                          </>
-                        )}
-                      </DropdownMenuRadioGroup>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
+                  modelTagClickable && Boolean(onRetry) ? (
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="sm" className="h-8 text-xs text-muted-foreground hover:text-foreground flex-shrink-0">
+                          {displayModelName}
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent
+                        align="start"
+                        className="w-auto min-w-max max-w-[90vw] whitespace-nowrap overflow-x-auto"
+                      >
+                        <DropdownMenuRadioGroup value={retryModel} onValueChange={handleRetryWithModel}>
+                          {isGeminiImageMessage ? (
+                            <>
+                              <DropdownMenuRadioItem value="Nano Banana">
+                                <span className="flex-1 whitespace-nowrap">Retry with Nano Banana</span>
+                                {displayModelName === 'Nano Banana' && <span className="text-xs text-muted-foreground ml-2">(current)</span>}
+                              </DropdownMenuRadioItem>
+                              <DropdownMenuRadioItem value="Nano Banana Pro">
+                                <span className="flex-1 whitespace-nowrap">Retry with Nano Banana Pro</span>
+                                {displayModelName === 'Nano Banana Pro' && <span className="text-xs text-muted-foreground ml-2">(current)</span>}
+                              </DropdownMenuRadioItem>
+                            </>
+                          ) : (
+                            <>
+                              <DropdownMenuRadioItem value="GPT 5 Nano">
+                                <span className="flex-1 whitespace-nowrap">Retry with GPT 5 Nano</span>
+                                {displayModelName === 'GPT 5 Nano' && <span className="text-xs text-muted-foreground ml-2">(current)</span>}
+                              </DropdownMenuRadioItem>
+                              <DropdownMenuRadioItem value="GPT 5 Mini">
+                                <span className="flex-1 whitespace-nowrap">Retry with GPT 5 Mini</span>
+                                {displayModelName === 'GPT 5 Mini' && <span className="text-xs text-muted-foreground ml-2">(current)</span>}
+                              </DropdownMenuRadioItem>
+                              <DropdownMenuRadioItem value="GPT 5.2">
+                                <span className="flex-1 whitespace-nowrap">Retry with GPT 5.2</span>
+                                {displayModelName === 'GPT 5.2' && <span className="text-xs text-muted-foreground ml-2">(current)</span>}
+                              </DropdownMenuRadioItem>
+                              <DropdownMenuRadioItem value="GPT 5.2 Pro">
+                                <span className="flex-1 whitespace-nowrap">Retry with GPT 5.2 Pro</span>
+                                {displayModelName === 'GPT 5.2 Pro' && <span className="text-xs text-muted-foreground ml-2">(current)</span>}
+                              </DropdownMenuRadioItem>
+                            </>
+                          )}
+                        </DropdownMenuRadioGroup>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  ) : (
+                    <span className="h-8 px-3 inline-flex items-center text-xs text-muted-foreground flex-shrink-0 select-none">
+                      {displayModelName}
+                    </span>
+                  )
                 )}
               </>
             )}

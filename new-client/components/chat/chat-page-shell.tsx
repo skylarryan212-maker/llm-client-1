@@ -1244,6 +1244,13 @@ export default function ChatPageShell({
     }
     return null;
   }, [messages]);
+  const mostRecentAssistantMessageId = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      const candidate = messages[i];
+      if (candidate?.role === "assistant") return candidate.id;
+    }
+    return null;
+  }, [messages]);
 
   const getEffectiveScrollBottom = useCallback(
     (viewport: HTMLDivElement) => {
@@ -3770,6 +3777,7 @@ export default function ChatPageShell({
                                 showInsightChips={false}
                                 isStreaming={isStreamingMessage}
                                 suppressPreStreamAnimation={hasFirstToken}
+                                modelTagClickable={message.id === mostRecentAssistantMessageId}
                                 onRetry={
                                   message.role === "assistant"
                                     ? (model) => handleRetryWithModel(model, message.id)
