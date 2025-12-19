@@ -2000,6 +2000,25 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Kick off simple context in parallel (only needs personalization + supabase + user/conversation ids)
+    const simpleContextPromise =
+      simpleContextMode && personalizationSettingsPromise
+        ? (async () => {
+            const personalizationSettings = await personalizationSettingsPromise;
+            const normalizedExternalChatIds = Array.isArray(simpleContextExternalChatIds)
+              ? simpleContextExternalChatIds.filter((id) => typeof id === "string")
+              : undefined;
+            return buildSimpleContextMessages(
+              supabaseAny,
+              conversationId,
+              userId,
+              Boolean(personalizationSettings?.referenceChatHistory),
+              normalizedExternalChatIds,
+              CONTEXT_LIMIT_TOKENS
+            );
+          })()
+        : null;
+
     const conversation = conversationData as ConversationRow;
 
     let projectMeta: { id: string; name: string | null } | null = null;
@@ -2506,24 +2525,6 @@ export async function POST(request: NextRequest) {
     const reasoningEffort = decision.effort ?? "none";
 
     // Load personalization settings (used for both context building and memory selection)
-    // Start simple-context fetch in parallel (awaited below).
-    const simpleContextPromise = simpleContextMode
-      ? (async () => {
-          const personalizationSettings = await personalizationSettingsPromise;
-          const normalizedExternalChatIds = Array.isArray(simpleContextExternalChatIds)
-            ? simpleContextExternalChatIds.filter((id) => typeof id === "string")
-            : undefined;
-          return buildSimpleContextMessages(
-            supabaseAny,
-            conversationId,
-            userId,
-            Boolean(personalizationSettings?.referenceChatHistory),
-            normalizedExternalChatIds,
-            CONTEXT_LIMIT_TOKENS
-          );
-        })()
-      : null;
-
     const personalizationSettings = await personalizationSettingsPromise;
     try {
       console.log("[personalization] loaded", {
