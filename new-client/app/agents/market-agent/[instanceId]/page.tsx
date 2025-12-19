@@ -2,6 +2,7 @@ export const dynamic = "force-dynamic";
 export const fetchCache = "force-no-store";
 
 import { notFound } from "next/navigation";
+import { redirect } from "next/navigation";
 
 import { MarketAgentInstanceView } from "@/components/market-agent/market-agent-instance";
 import {
@@ -10,6 +11,7 @@ import {
   getMarketAgentState,
   type MarketAgentFeedEvent,
 } from "@/lib/data/market-agent";
+import { getCurrentUserIdServer } from "@/lib/supabase/user";
 
 export default async function MarketAgentInstancePage({
   params,
@@ -17,6 +19,11 @@ export default async function MarketAgentInstancePage({
   params: { instanceId: string };
 }) {
   const { instanceId } = params;
+
+  const userId = await getCurrentUserIdServer();
+  if (!userId) {
+    redirect(`/login?next=/agents/market-agent/${instanceId}`);
+  }
 
   const instance = await getMarketAgentInstance(instanceId);
   if (!instance) {

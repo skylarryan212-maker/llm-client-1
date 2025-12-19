@@ -5,8 +5,15 @@ import { notFound } from "next/navigation";
 
 import { MarketAgentLanding } from "@/components/market-agent/market-agent-landing";
 import { getMarketAgentFeed } from "@/lib/data/market-agent";
+import { getCurrentUserIdServer } from "@/lib/supabase/user";
+import { redirect } from "next/navigation";
 
 export default async function MarketAgentPage() {
+  const userId = await getCurrentUserIdServer();
+  if (!userId) {
+    redirect("/login?next=/agents/market-agent");
+  }
+
   let data: Awaited<ReturnType<typeof getMarketAgentFeed>> | null = null;
   try {
     data = await getMarketAgentFeed({ limit: 14 });
