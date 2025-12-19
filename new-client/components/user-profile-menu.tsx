@@ -37,14 +37,10 @@ export function UserProfileMenu({ isCompressed, onSettingsOpen, onGeneralSetting
 
   const getPlanIcon = () => {
     switch (plan) {
-      case 'dev':
+      case 'max':
         return <Crown className="h-2.5 w-2.5" suppressHydrationWarning />
-      case 'pro':
-        return <Code2 className="h-2.5 w-2.5" suppressHydrationWarning />
       case 'plus':
         return <Zap className="h-2.5 w-2.5" suppressHydrationWarning />
-      case 'basic':
-        return <Star className="h-2.5 w-2.5" suppressHydrationWarning />
       default:
         return <Sparkles className="h-2.5 w-2.5" suppressHydrationWarning />
     }
@@ -52,7 +48,9 @@ export function UserProfileMenu({ isCompressed, onSettingsOpen, onGeneralSetting
 
   const getPlanLabel = () => {
     if (isGuest) return 'Guest'
-    return plan.charAt(0).toUpperCase() + plan.slice(1)
+    if (plan === 'max') return 'Max'
+    if (plan === 'plus') return 'Plus'
+    return 'Free'
   }
 
   const handleUpgradePlan = () => {

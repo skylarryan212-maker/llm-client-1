@@ -283,7 +283,6 @@ export function MarkdownContent({ content, messageId, generatedFiles }: Markdown
       <ReactMarkdown
         remarkPlugins={[remarkGfm, remarkMath]}
         rehypePlugins={[rehypeKatex, rehypeRaw]}
-        children={safeContent}
         components={{
         // Headings
         h1: withoutNode((props) => (
@@ -521,7 +520,7 @@ export function MarkdownContent({ content, messageId, generatedFiles }: Markdown
         }),
       }}
     >
-      {content}
+      {safeContent}
     </ReactMarkdown>
 
     {typeof document !== 'undefined' && lightboxNode ? createPortal(lightboxNode, document.body) : null}
