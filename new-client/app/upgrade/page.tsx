@@ -95,7 +95,7 @@ function UpgradePageContent() {
           </div>
 
           <div className="max-w-6xl mx-auto flex justify-center px-2">
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 auto-rows-fr gap-4 sm:gap-6 w-full place-items-stretch justify-items-center place-content-center justify-center">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-10 w-full">
           {filteredPlans.map((plan) => {
             const isCurrent = currentPlan === plan.id;
             const canDirectChange = currentPlan !== plan.id;
@@ -103,23 +103,18 @@ function UpgradePageContent() {
             return (
               <div
                 key={plan.id}
-                className="group relative w-full max-w-[280px] h-full overflow-hidden rounded-xl border border-border bg-card transition-all hover:border-primary/50 hover:shadow-lg hover:shadow-primary/10"
+                className="group relative w-full h-full overflow-hidden rounded-2xl border border-border bg-card transition-all hover:border-primary/50 hover:shadow-lg hover:shadow-primary/10"
               >
-                {plan.recommended && (
-                  <div className="absolute top-4 right-4 rounded-full bg-primary/20 px-3 py-1 text-xs font-semibold text-primary">
-                    RECOMMENDED
-                  </div>
-                )}
                 <div className={`pointer-events-none absolute inset-0 bg-gradient-to-br ${plan.gradientFrom} ${plan.gradientTo} opacity-0 transition-opacity group-hover:opacity-100`} />
-                <div className="relative p-5 flex flex-col h-full min-h-[260px]">
+                <div className="relative p-6 md:p-8 flex flex-col h-full min-h-[320px]">
                   <div className="mb-4">
-                    <h2 className="text-2xl font-bold text-foreground mb-1">{plan.name}</h2>
-                    <div className="flex items-baseline gap-1 mb-2">
+                    <h2 className="text-3xl font-bold text-foreground mb-2">{plan.name}</h2>
+                    <div className="flex items-baseline gap-1 mb-3">
                       <span className="text-sm text-muted-foreground">$</span>
-                      <span className="text-4xl font-bold text-foreground">{plan.price}</span>
+                      <span className="text-5xl font-bold text-foreground">{plan.price}</span>
                       <span className="text-sm text-muted-foreground">USD / month</span>
                     </div>
-                    <p className="text-sm text-muted-foreground">{plan.description}</p>
+                    <p className="text-base text-muted-foreground">{plan.description}</p>
                   </div>
 
                   <div className="space-y-2 flex-1">
