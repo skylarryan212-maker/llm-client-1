@@ -334,6 +334,7 @@ export default function ChatPageShell({
   const [composerLiftPx, setComposerLiftPx] = useState(0);
   const [showOtherModels, setShowOtherModels] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
+  const NEW_CHAT_SELECTION_KEY = "__new_chat__";
   const [contextUsageByChat, setContextUsageByChat] = useState<Record<string, ContextUsageSnapshot>>({});
   const [contextModeGlobal, setContextModeGlobal] = useState<"advanced" | "simple">(loadInitialContextModeGlobal);
   const [contextModeByChat, setContextModeByChat] = useState<Record<string, "advanced" | "simple">>(
@@ -415,7 +416,7 @@ export default function ChatPageShell({
     }
   }, [advancedTopicSelectionByChat]);
 
-	  const computeRecentExternalChatIds = useCallback(
+  const computeRecentExternalChatIds = useCallback(
 	    (excludeChatId: string | null) => {
       const cutoffMs = Date.now() - 7 * 24 * 60 * 60 * 1000;
       return (chats ?? [])
@@ -431,43 +432,74 @@ export default function ChatPageShell({
 	    [chats]
 	  );
 
-	  // Default for each chat: freeze context mode to current global when first opened.
-	  useEffect(() => {
-	    if (!selectedChatId) return;
-	    setContextModeByChat((prev) => {
-	      if (Object.prototype.hasOwnProperty.call(prev, selectedChatId)) return prev;
-	      return { ...prev, [selectedChatId]: contextModeGlobal };
-	    });
-	  }, [contextModeGlobal, selectedChatId]);
-
-	  // Default for each chat: select all recent chats (last 7 days).
-	  useEffect(() => {
-	    if (!selectedChatId) return;
-	    setSimpleExternalChatSelectionByChat((prev) => {
-	      if (Object.prototype.hasOwnProperty.call(prev, selectedChatId)) return prev;
-      return { ...prev, [selectedChatId]: computeRecentExternalChatIds(selectedChatId) };
+  // Default for each chat: freeze context mode to current global when first opened.
+  useEffect(() => {
+    if (!selectedChatId) return;
+    setContextModeByChat((prev) => {
+      if (Object.prototype.hasOwnProperty.call(prev, selectedChatId)) return prev;
+      return { ...prev, [selectedChatId]: contextModeGlobal };
     });
-  }, [computeRecentExternalChatIds, selectedChatId]);
+  }, [contextModeGlobal, selectedChatId]);
+
+  const selectionChatIdForContext = activeConversationId ?? selectedChatId;
+  const selectionKeyForContext = selectionChatIdForContext ?? NEW_CHAT_SELECTION_KEY;
+  const excludeChatIdForRecent = selectionChatIdForContext ?? null;
+
+  // Default for each chat: select all recent chats (last 7 days). If the user configured the "new chat"
+  // placeholder, carry that forward when a chat ID becomes available.
+  useEffect(() => {
+    if (!selectionChatIdForContext) return;
+    setSimpleExternalChatSelectionByChat((prev) => {
+      if (Object.prototype.hasOwnProperty.call(prev, selectionChatIdForContext)) {
+        if (!Object.prototype.hasOwnProperty.call(prev, NEW_CHAT_SELECTION_KEY)) return prev;
+        const { [NEW_CHAT_SELECTION_KEY]: _draft, ...rest } = prev;
+        return rest;
+      }
+
+      const draft = Object.prototype.hasOwnProperty.call(prev, NEW_CHAT_SELECTION_KEY)
+        ? prev[NEW_CHAT_SELECTION_KEY]
+        : computeRecentExternalChatIds(selectionChatIdForContext);
+      const { [NEW_CHAT_SELECTION_KEY]: _draft, ...rest } = prev;
+      return { ...rest, [selectionChatIdForContext]: draft };
+    });
+  }, [computeRecentExternalChatIds, selectionChatIdForContext]);
+
+  // Carry forward any advanced topic selection configured while on the new chat page.
+  useEffect(() => {
+    if (!selectionChatIdForContext) return;
+    setAdvancedTopicSelectionByChat((prev) => {
+      if (Object.prototype.hasOwnProperty.call(prev, selectionChatIdForContext)) {
+        if (!Object.prototype.hasOwnProperty.call(prev, NEW_CHAT_SELECTION_KEY)) return prev;
+        const { [NEW_CHAT_SELECTION_KEY]: _draft, ...rest } = prev;
+        return rest;
+      }
+      if (!Object.prototype.hasOwnProperty.call(prev, NEW_CHAT_SELECTION_KEY)) return prev;
+      const { [NEW_CHAT_SELECTION_KEY]: draft, ...rest } = prev;
+      return { ...rest, [selectionChatIdForContext]: draft };
+    });
+  }, [selectionChatIdForContext]);
 
   const simpleExternalChatIdsForActiveChat = useMemo(() => {
-    if (!selectedChatId) return null;
-    const value = simpleExternalChatSelectionByChat[selectedChatId];
-    return typeof value === "undefined" ? computeRecentExternalChatIds(selectedChatId) : value;
-  }, [computeRecentExternalChatIds, selectedChatId, simpleExternalChatSelectionByChat]);
+    const value = simpleExternalChatSelectionByChat[selectionKeyForContext];
+    return typeof value === "undefined" ? computeRecentExternalChatIds(excludeChatIdForRecent) : value;
+  }, [
+    computeRecentExternalChatIds,
+    excludeChatIdForRecent,
+    selectionKeyForContext,
+    simpleExternalChatSelectionByChat,
+  ]);
 
   const setSimpleExternalChatIdsForActiveChat = useCallback(
     (next: React.SetStateAction<string[] | null>) => {
-      if (!selectedChatId) return;
       setSimpleExternalChatSelectionByChat((prev) => {
+        const key = selectionChatIdForContext ?? NEW_CHAT_SELECTION_KEY;
         const current =
-          typeof prev[selectedChatId] === "undefined"
-            ? computeRecentExternalChatIds(selectedChatId)
-            : prev[selectedChatId];
+          typeof prev[key] === "undefined" ? computeRecentExternalChatIds(excludeChatIdForRecent) : prev[key];
         const resolved = typeof next === "function" ? (next as any)(current) : next;
-        return { ...prev, [selectedChatId]: resolved };
+        return { ...prev, [key]: resolved };
       });
     },
-    [computeRecentExternalChatIds, selectedChatId]
+    [computeRecentExternalChatIds, excludeChatIdForRecent, selectionChatIdForContext]
   );
 
   const getSimpleContextExternalChatIdsForChat = useCallback(
@@ -618,7 +650,7 @@ export default function ChatPageShell({
     (effectiveChatId && contextModeByChat[effectiveChatId]) || contextModeGlobal;
 	  const useSimpleContext = currentContextMode === "simple";
 	  const advancedTopicIdsForActiveChat =
-	    (effectiveChatId ? advancedTopicSelectionByChat[effectiveChatId] : null) ?? null;
+	    (advancedTopicSelectionByChat[selectionKeyForContext] ?? null) ?? null;
 	  const pathname = usePathname();
 
   useEffect(() => {
@@ -3500,11 +3532,11 @@ export default function ChatPageShell({
 	              onChangeSimpleExternalChatIds={setSimpleExternalChatIdsForActiveChat}
 	              advancedTopicIds={advancedTopicIdsForActiveChat}
 	              onChangeAdvancedTopicIds={(next) => {
-	                if (!effectiveChatId) return;
 	                setAdvancedTopicSelectionByChat((prev) => {
-	                  const current = typeof prev[effectiveChatId] === "undefined" ? null : prev[effectiveChatId];
+	                  const key = selectionKeyForContext;
+	                  const current = typeof prev[key] === "undefined" ? null : prev[key];
 	                  const resolved = typeof next === "function" ? (next as any)(current) : next;
-	                  return { ...prev, [effectiveChatId]: resolved };
+	                  return { ...prev, [key]: resolved };
 	                });
 	              }}
 	              onToggleMode={(next) => {
