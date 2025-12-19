@@ -438,7 +438,9 @@ export function SettingsModal({ isOpen, onClose, initialTab = 'preferences' }: S
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <Label className="text-base">Speed Mode</Label>
-                    <Info className="h-4 w-4 text-muted-foreground" aria-hidden title="Disables auto model selection and advanced context to keep responses fast." />
+                    <span title="Disables auto model selection and advanced context to keep responses fast.">
+                      <Info className="h-4 w-4 text-muted-foreground" aria-hidden />
+                    </span>
                   </div>
                   <Button
                     variant={speedModeEnabled ? "secondary" : "outline"}
