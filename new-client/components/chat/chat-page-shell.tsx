@@ -4112,10 +4112,6 @@ function ContextUsageIndicator({
                       setIsOpen(true);
                     }
                   }}
-                  onOpenAutoFocus={(e) => {
-                    // Prevent focus trap stealing focus from the hover card toggle.
-                    e.preventDefault();
-                  }}
                   onEscapeKeyDown={() => {
                     setIsConfigureOpen(false);
                     if (!isPinned) setIsOpen(false);
