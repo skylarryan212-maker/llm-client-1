@@ -22,6 +22,7 @@ export async function callDeepInfraLlama({
   schema,
   maxTokens = 400,
   model = "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
+  temperature = 1.0,
   enforceJson = true,
 }: {
   messages: ChatCompletionMessageParam[];
@@ -29,6 +30,7 @@ export async function callDeepInfraLlama({
   schema?: any;
   maxTokens?: number;
   model?: string;
+  temperature?: number;
   enforceJson?: boolean;
 }): Promise<{ text: string; usage: { input_tokens: number; output_tokens: number } }> {
   const client = getClient();
@@ -45,8 +47,7 @@ export async function callDeepInfraLlama({
   const completion = await client.chat.completions.create({
     model,
     messages: finalMessages,
-    // Max variability requested; 1.0 is the upper bound for this helper.
-    temperature: 1.0,
+    temperature,
     max_tokens: maxTokens,
     response_format: enforceJson ? { type: "json_object" } : undefined,
   });

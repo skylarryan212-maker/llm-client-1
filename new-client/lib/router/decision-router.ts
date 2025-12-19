@@ -139,13 +139,18 @@ Rules:
   * ONLY use gpt-5.2-pro if the user explicitly prefers it AND the task is extremely high-stakes + complex. Otherwise downgrade to gpt-5.2/mini/nano.
   * When unsure, choose the cheaper model.
 - Effort selection:
-  * Higher reasoning efforts are for highly nuanced or multi-constraint tasks.
-  * Default to minimal/low; use medium for normal multi-step work.
+  * Effort is for the downstream chat model's response (not for routing).
+  * Default to minimal/low; use medium only when strong complexity indicators are present.
+  * Guidance (speedMode="auto"):
+    - minimal: greetings/small-talk, short factual Q/A, simple rewrites, short summaries, straightforward instructions.
+    - low: most normal requests (2-5 simple steps), short coding, simple comparisons, light planning.
+    - medium: debugging, non-trivial code, math/proofs, multi-constraint planning, long-form outputs, high-stakes domains.
+  * If unsure between low vs medium, choose low.
   * High or xhigh only when the request is clearly rare, intricate, or high-stakes, and you are confident it needs extra depth.
   * For gpt-5-nano/gpt-5-mini: never emit "none"/"high"/"xhigh"; stay at minimal/low/medium. If a task would need high/xhigh, escalate the model instead of effort on nano/mini.
   * Speed mode:
-    - instant → effort MUST be one of: none, minimal, low (choose the lowest that fits the task).
-    - thinking → effort MUST be one of: medium, high, xhigh (choose the lowest that fits the task).
+    - instant -> effort MUST be one of: none, minimal, low (choose the lowest that fits the task).
+    - thinking -> effort MUST be one of: medium, high, xhigh (choose the lowest that fits the task; prefer medium unless clearly needed).
   * Model preference: if modelPreference is not "auto", you MUST return that exact model.
 - Arrays must be arrays (never null). No extra fields. No markdown.`;
 
@@ -229,6 +234,7 @@ Return only the "labels" object matching the output schema.`;
       ],
       schemaName: "decision_router",
       schema,
+      temperature: 0.2,
     });
     const cleaned = (text || "").replace(/```json|```/g, "").trim();
     const parsed = JSON.parse(cleaned);
@@ -285,6 +291,15 @@ Return only the "labels" object matching the output schema.`;
         if (!allowHeavyModel && model === "gpt-5-mini" && cleanMessage.length < 140) {
           model = "gpt-5-nano";
         }
+      }
+    }
+
+    // Effort tuning: avoid overusing "medium" in speedMode="auto" when the prompt isn't complex/high-stakes.
+    if (input.speedMode === "auto") {
+      if (isSimple) {
+        effort = cleanMessage.length < 120 ? "minimal" : "low";
+      } else if (!isHighStakes && !isHeavyReasoning && effort === "medium") {
+        effort = "low";
       }
     }
 
