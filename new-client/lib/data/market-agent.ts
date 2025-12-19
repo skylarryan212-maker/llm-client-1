@@ -84,14 +84,13 @@ export async function getMarketAgentInstance(instanceId: string): Promise<Market
     .from("market_agent_instances")
     .select("*")
     .eq("id", instanceId)
-    .eq("user_id", userId)
     .maybeSingle();
 
   if (error) {
     throw new Error(`Failed to load market agent instance: ${error.message}`);
   }
 
-  if (!instance) return null;
+  if (!instance || instance.user_id !== userId) return null;
 
   const { data: watchlistRows } = await client
     .from("market_agent_watchlist_items")
@@ -106,7 +105,9 @@ export async function getMarketAgentInstance(instanceId: string): Promise<Market
 
 export async function getMarketAgentState(instanceId: string): Promise<MarketAgentStateRow | null> {
   if (!isValidUuid(instanceId)) return null;
-  const userId = await requireUserIdServer();
+  const ownerInstance = await getMarketAgentInstance(instanceId);
+  if (!ownerInstance) return null;
+
   const admin = await getAdminClient();
   const supabase = await supabaseServer();
   const client: any = admin ?? (supabase as any);
@@ -122,16 +123,6 @@ export async function getMarketAgentState(instanceId: string): Promise<MarketAge
     throw new Error(`Failed to load market agent state: ${error.message}`);
   }
 
-  // Ensure ownership by joining instances (RLS already covers, but add safety)
-  if (data) {
-    const { data: instance } = await client
-      .from("market_agent_instances")
-      .select("user_id")
-      .eq("id", instanceId)
-      .maybeSingle();
-    if (!instance || instance.user_id !== userId) return null;
-  }
-
   return data ?? null;
 }
 
@@ -140,18 +131,12 @@ export async function getMarketAgentEvents(params: {
   limit?: number;
   beforeTs?: string;
 }): Promise<MarketAgentEventRow[]> {
+  const ownerInstance = await getMarketAgentInstance(params.instanceId);
+  if (!ownerInstance) return [];
+
   const admin = await getAdminClient();
   const supabase = await supabaseServer();
   const client: any = admin ?? (supabase as any);
-  const userId = await requireUserIdServer();
-
-  // Verify ownership
-  const { data: instance } = await client
-    .from("market_agent_instances")
-    .select("user_id")
-    .eq("id", params.instanceId)
-    .maybeSingle();
-  if (!instance || instance.user_id !== userId) return [];
 
   let query = client
     .from("market_agent_events")
@@ -209,9 +194,19 @@ export async function getMarketAgentFeed(params?: {
 
   const eventLimit = params?.limit && params.limit > 0 ? params.limit : 15;
 
+  // Instances still come from RLS-scoped list to respect ownership
+  const instances = await listMarketAgentInstances();
+  const instanceMap = new Map(instances.map((inst) => [inst.id, inst] as const));
+  const instanceIds = instances.map((inst) => inst.id);
+
+  if (!instanceIds.length) {
+    return { events: [], instances: [] };
+  }
+
   let eventsQuery = client
     .from("market_agent_events")
     .select("*")
+    .in("instance_id", instanceIds)
     .order("ts", { ascending: false })
     .limit(eventLimit);
 
@@ -223,10 +218,6 @@ export async function getMarketAgentFeed(params?: {
   if (error) {
     throw new Error(`Failed to load market agent feed: ${error.message}`);
   }
-
-  // Instances still come from RLS-scoped list to respect ownership
-  const instances = await listMarketAgentInstances();
-  const instanceMap = new Map(instances.map((inst) => [inst.id, inst] as const));
 
   const feedEvents: MarketAgentFeedEvent[] = (events ?? []).map((evt: any) => ({
     ...(evt as MarketAgentEventRow),
