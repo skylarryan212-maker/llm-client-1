@@ -88,6 +88,69 @@ export function PersonalizationPanel() {
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<number | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingSaveRef = useRef<Settings | null>(null);
+  const saveInFlightRef = useRef(false);
+  const isMountedRef = useRef(true);
+
+  function queueSave(next: Settings) {
+    pendingSaveRef.current = next;
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current);
+    }
+    saveTimerRef.current = setTimeout(() => {
+      saveTimerRef.current = null;
+      void savePending();
+    }, 650);
+  }
+
+  async function savePending() {
+    if (saveInFlightRef.current) return;
+    const snapshot = pendingSaveRef.current;
+    if (!snapshot) return;
+
+    pendingSaveRef.current = null;
+    saveInFlightRef.current = true;
+    if (isMountedRef.current) {
+      setSaving(true);
+    }
+
+    try {
+      const result = await savePersonalizationPreferences({
+        baseStyle: snapshot.baseStyle,
+        customInstructions: snapshot.customInstructions || "",
+        referenceSavedMemories: snapshot.referenceSavedMemories,
+        referenceChatHistory: snapshot.referenceChatHistory,
+        allowSavingMemory: snapshot.allowSavingMemory,
+      });
+      if (!result.success) {
+        if (isMountedRef.current) {
+          setSaveError(result.message || "Failed to save changes");
+        }
+        return;
+      }
+
+      persistCachedSettings(snapshot);
+
+      if (isMountedRef.current) {
+        setSaveError(null);
+        setSavedAt(Date.now());
+      }
+    } catch {
+      if (isMountedRef.current) {
+        setSaveError("Failed to save changes");
+      }
+    } finally {
+      saveInFlightRef.current = false;
+      if (isMountedRef.current) {
+        setSaving(false);
+      }
+
+      if (pendingSaveRef.current) {
+        queueSave(pendingSaveRef.current);
+      }
+    }
+  }
 
   useEffect(() => {
     let alive = true;
@@ -100,6 +163,23 @@ export function PersonalizationPanel() {
     });
     return () => {
       alive = false;
+      isMountedRef.current = false;
+      if (saveTimerRef.current) {
+        clearTimeout(saveTimerRef.current);
+        saveTimerRef.current = null;
+      }
+      if (!saveInFlightRef.current && pendingSaveRef.current) {
+        const snapshot = pendingSaveRef.current;
+        pendingSaveRef.current = null;
+        persistCachedSettings(snapshot);
+        void savePersonalizationPreferences({
+          baseStyle: snapshot.baseStyle,
+          customInstructions: snapshot.customInstructions || "",
+          referenceSavedMemories: snapshot.referenceSavedMemories,
+          referenceChatHistory: snapshot.referenceChatHistory,
+          allowSavingMemory: snapshot.allowSavingMemory,
+        }).catch(() => {});
+      }
     };
   }, []);
 
@@ -108,31 +188,15 @@ export function PersonalizationPanel() {
     hasEditedRef.current = true;
     const next = { ...settings, [key]: value };
     const parsed = SettingsSchema.safeParse(next);
-    if (parsed.success) setSettings(parsed.data);
+    if (!parsed.success) return;
+
+    setSettings(parsed.data);
+    persistCachedSettings(parsed.data);
+    setSaveError(null);
+    queueSave(parsed.data);
   };
 
-  const onSave = async () => {
-    if (!settings) return;
-    setSaving(true);
-    try {
-      const result = await savePersonalizationPreferences({
-        baseStyle: settings.baseStyle,
-        customInstructions: settings.customInstructions || "",
-        referenceSavedMemories: settings.referenceSavedMemories,
-        referenceChatHistory: settings.referenceChatHistory,
-        allowSavingMemory: settings.allowSavingMemory,
-      });
-      if (!result.success) {
-        setSaveError(result.message || "Failed to save changes");
-        return;
-      }
-        setSaveError(null);
-        setSavedAt(Date.now());
-        persistCachedSettings(settings);
-      } finally { setSaving(false); }
-    };
-
-  if (!settings) return <div>Loading…</div>;
+  if (!settings) return <div>Loading...</div>;
 
   return (
     <div className="space-y-6">
@@ -212,18 +276,14 @@ export function PersonalizationPanel() {
         </div>
       </section>
 
-      <div className="flex items-center justify-between pt-4 border-t">
-        <div>
-          {savedAt && (
-            <p className="text-xs text-muted-foreground">Saved {new Date(savedAt).toLocaleTimeString()}</p>
-          )}
-          {saveError && (
-            <p className="text-xs text-red-400">{saveError}</p>
-          )}
-        </div>
-        <Button onClick={onSave} disabled={saving}>
-          {saving ? "Saving…" : "Save changes"}
-        </Button>
+      <div className="pt-4 border-t">
+        {saveError ? (
+          <p className="text-xs text-red-400">{saveError}</p>
+        ) : saving ? (
+          <p className="text-xs text-muted-foreground">Saving...</p>
+        ) : savedAt ? (
+          <p className="text-xs text-muted-foreground">Saved {new Date(savedAt).toLocaleTimeString()}</p>
+        ) : null}
       </div>
 
       <ManageMemoriesModal open={openManage} onOpenChange={setOpenManage} />
