@@ -14,6 +14,14 @@ function isValidUuid(id?: string | null) {
   return typeof id === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id);
 }
 
+async function getAdminClient() {
+  try {
+    return await supabaseServerAdmin();
+  } catch {
+    return null;
+  }
+}
+
 export type MarketAgentInstanceWithWatchlist = MarketAgentInstanceRow & {
   watchlist: string[];
 };
@@ -68,22 +76,24 @@ export async function listMarketAgentInstances(): Promise<MarketAgentInstanceWit
 export async function getMarketAgentInstance(instanceId: string): Promise<MarketAgentInstanceWithWatchlist | null> {
   if (!isValidUuid(instanceId)) return null;
   const userId = await requireUserIdServer();
-  const admin = await supabaseServerAdmin();
-  const adminAny = admin as any;
+  const admin = await getAdminClient();
+  const supabase = await supabaseServer();
+  const client: any = admin ?? (supabase as any);
 
-  const { data: instance, error } = await adminAny
+  const { data: instance, error } = await client
     .from("market_agent_instances")
     .select("*")
     .eq("id", instanceId)
+    .eq("user_id", userId)
     .maybeSingle();
 
   if (error) {
     throw new Error(`Failed to load market agent instance: ${error.message}`);
   }
 
-  if (!instance || instance.user_id !== userId) return null;
+  if (!instance) return null;
 
-  const { data: watchlistRows } = await adminAny
+  const { data: watchlistRows } = await client
     .from("market_agent_watchlist_items")
     .select("symbol")
     .eq("instance_id", instanceId);
@@ -97,10 +107,11 @@ export async function getMarketAgentInstance(instanceId: string): Promise<Market
 export async function getMarketAgentState(instanceId: string): Promise<MarketAgentStateRow | null> {
   if (!isValidUuid(instanceId)) return null;
   const userId = await requireUserIdServer();
-  const admin = await supabaseServerAdmin();
-  const adminAny = admin as any;
+  const admin = await getAdminClient();
+  const supabase = await supabaseServer();
+  const client: any = admin ?? (supabase as any);
 
-  const { data, error } = await adminAny
+  const { data, error } = await client
     .from("market_agent_state")
     .select("*")
     .eq("instance_id", instanceId)
@@ -113,7 +124,7 @@ export async function getMarketAgentState(instanceId: string): Promise<MarketAge
 
   // Ensure ownership by joining instances (RLS already covers, but add safety)
   if (data) {
-    const { data: instance } = await adminAny
+    const { data: instance } = await client
       .from("market_agent_instances")
       .select("user_id")
       .eq("id", instanceId)
@@ -129,19 +140,20 @@ export async function getMarketAgentEvents(params: {
   limit?: number;
   beforeTs?: string;
 }): Promise<MarketAgentEventRow[]> {
-  const admin = await supabaseServerAdmin();
+  const admin = await getAdminClient();
+  const supabase = await supabaseServer();
+  const client: any = admin ?? (supabase as any);
   const userId = await requireUserIdServer();
-  const adminAny = admin as any;
 
   // Verify ownership
-  const { data: instance } = await adminAny
+  const { data: instance } = await client
     .from("market_agent_instances")
     .select("user_id")
     .eq("id", params.instanceId)
     .maybeSingle();
   if (!instance || instance.user_id !== userId) return [];
 
-  let query = adminAny
+  let query = client
     .from("market_agent_events")
     .select("*")
     .eq("instance_id", params.instanceId)
@@ -165,11 +177,12 @@ export async function getMarketAgentEvents(params: {
 }
 
 export async function getLatestMarketAgentEvents(limit = 10): Promise<MarketAgentEventRow[]> {
-  const admin = await supabaseServerAdmin();
-  const userId = await requireUserIdServer();
-  const adminAny = admin as any;
+  const admin = await getAdminClient();
+  const supabase = await supabaseServer();
+  const client: any = admin ?? (supabase as any);
+  await requireUserIdServer();
 
-  const { data, error } = await adminAny
+  const { data, error } = await client
     .from("market_agent_events")
     .select("*")
     .order("ts", { ascending: false })
@@ -189,13 +202,14 @@ export async function getMarketAgentFeed(params?: {
   events: MarketAgentFeedEvent[];
   instances: MarketAgentInstanceWithWatchlist[];
 }> {
-  const admin = await supabaseServerAdmin();
-  const userId = await requireUserIdServer();
-  const adminAny = admin as any;
+  const admin = await getAdminClient();
+  const supabase = await supabaseServer();
+  const client: any = admin ?? (supabase as any);
+  await requireUserIdServer();
 
   const eventLimit = params?.limit && params.limit > 0 ? params.limit : 15;
 
-  let eventsQuery = adminAny
+  let eventsQuery = client
     .from("market_agent_events")
     .select("*")
     .order("ts", { ascending: false })
