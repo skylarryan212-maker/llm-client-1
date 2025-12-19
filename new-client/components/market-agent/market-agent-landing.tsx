@@ -137,7 +137,7 @@ export function MarketAgentLanding({ initialInstances, initialEvents }: LandingP
   );
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-[#04060b] via-[#070915] to-[#0c0f20] text-foreground">
+    <div className="min-h-screen bg-gradient-to-b from-[#060606] via-[#050507] to-black text-foreground">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-10 sm:py-12 space-y-10">
         <div className="flex flex-wrap items-start justify-between gap-6">
           <div className="space-y-3">

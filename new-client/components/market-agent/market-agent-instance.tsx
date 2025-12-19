@@ -135,7 +135,7 @@ export function MarketAgentInstanceView({ instance, events, state }: Props) {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="min-h-screen bg-[#050505] text-foreground space-y-6 p-1 sm:p-3">
       <div className="rounded-2xl border border-border/60 bg-card/60 p-5 shadow-lg shadow-black/30 backdrop-blur">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="space-y-2">
