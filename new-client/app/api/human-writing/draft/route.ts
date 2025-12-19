@@ -144,7 +144,6 @@ export async function POST(request: NextRequest) {
     let tokensBeforeTrim = 0;
     let tokensAfterTrim = 0;
     let trimAttempts = 0;
-    let compactApplied = false;
 
     try {
       tokensBeforeTrim = countTokens(inputItems);
@@ -165,11 +164,10 @@ export async function POST(request: NextRequest) {
             }),
           });
           if (compactRes.ok) {
-            const compactJson = await compactRes.json();
-            if (Array.isArray(compactJson?.output) && compactJson.output.length) {
-              inputItems = compactJson.output as any;
-              compactApplied = true;
-            }
+              const compactJson = await compactRes.json();
+              if (Array.isArray(compactJson?.output) && compactJson.output.length) {
+                inputItems = compactJson.output as any;
+              }
           } else {
             console.warn("[human-writing][compact] non-200", await compactRes.text());
           }

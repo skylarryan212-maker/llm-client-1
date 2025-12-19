@@ -590,7 +590,7 @@ async function rehostAssistantInlineImages(params: {
   try {
     admin = await supabaseServerAdmin();
     await ensureAssistantImageBucket(admin);
-  } catch (err) {
+  } catch {
     admin = null;
   }
 
@@ -1053,6 +1053,8 @@ interface ChatRequestBody {
   location?: { lat: number; lng: number; city: string; timezone?: string };
   timezone?: string;
   clientNow?: number;
+  agentId?: string | null;
+  marketAgentContext?: { instanceId?: string | null; eventId?: string | null } | null;
 }
 
 type SearchStatusEvent =
@@ -1073,6 +1075,27 @@ type CodeInterpreterFileRef = {
   fileId: string;
   filename: string;
 };
+
+function stringifyPayloadSafe(value: unknown, max = 900): string {
+  try {
+    const raw = JSON.stringify(value, null, 2);
+    if (!raw) return "";
+    return raw.length > max ? `${raw.slice(0, max)}...` : raw;
+  } catch {
+    return "";
+  }
+}
+
+function summarizeMarketState(state: any): string | null {
+  if (!state || typeof state !== "object") return null;
+  const parts: string[] = [];
+  if (typeof state.assessment === "string") parts.push(`Assessment: ${state.assessment}`);
+  if (typeof state.regime === "string") parts.push(`Regime: ${state.regime}`);
+  if (typeof state.bias === "string") parts.push(`Bias: ${state.bias}`);
+  if (Array.isArray(state.alerts) && state.alerts.length) parts.push(`Alerts: ${state.alerts.join(", ")}`);
+  if (typeof state.note === "string") parts.push(`Note: ${state.note}`);
+  return parts.length ? parts.join(" | ") : null;
+}
 
 function extractCodeInterpreterFilesFromOutput(output: any): CodeInterpreterFileRef[] {
   if (!Array.isArray(output)) return [];
@@ -1362,25 +1385,6 @@ async function loadPersonalizationSettingsServer(
   } catch {
     return { referenceSavedMemories: true, allowSavingMemory: true, referenceChatHistory: true };
   }
-}
-
-function buildPermanentInstructionSummaryForRouter(
-  instructions: PermanentInstructionCacheItem[],
-  limit = 10
-): string {
-  if (!instructions.length) {
-    return "No permanent instructions are saved for this user yet.";
-  }
-  const lines = instructions.slice(0, limit).map((inst) => {
-    const summaryContent = inst.content.replace(/\s+/g, " ").trim();
-    const titleText = inst.title ? inst.title.replace(/\s+/g, " ").trim() : null;
-    const label = titleText ? `${titleText} – ${summaryContent}` : summaryContent;
-    const scopeLabel = inst.scope === "conversation" ? "conversation" : "user";
-    return `- [${inst.id} | ${scopeLabel}] ${label}`;
-  });
-  const extraCount = Math.max(instructions.length - limit, 0);
-  const suffix = extraCount > 0 ? `\n- ...and ${extraCount} more.` : "";
-  return `Current permanent instructions (use IDs if you need to delete one):\n${lines.join("\n")}${suffix}`;
 }
 
 function buildSystemPromptWithPersonalization(
@@ -1883,6 +1887,8 @@ export async function POST(request: NextRequest) {
 	      simpleContextMode = false,
 	      simpleContextExternalChatIds,
 	      advancedContextTopicIds,
+        agentId = null,
+        marketAgentContext = null,
 	    } = body;
     const headerGeo = getApproximateLocationFromHeaders(request);
     const effectiveLocation = location ?? headerGeo.location ?? null;
@@ -2052,6 +2058,25 @@ export async function POST(request: NextRequest) {
     // Code Interpreter session tracking is stored in conversation.metadata so we can reuse the same container.
     let conversationMetadata: any =
       conversation.metadata && typeof conversation.metadata === "object" ? (conversation.metadata as any) : {};
+    if (agentId === "market-agent" && marketAgentContext?.instanceId) {
+      const nextMeta = {
+        ...conversationMetadata,
+        agent: "market-agent",
+        agent_type: "market_agent",
+        market_agent_instance_id: marketAgentContext.instanceId,
+        agent_chat: true,
+      };
+      if (JSON.stringify(nextMeta) !== JSON.stringify(conversationMetadata)) {
+        const { error: convMetaErr } = await supabaseAny
+          .from("conversations")
+          .update({ metadata: nextMeta })
+          .eq("id", conversationId)
+          .eq("user_id", userId);
+        if (!convMetaErr) {
+          conversationMetadata = nextMeta;
+        }
+      }
+    }
     const ciMeta = conversationMetadata.codeInterpreter && typeof conversationMetadata.codeInterpreter === "object"
       ? conversationMetadata.codeInterpreter
       : {};
@@ -2118,9 +2143,29 @@ export async function POST(request: NextRequest) {
       }));
 
     // Optionally insert the user message unless the client indicates it's already persisted (e.g., first send via server action, or retry)
+    const buildUserMetadata = () => {
+      const meta: Record<string, unknown> = {};
+      if (attachments && attachments.length) {
+        meta.files = attachments.map((a) => ({
+          name: a.name,
+          mimeType: a.mime,
+          url: a.url,
+        }));
+      }
+      if (agentId) {
+        meta.agent = agentId;
+      }
+      if (marketAgentContext?.instanceId) {
+        meta.market_agent_instance_id = marketAgentContext.instanceId;
+      }
+      if (marketAgentContext?.eventId) {
+        meta.related_market_event_id = marketAgentContext.eventId;
+      }
+      return meta;
+    };
+
     let userMessageRow: MessageRow | null = null;
     let permanentInstructionState: { instructions: PermanentInstructionCacheItem[]; metadata: ConversationRow["metadata"] } | null = null;
-    let permanentInstructionSummaryForRouter = "No permanent instructions are saved for this user yet.";
     if (!skipUserInsert) {
       const insertResult = await supabaseAny
         .from("messages")
@@ -2129,9 +2174,7 @@ export async function POST(request: NextRequest) {
           conversation_id: conversationId,
           role: "user",
           content: message,
-          metadata: attachments && attachments.length
-            ? { files: attachments.map(a => ({ name: a.name, mimeType: a.mime, url: a.url })) }
-            : {},
+          metadata: buildUserMetadata(),
         })
         .select()
         .single();
@@ -2157,7 +2200,7 @@ export async function POST(request: NextRequest) {
       if (!latestErr && latestUser) {
         const nextMeta = {
           ...(latestUser.metadata || {}),
-          files: attachments.map(a => ({ name: a.name, mimeType: a.mime, url: a.url })),
+          ...buildUserMetadata(),
         } as Record<string, unknown>;
         const { error: updateErr } = await supabaseAny
           .from("messages")
@@ -2174,6 +2217,89 @@ export async function POST(request: NextRequest) {
       const latestFromHistory = recentMessages?.findLast((m: MessageRow) => m.role === "user");
       if (latestFromHistory) {
         userMessageRow = latestFromHistory as MessageRow;
+      }
+    }
+
+    const resolvedMarketInstanceId =
+      (marketAgentContext as any)?.instanceId ??
+      ((userMessageRow?.metadata as any)?.market_agent_instance_id as string | null) ??
+      (conversationMetadata && typeof conversationMetadata.market_agent_instance_id === "string"
+        ? (conversationMetadata.market_agent_instance_id as string)
+        : null);
+    const resolvedMarketEventId =
+      (marketAgentContext as any)?.eventId ??
+      ((userMessageRow?.metadata as any)?.related_market_event_id as string | null) ??
+      null;
+    const marketContextMessages: Array<{ role: "system"; content: string }> = [];
+
+    if (resolvedMarketInstanceId) {
+      const { data: instanceRow } = await supabaseAny
+        .from("market_agent_instances")
+        .select("*")
+        .eq("id", resolvedMarketInstanceId)
+        .maybeSingle();
+      const { data: watchlistRows } = await supabaseAny
+        .from("market_agent_watchlist_items")
+        .select("symbol")
+        .eq("instance_id", resolvedMarketInstanceId);
+      const watchlistSymbols = Array.isArray(watchlistRows)
+        ? (watchlistRows as any[]).map((row) => row.symbol).filter(Boolean)
+        : [];
+
+      if (instanceRow) {
+        const cadenceLabel =
+          instanceRow.cadence_seconds && instanceRow.cadence_seconds >= 60
+            ? `${Math.round(instanceRow.cadence_seconds / 60)}m`
+            : `${instanceRow.cadence_seconds}s`;
+        marketContextMessages.push({
+          role: "system",
+          content: `Market Agent instance ${instanceRow.label || resolvedMarketInstanceId} (status: ${instanceRow.status}, cadence: ${cadenceLabel}). Watchlist: ${
+            watchlistSymbols.length ? watchlistSymbols.join(", ") : "none"
+          }.`,
+        });
+      }
+
+      let marketEventRow: any = null;
+      if (resolvedMarketEventId) {
+        const { data: eventRow } = await supabaseAny
+          .from("market_agent_events")
+          .select("*")
+          .eq("id", resolvedMarketEventId)
+          .maybeSingle();
+        marketEventRow = eventRow;
+      } else {
+        const { data: eventRow } = await supabaseAny
+          .from("market_agent_events")
+          .select("*")
+          .eq("instance_id", resolvedMarketInstanceId)
+          .order("ts", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        marketEventRow = eventRow;
+      }
+      if (marketEventRow) {
+        const payloadSnippet = stringifyPayloadSafe((marketEventRow as any).payload, 900);
+        marketContextMessages.push({
+          role: "system",
+          content: `Latest market report (${marketEventRow.ts ?? marketEventRow.created_at ?? "recent"} | severity: ${
+            marketEventRow.severity
+          }): ${marketEventRow.summary || "No summary provided."}${payloadSnippet ? `\nDetails: ${payloadSnippet}` : ""}`,
+        });
+      }
+
+      const { data: stateRow } = await supabaseAny
+        .from("market_agent_state")
+        .select("*")
+        .eq("instance_id", resolvedMarketInstanceId)
+        .maybeSingle();
+      if (stateRow?.state) {
+        const stateText = summarizeMarketState(stateRow.state) ?? stringifyPayloadSafe(stateRow.state, 800);
+        if (stateText) {
+          marketContextMessages.push({
+            role: "system",
+            content: `Current agent state: ${stateText}`,
+          });
+        }
       }
     }
 
@@ -2374,9 +2500,6 @@ export async function POST(request: NextRequest) {
         conversation,
         forceRefresh: false,
       });
-      permanentInstructionSummaryForRouter = buildPermanentInstructionSummaryForRouter(
-        permanentInstructionState.instructions
-      );
     } catch (permInitErr) {
       console.error("[permanent-instructions] Failed to preload instructions:", permInitErr);
     }
@@ -2629,6 +2752,10 @@ export async function POST(request: NextRequest) {
           includedTopicIds.length ? includedTopicIds.join(", ") : "none"
         })`
       );
+    }
+
+    if (marketContextMessages.length) {
+      contextMessages = [...marketContextMessages, ...contextMessages];
     }
 
     const allowWebSearch = true;
@@ -2994,22 +3121,6 @@ export async function POST(request: NextRequest) {
     const workspaceInstruction = conversation.project_id
       ? `You are working in project "${projectMeta?.name ?? "Unnamed project"}" (ID: ${conversation.project_id}). Current chat: "${chatLabel}" (${conversation.id}). If asked what project you're in, answer with the project name.`
       : `No active project. Current chat: "${chatLabel}" (${conversation.id}). If asked what project you're in, explain this chat is outside a project.`;
-
-    const clientLocalTime = (() => {
-      try {
-        if (effectiveTimezone) {
-          const ts = typeof clientNow === "number" ? clientNow : Date.now();
-          return new Date(ts).toLocaleString("en-US", {
-            timeZone: effectiveTimezone,
-            dateStyle: "full",
-            timeStyle: "long",
-          });
-        }
-      } catch {
-        /* ignore */
-      }
-      return null;
-    })();
 
     // Base style + custom instructions should apply even when the user disables
     // saved-memory referencing (privacy). Only the memory blocks themselves are gated.
@@ -4483,7 +4594,11 @@ async function maybeGenerateArtifactsWithLLM({
   } catch (error: any) {
     console.error("[artifacts] Failed to insert artifacts:", error);
     if (String(error?.message || "").includes("keywords")) {
-      const insertsNoKeywords = inserts.map(({ keywords, ...rest }) => rest);
+    const insertsNoKeywords = inserts.map((insert) => {
+      const rest = { ...insert };
+      delete (rest as any).keywords;
+      return rest;
+    });
       try {
         await supabase.from("artifacts").insert(insertsNoKeywords);
         console.log(

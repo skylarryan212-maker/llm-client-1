@@ -1,4 +1,5 @@
 "use client";
+/* eslint-disable react-hooks/exhaustive-deps */
 
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
@@ -43,6 +44,8 @@ import { requestAutoNaming } from "@/lib/autoNaming";
 import type { AssistantMessageMetadata } from "@/lib/chatTypes";
 import { formatSearchedDomainsLine, formatThoughtDurationLabel } from "@/lib/metadata";
 import { MessageInsightChips } from "@/components/chat/message-insight-chips";
+import { MarketFeedSidebar } from "@/components/market-agent/market-feed-sidebar";
+import type { MarketAgentFeedEvent } from "@/lib/data/market-agent";
 import {
   navigateWithChatBodyFade,
   navigateWithMainPanelFade,
@@ -332,6 +335,22 @@ export default function ChatPageShell({
     activeConversationId ?? null
   );
   const prevActiveConversationIdRef = useRef<string | null>(activeConversationId);
+  const conversationKey = selectedChatId ?? "__new__";
+  const [agentSelectionByChat, setAgentSelectionByChat] = useState<Record<string, string | null>>({});
+  const [marketInstanceByChat, setMarketInstanceByChat] = useState<Record<string, string | null>>({});
+  const [composerPrefill, setComposerPrefill] = useState<string | null>(null);
+  const marketContextRef = useRef<{ instanceId?: string | null; eventId?: string | null } | null>(null);
+  const [isMarketSidebarOpen, setIsMarketSidebarOpen] = useState(false);
+  const selectedAgentId = agentSelectionByChat[conversationKey] ?? null;
+  const currentMarketInstanceId = marketInstanceByChat[conversationKey] ?? null;
+  const searchPrefillHandledRef = useRef(false);
+  const queuedMarketPrefillRef = useRef<{
+    message: string;
+    autoSend: boolean;
+    instanceId?: string | null;
+    eventId?: string | null;
+  } | null>(null);
+  const autoSendHandledRef = useRef(false);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -415,10 +434,77 @@ export default function ChatPageShell({
       void fetch("/api/storage/ensure-bucket", { method: "POST" }).catch(() => {});
     }, []);
 
-	  useEffect(() => {
-	    if (!hasLoadedModelSelectionRef.current) return;
-	    persistModelSelection(currentModel);
-	  }, [currentModel]);
+  useEffect(() => {
+    if (!hasLoadedModelSelectionRef.current) return;
+    persistModelSelection(currentModel);
+  }, [currentModel]);
+
+  useEffect(() => {
+    if (selectedAgentId === "market-agent") {
+      setIsMarketSidebarOpen(true);
+    } else if (!selectedAgentId) {
+      setIsMarketSidebarOpen(false);
+    }
+  }, [selectedAgentId]);
+
+  useEffect(() => {
+    if (searchPrefillHandledRef.current) return;
+    const prefillRaw = searchParams?.prefill;
+    const marketInstanceRaw = searchParams?.marketInstanceId;
+    const marketEventRaw = searchParams?.marketEventId;
+    const autoSendRaw = searchParams?.autoSend;
+
+    const prefill =
+      typeof prefillRaw === "string"
+        ? prefillRaw
+        : Array.isArray(prefillRaw)
+          ? prefillRaw[0]
+          : null;
+    const marketInstanceId =
+      typeof marketInstanceRaw === "string"
+        ? marketInstanceRaw
+        : Array.isArray(marketInstanceRaw)
+          ? marketInstanceRaw[0]
+          : null;
+    const marketEventId =
+      typeof marketEventRaw === "string"
+        ? marketEventRaw
+        : Array.isArray(marketEventRaw)
+          ? marketEventRaw[0]
+          : null;
+    const autoSendParam =
+      typeof autoSendRaw === "string"
+        ? autoSendRaw
+        : Array.isArray(autoSendRaw)
+          ? autoSendRaw[0]
+          : null;
+    const autoSend = autoSendParam === "1" || autoSendParam === "true";
+
+    if (!prefill && !marketInstanceId) return;
+
+    searchPrefillHandledRef.current = true;
+
+    if (marketInstanceId) {
+      setMarketInstanceByChat((prev) => ({ ...prev, [conversationKey]: marketInstanceId }));
+      setAgentSelectionByChat((prev) => ({ ...prev, [conversationKey]: "market-agent" }));
+      setIsMarketSidebarOpen(true);
+    }
+
+    if (prefill) {
+      setComposerPrefill(prefill);
+      const instanceForContext = marketInstanceId || currentMarketInstanceId || null;
+      marketContextRef.current = {
+        instanceId: instanceForContext,
+        eventId: marketEventId,
+      };
+      queuedMarketPrefillRef.current = {
+        message: prefill,
+        autoSend,
+        instanceId: instanceForContext,
+        eventId: marketEventId,
+      };
+    }
+  }, [conversationKey, currentMarketInstanceId, searchParams, setMarketInstanceByChat, setAgentSelectionByChat]);
 
   const [selectedProjectId, setSelectedProjectId] = useState(projectId ?? "");
   const [isNewProjectOpen, setIsNewProjectOpen] = useState(false);
@@ -567,14 +653,16 @@ export default function ChatPageShell({
     setSimpleExternalChatSelectionByChat((prev) => {
       if (Object.prototype.hasOwnProperty.call(prev, selectionChatIdForContext)) {
         if (!Object.prototype.hasOwnProperty.call(prev, NEW_CHAT_SELECTION_KEY)) return prev;
-        const { [NEW_CHAT_SELECTION_KEY]: _draft, ...rest } = prev;
+        const rest = { ...prev };
+        delete rest[NEW_CHAT_SELECTION_KEY];
         return rest;
       }
 
       const draft = Object.prototype.hasOwnProperty.call(prev, NEW_CHAT_SELECTION_KEY)
         ? prev[NEW_CHAT_SELECTION_KEY]
         : defaultSimpleSelection(selectionChatIdForContext);
-      const { [NEW_CHAT_SELECTION_KEY]: _draft, ...rest } = prev;
+      const rest = { ...prev };
+      delete rest[NEW_CHAT_SELECTION_KEY];
       return { ...rest, [selectionChatIdForContext]: draft };
     });
   }, [defaultSimpleSelection, selectionChatIdForContext]);
@@ -585,11 +673,13 @@ export default function ChatPageShell({
     setAdvancedTopicSelectionByChat((prev) => {
       if (Object.prototype.hasOwnProperty.call(prev, selectionChatIdForContext)) {
         if (!Object.prototype.hasOwnProperty.call(prev, NEW_CHAT_SELECTION_KEY)) return prev;
-        const { [NEW_CHAT_SELECTION_KEY]: _draft, ...rest } = prev;
+        const rest = { ...prev };
+        delete rest[NEW_CHAT_SELECTION_KEY];
         return rest;
       }
       if (!Object.prototype.hasOwnProperty.call(prev, NEW_CHAT_SELECTION_KEY)) return prev;
-      const { [NEW_CHAT_SELECTION_KEY]: draft, ...rest } = prev;
+      const rest = { ...prev };
+      delete rest[NEW_CHAT_SELECTION_KEY];
       return { ...rest, [selectionChatIdForContext]: draft };
     });
   }, [selectionChatIdForContext]);
@@ -1497,6 +1587,7 @@ export default function ChatPageShell({
       if (guardTimer) clearTimeout(guardTimer);
       isProgrammaticScrollRef.current = false;
     };
+    // We intentionally omit computeRequiredSpacerForMessage/getEffectiveScrollBottom to avoid churn.
   }, [messages.length, bottomSpacerPx]);
 
   const recomputeScrollFlags = useCallback(() => {
@@ -1819,23 +1910,74 @@ export default function ChatPageShell({
     }
   };
 
+  const handleAgentChange = useCallback(
+    (agentId: string | null) => {
+      setAgentSelectionByChat((prev) => ({ ...prev, [conversationKey]: agentId }));
+      if (agentId === "market-agent") {
+        setIsMarketSidebarOpen(true);
+      } else if (!agentId) {
+        setIsMarketSidebarOpen(false);
+        marketContextRef.current = null;
+      }
+    },
+    [conversationKey]
+  );
+
+  const handleMarketAsk = useCallback(
+    (event: MarketAgentFeedEvent) => {
+      const prompt =
+        event.summary && event.summary.length < 160
+          ? `Ask follow-up: ${event.summary}`
+          : "Ask the Market Agent about this update.";
+      setComposerPrefill(prompt);
+      marketContextRef.current = { instanceId: event.instance_id, eventId: event.id };
+      setAgentSelectionByChat((prev) => ({ ...prev, [conversationKey]: "market-agent" }));
+      setMarketInstanceByChat((prev) => ({ ...prev, [conversationKey]: event.instance_id }));
+      setIsMarketSidebarOpen(true);
+    },
+    [conversationKey]
+  );
+
   const handleSubmit = async (message: string, attachments?: UploadedFragment[]) => {
     console.log("[chatDebug] handleSubmit called with message:", message.substring(0, 50));
     const now = new Date().toISOString();
+    const marketContext = marketContextRef.current || (selectedAgentId === "market-agent" && currentMarketInstanceId
+      ? { instanceId: currentMarketInstanceId }
+      : null);
+    const userMetadata: Record<string, unknown> = {};
+    if (attachments && attachments.length) {
+      userMetadata.files = attachments.map((a) => ({
+        name: a.name,
+        mimeType: a.mime,
+        url: a.url,
+      }));
+    }
+    if (selectedAgentId) {
+      userMetadata.agent = selectedAgentId;
+    }
+    if (marketContext?.instanceId) {
+      userMetadata.market_agent_instance_id = marketContext.instanceId;
+    }
+    if (marketContext?.eventId) {
+      userMetadata.related_market_event_id = marketContext.eventId;
+    }
+
+    const conversationMetadata =
+      selectedAgentId === "market-agent" && (marketContext?.instanceId || currentMarketInstanceId)
+        ? {
+            agent: "market-agent",
+            agent_type: "market_agent",
+            market_agent_instance_id: marketContext?.instanceId ?? currentMarketInstanceId,
+            agent_chat: true,
+          }
+        : undefined;
+
     const userMessage: StoredMessage = {
       id: `user-${Date.now()}`,
       role: "user",
       content: message,
       timestamp: now,
-      metadata: attachments && attachments.length
-        ? {
-            files: attachments.map(a => ({
-              name: a.name,
-              mimeType: a.mime,
-              url: a.url,
-            })),
-          }
-        : undefined,
+      metadata: Object.keys(userMetadata).length ? userMetadata : undefined,
     };
 
     // Align the newly-sent user message to the top of the viewport (instead of
@@ -1895,6 +2037,8 @@ export default function ChatPageShell({
             projectId: targetProjectId,
             firstMessageContent: message,
             attachments,
+            conversationMetadata: conversationMetadata ?? null,
+            messageMetadata: Object.keys(userMetadata).length ? (userMetadata as any) : null,
           });
         saveAutoStreamPrefs(
           conversationId,
@@ -1906,16 +2050,7 @@ export default function ChatPageShell({
           role: "user",
           content: createdMessage.content ?? message,
           timestamp: createdMessage.created_at ?? now,
-          metadata:
-            attachments && attachments.length
-              ? {
-                  files: attachments.map((a) => ({
-                    name: a.name,
-                    mimeType: a.mime,
-                    url: a.url,
-                  })),
-                }
-              : undefined,
+          metadata: Object.keys(userMetadata).length ? userMetadata : undefined,
         };
 
         pinnedMessageIdRef.current = mappedMessage.id;
@@ -1928,6 +2063,15 @@ export default function ChatPageShell({
           initialMessages: [mappedMessage],
           title: conversation.title ?? "New chat",
         });
+        if (selectedAgentId) {
+          setAgentSelectionByChat((prev) => ({ ...prev, [conversationId]: selectedAgentId }));
+        }
+        if (marketContext?.instanceId || currentMarketInstanceId) {
+          setMarketInstanceByChat((prev) => ({
+            ...prev,
+            [conversationId]: marketContext?.instanceId ?? currentMarketInstanceId,
+          }));
+        }
         setSelectedChatId(newChatId);
         setSelectedProjectId(targetProjectId);
         lastCreatedConversationIdRef.current = conversationId;
@@ -1943,7 +2087,10 @@ export default function ChatPageShell({
         }
       } else {
         const { conversationId, message: createdMessage, conversation } =
-          await startGlobalConversationAction(message, attachments);
+          await startGlobalConversationAction(message, attachments, {
+            conversationMetadata: conversationMetadata ?? null,
+            messageMetadata: Object.keys(userMetadata).length ? (userMetadata as any) : null,
+          });
         saveAutoStreamPrefs(
           conversationId,
           isImageMode ? { generationMode: "image", imageModel: currentImageModel } : null
@@ -1954,16 +2101,7 @@ export default function ChatPageShell({
           role: "user",
           content: createdMessage.content ?? message,
           timestamp: createdMessage.created_at ?? now,
-          metadata:
-            attachments && attachments.length
-              ? {
-                  files: attachments.map((a) => ({
-                    name: a.name,
-                    mimeType: a.mime,
-                    url: a.url,
-                  })),
-                }
-              : undefined,
+          metadata: Object.keys(userMetadata).length ? userMetadata : undefined,
         };
 
         pinnedMessageIdRef.current = mappedMessage.id;
@@ -1975,6 +2113,15 @@ export default function ChatPageShell({
           initialMessages: [mappedMessage],
           title: conversation.title ?? "New chat",
         });
+        if (selectedAgentId) {
+          setAgentSelectionByChat((prev) => ({ ...prev, [conversationId]: selectedAgentId }));
+        }
+        if (marketContext?.instanceId || currentMarketInstanceId) {
+          setMarketInstanceByChat((prev) => ({
+            ...prev,
+            [conversationId]: marketContext?.instanceId ?? currentMarketInstanceId,
+          }));
+        }
         setSelectedChatId(newChatId);
         setSelectedProjectId("");
         lastCreatedConversationIdRef.current = conversationId;
@@ -1993,11 +2140,44 @@ export default function ChatPageShell({
       // For existing chats, just append the user message to UI
       // (The /api/chat endpoint will persist it to the database)
       appendMessages(selectedChatId, [userMessage]);
+      if (marketContext?.instanceId || currentMarketInstanceId) {
+        setMarketInstanceByChat((prev) => ({
+          ...prev,
+          [selectedChatId]: marketContext?.instanceId ?? currentMarketInstanceId,
+        }));
+      }
       
         // Stream the model response and insert the user message on server
-        await streamModelResponse(selectedChatId, selectedProjectId || undefined, message, selectedChatId, false, attachments);
+        await streamModelResponse(
+          selectedChatId,
+          selectedProjectId || undefined,
+          message,
+          selectedChatId,
+          false,
+          attachments,
+          undefined,
+          {
+            agentId: selectedAgentId,
+            marketAgentContext: marketContext ?? (currentMarketInstanceId ? { instanceId: currentMarketInstanceId } : null),
+            userMessageMetadata: Object.keys(userMetadata).length ? userMetadata : null,
+          }
+        );
     }
+    // Clear one-time follow-up context after use
+    marketContextRef.current = null;
   };
+
+  useEffect(() => {
+    const queued = queuedMarketPrefillRef.current;
+    if (!queued || !queued.autoSend || autoSendHandledRef.current) return;
+    if (!queued.message) return;
+    autoSendHandledRef.current = true;
+    marketContextRef.current = {
+      instanceId: queued.instanceId ?? currentMarketInstanceId,
+      eventId: queued.eventId ?? null,
+    };
+    void handleSubmit(queued.message);
+  }, [currentMarketInstanceId, handleSubmit]);
 
   const triggerAutoNaming = async (
     conversationId: string,
@@ -2132,7 +2312,12 @@ export default function ChatPageShell({
     chatId: string,
     skipUserInsert: boolean = false,
     attachments?: UploadedFragment[],
-    generationOverride?: AutoStreamPrefs
+    generationOverride?: AutoStreamPrefs,
+    extras?: {
+      agentId?: string | null;
+      marketAgentContext?: { instanceId?: string | null; eventId?: string | null } | null;
+      userMessageMetadata?: Record<string, unknown> | null;
+    }
   ) => {
     const requestKey = `${conversationId}:${message}`;
     if (inFlightRequests.current.has(requestKey)) {
@@ -2260,6 +2445,8 @@ export default function ChatPageShell({
             advancedContextTopicIds: !useSimpleContext
               ? getAdvancedContextTopicIdsForChat(chatId)
               : undefined,
+            agentId: extras?.agentId ?? null,
+            marketAgentContext: extras?.marketAgentContext ?? null,
           }),
           signal: controller.signal,
         });
@@ -2709,6 +2896,23 @@ export default function ChatPageShell({
       }
 
       const initialAttachments = buildAttachmentsFromMetadata(userMessage.metadata);
+      const marketInstanceId =
+        userMessage.metadata && typeof userMessage.metadata === "object"
+          ? ((userMessage.metadata as any).market_agent_instance_id as string | undefined)
+          : null;
+      const relatedMarketEventId =
+        userMessage.metadata && typeof userMessage.metadata === "object"
+          ? ((userMessage.metadata as any).related_market_event_id as string | undefined)
+          : null;
+      if (marketInstanceId) {
+        setMarketInstanceByChat((prev) => ({ ...prev, [activeConversationId]: marketInstanceId }));
+        setAgentSelectionByChat((prev) => ({ ...prev, [activeConversationId]: "market-agent" }));
+        setIsMarketSidebarOpen(true);
+      }
+      const autoMarketContext =
+        marketInstanceId || relatedMarketEventId
+          ? { instanceId: marketInstanceId ?? null, eventId: relatedMarketEventId ?? null }
+          : null;
 
       // Use ref to avoid retriggering on model dropdown changes
       streamModelResponseRef.current?.(
@@ -2718,7 +2922,12 @@ export default function ChatPageShell({
         activeConversationId,
         true, // skipUserInsert since message is already in DB
         initialAttachments.length ? initialAttachments : undefined,
-        prefs ?? undefined
+        prefs ?? undefined,
+        {
+          agentId: marketInstanceId ? "market-agent" : null,
+          marketAgentContext: autoMarketContext,
+          userMessageMetadata: userMessage.metadata as any,
+        }
       ).catch((err: unknown) => {
         console.error("Failed to stream initial message:", err);
       });
@@ -4019,11 +4228,24 @@ export default function ChatPageShell({
               isStreaming={isStreaming}
               onStop={handleStopGeneration}
               onCreateImage={() => setIsImageMode(true)}
-              placeholder={isImageMode ? "Describe the image you want to generate…" : undefined}
+              placeholder={isImageMode ? "Describe the image you want to generate..." : undefined}
+              prefillValue={composerPrefill}
+              onPrefillUsed={() => setComposerPrefill(null)}
+              selectedAgentId={selectedAgentId}
+              onAgentChange={handleAgentChange}
             />
           </div>
         </div>
       </div>
+      {!isGuest && (
+        <MarketFeedSidebar
+          isOpen={isMarketSidebarOpen && selectedAgentId === "market-agent"}
+          onClose={() => setIsMarketSidebarOpen(false)}
+          onAsk={handleMarketAsk}
+          onManage={() => navigateWithMainPanelFade(router, "/agents/market-agent")}
+          defaultInstanceId={currentMarketInstanceId ?? undefined}
+        />
+      )}
       {/* Insight sidebar */}
       <div
         className={`h-full flex-shrink-0 transition-all duration-300 ease-in-out border-l border-border bg-background overflow-hidden ${

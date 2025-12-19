@@ -3,7 +3,6 @@ export const runtime = "nodejs";
 import { NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase/server";
 import { getCurrentUserIdServer } from "@/lib/supabase/user";
-import type { Database } from "@/lib/supabase/types";
 
 export async function GET() {
   const userId = await getCurrentUserIdServer();

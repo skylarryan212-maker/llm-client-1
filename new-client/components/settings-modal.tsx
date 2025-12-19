@@ -157,7 +157,7 @@ export function SettingsModal({ isOpen, onClose, initialTab = 'preferences' }: S
         alive = false
       }
     }
-  }, [isOpen, initialTab, isGuest])
+  }, [isOpen, initialTab, isGuest, refreshPlan, fetchAccountData])
 
   useEffect(() => {
     if (!isOpen) return

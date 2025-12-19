@@ -37,6 +37,10 @@ type ChatComposerProps = {
   onCreateImage?: () => void;
   placeholder?: string;
   conversationId?: string | null;
+  prefillValue?: string | null;
+  onPrefillUsed?: () => void;
+  selectedAgentId?: string | null;
+  onAgentChange?: (agentId: string | null) => void;
 };
 
 const RESTORE_FOCUS_KEY = "llm-client:composer:restore-focus";
@@ -58,6 +62,10 @@ export function ChatComposer({
   onCreateImage,
   placeholder,
   conversationId,
+  prefillValue,
+  onPrefillUsed,
+  selectedAgentId: selectedAgentIdProp,
+  onAgentChange,
 }: ChatComposerProps) {
   const [value, setValue] = useState("");
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -72,7 +80,10 @@ export function ChatComposer({
 
   const NEW_CONVERSATION_KEY = "__new__";
   const conversationKey = conversationId ?? NEW_CONVERSATION_KEY;
-  const selectedAgentId = selectedAgentByConversation[conversationKey] ?? null;
+  const isAgentControlled = typeof selectedAgentIdProp !== "undefined";
+  const selectedAgentId = isAgentControlled
+    ? selectedAgentIdProp ?? null
+    : selectedAgentByConversation[conversationKey] ?? null;
   const selectedAgent = getFeaturedAgentById(selectedAgentId);
   const selectedAgentName = selectedAgent?.name ?? selectedAgentId ?? "";
   const SelectedAgentIcon = selectedAgent?.icon ?? Bot;
@@ -88,6 +99,7 @@ export function ChatComposer({
 
   const previousConversationKeyRef = useRef(conversationKey);
   useEffect(() => {
+    if (isAgentControlled) return;
     const prevKey = previousConversationKeyRef.current;
     if (prevKey === conversationKey) return;
     previousConversationKeyRef.current = conversationKey;
@@ -105,13 +117,16 @@ export function ChatComposer({
         return { ...rest, [conversationId]: pending };
       });
     }
-  }, [conversationId, conversationKey]);
+  }, [conversationId, conversationKey, isAgentControlled]);
 
   const setSelectedAgentIdForConversation = useCallback(
     (next: string | null) => {
-      setSelectedAgentByConversation((prev) => ({ ...prev, [conversationKey]: next }));
+      if (!isAgentControlled) {
+        setSelectedAgentByConversation((prev) => ({ ...prev, [conversationKey]: next }));
+      }
+      onAgentChange?.(next);
     },
-    [conversationKey]
+    [conversationKey, isAgentControlled, onAgentChange]
   );
 
   // Voice recording state
@@ -544,6 +559,14 @@ export function ChatComposer({
     setAttachmentError(null);
     void handleFilesSelected(files);
   };
+
+  useEffect(() => {
+    if (typeof prefillValue !== "string" || prefillValue.length === 0) return;
+    setValue(prefillValue);
+    // Focus composer to make follow-ups fast
+    textareaRef.current?.focus();
+    onPrefillUsed?.();
+  }, [prefillValue, onPrefillUsed]);
 
   return (
     <form onSubmit={handleFormSubmit}>

@@ -97,7 +97,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       conversationId,
-      messages: hydrated.map(({ id: _id, order_ts: _order, ...rest }) => rest),
+      messages: hydrated.map(({ ...rest }) => rest),
     });
   } catch (error: any) {
     console.error("[human-writing][history] error:", error);

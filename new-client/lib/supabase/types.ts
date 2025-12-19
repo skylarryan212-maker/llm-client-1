@@ -278,6 +278,105 @@ export interface ArtifactUpdate {
   content?: string;
 }
 
+export interface MarketAgentInstance {
+  id: string;
+  user_id: string;
+  label: string;
+  status: "running" | "paused";
+  cadence_seconds: number;
+  config: Json;
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface MarketAgentInstanceInsert {
+  user_id: string;
+  label?: string | null;
+  status?: "running" | "paused";
+  cadence_seconds: number;
+  config?: Json;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface MarketAgentInstanceUpdate {
+  label?: string | null;
+  status?: "running" | "paused";
+  cadence_seconds?: number;
+  config?: Json;
+  updated_at?: string | null;
+}
+
+export interface MarketAgentWatchlistItem {
+  id: string;
+  instance_id: string;
+  symbol: string;
+  created_at: string | null;
+}
+
+export interface MarketAgentWatchlistItemInsert {
+  instance_id: string;
+  symbol: string;
+  created_at?: string | null;
+}
+
+export interface MarketAgentWatchlistItemUpdate {
+  symbol?: string;
+}
+
+export interface MarketAgentEvent {
+  id: string;
+  instance_id: string;
+  ts: string | null;
+  event_type: string;
+  severity: "info" | "important" | "critical";
+  summary: string;
+  payload: Json;
+  model_used: string | null;
+  created_at: string | null;
+}
+
+export interface MarketAgentEventInsert {
+  instance_id: string;
+  event_type: string;
+  severity?: "info" | "important" | "critical";
+  summary?: string;
+  payload?: Json;
+  model_used?: string | null;
+  ts?: string | null;
+  created_at?: string | null;
+}
+
+export interface MarketAgentEventUpdate {
+  event_type?: string;
+  severity?: "info" | "important" | "critical";
+  summary?: string;
+  payload?: Json;
+  model_used?: string | null;
+  ts?: string | null;
+  created_at?: string | null;
+}
+
+export interface MarketAgentState {
+  instance_id: string;
+  state: Json;
+  state_version: number;
+  updated_at: string | null;
+}
+
+export interface MarketAgentStateInsert {
+  instance_id: string;
+  state?: Json;
+  state_version?: number;
+  updated_at?: string | null;
+}
+
+export interface MarketAgentStateUpdate {
+  state?: Json;
+  state_version?: number;
+  updated_at?: string | null;
+}
+
 export interface Database {
   public: {
     Tables: {
@@ -330,6 +429,26 @@ export interface Database {
         Row: Artifact;
         Insert: ArtifactInsert;
         Update: ArtifactUpdate;
+      };
+      market_agent_instances: {
+        Row: MarketAgentInstance;
+        Insert: MarketAgentInstanceInsert;
+        Update: MarketAgentInstanceUpdate;
+      };
+      market_agent_watchlist_items: {
+        Row: MarketAgentWatchlistItem;
+        Insert: MarketAgentWatchlistItemInsert;
+        Update: MarketAgentWatchlistItemUpdate;
+      };
+      market_agent_events: {
+        Row: MarketAgentEvent;
+        Insert: MarketAgentEventInsert;
+        Update: MarketAgentEventUpdate;
+      };
+      market_agent_state: {
+        Row: MarketAgentState;
+        Insert: MarketAgentStateInsert;
+        Update: MarketAgentStateUpdate;
       };
     };
   };

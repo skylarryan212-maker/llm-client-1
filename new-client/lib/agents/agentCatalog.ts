@@ -31,6 +31,8 @@ export const AGENT_CATALOG: AgentCatalogItem[] = [
     title: "Market Agent",
     description:
       "Real-time market analysis and insights. Track trends, analyze data, generate reports, and make data-driven decisions with AI-powered market intelligence.",
+    href: "/agents/market-agent",
+    gradient: "bg-gradient-to-br from-emerald-500 via-cyan-500 to-blue-600",
   },
   {
     id: "automation-builder",

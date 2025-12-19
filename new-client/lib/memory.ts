@@ -67,13 +67,11 @@ export async function fetchMemories({
   types = 'all',
   limit = 50,
   userId,
-  conversationId,
 }: { 
   query?: string; 
   types?: MemoryType | MemoryType[] | 'all'; 
   limit?: number;
   userId?: string;
-  conversationId?: string;
 }) {
   // Normalize types to array for consistent handling
   const typeArray = types === 'all' ? null : (Array.isArray(types) ? types : [types]);

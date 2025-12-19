@@ -52,30 +52,6 @@ export async function runDecisionRouter(params: {
   const { input, allowLLM = true } = params;
 
   // Build prompt context
-  const recentSection =
-    input.recentMessages && input.recentMessages.length
-      ? input.recentMessages
-          .slice(-6)
-          .map((m) => `- ${m.role || "user"}: ${(m.content || "").replace(/\s+/g, " ").slice(0, 240)}`)
-          .join("\n")
-      : "No prior messages.";
-
-  const topicSection =
-    input.topics && input.topics.length
-      ? input.topics
-          .slice(0, 30)
-          .map((t) => `- [${t.id}] ${t.label} ${t.summary ? "| " + t.summary.slice(0, 160) : ""}`)
-          .join("\n")
-      : "No topics.";
-
-  const artifactSection =
-    input.artifacts && input.artifacts.length
-      ? input.artifacts
-          .slice(0, 30)
-          .map((a) => `- [${a.id}] ${a.title} ${a.summary ? "| " + a.summary.slice(0, 160) : ""}`)
-          .join("\n")
-      : "No artifacts.";
-
   const memorySection =
     input.memories && input.memories.length
       ? input.memories

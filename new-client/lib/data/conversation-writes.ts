@@ -1,6 +1,6 @@
 import { supabaseServer } from "@/lib/supabase/server";
 import { requireUserIdServer } from "@/lib/supabase/user";
-import type { Database } from "@/lib/supabase/types";
+import type { Database, Json } from "@/lib/supabase/types";
 
 type ConversationRow = Database["public"]["Tables"]["conversations"]["Row"];
 type MessageRow = Database["public"]["Tables"]["messages"]["Row"];
@@ -12,10 +12,30 @@ type AttachmentInput = {
   url?: string;
 };
 
+function buildMessageMetadata(
+  attachments?: AttachmentInput[],
+  extra?: Json | null
+): Record<string, unknown> {
+  const metadata: Record<string, unknown> = {};
+  if (attachments && attachments.length) {
+    metadata.files = attachments.map((file) => ({
+      name: file.name,
+      mimeType: file.mime,
+      url: file.url,
+    }));
+  }
+  if (extra && typeof extra === "object" && !Array.isArray(extra)) {
+    Object.assign(metadata, extra as Record<string, unknown>);
+  }
+  return metadata;
+}
+
 export async function createGlobalConversationWithFirstMessage(params: {
   title?: string | null;
   firstMessageContent: string;
   attachments?: AttachmentInput[];
+  conversationMetadata?: Json | null;
+  messageMetadata?: Json | null;
 }): Promise<{
   conversation: ConversationRow;
   message: MessageRow; // first user message
@@ -32,7 +52,7 @@ export async function createGlobalConversationWithFirstMessage(params: {
         user_id: userId,
         title: params.title ?? null,
         project_id: null,
-        metadata: {},
+        metadata: params.conversationMetadata ?? {},
       },
     ])
     .select()
@@ -55,16 +75,7 @@ export async function createGlobalConversationWithFirstMessage(params: {
         conversation_id: conversation.id,
         role: "user",
         content: params.firstMessageContent,
-        metadata:
-          params.attachments && params.attachments.length
-            ? {
-                files: params.attachments.map((file) => ({
-                  name: file.name,
-                  mimeType: file.mime,
-                  url: file.url,
-                })),
-              }
-            : {},
+        metadata: buildMessageMetadata(params.attachments, params.messageMetadata),
       },
     ])
     .select()
@@ -85,6 +96,8 @@ export async function createProjectConversationWithFirstMessage(params: {
   projectId: string;
   firstMessageContent: string;
   attachments?: AttachmentInput[];
+  conversationMetadata?: Json | null;
+  messageMetadata?: Json | null;
 }): Promise<{
   conversation: ConversationRow;
   message: MessageRow; // first user message
@@ -101,7 +114,7 @@ export async function createProjectConversationWithFirstMessage(params: {
         user_id: userId,
         title: "New chat",
         project_id: params.projectId,
-        metadata: {},
+        metadata: params.conversationMetadata ?? {},
       },
     ])
     .select()
@@ -124,16 +137,7 @@ export async function createProjectConversationWithFirstMessage(params: {
         conversation_id: conversation.id,
         role: "user",
         content: params.firstMessageContent,
-        metadata:
-          params.attachments && params.attachments.length
-            ? {
-                files: params.attachments.map((file) => ({
-                  name: file.name,
-                  mimeType: file.mime,
-                  url: file.url,
-                })),
-              }
-            : {},
+        metadata: buildMessageMetadata(params.attachments, params.messageMetadata),
       },
     ])
     .select()
@@ -154,6 +158,7 @@ export async function appendMessageToConversation(params: {
   conversationId: string;
   role: "user" | "assistant";
   content: string;
+  metadata?: Json | null;
 }): Promise<MessageRow> {
   const supabase = await supabaseServer();
   const userId = await requireUserIdServer();
@@ -168,7 +173,7 @@ export async function appendMessageToConversation(params: {
         conversation_id: params.conversationId,
         role: params.role,
         content: params.content,
-        metadata: {},
+        metadata: params.metadata ?? {},
       },
     ])
     .select()

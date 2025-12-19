@@ -203,7 +203,7 @@ function ChatInner({ params }: PageProps) {
               if (obj.done) {
                 done = true;
               }
-            } catch (err) {
+            } catch {
               console.warn("[draft-stream] failed to parse line", line);
             }
           }
@@ -220,7 +220,7 @@ function ChatInner({ params }: PageProps) {
             if (obj.decision && typeof obj.decision.show === "boolean") {
               shouldShowCTA = obj.decision.show;
             }
-          } catch (err) {
+          } catch {
             console.warn("[draft-stream] failed to parse trailing buffer", leftover);
           }
         }

@@ -2,7 +2,7 @@
 
 import { useRouter } from 'next/navigation'
 import { Button } from '@/components/ui/button'
-import { ChevronUp, Crown, LogIn, Sparkles, Star, Zap, Code2 } from 'lucide-react'
+import { ChevronUp, Crown, LogIn, Sparkles, Zap } from 'lucide-react'
 import {
   DropdownMenu,
   DropdownMenuContent,

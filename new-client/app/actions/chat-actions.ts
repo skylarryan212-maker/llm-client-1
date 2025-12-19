@@ -6,6 +6,7 @@ import {
   createProjectConversationWithFirstMessage,
   createGlobalConversationWithFirstMessage,
 } from "@/lib/data/conversation-writes";
+import type { Json } from "@/lib/supabase/types";
 import {
   deleteConversation,
   deleteAllConversations,
@@ -26,7 +27,11 @@ type AttachmentInput = {
 
 export async function startGlobalConversationAction(
   firstMessageContent: string,
-  attachments?: AttachmentInput[]
+  attachments?: AttachmentInput[],
+  options?: {
+    conversationMetadata?: Json | null;
+    messageMetadata?: Json | null;
+  }
 ): Promise<{
   conversationId: string;
   message: MessageRow;
@@ -36,6 +41,8 @@ export async function startGlobalConversationAction(
     title: "New chat",
     firstMessageContent,
     attachments,
+    conversationMetadata: options?.conversationMetadata ?? null,
+    messageMetadata: options?.messageMetadata ?? null,
   });
 
   return { conversationId: conversation.id as string, message, conversation };
@@ -43,12 +50,14 @@ export async function startGlobalConversationAction(
 
 export async function appendUserMessageAction(
   conversationId: string,
-  content: string
+  content: string,
+  metadata?: Json | null
 ): Promise<void> {
   await appendMessageToConversation({
     conversationId,
     role: "user",
     content,
+    metadata,
   });
 }
 
@@ -67,6 +76,8 @@ export async function startProjectConversationAction(params: {
   projectId: string;
   firstMessageContent: string;
   attachments?: AttachmentInput[];
+  conversationMetadata?: Json | null;
+  messageMetadata?: Json | null;
 }): Promise<{
   conversationId: string;
   message: MessageRow;
@@ -77,6 +88,8 @@ export async function startProjectConversationAction(params: {
       projectId: params.projectId,
       firstMessageContent: params.firstMessageContent,
       attachments: params.attachments,
+      conversationMetadata: params.conversationMetadata ?? null,
+      messageMetadata: params.messageMetadata ?? null,
     });
 
   return { conversationId: conversation.id as string, message, conversation };

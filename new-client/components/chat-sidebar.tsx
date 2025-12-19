@@ -81,7 +81,10 @@ export function ChatSidebar({
   const [chatsCollapsed, setChatsCollapsed] = useState(false)
   const [showMoreProjects, setShowMoreProjects] = useState(false)
   
-  const conversations: Conversation[] = propConversations || []
+  const conversations: Conversation[] = useMemo(
+    () => propConversations ?? [],
+    [propConversations]
+  )
 
   const projects: Project[] = propProjects || []
   const conversationIds = useMemo(() => conversations.map((c) => c.id), [conversations])
