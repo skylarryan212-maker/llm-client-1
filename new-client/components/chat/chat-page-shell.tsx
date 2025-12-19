@@ -112,6 +112,7 @@ type ContextUsageSnapshot = {
 };
 
 const CONTEXT_USAGE_STORAGE_KEY = "llm-client-context-usage";
+const PERSONALIZATION_SETTINGS_CACHE_KEY = "llm-client-personalization-settings-cache";
 const DEFAULT_CONTEXT_WINDOW_TOKENS = 350_000;
 const AUTO_STREAM_KEY_PREFIX = "llm-client-auto-stream:";
 const getAutoStreamKey = (conversationId: string) =>
@@ -285,17 +286,56 @@ export default function ChatPageShell({
 	  const { isGuest } = useUserIdentity();
 	  const [guestWarning, setGuestWarning] = useState<string | null>(null);
 
-	  const [isSidebarOpen, setIsSidebarOpen] = usePersistentSidebarOpen();
-	  const [currentModel, setCurrentModel] = useState("Auto");
-	  const [isImageMode, setIsImageMode] = useState(false);
-	  const [currentImageModel, setCurrentImageModel] = useState<"nano-banana" | "nano-banana-pro">(
-	    "nano-banana"
-	  );
+  const [isSidebarOpen, setIsSidebarOpen] = usePersistentSidebarOpen();
+  const [currentModel, setCurrentModel] = useState("Auto");
+  const [isImageMode, setIsImageMode] = useState(false);
+  const [currentImageModel, setCurrentImageModel] = useState<"nano-banana" | "nano-banana-pro">(
+    "nano-banana"
+  );
+  const [referenceChatHistoryEnabled, setReferenceChatHistoryEnabled] = useState(true);
 	  const hasLoadedModelSelectionRef = useRef(false);
-	  const [selectedChatId, setSelectedChatId] = useState<string | null>(
-	    activeConversationId ?? null
-	  );
-	  const prevActiveConversationIdRef = useRef<string | null>(activeConversationId);
+  const [selectedChatId, setSelectedChatId] = useState<string | null>(
+    activeConversationId ?? null
+  );
+  const prevActiveConversationIdRef = useRef<string | null>(activeConversationId);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const loadPreference = () => {
+      try {
+        const raw = window.localStorage.getItem(PERSONALIZATION_SETTINGS_CACHE_KEY);
+        if (!raw) {
+          setReferenceChatHistoryEnabled(true);
+          return;
+        }
+        const parsed = JSON.parse(raw);
+        const enabled =
+          parsed && typeof parsed.referenceChatHistory === "boolean"
+            ? parsed.referenceChatHistory
+            : true;
+        setReferenceChatHistoryEnabled(enabled);
+      } catch {
+        setReferenceChatHistoryEnabled(true);
+      }
+    };
+
+    loadPreference();
+
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key === PERSONALIZATION_SETTINGS_CACHE_KEY) {
+        loadPreference();
+      }
+    };
+    const handleFocus = () => loadPreference();
+
+    window.addEventListener("storage", handleStorage);
+    window.addEventListener("focus", handleFocus);
+    return () => {
+      window.removeEventListener("storage", handleStorage);
+      window.removeEventListener("focus", handleFocus);
+    };
+  }, []);
 
 	  useEffect(() => {
 	    const stored = readModelSelectionFromStorage();
@@ -432,6 +472,12 @@ export default function ChatPageShell({
 	    [chats]
 	  );
 
+  const defaultSimpleSelection = useCallback(
+    (excludeChatId: string | null) =>
+      referenceChatHistoryEnabled ? computeRecentExternalChatIds(excludeChatId) : [],
+    [computeRecentExternalChatIds, referenceChatHistoryEnabled]
+  );
+
   // Default for each chat: freeze context mode to current global when first opened.
   useEffect(() => {
     if (!selectedChatId) return;
@@ -458,11 +504,11 @@ export default function ChatPageShell({
 
       const draft = Object.prototype.hasOwnProperty.call(prev, NEW_CHAT_SELECTION_KEY)
         ? prev[NEW_CHAT_SELECTION_KEY]
-        : computeRecentExternalChatIds(selectionChatIdForContext);
+        : defaultSimpleSelection(selectionChatIdForContext);
       const { [NEW_CHAT_SELECTION_KEY]: _draft, ...rest } = prev;
       return { ...rest, [selectionChatIdForContext]: draft };
     });
-  }, [computeRecentExternalChatIds, selectionChatIdForContext]);
+  }, [defaultSimpleSelection, selectionChatIdForContext]);
 
   // Carry forward any advanced topic selection configured while on the new chat page.
   useEffect(() => {
@@ -481,9 +527,9 @@ export default function ChatPageShell({
 
   const simpleExternalChatIdsForActiveChat = useMemo(() => {
     const value = simpleExternalChatSelectionByChat[selectionKeyForContext];
-    return typeof value === "undefined" ? computeRecentExternalChatIds(excludeChatIdForRecent) : value;
+    return typeof value === "undefined" ? defaultSimpleSelection(excludeChatIdForRecent) : value;
   }, [
-    computeRecentExternalChatIds,
+    defaultSimpleSelection,
     excludeChatIdForRecent,
     selectionKeyForContext,
     simpleExternalChatSelectionByChat,
@@ -494,12 +540,12 @@ export default function ChatPageShell({
       setSimpleExternalChatSelectionByChat((prev) => {
         const key = selectionChatIdForContext ?? NEW_CHAT_SELECTION_KEY;
         const current =
-          typeof prev[key] === "undefined" ? computeRecentExternalChatIds(excludeChatIdForRecent) : prev[key];
+          typeof prev[key] === "undefined" ? defaultSimpleSelection(excludeChatIdForRecent) : prev[key];
         const resolved = typeof next === "function" ? (next as any)(current) : next;
         return { ...prev, [key]: resolved };
       });
     },
-    [computeRecentExternalChatIds, excludeChatIdForRecent, selectionChatIdForContext]
+    [defaultSimpleSelection, excludeChatIdForRecent, selectionChatIdForContext]
   );
 
   const getSimpleContextExternalChatIdsForChat = useCallback(
