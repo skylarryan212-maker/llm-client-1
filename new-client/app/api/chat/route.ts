@@ -2506,6 +2506,24 @@ export async function POST(request: NextRequest) {
     const reasoningEffort = decision.effort ?? "none";
 
     // Load personalization settings (used for both context building and memory selection)
+    // Start simple-context fetch in parallel (awaited below).
+    const simpleContextPromise = simpleContextMode
+      ? (async () => {
+          const personalizationSettings = await personalizationSettingsPromise;
+          const normalizedExternalChatIds = Array.isArray(simpleContextExternalChatIds)
+            ? simpleContextExternalChatIds.filter((id) => typeof id === "string")
+            : undefined;
+          return buildSimpleContextMessages(
+            supabaseAny,
+            conversationId,
+            userId,
+            Boolean(personalizationSettings?.referenceChatHistory),
+            normalizedExternalChatIds,
+            CONTEXT_LIMIT_TOKENS
+          );
+        })()
+      : null;
+
     const personalizationSettings = await personalizationSettingsPromise;
     try {
       console.log("[personalization] loaded", {
@@ -2524,22 +2542,12 @@ export async function POST(request: NextRequest) {
     let includedTopicIds: string[] = [];
     let summaryCount = 0;
     let artifactMessagesCount = 0;
-	    if (simpleContextMode) {
-	      const normalizedExternalChatIds = Array.isArray(simpleContextExternalChatIds)
-	        ? simpleContextExternalChatIds.filter((id) => typeof id === "string")
-	        : undefined;
-	      const simpleContext = await buildSimpleContextMessages(
-        supabaseAny,
-        conversationId,
-        userId,
-        Boolean(personalizationSettings?.referenceChatHistory),
-        normalizedExternalChatIds,
-        CONTEXT_LIMIT_TOKENS
-      );
-      contextMessages = simpleContext.messages;
-      contextSource = simpleContext.source;
-      includedTopicIds = simpleContext.includedTopicIds;
-      summaryCount = simpleContext.summaryCount;
+	    if (simpleContextMode && simpleContextPromise) {
+	      const simpleContext = await simpleContextPromise;
+	      contextMessages = simpleContext.messages;
+	      contextSource = simpleContext.source;
+	      includedTopicIds = simpleContext.includedTopicIds;
+	      summaryCount = simpleContext.summaryCount;
       artifactMessagesCount = simpleContext.artifactCount;
       console.log(
 	        `[context-builder] simple mode - context ${contextMessages.length} msgs (tokens: ${simpleContext.debug?.tokensUsed ?? "n/a"}/${simpleContext.debug?.budget ?? CONTEXT_LIMIT_TOKENS}, external chats: ${simpleContext.debug?.externalChatsIncluded ?? 0}/${simpleContext.debug?.externalChatsConsidered ?? 0})`
@@ -3246,10 +3254,10 @@ export async function POST(request: NextRequest) {
       // and GPT-5 Pro forces flex for non-Dev plans.
       const flexEligibleFamilies = ["gpt-5.2", "gpt-5.2-pro", "gpt-5-mini", "gpt-5-nano"];
       const isPromptModel = flexEligibleFamilies.includes(modelConfig.resolvedFamily);
-      const forceProFlex = modelConfig.resolvedFamily === "gpt-5.2-pro" && userPlan !== "dev";
+      const forceProFlex = modelConfig.resolvedFamily === "gpt-5.2-pro" && userPlan !== "max";
       const usageBasedFlex = (userPlan === "free" || usagePercentage >= 80) && isPromptModel;
       const useFlex = (isPromptModel && forceProFlex) || usageBasedFlex;
-      
+
       if (useFlex && !forceProFlex && usagePercentage >= 80 && userPlan !== "free") {
         console.log(`[usageLimit] User at ${usagePercentage.toFixed(1)}% usage - enabling flex processing`);
       } else if (forceProFlex) {
