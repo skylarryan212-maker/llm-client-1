@@ -2411,6 +2411,7 @@ export async function POST(request: NextRequest) {
         ? topicsForRouter.find((t: any) => t.id === activeTopicId) || null
         : null;
 
+    const allowLLMRouters = !forceSpeedMode && !effectiveSimpleContextMode;
     const decision = await runDecisionRouter({
       input: {
         userMessage: message,
@@ -2427,7 +2428,7 @@ export async function POST(request: NextRequest) {
         topics: Array.isArray(topicsForRouter) ? topicsForRouter : [],
         artifacts: Array.isArray(artifactsForRouter) ? artifactsForRouter : [],
       },
-      allowLLM: !forceSpeedMode,
+      allowLLM: allowLLMRouters,
     });
     console.log("[decision-router] output:", JSON.stringify(decision, null, 2));
 
@@ -2478,7 +2479,7 @@ export async function POST(request: NextRequest) {
         },
       },
       decision.topicAction,
-      { allowLLM: !forceSpeedMode }
+      { allowLLM: allowLLMRouters }
     ).catch((err) => {
       console.error("[writer-router] failed to start:", err);
       return null as any;
