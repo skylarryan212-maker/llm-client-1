@@ -282,7 +282,7 @@ export interface MarketAgentInstance {
   id: string;
   user_id: string;
   label: string;
-  status: "running" | "paused";
+  status: "draft" | "running" | "paused";
   cadence_seconds: number;
   config: Json;
   created_at: string | null;
@@ -292,7 +292,7 @@ export interface MarketAgentInstance {
 export interface MarketAgentInstanceInsert {
   user_id: string;
   label?: string | null;
-  status?: "running" | "paused";
+  status?: "draft" | "running" | "paused";
   cadence_seconds: number;
   config?: Json;
   created_at?: string | null;
@@ -301,7 +301,7 @@ export interface MarketAgentInstanceInsert {
 
 export interface MarketAgentInstanceUpdate {
   label?: string | null;
-  status?: "running" | "paused";
+  status?: "draft" | "running" | "paused";
   cadence_seconds?: number;
   config?: Json;
   updated_at?: string | null;

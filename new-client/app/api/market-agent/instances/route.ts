@@ -24,7 +24,7 @@ export async function POST(request: NextRequest) {
       label?: string;
       cadenceSeconds?: number;
       watchlist?: string[] | string | null;
-      status?: "running" | "paused";
+      status?: "draft" | "running" | "paused";
       config?: Record<string, unknown>;
     };
 
@@ -45,7 +45,7 @@ export async function POST(request: NextRequest) {
       cadenceSeconds,
       watchlist,
       config: (body?.config as any) ?? {},
-      status: body?.status === "paused" ? "paused" : "running",
+      status: body?.status === "paused" ? "paused" : body?.status === "draft" ? "draft" : "draft",
     });
 
     return NextResponse.json({ instance });

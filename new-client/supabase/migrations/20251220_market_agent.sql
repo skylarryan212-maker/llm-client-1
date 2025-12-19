@@ -7,12 +7,12 @@ CREATE TABLE IF NOT EXISTS public.market_agent_instances (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   label text NOT NULL DEFAULT 'Market Agent',
-  status text NOT NULL DEFAULT 'running',
+  status text NOT NULL DEFAULT 'draft',
   cadence_seconds integer NOT NULL,
   config jsonb NOT NULL DEFAULT '{}'::jsonb,
   created_at timestamptz DEFAULT now(),
   updated_at timestamptz DEFAULT now(),
-  CONSTRAINT market_agent_instances_status_check CHECK (status IN ('running', 'paused')),
+  CONSTRAINT market_agent_instances_status_check CHECK (status IN ('draft', 'running', 'paused')),
   CONSTRAINT market_agent_instances_cadence_check CHECK (cadence_seconds IN (60, 120, 300, 600, 1800, 3600))
 );
 

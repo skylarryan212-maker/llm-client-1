@@ -8,6 +8,11 @@ type MarketAgentStateRow = Database["public"]["Tables"]["market_agent_state"]["R
 type ConversationRow = Database["public"]["Tables"]["conversations"]["Row"];
 
 const ALLOWED_CADENCES = new Set([60, 120, 300, 600, 1800, 3600]);
+const ALLOWED_STATUSES = new Set(["draft", "running", "paused"] as const);
+
+function isValidUuid(id?: string | null) {
+  return typeof id === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id);
+}
 
 export type MarketAgentInstanceWithWatchlist = MarketAgentInstanceRow & {
   watchlist: string[];
@@ -61,6 +66,7 @@ export async function listMarketAgentInstances(): Promise<MarketAgentInstanceWit
 }
 
 export async function getMarketAgentInstance(instanceId: string): Promise<MarketAgentInstanceWithWatchlist | null> {
+  if (!isValidUuid(instanceId)) return null;
   const supabase = await supabaseServer();
   const userId = await requireUserIdServer();
   const supabaseAny = supabase as any;
@@ -90,6 +96,7 @@ export async function getMarketAgentInstance(instanceId: string): Promise<Market
 }
 
 export async function getMarketAgentState(instanceId: string): Promise<MarketAgentStateRow | null> {
+  if (!isValidUuid(instanceId)) return null;
   const supabase = await supabaseServer();
   const userId = await requireUserIdServer();
   const supabaseAny = supabase as any;
@@ -212,7 +219,7 @@ export async function createMarketAgentInstance(params: {
   cadenceSeconds: number;
   watchlist: string[];
   config?: Json;
-  status?: "running" | "paused";
+  status?: "draft" | "running" | "paused";
 }): Promise<MarketAgentInstanceWithWatchlist> {
   const supabase = await supabaseServer();
   const userId = await requireUserIdServer();
@@ -220,6 +227,9 @@ export async function createMarketAgentInstance(params: {
   const cadence = ALLOWED_CADENCES.has(params.cadenceSeconds)
     ? params.cadenceSeconds
     : 300;
+  const status = ALLOWED_STATUSES.has(params.status ?? "draft")
+    ? params.status
+    : "draft";
 
   const { data: instance, error } = await supabaseAny
     .from("market_agent_instances")
@@ -228,7 +238,7 @@ export async function createMarketAgentInstance(params: {
         user_id: userId,
         label: params.label ?? "Market Agent",
         cadence_seconds: cadence,
-        status: params.status ?? "running",
+        status,
         config: params.config ?? {},
       },
     ])
@@ -274,7 +284,8 @@ export async function createMarketAgentInstance(params: {
   };
 }
 
-export async function updateMarketAgentStatus(instanceId: string, status: "running" | "paused") {
+export async function updateMarketAgentStatus(instanceId: string, status: "draft" | "running" | "paused") {
+  if (!ALLOWED_STATUSES.has(status) || !isValidUuid(instanceId)) return;
   const supabase = await supabaseServer();
   const userId = await requireUserIdServer();
   const supabaseAny = supabase as any;

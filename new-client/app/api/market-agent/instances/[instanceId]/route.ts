@@ -6,6 +6,7 @@ import {
   updateMarketAgentStatus,
 } from "@/lib/data/market-agent";
 import { requireUserIdServer } from "@/lib/supabase/user";
+import { headers } from "next/headers";
 
 export async function GET(
   _request: NextRequest,
@@ -14,6 +15,9 @@ export async function GET(
   try {
     await requireUserIdServer();
     const { instanceId } = await params;
+    if (!instanceId) {
+      return NextResponse.json({ error: "Invalid instance id" }, { status: 400 });
+    }
     const instance = await getMarketAgentInstance(instanceId);
     if (!instance) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -32,8 +36,15 @@ export async function PATCH(
   try {
     await requireUserIdServer();
     const { instanceId } = await params;
-    const body = (await request.json()) as { status?: "running" | "paused" };
-    const status = body?.status === "paused" ? "paused" : body?.status === "running" ? "running" : null;
+    const body = (await request.json()) as { status?: "draft" | "running" | "paused" };
+    const status =
+      body?.status === "paused"
+        ? "paused"
+        : body?.status === "running"
+          ? "running"
+          : body?.status === "draft"
+            ? "draft"
+            : null;
     if (!status) {
       return NextResponse.json({ error: "Invalid status" }, { status: 400 });
     }

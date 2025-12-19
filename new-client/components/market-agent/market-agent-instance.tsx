@@ -66,6 +66,7 @@ export function MarketAgentInstanceView({ instance, events, state }: Props) {
   const [pendingEventId, setPendingEventId] = useState<string | null>(null);
   const [statusError, setStatusError] = useState<string | null>(null);
   const [isBusy, setIsBusy] = useState(false);
+  const isDraft = instance.status === "draft";
 
   const stateSummary = useMemo(() => extractStateSummary(state?.state), [state]);
   const keyLevels = useMemo(() => renderLevels(state?.state), [state]);
@@ -104,7 +105,7 @@ export function MarketAgentInstanceView({ instance, events, state }: Props) {
 
   const handleSend = async () => {
     const prompt = composerValue.trim();
-    if (!prompt) return;
+    if (!prompt || isDraft) return;
     setIsBusy(true);
     try {
       const res = await fetch("/api/market-agent/conversation", {
@@ -152,11 +153,18 @@ export function MarketAgentInstanceView({ instance, events, state }: Props) {
                   "px-2 py-0.5 text-[11px] font-semibold",
                   instance.status === "running"
                     ? "border-emerald-400/40 bg-emerald-500/10 text-emerald-100"
-                    : "border-amber-400/40 bg-amber-500/10 text-amber-100"
+                    : instance.status === "draft"
+                      ? "border-slate-400/40 bg-slate-500/10 text-slate-100"
+                      : "border-amber-400/40 bg-amber-500/10 text-amber-100"
                 )}
               >
-                {instance.status}
+                {instance.status === "draft" ? "Not running" : instance.status}
               </Badge>
+              {isDraft ? (
+                <span className="text-xs text-muted-foreground">
+                  Not running yet. Agent chat / autonomy is coming soon.
+                </span>
+              ) : null}
               {instance.watchlist.length ? (
                 <div className="flex flex-wrap gap-1.5">
                   {instance.watchlist.slice(0, 6).map((symbol) => (
@@ -176,7 +184,7 @@ export function MarketAgentInstanceView({ instance, events, state }: Props) {
               variant={instance.status === "running" ? "ghost" : "secondary"}
               size="sm"
               className="gap-1"
-              disabled={isBusy}
+              disabled={isBusy || isDraft}
               onClick={() => handleStatusChange(instance.status === "running" ? "paused" : "running")}
             >
               {instance.status === "running" ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
@@ -268,8 +276,9 @@ export function MarketAgentInstanceView({ instance, events, state }: Props) {
             <div className="mt-2 space-y-2">
               <Input
                 value={composerValue}
+                disabled={isDraft}
                 onChange={(e) => setComposerValue(e.target.value)}
-                placeholder="Ask the Market Agent about the latest report..."
+                placeholder={isDraft ? "Agent chat is coming soon." : "Ask the Market Agent about the latest report..."}
                 className="bg-background/60"
               />
               <div className="flex flex-wrap gap-2">
@@ -277,6 +286,7 @@ export function MarketAgentInstanceView({ instance, events, state }: Props) {
                   <button
                     key={prompt}
                     type="button"
+                    disabled={isDraft}
                     onClick={() => {
                       setComposerValue(prompt);
                       setPendingEventId(events[0]?.id ?? null);
@@ -287,8 +297,8 @@ export function MarketAgentInstanceView({ instance, events, state }: Props) {
                   </button>
                 ))}
               </div>
-              <Button onClick={handleSend} disabled={isBusy || !composerValue.trim()} className="w-full">
-                Send to chat
+              <Button onClick={handleSend} disabled={isBusy || !composerValue.trim() || isDraft} className="w-full">
+                {isDraft ? "Coming soon" : "Send to chat"}
               </Button>
               {pendingEventId ? (
                 <p className="text-[11px] text-muted-foreground">

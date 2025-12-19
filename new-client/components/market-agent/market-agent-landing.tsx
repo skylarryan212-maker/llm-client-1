@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { AlarmClock, Pause, Play, Plus, Sparkles, TrendingUp } from "lucide-react";
+import { AlarmClock, Pause, Play, Plus, Sparkles, Trash2, TrendingUp } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -42,7 +42,7 @@ export function MarketAgentLanding({ initialInstances, initialEvents }: LandingP
   const [formLabel, setFormLabel] = useState("Market Agent");
   const [formWatchlist, setFormWatchlist] = useState("");
   const [cadenceSeconds, setCadenceSeconds] = useState<number>(300);
-  const [startRunning, setStartRunning] = useState(true);
+  const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
 
   const refreshFeed = async () => {
     try {
@@ -77,7 +77,7 @@ export function MarketAgentLanding({ initialInstances, initialEvents }: LandingP
           label: formLabel.trim() || "Market Agent",
           watchlist: formWatchlist,
           cadenceSeconds,
-          status: startRunning ? "running" : "paused",
+          status: "draft",
         }),
       });
       if (!res.ok) {
@@ -90,12 +90,28 @@ export function MarketAgentLanding({ initialInstances, initialEvents }: LandingP
         setInstances((prev) => [created, ...prev]);
         setFormWatchlist("");
         setFormLabel("Market Agent");
+        // Redirect to detail for setup experience
+        router.push(`/agents/market-agent/${created.id}`);
         void refreshFeed();
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to create instance");
     } finally {
       setIsCreating(false);
+    }
+  };
+
+  const handleDelete = async (instanceId: string) => {
+    if (!instanceId) return;
+    setConfirmingDeleteId(null);
+    try {
+      const res = await fetch(`/api/market-agent/instances/${instanceId}`, {
+        method: "DELETE",
+      });
+      if (!res.ok) throw new Error("Failed to delete agent");
+      setInstances((prev) => prev.filter((inst) => inst.id !== instanceId));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to delete agent");
     }
   };
 
@@ -121,7 +137,7 @@ export function MarketAgentLanding({ initialInstances, initialEvents }: LandingP
   );
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-950 via-slate-950 to-slate-900 text-foreground">
+    <div className="min-h-screen bg-gradient-to-b from-[#04060b] via-[#070915] to-[#0c0f20] text-foreground">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-10 sm:py-12 space-y-10">
         <div className="flex flex-wrap items-start justify-between gap-6">
           <div className="space-y-3">
@@ -157,28 +173,6 @@ export function MarketAgentLanding({ initialInstances, initialEvents }: LandingP
             </div>
           </div>
 
-          <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-50 shadow-lg shadow-emerald-900/30">
-            <div className="flex items-center gap-2 text-xs uppercase tracking-[0.25em] text-emerald-200/70">
-              <AlarmClock className="h-4 w-4" />
-              Cadence templates
-            </div>
-            <div className="mt-2 flex flex-wrap gap-2">
-              {cadenceOptions.map((opt) => (
-                <button
-                  key={opt.value}
-                  onClick={() => setCadenceSeconds(opt.value)}
-                  className={cn(
-                    "rounded-full px-3 py-1 text-xs font-semibold transition",
-                    cadenceSeconds === opt.value
-                      ? "bg-emerald-500 text-emerald-50 shadow-lg shadow-emerald-900/40"
-                      : "bg-emerald-500/10 text-emerald-50/80 hover:bg-emerald-500/20"
-                  )}
-                >
-                  {opt.label}
-                </button>
-              ))}
-            </div>
-          </div>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -202,6 +196,7 @@ export function MarketAgentLanding({ initialInstances, initialEvents }: LandingP
                 ) : (
                   instances.map((instance) => {
                     const running = instance.status === "running";
+                    const isDraft = instance.status === "draft";
                     return (
                       <div
                         key={instance.id}
@@ -217,10 +212,12 @@ export function MarketAgentLanding({ initialInstances, initialEvents }: LandingP
                                   "border px-2 py-0.5 text-[11px] font-semibold",
                                   running
                                     ? "border-emerald-400/40 bg-emerald-500/10 text-emerald-100"
-                                    : "border-amber-400/40 bg-amber-500/10 text-amber-100"
+                                    : isDraft
+                                      ? "border-slate-400/40 bg-slate-500/10 text-slate-100"
+                                      : "border-amber-400/40 bg-amber-500/10 text-amber-100"
                                 )}
                               >
-                                {running ? "Running" : "Paused"}
+                                {running ? "Running" : isDraft ? "Draft" : "Paused"}
                               </Badge>
                             </div>
                             <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
@@ -252,10 +249,19 @@ export function MarketAgentLanding({ initialInstances, initialEvents }: LandingP
                               variant={running ? "ghost" : "secondary"}
                               size="sm"
                               className="gap-1"
+                              disabled={isDraft}
                               onClick={() => handleToggleStatus(instance.id, running ? "paused" : "running")}
                             >
                               {running ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
                               {running ? "Pause" : "Resume"}
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="text-rose-200 hover:text-rose-50"
+                              onClick={() => setConfirmingDeleteId(instance.id)}
+                            >
+                              <Trash2 className="h-4 w-4" />
                             </Button>
                           </div>
                         </div>
@@ -342,25 +348,6 @@ export function MarketAgentLanding({ initialInstances, initialEvents }: LandingP
                     ))}
                   </div>
                 </div>
-                <div className="flex items-center justify-between rounded-xl border border-white/10 bg-background/50 px-3 py-2">
-                  <div>
-                    <p className="text-xs font-semibold text-foreground">Start running</p>
-                    <p className="text-[11px] text-muted-foreground">Toggle off to create paused.</p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setStartRunning((prev) => !prev)}
-                    className={cn(
-                      "inline-flex h-8 w-14 items-center rounded-full border transition",
-                      startRunning
-                        ? "bg-emerald-500/90 text-white border-emerald-500/60 justify-end pr-1"
-                        : "bg-muted text-muted-foreground border-border justify-start pl-1"
-                    )}
-                  >
-                    <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-white/90 text-foreground shadow" />
-                  </button>
-                </div>
-
                 {error ? <p className="text-xs text-rose-300">{error}</p> : null}
 
                 <Button
@@ -380,6 +367,23 @@ export function MarketAgentLanding({ initialInstances, initialEvents }: LandingP
           </div>
         </div>
       </div>
+
+      {confirmingDeleteId ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm px-4">
+          <div className="w-full max-w-sm rounded-xl border border-border bg-background p-5 shadow-2xl">
+            <h3 className="text-lg font-semibold text-white">Delete market agent?</h3>
+            <p className="mt-1 text-sm text-muted-foreground">This can&apos;t be undone.</p>
+            <div className="mt-4 flex items-center justify-end gap-2">
+              <Button variant="ghost" size="sm" onClick={() => setConfirmingDeleteId(null)}>
+                Cancel
+              </Button>
+              <Button variant="destructive" size="sm" onClick={() => handleDelete(confirmingDeleteId)}>
+                Delete
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
