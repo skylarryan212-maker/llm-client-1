@@ -241,6 +241,7 @@ Rules:
   const allowLLM = options?.allowLLM !== false;
 
   if (!allowLLM) {
+    console.log("[writer-router] Skipping LLM writer (disabled); using fallback.");
     return fallback();
   }
 

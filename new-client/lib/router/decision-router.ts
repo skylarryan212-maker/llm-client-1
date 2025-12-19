@@ -211,6 +211,7 @@ Return only the "labels" object matching the output schema.`;
   };
 
   if (!allowLLM) {
+    console.log("[decision-router] Skipping LLM router (disabled); using fallback.");
     return fallback();
   }
 

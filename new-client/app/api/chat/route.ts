@@ -2412,6 +2412,9 @@ export async function POST(request: NextRequest) {
         : null;
 
     const allowLLMRouters = !forceSpeedMode;
+    if (!allowLLMRouters) {
+      console.log("[chatApi] Speed Mode enabled - skipping LLM routers (decision/writer).");
+    }
     const decision = await runDecisionRouter({
       input: {
         userMessage: message,
