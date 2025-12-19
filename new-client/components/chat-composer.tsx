@@ -12,7 +12,7 @@ import {
 } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Mic, ArrowUp, ChevronDown } from "lucide-react";
+import { Mic, ArrowUp, ChevronDown, Bot } from "lucide-react";
 import { AttachmentMenuButton } from "@/components/chat/attachment-menu";
 import { uploadFilesAndGetUrls } from "@/lib/uploads";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -74,7 +74,17 @@ export function ChatComposer({
   const conversationKey = conversationId ?? NEW_CONVERSATION_KEY;
   const selectedAgentId = selectedAgentByConversation[conversationKey] ?? null;
   const selectedAgent = getFeaturedAgentById(selectedAgentId);
-  const SelectedAgentIcon = selectedAgent?.icon ?? null;
+  const selectedAgentName = selectedAgent?.name ?? selectedAgentId ?? "";
+  const SelectedAgentIcon = selectedAgent?.icon ?? Bot;
+  const shouldShowAgentPill = Boolean(selectedAgentId);
+  const [agentPillHighlight, setAgentPillHighlight] = useState(false);
+
+  useEffect(() => {
+    if (!selectedAgentId) return;
+    setAgentPillHighlight(true);
+    const timer = setTimeout(() => setAgentPillHighlight(false), 720);
+    return () => clearTimeout(timer);
+  }, [selectedAgentId]);
 
   const previousConversationKeyRef = useRef(conversationKey);
   useEffect(() => {
@@ -538,20 +548,22 @@ export function ChatComposer({
   return (
     <form onSubmit={handleFormSubmit}>
       {/* Selected agent pill (UI-only) */}
-      {selectedAgent ? (
+      {shouldShowAgentPill ? (
         <div className="mb-2 flex pl-2">
           <DropdownMenu open={isAgentPickerOpen} onOpenChange={setIsAgentPickerOpen}>
             <DropdownMenuTrigger asChild>
               <button
                 type="button"
-                className="inline-flex max-w-full items-center gap-2 rounded-2xl border border-border bg-card/85 px-3 py-2 text-xs font-medium text-foreground shadow-sm transition hover:bg-card/95 hover:shadow-md active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                className={`inline-flex max-w-full items-center gap-2 rounded-2xl border bg-card/85 px-3 py-2 text-xs font-medium text-foreground shadow-sm transition hover:bg-card/95 hover:shadow-md active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 ${
+                  agentPillHighlight ? "border-primary/60 ring-2 ring-primary/45 shadow-md shadow-primary/20" : "border-border"
+                }`}
                 aria-label="Change selected agent"
                 title="Click to change agent"
               >
                 <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-primary/15 text-primary">
                   {SelectedAgentIcon ? <SelectedAgentIcon className="h-3.5 w-3.5" /> : null}
                 </span>
-                <span className="truncate">Agent: {selectedAgent.name}</span>
+                <span className="truncate">Agent: {selectedAgentName}</span>
                 <ChevronDown className="h-4 w-4 text-muted-foreground" />
               </button>
             </DropdownMenuTrigger>
@@ -663,10 +675,12 @@ export function ChatComposer({
                 onSelectAgent={(id) => {
                   setSelectedAgentIdForConversation(id);
                   setIsAgentPickerOpen(false);
+                  setIsMenuOpen(false);
                 }}
                 onClearAgent={() => {
                   setSelectedAgentIdForConversation(null);
                   setIsAgentPickerOpen(false);
+                  setIsMenuOpen(false);
                 }}
               />
             </div>
