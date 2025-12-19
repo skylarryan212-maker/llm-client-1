@@ -10,58 +10,31 @@ import { useUserPlan } from "@/lib/hooks/use-user-plan";
 
 const plans = [
   {
-    id: "basic" as PlanType,
-    name: "Basic",
-    price: 10,
-    description: "Essential access with light usage limits.",
-    features: [
-      "Core models",
-      "Human Writing agent",
-    ],
-    recommended: false,
-    gradientFrom: "from-blue-400/5",
-    gradientTo: "to-indigo-700/5",
-  },
-  {
     id: "plus" as PlanType,
     name: "Plus",
     price: 20,
-    description: "Higher limits for growing workloads.",
+    description: "Everyday plan with generous limits.",
     features: [
-      "Everything in Basic",
-      "Adds Market & Codex agents with moderate allowances",
-      "More generous usage across agents",
+      "Core models and Human Writing agent",
+      "Adds Market & Codex agents",
+      "File uploads and image generation with higher allowances",
     ],
     recommended: false,
     gradientFrom: "from-purple-400/5",
     gradientTo: "to-fuchsia-700/5",
   },
   {
-    id: "pro" as PlanType,
-    name: "Pro",
-    price: 50,
-    description: "Advanced tier with expanded headroom.",
+    id: "max" as PlanType,
+    name: "Max",
+    price: 200,
+    description: "Priority access, best models, and highest limits.",
     features: [
       "Everything in Plus",
-      "Access to GPT-5.2 Pro (limited) with priority processing on select models",
-      "Higher allowances across all agents",
-    ],
-    recommended: true,
-    gradientFrom: "from-green-400/5",
-    gradientTo: "to-teal-700/5",
-  },
-  {
-    id: "dev" as PlanType,
-    name: "Dev",
-    price: 200,
-    description: "Maximum limits for demanding teams.",
-    features: [
-      "Everything in Pro",
-      "Full priority processing on all models",
-      "Highest allowances across agents and GPT-5.2 Pro",
+      "Priority processing on all models including GPT-5.2 Pro",
+      "Highest allowances across agents and attachments",
       "Early access to new features",
     ],
-    recommended: false,
+    recommended: true,
     gradientFrom: "from-amber-400/5",
     gradientTo: "to-orange-700/5",
   },
@@ -105,20 +78,6 @@ function UpgradePageContent() {
     setIsProcessing(false);
   };
 
-  // Helper to determine plan hierarchy
-  const planHierarchy: Record<string, number> = {
-    basic: 1,
-    plus: 2,
-    pro: 3,
-    dev: 4,
-  };
-
-  const isLowerTier = (planId: string) => {
-    const targetRank = planHierarchy[planId] ?? -1;
-    const currentRank = planHierarchy[currentPlan] ?? 0;
-    return targetRank < currentRank;
-  };
-
   const filteredPlans = plans.filter(() => true);
 
   return (
@@ -139,8 +98,8 @@ function UpgradePageContent() {
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 auto-rows-fr gap-4 sm:gap-6 w-full place-items-stretch justify-items-center place-content-center justify-center">
           {filteredPlans.map((plan) => {
             const isCurrent = currentPlan === plan.id;
-            const canDirectChange = isLowerTier(plan.id) || plan.id === "basic";
-            const isUpgradeFromFree = currentPlan === "free" && plan.id === "basic";
+            const canDirectChange = currentPlan !== plan.id;
+            const isUpgradeFromFree = currentPlan === "free" && plan.id === "plus";
             return (
               <div
                 key={plan.id}
@@ -211,7 +170,7 @@ function UpgradePageContent() {
                               : `Switch to ${plan.name}`
                             : `Upgrade to ${plan.name}`}
                         </Button>
-                        {(!canDirectChange || plan.id === "basic") && (
+                        {!canDirectChange && (
                           <Button
                             variant="outline"
                             className="w-full"

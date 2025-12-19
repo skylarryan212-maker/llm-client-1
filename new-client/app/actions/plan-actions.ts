@@ -3,7 +3,7 @@
 import { supabaseServer } from "@/lib/supabase/server";
 import { getCurrentUserIdServer } from "@/lib/supabase/user";
 
-export type PlanType = "free" | "basic" | "plus" | "pro" | "dev";
+export type PlanType = "free" | "plus" | "max";
 
 const BILLING_PERIOD_DAYS = 30;
 
@@ -27,11 +27,24 @@ function computeNextPeriod(
 }
 
 const UNLOCK_CODES: Record<Exclude<PlanType, "free">, string> = {
-  basic: "devadmin",
   plus: "devadmin",
-  pro: "devadmin",
-  dev: "devadmin",
+  max: "devadmin",
 };
+
+function normalizePlanType(value: string | null | undefined): PlanType {
+  switch ((value ?? "").toLowerCase()) {
+    case "max":
+    case "dev":
+      return "max";
+    case "plus":
+    case "pro":
+    case "basic":
+      return "plus";
+    case "free":
+    default:
+      return "free";
+  }
+}
 
 export async function getUserPlan(): Promise<PlanType> {
   try {
@@ -63,12 +76,25 @@ export async function getUserPlan(): Promise<PlanType> {
       return "free";
     }
 
+    const normalizedPlan = normalizePlanType((data as any).plan_type as string | null | undefined);
+
+    // If we loaded a legacy plan value, normalize it in the table.
+    if (normalizedPlan !== (data as any).plan_type) {
+      await supabase
+        .from("user_plans")
+        .update({
+          plan_type: normalizedPlan,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("user_id", userId);
+    }
+
     const nowMs = Date.now();
     const cancelAtIso = (data as any).cancel_at as string | null | undefined;
     const cancelAtPeriodEnd = Boolean((data as any).cancel_at_period_end);
 
     // Normalize / advance billing period so renewal dates don't drift.
-    if ((data.plan_type as PlanType) !== "free") {
+    if (normalizedPlan !== "free") {
       const currentPeriodStartIso =
         ((data as any).current_period_start as string | null | undefined) ??
         ((data as any).created_at as string | null | undefined) ??
@@ -83,7 +109,7 @@ export async function getUserPlan(): Promise<PlanType> {
         await supabase.from("user_plans").upsert(
           {
             user_id: userId,
-            plan_type: data.plan_type,
+            plan_type: normalizedPlan,
             is_active: true,
             current_period_start: next.currentPeriodStart,
             current_period_end: next.currentPeriodEnd,
@@ -116,7 +142,7 @@ export async function getUserPlan(): Promise<PlanType> {
       }
     }
 
-    return data.plan_type as PlanType;
+    return normalizedPlan;
   } catch (error) {
     console.error("Error fetching user plan:", error);
     return "free";
@@ -225,7 +251,9 @@ export async function upgradeToPlan(
       currentPeriodEnd = null;
     } else {
       const existingEndMs = currentPeriodEnd ? new Date(currentPeriodEnd).getTime() : NaN;
-      const existingPlan = (existing as any)?.plan_type as PlanType | undefined;
+      const existingPlan = (existing as any)?.plan_type
+        ? normalizePlanType((existing as any).plan_type as string)
+        : undefined;
       const hasActivePeriod = !Number.isNaN(existingEndMs) && existingEndMs > nowMs;
       const shouldStartNewPeriod = !hasActivePeriod || existingPlan === "free" || !existingPlan;
       if (shouldStartNewPeriod) {
@@ -272,10 +300,8 @@ export async function upgradeToPlan(
     // Determine if this is an upgrade or downgrade
   const planHierarchy: Record<PlanType, number> = {
     free: 0,
-    basic: 1,
-    plus: 2,
-    pro: 3,
-    dev: 4,
+    plus: 1,
+    max: 2,
   };
 
     const isDowngrade = currentPlan && planHierarchy[planType] < planHierarchy[currentPlan];
@@ -321,7 +347,7 @@ export async function getUserPlanDetails(): Promise<{
     }
 
     const nowMs = Date.now();
-    const planType = data.plan_type as PlanType;
+    const planType = normalizePlanType((data as any).plan_type as string | null | undefined);
 
     let currentPeriodStart: string | null = (data as any).current_period_start ?? null;
     let currentPeriodEnd: string | null = (data as any).current_period_end ?? null;
