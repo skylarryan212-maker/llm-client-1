@@ -1074,7 +1074,7 @@ export function MarketAgentInstanceView({ instance, events, thesis, state: _stat
                       </div>
                       <div className="flex items-center gap-2">
                         {isDev ? (
-                          <Button size="xs" variant="outline" onClick={handleGenerateDemoEvents} disabled={seedLoading}>
+                          <Button size="sm" variant="outline" onClick={handleGenerateDemoEvents} disabled={seedLoading}>
                             {seedLoading ? "Generating…" : "Generate demo"}
                           </Button>
                         ) : null}
