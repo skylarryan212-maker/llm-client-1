@@ -30,12 +30,6 @@ const quickPrompts = [
   "List the top risks I'm watching.",
 ];
 
-function formatCadence(seconds: number) {
-  if (!seconds) return "n/a";
-  if (seconds < 60) return `${seconds}s`;
-  return `${Math.round(seconds / 60)}m cadence`;
-}
-
 function extractStateSummary(state: any) {
   if (!state || typeof state !== "object") return [];
   const sections: Array<{ label: string; value: string }> = [];
@@ -71,6 +65,29 @@ export function MarketAgentInstanceView({ instance, events, state }: Props) {
   const stateSummary = useMemo(() => extractStateSummary(state?.state), [state]);
   const keyLevels = useMemo(() => renderLevels(state?.state), [state]);
 
+  const tickerHighlights = [
+    { symbol: "NVDA", detail: "+2.3% today", value: "$835.50" },
+    { symbol: "AAPL", detail: "-0.8% today", value: "$195.10" },
+    { symbol: "SPY", detail: "+0.5% today", value: "$513.20" },
+    { symbol: "BTC", detail: "+1.1% today", value: "$90.5k" },
+  ];
+  const loopedTickers = [...tickerHighlights, ...tickerHighlights];
+  const statusLabel = statusError
+    ? "Error"
+    : instance.status === "running"
+      ? "Running"
+      : instance.status === "paused"
+        ? "Paused"
+        : "Not running";
+  const statusTone =
+    statusError
+      ? "border-rose-400/50 bg-rose-500/10 text-rose-100"
+      : instance.status === "running"
+        ? "border-emerald-400/40 bg-emerald-500/10 text-emerald-100"
+        : instance.status === "paused"
+          ? "border-amber-400/40 bg-amber-500/10 text-amber-100"
+          : "border-slate-400/40 bg-slate-500/10 text-slate-100";
+
   const handleStatusChange = async (next: "running" | "paused") => {
     try {
       setIsBusy(true);
@@ -100,6 +117,12 @@ export function MarketAgentInstanceView({ instance, events, state }: Props) {
       setStatusError(err instanceof Error ? err.message : "Failed to delete agent");
     } finally {
       setIsBusy(false);
+    }
+  };
+
+  const handleOpenSettings = () => {
+    if (typeof window !== "undefined") {
+      window.alert("Settings panel coming soon.");
     }
   };
 
@@ -136,91 +159,76 @@ export function MarketAgentInstanceView({ instance, events, state }: Props) {
 
   return (
     <div className="min-h-screen bg-[#050505] text-foreground">
-      <header className="flex h-[56px] items-center gap-3 border-b border-white/10 bg-black/60 px-4 backdrop-blur">
-        <Button
-          variant="ghost"
-          size="icon"
-          className="h-8 w-8 text-white/80 hover:text-white"
-          onClick={() => router.push("/agents/market-agent")}
-        >
-          <ArrowLeft className="h-4 w-4" />
-        </Button>
-        <div className="flex flex-col min-w-0">
-          <p className="text-xs uppercase tracking-[0.25em] text-white/40">Market Agent</p>
-          <p className="text-sm text-white/80 truncate">{instance.label || "Market Agent"}</p>
+      <header className="flex items-center gap-4 border-b border-white/10 bg-black/80 px-4 py-2 backdrop-blur">
+        <div className="flex items-center gap-3">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 text-white/80 hover:text-white"
+            onClick={() => router.push("/agents/market-agent")}
+          >
+            <ArrowLeft className="h-4 w-4" />
+          </Button>
+          <div className="flex flex-col">
+            <p className="text-xs uppercase tracking-[0.25em] text-white/40">Market Agent</p>
+            <div className="flex items-center gap-2 text-sm text-white/80">
+              <span className="truncate">{instance.label || "Market Agent"}</span>
+              <span className="text-[10px] uppercase tracking-[0.3em] text-muted-foreground">&middot;</span>
+              <Badge variant="outline" className={cn("border px-2 py-0.5 text-[11px] font-semibold", statusTone)}>
+                {statusLabel}
+              </Badge>
+            </div>
+          </div>
+        </div>
+        <div className="flex flex-1 items-center justify-center overflow-hidden rounded-full border border-white/10 bg-white/5 px-2 py-1 text-xs text-white/80">
+          <div className="ticker-strip relative flex-1 overflow-hidden">
+            <div className="ticker-track flex gap-8 whitespace-nowrap px-4">
+              {loopedTickers.map((ticker, idx) => (
+                <div
+                  key={`${ticker.symbol}-${idx}`}
+                  className="flex items-center gap-2 text-[11px] uppercase tracking-[0.2em]"
+                >
+                  <span className="font-semibold text-white">{ticker.symbol}</span>
+                  <span className="text-muted-foreground">{ticker.detail}</span>
+                  <span className="text-emerald-300">{ticker.value}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button
+            variant={instance.status === "running" ? "ghost" : "secondary"}
+            size="sm"
+            className="gap-1"
+            disabled={isBusy || isDraft}
+            onClick={async () => {
+              const nextStatus = instance.status === "running" ? "paused" : "running";
+              await handleStatusChange(nextStatus);
+            }}
+          >
+            {instance.status === "running" ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
+            {instance.status === "running" ? "Pause" : instance.status === "paused" ? "Resume" : "Start"}
+          </Button>
+          <Button variant="outline" size="sm" className="gap-1" disabled={isBusy} onClick={handleOpenSettings}>
+            <Settings2 className="h-4 w-4" />
+            Settings
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="text-rose-300 hover:text-rose-100"
+            onClick={handleDelete}
+            disabled={isBusy}
+          >
+            <Trash2 className="h-4 w-4" />
+          </Button>
         </div>
       </header>
 
       <div className="space-y-6 p-1 sm:p-3">
-        <div className="rounded-2xl border border-border/60 bg-card/60 p-5 shadow-lg shadow-black/30 backdrop-blur">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div className="space-y-2">
-            <div className="flex items-center gap-2">
-              <Badge variant="outline" className="border-emerald-400/40 bg-emerald-500/10 text-emerald-50">
-                Market Agent
-              </Badge>
-              <span className="text-xs text-muted-foreground/80">{formatCadence(instance.cadence_seconds)}</span>
-            </div>
-            <h1 className="text-2xl font-semibold text-white">{instance.label || "Market Agent"}</h1>
-            <div className="flex flex-wrap items-center gap-2">
-              <Badge
-                variant="outline"
-                className={cn(
-                  "px-2 py-0.5 text-[11px] font-semibold",
-                  instance.status === "running"
-                    ? "border-emerald-400/40 bg-emerald-500/10 text-emerald-100"
-                    : instance.status === "draft"
-                      ? "border-slate-400/40 bg-slate-500/10 text-slate-100"
-                      : "border-amber-400/40 bg-amber-500/10 text-amber-100"
-                )}
-              >
-                {instance.status === "draft" ? "Not running" : instance.status}
-              </Badge>
-              {isDraft ? (
-                <span className="text-xs text-muted-foreground">
-                  Not running yet. Agent chat / autonomy is coming soon.
-                </span>
-              ) : null}
-              {instance.watchlist.length ? (
-                <div className="flex flex-wrap gap-1.5">
-                  {instance.watchlist.slice(0, 6).map((symbol) => (
-                    <span
-                      key={symbol}
-                      className="rounded-full bg-muted/30 px-2 py-0.5 text-[11px] uppercase tracking-wide text-foreground/80"
-                    >
-                      {symbol}
-                    </span>
-                  ))}
-                </div>
-              ) : null}
-            </div>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <Button
-              variant={instance.status === "running" ? "ghost" : "secondary"}
-              size="sm"
-              className="gap-1"
-              disabled={isBusy || isDraft}
-              onClick={() => handleStatusChange(instance.status === "running" ? "paused" : "running")}
-            >
-              {instance.status === "running" ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
-              {instance.status === "running" ? "Pause" : "Resume"}
-            </Button>
-            <Button variant="outline" size="sm" className="gap-1" disabled={isBusy}>
-              <Settings2 className="h-4 w-4" />
-              Settings
-            </Button>
-            <Button variant="ghost" size="sm" className="gap-1 text-rose-200 hover:text-rose-50" onClick={handleDelete} disabled={isBusy}>
-              <Trash2 className="h-4 w-4" />
-              Delete
-            </Button>
-          </div>
-        </div>
-        {statusError ? <p className="mt-3 text-sm text-rose-300">{statusError}</p> : null}
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <div className="lg:col-span-2 space-y-3">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          <div className="lg:col-span-2 space-y-3">
           {events.length === 0 ? (
             <div className="rounded-xl border border-dashed border-border/70 bg-background/70 p-4 text-sm text-muted-foreground">
               No reports yet for this agent.
@@ -244,7 +252,7 @@ export function MarketAgentInstanceView({ instance, events, state }: Props) {
           )}
         </div>
 
-        <div className="space-y-3">
+          <div className="space-y-3">
           <div className="rounded-xl border border-border/70 bg-card/60 p-4 shadow-lg shadow-black/25">
             <div className="flex items-center justify-between gap-2">
               <h3 className="text-sm font-semibold text-white">Agent state</h3>
@@ -325,7 +333,7 @@ export function MarketAgentInstanceView({ instance, events, state }: Props) {
           </div>
         </div>
       </div>
-      </div>
     </div>
+  </div>
   );
 }
