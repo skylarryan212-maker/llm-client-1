@@ -5,6 +5,7 @@ import type { Database, Json } from "@/lib/supabase/types";
 type MarketAgentInstanceRow = Database["public"]["Tables"]["market_agent_instances"]["Row"];
 type MarketAgentEventRow = Database["public"]["Tables"]["market_agent_events"]["Row"];
 type MarketAgentStateRow = Database["public"]["Tables"]["market_agent_state"]["Row"];
+type MarketAgentThesisRow = Database["public"]["Tables"]["market_agent_thesis"]["Row"];
 type ConversationRow = Database["public"]["Tables"]["conversations"]["Row"];
 type MessageRow = Database["public"]["Tables"]["messages"]["Row"];
 
@@ -32,6 +33,8 @@ export type MarketAgentInstanceWithWatchlist = MarketAgentInstanceRow & {
 export type MarketAgentFeedEvent = MarketAgentEventRow & {
   instance?: MarketAgentInstanceWithWatchlist;
 };
+
+export type MarketAgentThesis = MarketAgentThesisRow;
 
 export type MarketAgentMessageRow = MessageRow & { metadata?: Json | null };
 export type MarketAgentChatMessage = {
@@ -171,7 +174,7 @@ export async function getMarketAgentState(instanceId: string): Promise<MarketAge
 export async function getMarketAgentEvents(params: {
   instanceId: string;
   limit?: number;
-  beforeTs?: string;
+  beforeCreatedAt?: string;
 }): Promise<MarketAgentEventRow[]> {
   const userId = await requireUserIdServer();
   const ownerInstance = await getMarketAgentInstance(params.instanceId, userId);
@@ -185,10 +188,11 @@ export async function getMarketAgentEvents(params: {
     .from("market_agent_events")
     .select("*")
     .eq("instance_id", params.instanceId)
-    .order("ts", { ascending: false });
+    .order("created_at", { ascending: false })
+    .order("ts", { ascending: false, nullsLast: true });
 
-  if (params.beforeTs) {
-    query = query.lt("ts", params.beforeTs);
+  if (params.beforeCreatedAt) {
+    query = query.lt("created_at", params.beforeCreatedAt);
   }
 
   if (params.limit) {
@@ -202,6 +206,121 @@ export async function getMarketAgentEvents(params: {
   }
 
   return data ?? [];
+}
+
+export async function getMarketAgentThesis(instanceId: string): Promise<MarketAgentThesisRow | null> {
+  if (!isValidUuid(instanceId)) return null;
+  const userId = await requireUserIdServer();
+  const ownerInstance = await getMarketAgentInstance(instanceId, userId);
+  if (!ownerInstance) return null;
+
+  const admin = await getAdminClient();
+  const supabase = await supabaseServer();
+  const client: any = admin ?? (supabase as any);
+
+  const { data, error } = await client
+    .from("market_agent_thesis")
+    .select("*")
+    .eq("instance_id", instanceId)
+    .order("updated_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(`Failed to load market agent thesis: ${error.message}`);
+  }
+
+  return data ?? null;
+}
+
+export async function upsertMarketAgentThesis(params: {
+  instanceId: string;
+  bias?: string | null;
+  watched?: string[];
+  key_levels?: Json;
+  invalidation?: string | null;
+  next_check?: string | null;
+}) {
+  if (!isValidUuid(params.instanceId)) {
+    throw new Error("Invalid instance id");
+  }
+  const userId = await requireUserIdServer();
+  const ownerInstance = await getMarketAgentInstance(params.instanceId, userId);
+  if (!ownerInstance) {
+    throw new Error("Instance not found or not owned");
+  }
+  const supabase = await supabaseServer();
+  const supabaseAny = supabase as any;
+
+  const { error } = await supabaseAny
+    .from("market_agent_thesis")
+    .upsert([
+      {
+        instance_id: params.instanceId,
+        bias: params.bias ?? null,
+        watched: params.watched ?? [],
+        key_levels: params.key_levels ?? {},
+        invalidation: params.invalidation ?? null,
+        next_check: params.next_check ?? null,
+        updated_at: new Date().toISOString(),
+      },
+    ])
+    .eq("instance_id", params.instanceId);
+
+  if (error) {
+    throw new Error(`Failed to upsert thesis: ${error.message}`);
+  }
+}
+
+export async function createMarketAgentEvent(params: {
+  instanceId: string;
+  kind?: string | null;
+  title?: string | null;
+  summary?: string | null;
+  bodyMd?: string | null;
+  severityLabel?: string | null;
+  tickers?: string[];
+  createdAt?: string;
+}): Promise<MarketAgentEventRow> {
+  if (!isValidUuid(params.instanceId)) {
+    throw new Error("Invalid instance id");
+  }
+  const userId = await requireUserIdServer();
+  const ownerInstance = await getMarketAgentInstance(params.instanceId, userId);
+  if (!ownerInstance) {
+    throw new Error("Instance not found or not owned");
+  }
+  const supabase = await supabaseServer();
+  const supabaseAny = supabase as any;
+  const now = params.createdAt ?? new Date().toISOString();
+
+  const { data, error } = await supabaseAny
+    .from("market_agent_events")
+    .insert([
+      {
+        instance_id: params.instanceId,
+        event_type: params.kind ?? "report",
+        severity: "info",
+        summary: params.summary ?? "",
+        payload: {},
+        model_used: null,
+        kind: params.kind ?? "report",
+        title: params.title ?? "",
+        body_md: params.bodyMd ?? "",
+        tickers: params.tickers ?? [],
+        severity_label: params.severityLabel ?? null,
+        created_at: now,
+        ts: now,
+      },
+    ])
+    .select()
+    .maybeSingle();
+
+  if (error || !data) {
+    throw new Error(`Failed to create market agent event: ${error?.message ?? "Unknown error"}`);
+  }
+
+  return data as MarketAgentEventRow;
 }
 
 export async function getLatestMarketAgentEvents(limit = 10): Promise<MarketAgentEventRow[]> {

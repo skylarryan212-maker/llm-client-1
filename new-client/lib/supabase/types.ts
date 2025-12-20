@@ -336,6 +336,11 @@ export interface MarketAgentEvent {
   summary: string;
   payload: Json;
   model_used: string | null;
+  kind: string | null;
+  title: string | null;
+  body_md: string | null;
+  tickers: string[] | null;
+  severity_label: string | null;
   created_at: string | null;
 }
 
@@ -347,6 +352,11 @@ export interface MarketAgentEventInsert {
   payload?: Json;
   model_used?: string | null;
   ts?: string | null;
+  kind?: string | null;
+  title?: string | null;
+  body_md?: string | null;
+  tickers?: string[] | null;
+  severity_label?: string | null;
   created_at?: string | null;
 }
 
@@ -357,6 +367,11 @@ export interface MarketAgentEventUpdate {
   payload?: Json;
   model_used?: string | null;
   ts?: string | null;
+  kind?: string | null;
+  title?: string | null;
+  body_md?: string | null;
+  tickers?: string[] | null;
+  severity_label?: string | null;
   created_at?: string | null;
 }
 
@@ -378,6 +393,39 @@ export interface MarketAgentStateUpdate {
   state?: Json;
   state_version?: number;
   updated_at?: string | null;
+}
+
+export interface MarketAgentThesis {
+  id: string;
+  instance_id: string;
+  bias: string | null;
+  watched: string[] | null;
+  key_levels: Json | null;
+  invalidation: string | null;
+  next_check: string | null;
+  updated_at: string | null;
+  created_at: string | null;
+}
+
+export interface MarketAgentThesisInsert {
+  instance_id: string;
+  bias?: string | null;
+  watched?: string[] | null;
+  key_levels?: Json | null;
+  invalidation?: string | null;
+  next_check?: string | null;
+  updated_at?: string | null;
+  created_at?: string | null;
+}
+
+export interface MarketAgentThesisUpdate {
+  bias?: string | null;
+  watched?: string[] | null;
+  key_levels?: Json | null;
+  invalidation?: string | null;
+  next_check?: string | null;
+  updated_at?: string | null;
+  created_at?: string | null;
 }
 
 export interface Database {
@@ -452,6 +500,11 @@ export interface Database {
         Row: MarketAgentState;
         Insert: MarketAgentStateInsert;
         Update: MarketAgentStateUpdate;
+      };
+      market_agent_thesis: {
+        Row: MarketAgentThesis;
+        Insert: MarketAgentThesisInsert;
+        Update: MarketAgentThesisUpdate;
       };
     };
   };

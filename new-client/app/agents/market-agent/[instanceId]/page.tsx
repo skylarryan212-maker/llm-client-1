@@ -10,6 +10,7 @@ import {
   getMarketAgentEvents,
   getMarketAgentInstance,
   getMarketAgentState,
+  getMarketAgentThesis,
   type MarketAgentFeedEvent,
 } from "@/lib/data/market-agent";
 import { getCurrentUserIdServer } from "@/lib/supabase/user";
@@ -17,10 +18,14 @@ import { supabaseServerAdmin } from "@/lib/supabase/server";
 
 export default async function MarketAgentInstancePage({
   params,
+  searchParams,
 }: {
   params: Promise<{ instanceId: string }>;
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  const { instanceId } = await params;
+  const [paramsResolved, searchParamsResolved] = await Promise.all([params, searchParams]);
+  const { instanceId } = paramsResolved;
+  const initialSelectedEventId = typeof searchParamsResolved?.event === "string" ? searchParamsResolved.event : null;
 
   const userId = await getCurrentUserIdServer();
   if (!userId) {
@@ -80,9 +85,10 @@ export default async function MarketAgentInstancePage({
     );
   }
 
-  const [state, events] = await Promise.all([
+  const [state, events, thesis] = await Promise.all([
     getMarketAgentState(instanceId),
     getMarketAgentEvents({ instanceId, limit: 20 }),
+    getMarketAgentThesis(instanceId),
   ]);
 
   const feedEvents: MarketAgentFeedEvent[] = (events ?? []).map((evt) => ({
@@ -90,5 +96,13 @@ export default async function MarketAgentInstancePage({
     instance,
   }));
 
-  return <MarketAgentInstanceView instance={instance} events={feedEvents} state={state} />;
+  return (
+    <MarketAgentInstanceView
+      instance={instance}
+      events={feedEvents}
+      thesis={thesis}
+      state={state}
+      initialSelectedEventId={initialSelectedEventId}
+    />
+  );
 }
