@@ -210,7 +210,6 @@
 }
 
 .agent-chat-composer .composer-shell {
-  border: none !important;
   background: transparent !important;
   box-shadow: none !important;
   width: 100%;
