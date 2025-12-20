@@ -69,6 +69,7 @@ type CombinedSuggestion = {
 type SuggestionOutcome = {
   decision: "accepted" | "declined";
   cadenceSeconds: number;
+  watchlistSymbols?: string[];
   reason?: string;
 };
 
