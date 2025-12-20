@@ -396,7 +396,7 @@ export async function POST(
           type: "function_call";
           name: string;
           call_id?: string;
-          arguments?: string;
+          arguments: string;
         };
 
         type ToolCallOutput = {
@@ -444,7 +444,7 @@ export async function POST(
                 type: "function_call",
                 name: toolCall.name,
                 call_id: toolCall.call_id,
-                arguments: toolCall.arguments,
+                arguments: typeof toolCall.arguments === "string" ? toolCall.arguments : "",
               });
             }
             if (toolCall && typeof toolCall.arguments === "string") {
@@ -536,7 +536,7 @@ export async function POST(
                   type: "function_call",
                   name: watchlistCall.name,
                   call_id: watchlistCall.call_id,
-                  arguments: watchlistCall.arguments,
+                  arguments: typeof watchlistCall.arguments === "string" ? watchlistCall.arguments : "",
                 });
               }
             if (watchlistCall && typeof watchlistCall.arguments === "string") {
