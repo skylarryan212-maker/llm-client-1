@@ -31,6 +31,8 @@ interface ChatMessageProps {
   suppressPreStreamAnimation?: boolean
   showModelActions?: boolean
   modelTagClickable?: boolean
+  forceFullWidth?: boolean
+  forceStaticBubble?: boolean
 }
 
 export function ChatMessage({
@@ -48,6 +50,8 @@ export function ChatMessage({
   suppressPreStreamAnimation = false,
   showModelActions = true,
   modelTagClickable = true,
+  forceFullWidth = false,
+  forceStaticBubble = false,
 }: ChatMessageProps) {
   const [copied, setCopied] = useState(false)
   const [retryModel, setRetryModel] = useState('')
@@ -153,11 +157,18 @@ export function ChatMessage({
   }
 
   const [showUserCopyHover, setShowUserCopyHover] = useState(false)
+  const rootAttributes = messageId ? { "data-agent-message-id": messageId } : {}
+
+  const userBubbleClass = forceStaticBubble
+    ? "inline-block max-w-full rounded-2xl px-3 sm:px-4 py-2.5 sm:py-3 bg-white/5 border border-border/60 text-foreground"
+    : "accent-user-bubble inline-block max-w-full rounded-2xl px-3 sm:px-4 py-2.5 sm:py-3"
 
   if (role === 'user') {
-    return (
-      <div className={`py-3 sm:py-4 ${animateClass}`}>
-      <div className="mx-auto w-full max-w-3xl flex flex-col items-end px-1.5 sm:px-0">
+  return (
+    <div {...rootAttributes} className={`py-3 sm:py-4 ${animateClass}`}>
+    <div
+      className={`mx-auto w-full ${forceFullWidth ? "max-w-full" : "max-w-3xl"} flex flex-col items-end px-1.5 sm:px-0`}
+    >
           {Array.isArray((metadata as any)?.files) && (metadata as any).files.length > 0 && (
             <div className="mb-2 flex flex-wrap gap-2 justify-end max-w-[92%] sm:max-w-4xl lg:max-w-5xl xl:max-w-[1200px] 2xl:max-w-[1400px]">
               {((metadata as any).files as Array<{ name?: string; mimeType?: string; dataUrl?: string; url?: string }>).map((file, idx) => (
@@ -195,7 +206,7 @@ export function ChatMessage({
               onMouseEnter={() => setShowUserCopyHover(true)}
               onMouseLeave={() => setShowUserCopyHover(false)}
             >
-              <div className="accent-user-bubble inline-block max-w-full rounded-2xl px-3 sm:px-4 py-2.5 sm:py-3">
+              <div className={userBubbleClass}>
                 <p className="text-base leading-relaxed break-words [overflow-wrap:anywhere]">{content}</p>
               </div>
               <div
@@ -215,15 +226,24 @@ export function ChatMessage({
               </div>
             </div>
           </div>
-        </div>
       </div>
-    )
-  }
+    </div>
+  )
+}
 
-  return (
-    <div className={`py-4 sm:py-6 ${animateClass} ${assistantStreamingClass}`}>
-      <div className="mx-auto w-full max-w-3xl px-1.5 sm:px-0">
-        <div className="space-y-3 sm:space-y-4">
+return (
+    <div {...rootAttributes} className={`py-4 sm:py-6 ${animateClass} ${assistantStreamingClass}`}>
+      <div
+        className={`mx-auto w-full ${
+          forceFullWidth ? "max-w-full" : "max-w-3xl"
+        } px-1.5 sm:px-0`}
+      >
+        <div className={`${
+          forceStaticBubble
+            ? "space-y-3 sm:space-y-4 bg-transparent"
+            : "space-y-3 sm:space-y-4"
+        }`}
+        >
           <MarkdownContent
             content={content}
             messageId={messageId}

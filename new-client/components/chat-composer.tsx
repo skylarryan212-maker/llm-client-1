@@ -9,6 +9,7 @@ import {
   useEffect,
   useLayoutEffect,
   ClipboardEvent,
+  type CSSProperties,
 } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -41,6 +42,10 @@ type ChatComposerProps = {
   onPrefillUsed?: () => void;
   selectedAgentId?: string | null;
   onAgentChange?: (agentId: string | null) => void;
+  sendButtonClassName?: string;
+  sendButtonStyle?: CSSProperties;
+  disableAccentStyles?: boolean;
+  showAttachmentButton?: boolean;
 };
 
 const RESTORE_FOCUS_KEY = "llm-client:composer:restore-focus";
@@ -66,6 +71,10 @@ export function ChatComposer({
   onPrefillUsed,
   selectedAgentId: selectedAgentIdProp,
   onAgentChange,
+  sendButtonClassName,
+  sendButtonStyle,
+  disableAccentStyles = false,
+  showAttachmentButton = true,
 }: ChatComposerProps) {
   const [value, setValue] = useState("");
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -668,8 +677,9 @@ export function ChatComposer({
             <button
               type="button"
               onClick={finishRecordingAndTranscribe}
-              className="accent-send-button flex h-10 w-10 items-center justify-center rounded-full shadow-lg transition"
+              className={`flex h-10 w-10 items-center justify-center rounded-full shadow-lg transition${disableAccentStyles ? ` ${sendButtonClassName ?? ""}` : ` accent-send-button ${sendButtonClassName ?? ""}`}`}
               aria-label="Finish recording"
+              style={sendButtonStyle}
             >
               <svg
                 xmlns="http://www.w3.org/2000/svg"
@@ -688,25 +698,27 @@ export function ChatComposer({
         ) : (
           <>
             {/* Left action button (plus) */}
-            <div className="flex items-center">
-              <AttachmentMenuButton
-                open={isMenuOpen}
-                onOpenChange={setIsMenuOpen}
-                onPickFiles={handleOpenFilePicker}
-                onCreateImage={onCreateImage}
-                selectedAgentId={selectedAgentId}
-                onSelectAgent={(id) => {
-                  setSelectedAgentIdForConversation(id);
-                  setIsAgentPickerOpen(false);
-                  setIsMenuOpen(false);
-                }}
-                onClearAgent={() => {
-                  setSelectedAgentIdForConversation(null);
-                  setIsAgentPickerOpen(false);
-                  setIsMenuOpen(false);
-                }}
-              />
-            </div>
+            {showAttachmentButton ? (
+              <div className="flex items-center">
+                <AttachmentMenuButton
+                  open={isMenuOpen}
+                  onOpenChange={setIsMenuOpen}
+                  onPickFiles={handleOpenFilePicker}
+                  onCreateImage={onCreateImage}
+                  selectedAgentId={selectedAgentId}
+                  onSelectAgent={(id) => {
+                    setSelectedAgentIdForConversation(id);
+                    setIsAgentPickerOpen(false);
+                    setIsMenuOpen(false);
+                  }}
+                  onClearAgent={() => {
+                    setSelectedAgentIdForConversation(null);
+                    setIsAgentPickerOpen(false);
+                    setIsMenuOpen(false);
+                  }}
+                />
+              </div>
+            ) : null}
 
             {/* Textarea */}
             <Textarea
@@ -742,21 +754,23 @@ export function ChatComposer({
                   <button
                     type="button"
                     disabled
-                    className="accent-send-button flex h-10 w-10 items-center justify-center rounded-full shadow-lg"
+                    className={`flex h-10 w-10 items-center justify-center rounded-full shadow-lg${disableAccentStyles ? ` ${sendButtonClassName ?? ""}` : ` accent-send-button ${sendButtonClassName ?? ""}`}`}
                     aria-label="Transcribing"
+                    style={sendButtonStyle}
                   >
                     <span className="inline-flex h-5 w-5 items-center justify-center">
                       <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
                     </span>
                   </button>
                 ) : trimmedValue ? (
-                  <button
-                    type="submit"
-                    onMouseDown={markRestoreFocus}
-                    disabled={isUploading}
-                    className="accent-send-button flex h-10 w-10 items-center justify-center rounded-full shadow-lg transition disabled:opacity-50"
-                    aria-label="Send message"
-                  >
+                        <button
+                          type="submit"
+                          onMouseDown={markRestoreFocus}
+                          disabled={isUploading}
+                          className={`flex h-10 w-10 items-center justify-center rounded-full shadow-lg transition disabled:opacity-50${disableAccentStyles ? ` ${sendButtonClassName ?? ""}` : ` accent-send-button ${sendButtonClassName ?? ""}`}`}
+                          aria-label="Send message"
+                          style={sendButtonStyle}
+                        >
                     {isUploading ? (
                       <span className="inline-flex h-5 w-5 items-center justify-center">
                         <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
@@ -769,8 +783,9 @@ export function ChatComposer({
                   <button
                     type="button"
                     onClick={() => {}}
-                    className="accent-send-button flex h-10 w-10 items-center justify-center rounded-full shadow-lg transition"
+                    className={`flex h-10 w-10 items-center justify-center rounded-full shadow-lg transition${disableAccentStyles ? ` ${sendButtonClassName ?? ""}` : ` accent-send-button ${sendButtonClassName ?? ""}`}`}
                     aria-label="Voice input unavailable"
+                    style={sendButtonStyle}
                   >
                     <svg
                       xmlns="http://www.w3.org/2000/svg"
@@ -789,8 +804,9 @@ export function ChatComposer({
                 <button
                   type="button"
                   onClick={onStop}
-                  className="accent-send-button flex h-10 w-10 items-center justify-center rounded-full shadow-lg transition"
+                  className={`flex h-10 w-10 items-center justify-center rounded-full shadow-lg transition${disableAccentStyles ? ` ${sendButtonClassName ?? ""}` : ` accent-send-button ${sendButtonClassName ?? ""}`}`}
                   aria-label="Stop generating"
+                  style={sendButtonStyle}
                 >
                   <svg
                     xmlns="http://www.w3.org/2000/svg"

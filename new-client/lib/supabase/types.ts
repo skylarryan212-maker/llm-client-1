@@ -284,6 +284,7 @@ export interface MarketAgentInstance {
   label: string;
   status: "draft" | "running" | "paused";
   cadence_seconds: number;
+  report_depth: "short" | "standard" | "deep";
   config: Json;
   created_at: string | null;
   updated_at: string | null;
@@ -294,6 +295,7 @@ export interface MarketAgentInstanceInsert {
   label?: string | null;
   status?: "draft" | "running" | "paused";
   cadence_seconds: number;
+  report_depth?: "short" | "standard" | "deep";
   config?: Json;
   created_at?: string | null;
   updated_at?: string | null;
@@ -303,6 +305,7 @@ export interface MarketAgentInstanceUpdate {
   label?: string | null;
   status?: "draft" | "running" | "paused";
   cadence_seconds?: number;
+  report_depth?: "short" | "standard" | "deep";
   config?: Json;
   updated_at?: string | null;
 }

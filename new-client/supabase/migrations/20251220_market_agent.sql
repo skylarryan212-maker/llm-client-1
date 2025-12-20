@@ -9,11 +9,13 @@ CREATE TABLE IF NOT EXISTS public.market_agent_instances (
   label text NOT NULL DEFAULT 'Market Agent',
   status text NOT NULL DEFAULT 'draft',
   cadence_seconds integer NOT NULL,
+  report_depth text NOT NULL DEFAULT 'standard',
   config jsonb NOT NULL DEFAULT '{}'::jsonb,
   created_at timestamptz DEFAULT now(),
   updated_at timestamptz DEFAULT now(),
   CONSTRAINT market_agent_instances_status_check CHECK (status IN ('draft', 'running', 'paused')),
-  CONSTRAINT market_agent_instances_cadence_check CHECK (cadence_seconds IN (60, 120, 300, 600, 1800, 3600))
+  CONSTRAINT market_agent_instances_cadence_check CHECK (cadence_seconds IN (60, 120, 300, 600, 1800, 3600)),
+  CONSTRAINT market_agent_instances_report_depth_check CHECK (report_depth IN ('short', 'standard', 'deep'))
 );
 
 CREATE INDEX IF NOT EXISTS market_agent_instances_user_updated_idx

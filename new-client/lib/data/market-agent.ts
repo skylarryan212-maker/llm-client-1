@@ -6,8 +6,11 @@ type MarketAgentInstanceRow = Database["public"]["Tables"]["market_agent_instanc
 type MarketAgentEventRow = Database["public"]["Tables"]["market_agent_events"]["Row"];
 type MarketAgentStateRow = Database["public"]["Tables"]["market_agent_state"]["Row"];
 type ConversationRow = Database["public"]["Tables"]["conversations"]["Row"];
+type MessageRow = Database["public"]["Tables"]["messages"]["Row"];
 
 const ALLOWED_CADENCES = new Set([60, 120, 300, 600, 1800, 3600]);
+export type MarketAgentReportDepth = "short" | "standard" | "deep";
+const ALLOWED_REPORT_DEPTH = new Set<MarketAgentReportDepth>(["short", "standard", "deep"]);
 const ALLOWED_STATUSES = new Set(["draft", "running", "paused"] as const);
 
 function isValidUuid(id?: string | null) {
@@ -28,6 +31,15 @@ export type MarketAgentInstanceWithWatchlist = MarketAgentInstanceRow & {
 
 export type MarketAgentFeedEvent = MarketAgentEventRow & {
   instance?: MarketAgentInstanceWithWatchlist;
+};
+
+export type MarketAgentMessageRow = MessageRow & { metadata?: Json | null };
+export type MarketAgentChatMessage = {
+  id: string;
+  role: "user" | "agent" | "system" | "assistant";
+  content: string;
+  created_at: string | null;
+  metadata: Json | null;
 };
 
 export async function listMarketAgentInstances(): Promise<MarketAgentInstanceWithWatchlist[]> {
@@ -274,6 +286,12 @@ export async function createMarketAgentInstance(params: {
   const status = ALLOWED_STATUSES.has(params.status ?? "draft")
     ? params.status
     : "draft";
+  const configRecord = (params.config ?? {}) as Record<string, unknown>;
+  const requestedDepth =
+    typeof configRecord.report_depth === "string" && ALLOWED_REPORT_DEPTH.has(configRecord.report_depth as MarketAgentReportDepth)
+      ? (configRecord.report_depth as MarketAgentReportDepth)
+      : null;
+  const reportDepth = requestedDepth ?? "standard";
 
   const { data: instance, error } = await supabaseAny
     .from("market_agent_instances")
@@ -283,6 +301,7 @@ export async function createMarketAgentInstance(params: {
         label: params.label ?? "Market Agent",
         cadence_seconds: cadence,
         status,
+        report_depth: reportDepth,
         config: params.config ?? {},
       },
     ])
@@ -486,4 +505,88 @@ export async function ensureMarketAgentConversation(instanceId: string): Promise
   }
 
   return data as ConversationRow;
+}
+
+export async function listMarketAgentMessages(instanceId: string, limit = 100): Promise<MarketAgentChatMessage[]> {
+  if (!isValidUuid(instanceId)) return [];
+  const supabase = await supabaseServer();
+  const userId = await requireUserIdServer();
+  const supabaseAny = supabase as any;
+
+  const conversation = await ensureMarketAgentConversation(instanceId);
+
+  const { data, error } = await supabaseAny
+    .from("messages")
+    .select("*")
+    .eq("conversation_id", conversation.id)
+    .eq("user_id", userId)
+    .eq("metadata->>agent", "market-agent")
+    .eq("metadata->>market_agent_instance_id", instanceId)
+    .order("created_at", { ascending: true })
+    .limit(limit);
+
+  if (error) {
+    throw new Error(`Failed to load agent chat messages: ${error.message}`);
+  }
+
+  return (data ?? []).map((row: any) => ({
+    id: row.id,
+    role: (row.role as MarketAgentChatMessage["role"]) ?? "user",
+    content: row.content ?? "",
+    created_at: row.created_at ?? null,
+    metadata: (row as any).metadata ?? null,
+  }));
+}
+
+export async function insertMarketAgentMessage(params: {
+  instanceId: string;
+  role: "user" | "agent" | "system";
+  content: string;
+}): Promise<MarketAgentChatMessage> {
+  if (!isValidUuid(params.instanceId)) {
+    throw new Error("Invalid instance id");
+  }
+  if (!["user", "agent", "system"].includes(params.role)) {
+    throw new Error("Invalid role");
+  }
+  const content = (params.content ?? "").trim();
+  if (!content.length) {
+    throw new Error("Message content is required");
+  }
+
+  const supabase = await supabaseServer();
+  const userId = await requireUserIdServer();
+  const supabaseAny = supabase as any;
+
+  const conversation = await ensureMarketAgentConversation(params.instanceId);
+  const metadata = {
+    agent: "market-agent",
+    market_agent_instance_id: params.instanceId,
+  };
+
+  const { data, error } = await supabaseAny
+    .from("messages")
+    .insert([
+      {
+        user_id: userId,
+        conversation_id: conversation.id,
+        role: params.role,
+        content,
+        metadata,
+      },
+    ])
+    .select()
+    .maybeSingle();
+
+  if (error || !data) {
+    throw new Error(`Failed to insert chat message: ${error?.message ?? "Unknown error"}`);
+  }
+
+  return {
+    id: data.id,
+    role: (data.role as MarketAgentChatMessage["role"]) ?? params.role,
+    content: data.content ?? content,
+    created_at: data.created_at ?? null,
+    metadata: (data as any).metadata ?? metadata,
+  };
 }
