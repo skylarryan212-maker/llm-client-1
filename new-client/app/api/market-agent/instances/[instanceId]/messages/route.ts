@@ -392,8 +392,21 @@ export async function POST(
           }
         };
 
-        const toolCallOutputs: { type: string; call_id: string; output: string }[] = [];
-        const toolCallPayloads: { type: string; name: string; call_id?: string; arguments?: string }[] = [];
+        type ToolCallPayload = {
+          type: "function_call";
+          name: string;
+          call_id?: string;
+          arguments?: string;
+        };
+
+        type ToolCallOutput = {
+          type: "function_call_output";
+          call_id: string;
+          output: string;
+        };
+
+        const toolCallOutputs: ToolCallOutput[] = [];
+        const toolCallPayloads: ToolCallPayload[] = [];
         let combinedSuggestion: CombinedSuggestionPayload | null = null;
         let suggestionCounter = 0;
         const captureSuggestion = (update: Partial<CombinedSuggestionPayload>) => {
@@ -427,7 +440,12 @@ export async function POST(
               (item: any) => item?.type === "function_call" && item?.name === SUGGEST_CADENCE_TOOL.name
             );
             if (toolCall) {
-              toolCallPayloads.push({ ...toolCall });
+              toolCallPayloads.push({
+                type: "function_call",
+                name: toolCall.name,
+                call_id: toolCall.call_id,
+                arguments: toolCall.arguments,
+              });
             }
             if (toolCall && typeof toolCall.arguments === "string") {
               const suggestion = parseCadenceSuggestion(toolCall.arguments);
@@ -513,9 +531,14 @@ export async function POST(
             const watchlistCall = watchlistItems.find(
               (item: any) => item?.type === "function_call" && item?.name === SUGGEST_WATCHLIST_TOOL.name
             );
-            if (watchlistCall) {
-              toolCallPayloads.push({ ...watchlistCall });
-            }
+              if (watchlistCall) {
+                toolCallPayloads.push({
+                  type: "function_call",
+                  name: watchlistCall.name,
+                  call_id: watchlistCall.call_id,
+                  arguments: watchlistCall.arguments,
+                });
+              }
             if (watchlistCall && typeof watchlistCall.arguments === "string") {
               try {
                 const parsed = JSON.parse(watchlistCall.arguments);
@@ -602,7 +625,7 @@ export async function POST(
             input: followupInput,
             stream: true,
             store: false,
-            tools: [{ type: "web_search" as const }],
+            tools: [{ type: "web_search" as any }],
             reasoning: { effort: "low" },
           });
           console.log("[market-agent] OpenAI stream started", {
