@@ -18,9 +18,9 @@ import { supabaseServerAdmin } from "@/lib/supabase/server";
 export default async function MarketAgentInstancePage({
   params,
 }: {
-  params: { instanceId: string };
+  params: Promise<{ instanceId: string }>;
 }) {
-  const { instanceId } = params;
+  const { instanceId } = await params;
 
   const userId = await getCurrentUserIdServer();
   if (!userId) {
