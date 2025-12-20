@@ -792,7 +792,7 @@ export function MarketAgentInstanceView({ instance, events, state: _state }: Pro
       }
       setPendingSuggestionOutcome({
         decision: choice,
-        cadenceSeconds: suggestion.cadenceSeconds,
+        cadenceSeconds: suggestion.cadenceSeconds ?? 0,
         watchlistSymbols: suggestion.watchlistSymbols,
         reason: suggestion.cadenceReason || suggestion.watchlistReason,
       });
