@@ -177,60 +177,6 @@
   display: inline-flex;
 }
 
-/* Agent chat composer overrides */
-.agent-chat-composer .agent-chat-send-button,
-.agent-chat-composer button.agent-chat-send-button,
-.agent-chat-composer button.accent-send-button {
-  background-color: #ffffff !important;
-  color: #050505 !important;
-  border: 1px solid rgba(15, 20, 25, 0.35) !important;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25) !important;
-}
-
-.agent-chat-composer .agent-chat-send-button:hover:not(:disabled),
-.agent-chat-composer button.agent-chat-send-button:hover:not(:disabled),
-.agent-chat-composer button.accent-send-button:hover:not(:disabled) {
-  background-color: #ffffff !important;
-  color: #050505 !important;
-}
-
-.agent-chat-composer .agent-chat-send-button svg,
-.agent-chat-composer button.agent-chat-send-button svg,
-.agent-chat-composer button.accent-send-button svg,
-.agent-chat-composer .agent-chat-send-button svg *,
-.agent-chat-composer button.agent-chat-send-button svg *,
-.agent-chat-composer button.accent-send-button svg * {
-  color: #050505 !important;
-  stroke: #050505 !important;
-  fill: #050505 !important;
-}
-
-.agent-chat-composer-wrapper {
-  border: 0;
-}
-
-.agent-chat-composer .composer-shell {
-  border: none !important;
-  background: transparent !important;
-  box-shadow: none !important;
-  width: 100%;
-  max-width: 100%;
-  padding: 0 !important;
-}
-
-.agent-chat-composer .composer-shell textarea {
-  background: transparent;
-}
-
-.agent-chat-composer {
-  border: 1px solid var(--border);
-  transition: border-color 200ms ease, transform 220ms ease;
-}
-
-.agent-chat-composer:focus-within {
-  border-color: var(--ring);
-}
-
 .agent-chat-message-list {
   width: 100%;
   box-sizing: border-box;

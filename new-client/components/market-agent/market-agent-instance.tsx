@@ -610,17 +610,10 @@ function AgentChatSidebar({
             {error && !isLoading ? (
               <p className="text-xs text-rose-300 mb-2">{error}</p>
             ) : null}
-            <div className="rounded-3xl bg-card/60 p-0.5 agent-chat-composer">
+            <div className="mx-auto w-full max-w-3xl">
               <ChatComposer
                 onSendMessage={onSendChat}
                 placeholder="Ask the agent..."
-                sendButtonClassName="agent-chat-send-button"
-                sendButtonStyle={{
-                  backgroundColor: "#ffffff",
-                  color: "#050505",
-                  border: "1px solid rgba(15, 20, 25, 0.35)",
-                  boxShadow: "0 4px 12px rgba(0, 0, 0, 0.25)",
-                }}
                 disableAccentStyles
                 showAttachmentButton={false}
               />
