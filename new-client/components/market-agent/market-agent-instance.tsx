@@ -308,6 +308,15 @@ export function MarketAgentInstanceView({ instance, events, state: _state }: Pro
         return;
       }
 
+      const minimumSpacerForAlign = baseBottomSpacerPx + viewport.clientHeight;
+      if (bottomSpacerPx < minimumSpacerForAlign) {
+        setBottomSpacerPx((prev) => Math.max(prev, minimumSpacerForAlign));
+        if (typeof requestAnimationFrame !== "undefined") {
+          retryRaf = requestAnimationFrame(doScroll);
+        }
+        return;
+      }
+
       const viewportRect = viewport.getBoundingClientRect();
       const elRect = el.getBoundingClientRect();
       const desiredPadding = 14;
