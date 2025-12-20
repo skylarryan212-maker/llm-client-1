@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { MutableRefObject } from "react";
@@ -185,7 +185,10 @@ export function MarketAgentInstanceView({ instance, events, thesis, state: _stat
   };
 
   const handleGenerateDemoEvents = async () => {
-    if (!isDev) return;
+    if (!canSeedDemo) {
+      setStatusError("Demo seeding is unavailable for this plan.");
+      return;
+    }
     setSeedLoading(true);
     setStatusError(null);
     try {
@@ -1027,11 +1030,11 @@ export function MarketAgentInstanceView({ instance, events, thesis, state: _stat
                       <div className="mt-3 grid gap-3 md:grid-cols-2">
                         <div className="space-y-2">
                           <p className="text-sm font-semibold text-white">Bias</p>
-                          <p className="text-sm text-muted-foreground">{workspaceThesis.bias || "—"}</p>
+                          <p className="text-sm text-muted-foreground">{workspaceThesis.bias || "â€”"}</p>
                           <p className="text-sm font-semibold text-white">Invalidation</p>
-                          <p className="text-sm text-muted-foreground">{workspaceThesis.invalidation || "—"}</p>
+                          <p className="text-sm text-muted-foreground">{workspaceThesis.invalidation || "â€”"}</p>
                           <p className="text-sm font-semibold text-white">Next check</p>
-                          <p className="text-sm text-muted-foreground">{workspaceThesis.next_check || "—"}</p>
+                          <p className="text-sm text-muted-foreground">{workspaceThesis.next_check || "â€”"}</p>
                         </div>
                         <div className="space-y-2">
                           <p className="text-sm font-semibold text-white">Watched tickers</p>
@@ -1052,7 +1055,7 @@ export function MarketAgentInstanceView({ instance, events, thesis, state: _stat
                                   <div key={ticker} className="rounded-lg border border-border/50 px-2 py-1">
                                     <p className="text-xs text-white/80">{ticker}</p>
                                     <p className="text-xs text-muted-foreground">
-                                      Support: {levels?.support ?? "—"} · Resistance: {levels?.resistance ?? "—"}
+                                      Support: {levels?.support ?? "â€”"} Â· Resistance: {levels?.resistance ?? "â€”"}
                                     </p>
                                   </div>
                                 ))
@@ -1078,7 +1081,7 @@ export function MarketAgentInstanceView({ instance, events, thesis, state: _stat
                       <div className="flex items-center gap-2">
                         {canSeedDemo ? (
                           <Button size="sm" variant="outline" onClick={handleGenerateDemoEvents} disabled={seedLoading}>
-                            {seedLoading ? "Generating…" : "Generate demo"}
+                            {seedLoading ? "Generatingâ€¦" : "Generate demo"}
                           </Button>
                         ) : null}
                         {statusError ? (
