@@ -51,7 +51,47 @@ const REPORT_DEPTH_OPTIONS: Array<{ value: ReportDepth; label: string; descripti
 ];
 
 const baseBottomSpacerPx = 28;
+const DEFAULT_INDICATOR_LABEL = "Thinking";
 
+type ToolStatusEvent = {
+  type: "search-start" | "search-complete";
+  query?: string;
+};
+
+type CombinedSuggestion = {
+  suggestionId?: string;
+  cadenceSeconds?: number;
+  cadenceReason?: string;
+  watchlistSymbols?: string[];
+  watchlistReason?: string;
+};
+
+type SuggestionOutcome = {
+  decision: "accepted" | "declined";
+  cadenceSeconds: number;
+  reason?: string;
+};
+
+const formatCadence = (seconds: number) => {
+  if (!Number.isFinite(seconds) || seconds <= 0) {
+    return `${seconds} sec`;
+  }
+  const normalized = Math.round(seconds);
+  const hours = Math.floor(normalized / 3600);
+  const minutes = Math.floor((normalized % 3600) / 60);
+  const secs = normalized % 60;
+  const parts: string[] = [];
+  if (hours) {
+    parts.push(`${hours}h`);
+  }
+  if (minutes) {
+    parts.push(`${minutes}m`);
+  }
+  if (!hours && secs) {
+    parts.push(`${secs}s`);
+  }
+  return parts.length ? parts.join(" ") : `${seconds}s`;
+};
 type AgentChatMessage = MarketAgentChatMessage;
 
 export function MarketAgentInstanceView({ instance, events, state: _state }: Props) {
@@ -70,21 +110,32 @@ export function MarketAgentInstanceView({ instance, events, state: _state }: Pro
   const [isChatOpen, setIsChatOpen] = useState(true);
   const [chatMessages, setChatMessages] = useState<AgentChatMessage[]>([]);
   const [isSendingChat, setIsSendingChat] = useState(false);
+  const [isStreamingAgent, setIsStreamingAgent] = useState(false);
+  const [showThinkingIndicator, setShowThinkingIndicator] = useState(false);
+  const [indicatorLabel, setIndicatorLabel] = useState(DEFAULT_INDICATOR_LABEL);
   const [chatError, setChatError] = useState<string | null>(null);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const [isAutoScroll, setIsAutoScroll] = useState(true);
+  const [combinedSuggestion, setCombinedSuggestion] = useState<CombinedSuggestion | null>(null);
+  const [suggestionProcessing, setSuggestionProcessing] = useState(false);
+  const [suggestionError, setSuggestionError] = useState<string | null>(null);
+  const [pendingSuggestionOutcome, setPendingSuggestionOutcome] = useState<SuggestionOutcome | null>(null);
   const [bottomSpacerPx, setBottomSpacerPx] = useState(baseBottomSpacerPx);
   const chatListRef = useRef<HTMLDivElement | null>(null);
   const [alignTrigger, setAlignTrigger] = useState(0);
   const pinnedMessageIdRef = useRef<string | null>(null);
+  const initialScrollDoneRef = useRef(false);
   const [pinSpacerHeight, setPinSpacerHeight] = useState(0);
   const [isLoadingMessages, setIsLoadingMessages] = useState(true);
-  const mockReplyTimeoutRef = useRef<number | null>(null);
   const pinToPromptRef = useRef(false);
   const pinnedScrollTopRef = useRef<number | null>(null);
   const alignNextUserMessageToTopRef = useRef<string | null>(null);
   const isProgrammaticScrollRef = useRef(false);
   const programmaticScrollTimeoutRef = useRef<number | null>(null);
+  const hasStreamedTokenRef = useRef(false);
+  const streamingAbortRef = useRef<AbortController | null>(null);
+  const streamingResponseIdRef = useRef<string | null>(null);
+  const streamingAgentTempIdRef = useRef<string | null>(null);
   void _state;
 
   const tickerHighlights = [
@@ -165,10 +216,17 @@ export function MarketAgentInstanceView({ instance, events, state: _state }: Pro
     load();
     return () => {
       cancelled = true;
-      if (mockReplyTimeoutRef.current) {
-        window.clearTimeout(mockReplyTimeoutRef.current);
-      }
     };
+  }, [instance.id]);
+
+  useEffect(() => {
+    setCombinedSuggestion(null);
+    setSuggestionError(null);
+    setSuggestionProcessing(false);
+  }, [instance.id]);
+
+  useEffect(() => {
+    initialScrollDoneRef.current = false;
   }, [instance.id]);
 
   const scheduleProgrammaticScrollReset = () => {
@@ -252,36 +310,52 @@ export function MarketAgentInstanceView({ instance, events, state: _state }: Pro
         return;
       }
     }
-    const distance = getEffectiveScrollBottom(viewport) - (scrollTop + clientHeight);
-    const tolerance = Math.max(12, bottomSpacerPx / 3);
-    const atBottom = distance <= tolerance;
+    const effectiveBottom = getEffectiveScrollBottom(viewport);
+    const maxScrollTop = Math.max(0, effectiveBottom - clientHeight);
+    if (scrollTop > maxScrollTop) {
+      isProgrammaticScrollRef.current = true;
+      viewport.scrollTop = maxScrollTop;
+      scheduleProgrammaticScrollReset();
+      return;
+    }
+    const distanceFromBottom = effectiveBottom - (scrollTop + clientHeight);
+    const tolerance = Math.max(16, bottomSpacerPx / 3);
+    const atBottom = distanceFromBottom <= tolerance;
     setShowScrollToBottom(!atBottom);
-    if (atBottom) {
-      releasePinning();
-      setIsAutoScroll(true);
-    } else if (!pinToPromptRef.current) {
-      setIsAutoScroll(false);
+    if (!pinToPromptRef.current) {
+      setIsAutoScroll(atBottom);
     }
   };
 
+  const recomputeScrollFlags = useCallback(() => {
+    const viewport = chatListRef.current;
+    if (!viewport) return;
+    const { scrollTop, clientHeight } = viewport;
+    const effectiveBottom = getEffectiveScrollBottom(viewport);
+    const distanceFromBottom = effectiveBottom - (scrollTop + clientHeight);
+    const tolerance = Math.max(16, bottomSpacerPx / 3);
+    const atBottom = distanceFromBottom <= tolerance;
+    setShowScrollToBottom(!atBottom);
+  }, [bottomSpacerPx, getEffectiveScrollBottom]);
+
   useEffect(() => {
-    if (alignNextUserMessageToTopRef.current) return;
     if (!isChatOpen) {
       releasePinning();
       setShowScrollToBottom(false);
       setIsAutoScroll(true);
       return;
     }
-    if (!isAutoScroll) return;
-    scrollToBottom("auto");
-    setShowScrollToBottom(false);
-    releasePinning();
-  }, [alignTrigger, chatMessages.length, isChatOpen, isAutoScroll]);
+    if (isAutoScroll) {
+      setShowScrollToBottom(false);
+    } else {
+      recomputeScrollFlags();
+    }
+  }, [isChatOpen, isAutoScroll, recomputeScrollFlags]);
 
   useEffect(() => {
-      const targetMessageId = alignNextUserMessageToTopRef.current;
-      if (!isChatOpen || !targetMessageId) return;
-      pinnedMessageIdRef.current = targetMessageId;
+    const targetMessageId = alignNextUserMessageToTopRef.current;
+    if (!isChatOpen || !targetMessageId) return;
+    pinnedMessageIdRef.current = targetMessageId;
 
     let cancelled = false;
     let retryRaf: number | null = null;
@@ -308,7 +382,7 @@ export function MarketAgentInstanceView({ instance, events, state: _state }: Pro
         return;
       }
 
-      const minimumSpacerForAlign = baseBottomSpacerPx + viewport.clientHeight;
+      const minimumSpacerForAlign = baseBottomSpacerPx + viewport.clientHeight + 80;
       if (bottomSpacerPx < minimumSpacerForAlign) {
         setBottomSpacerPx((prev) => Math.max(prev, minimumSpacerForAlign));
         if (typeof requestAnimationFrame !== "undefined") {
@@ -419,6 +493,19 @@ export function MarketAgentInstanceView({ instance, events, state: _state }: Pro
     };
   }, [baseBottomSpacerPx, chatMessages.length]);
 
+  useEffect(() => {
+    if (!isChatOpen) return;
+    if (isLoadingMessages) return;
+    if (initialScrollDoneRef.current) return;
+    if (alignNextUserMessageToTopRef.current || pinToPromptRef.current) {
+      initialScrollDoneRef.current = true;
+      return;
+    }
+    scrollToBottom("auto");
+    setShowScrollToBottom(false);
+    initialScrollDoneRef.current = true;
+  }, [chatMessages.length, isChatOpen, isLoadingMessages]);
+
   const handleScrollToBottomClick = () => {
     releasePinning();
     setIsAutoScroll(true);
@@ -446,35 +533,20 @@ export function MarketAgentInstanceView({ instance, events, state: _state }: Pro
     });
   };
 
-  const sendMockReply = (userContent: string) => {
-    const timeout = window.setTimeout(async () => {
-      try {
-        const res = await fetch(`/api/market-agent/instances/${instance.id}/messages`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            role: "agent",
-            content: "Mock reply: I'll use this when autonomy is live. For now, adjust watchlist/cadence in Settings.",
-          }),
-        });
-        const payload = await res.json();
-        if (!res.ok) {
-          throw new Error(payload?.error ?? "Failed to insert mock reply");
-        }
-        if (payload?.message) {
-          upsertChatMessage(payload.message as AgentChatMessage);
-        }
-      } catch (error) {
-        setChatError(error instanceof Error ? error.message : "Failed to send mock reply");
-      }
-    }, 800);
-    mockReplyTimeoutRef.current = timeout;
-  };
+  const handleToolStatus = useCallback((status: ToolStatusEvent) => {
+    if (status.type === "search-start") {
+      setIndicatorLabel("Searching the web");
+      setShowThinkingIndicator(true);
+    } else {
+      setIndicatorLabel(DEFAULT_INDICATOR_LABEL);
+    }
+  }, []);
 
   const handleSendChat = async (inputContent: string) => {
     const content = inputContent.trim();
-    if (!content || isSendingChat) return;
+    if (!content || isSendingChat || isStreamingAgent) return;
     setIsSendingChat(true);
+    setIndicatorLabel(DEFAULT_INDICATOR_LABEL);
     setChatError(null);
     const tempId = `temp-${Date.now()}`;
     const optimistic: AgentChatMessage = {
@@ -486,32 +558,270 @@ export function MarketAgentInstanceView({ instance, events, state: _state }: Pro
     };
     upsertChatMessage(optimistic);
     pinToPromptRef.current = true;
+    pinnedMessageIdRef.current = tempId;
     pinnedScrollTopRef.current = null;
     setPinSpacerHeight(0);
     alignNextUserMessageToTopRef.current = tempId;
     setAlignTrigger((prev) => prev + 1);
     setIsAutoScroll(false);
     setShowScrollToBottom(true);
+    const suggestionOutcomeForRequest = pendingSuggestionOutcome;
     try {
+      const controller = new AbortController();
+      streamingAbortRef.current = controller;
+      streamingResponseIdRef.current = null;
+      streamingAgentTempIdRef.current = null;
+      setIsStreamingAgent(true);
+      setShowThinkingIndicator(true);
+      hasStreamedTokenRef.current = false;
+
+      const requestPayload: Record<string, unknown> = { role: "user", content };
+      if (suggestionOutcomeForRequest) {
+        requestPayload.suggestionOutcome = suggestionOutcomeForRequest;
+      }
       const res = await fetch(`/api/market-agent/instances/${instance.id}/messages`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ role: "user", content }),
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/x-ndjson",
+        },
+        body: JSON.stringify(requestPayload),
+        signal: controller.signal,
       });
-      const payload = await res.json();
+
       if (!res.ok) {
-        throw new Error(payload?.error ?? "Failed to send message");
+        let payload: any = null;
+        try {
+          payload = await res.json();
+        } catch {
+          // ignore
+        }
+        if (payload?.message) {
+          upsertChatMessage(payload.message as AgentChatMessage, tempId);
+          pinnedMessageIdRef.current = payload.message.id;
+          alignNextUserMessageToTopRef.current = payload.message.id;
+          setAlignTrigger((prev) => prev + 1);
+        }
+        throw new Error(payload?.error ?? `Request failed (${res.status})`);
       }
-      if (payload?.message) {
-        upsertChatMessage(payload.message as AgentChatMessage, tempId);
-        alignNextUserMessageToTopRef.current = payload.message.id;
-        setAlignTrigger((prev) => prev + 1);
+
+      if (!res.body) {
+        throw new Error("No response body");
       }
-      sendMockReply(content);
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let streamingContent = "";
+      let tempAgentId: string | null = null;
+
+      const pushAgentDelta = (delta: string) => {
+        if (!tempAgentId) {
+          tempAgentId = `agent-temp-${Date.now()}`;
+          streamingAgentTempIdRef.current = tempAgentId;
+          const placeholder: AgentChatMessage = {
+            id: tempAgentId,
+            role: "agent",
+            content: "",
+            created_at: new Date().toISOString(),
+            metadata: {
+              agent: "market-agent",
+              market_agent_instance_id: instance.id,
+              modelUsed: "gpt-5-nano",
+              resolvedFamily: "gpt-5-nano",
+            } as any,
+          };
+          upsertChatMessage(placeholder);
+        }
+        streamingContent += delta;
+        if (tempAgentId) {
+          setChatMessages((prev) =>
+            prev.map((msg) =>
+              msg.id === tempAgentId
+                ? { ...msg, content: streamingContent }
+                : msg
+            )
+          );
+        }
+        if (!hasStreamedTokenRef.current) {
+          hasStreamedTokenRef.current = true;
+          setShowThinkingIndicator(false);
+          setIndicatorLabel(DEFAULT_INDICATOR_LABEL);
+        }
+      };
+
+      const replaceAgentMessage = (finalMsg: AgentChatMessage) => {
+        upsertChatMessage(finalMsg, tempAgentId ?? undefined);
+        streamingAgentTempIdRef.current = null;
+        streamingResponseIdRef.current = null;
+      };
+
+      const handlePayload = (payload: any) => {
+        if (!payload || typeof payload !== "object") return;
+        if (payload.message) {
+          const saved = payload.message as AgentChatMessage;
+          upsertChatMessage(saved, tempId);
+          pinnedMessageIdRef.current = saved.id;
+          alignNextUserMessageToTopRef.current = saved.id;
+          setAlignTrigger((prev) => prev + 1);
+        }
+        if (payload.response_id && typeof payload.response_id === "string") {
+          streamingResponseIdRef.current = payload.response_id;
+        }
+        if (payload.token) {
+          pushAgentDelta(String(payload.token));
+        }
+        if (payload.toolStatus && typeof payload.toolStatus.type === "string") {
+          handleToolStatus(payload.toolStatus as ToolStatusEvent);
+        }
+        if (payload.suggestion && typeof payload.suggestion === "object") {
+          setCombinedSuggestion({
+            cadenceSeconds: typeof payload.suggestion.cadenceSeconds === "number" ? payload.suggestion.cadenceSeconds : undefined,
+            cadenceReason: typeof payload.suggestion.cadenceReason === "string" ? payload.suggestion.cadenceReason : undefined,
+            watchlistSymbols: Array.isArray(payload.suggestion.watchlistSymbols)
+              ? payload.suggestion.watchlistSymbols
+              : undefined,
+            watchlistReason: typeof payload.suggestion.watchlistReason === "string" ? payload.suggestion.watchlistReason : undefined,
+            suggestionId: typeof payload.suggestion.suggestionId === "string" ? payload.suggestion.suggestionId : undefined,
+          });
+          setSuggestionProcessing(false);
+          setSuggestionError(null);
+        }
+        if (payload.agentMessage) {
+          replaceAgentMessage(payload.agentMessage as AgentChatMessage);
+        }
+        if (payload.error) {
+          setChatError(typeof payload.error === "string" ? payload.error : "Request failed");
+        }
+      };
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (!trimmed) continue;
+          try {
+            handlePayload(JSON.parse(trimmed));
+          } catch {
+            // ignore malformed chunks
+          }
+        }
+      }
+
+      if (buffer.trim()) {
+        try {
+          handlePayload(JSON.parse(buffer.trim()));
+        } catch {
+          // ignore trailing parse errors
+        }
+      }
+
+      if (tempAgentId && streamingContent) {
+        setChatMessages((prev) =>
+          prev.map((msg) =>
+            msg.id === tempAgentId
+              ? { ...msg, content: streamingContent }
+              : msg
+            )
+          );
+      }
+      if (suggestionOutcomeForRequest) {
+        setPendingSuggestionOutcome(null);
+      }
     } catch (error) {
-      setChatError(error instanceof Error ? error.message : "Failed to send message");
+      const message = error instanceof Error ? error.message : "Failed to send message";
+      setChatError(message);
+      const tempIdToClear = streamingAgentTempIdRef.current;
+      if (tempIdToClear) {
+        setChatMessages((prev) => prev.filter((msg) => msg.id !== tempIdToClear));
+        streamingAgentTempIdRef.current = null;
+      }
+      setShowThinkingIndicator(false);
+      setIndicatorLabel(DEFAULT_INDICATOR_LABEL);
     } finally {
       setIsSendingChat(false);
+      setIsStreamingAgent(false);
+      streamingAbortRef.current = null;
+      streamingResponseIdRef.current = null;
+      streamingAgentTempIdRef.current = null;
+      setShowThinkingIndicator(false);
+      setIndicatorLabel(DEFAULT_INDICATOR_LABEL);
+    }
+  };
+
+  const handleSuggestionDecision = async (choice: "accepted" | "declined") => {
+    const suggestion = combinedSuggestion;
+    if (!suggestion || suggestionProcessing) return;
+    setSuggestionProcessing(true);
+    setSuggestionError(null);
+    try {
+      if (choice === "accepted") {
+        if (typeof suggestion.cadenceSeconds === "number") {
+          const res = await fetch(`/api/market-agent/instances/${instance.id}/settings`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ type: "schedule", cadenceSeconds: suggestion.cadenceSeconds }),
+          });
+          const payload = await res.json().catch(() => null);
+          if (!res.ok) {
+            throw new Error(payload?.error ?? `Failed to update schedule (${res.status})`);
+          }
+          setCadenceSecondsState(
+            typeof payload?.cadenceSeconds === "number" ? payload.cadenceSeconds : suggestion.cadenceSeconds
+          );
+        }
+        if (Array.isArray(suggestion.watchlistSymbols) && suggestion.watchlistSymbols.length) {
+          const res = await fetch(`/api/market-agent/instances/${instance.id}/settings`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ type: "watchlist", watchlist: suggestion.watchlistSymbols }),
+          });
+          const payload = await res.json().catch(() => null);
+          if (!res.ok) {
+            throw new Error(payload?.error ?? `Failed to update watchlist (${res.status})`);
+          }
+          const savedList = Array.isArray(payload?.watchlist)
+            ? payload.watchlist
+            : suggestion.watchlistSymbols;
+          setWatchlistState(savedList);
+        }
+      }
+      setPendingSuggestionOutcome({
+        decision: choice,
+        cadenceSeconds: suggestion.cadenceSeconds,
+        watchlistSymbols: suggestion.watchlistSymbols,
+        reason: suggestion.cadenceReason || suggestion.watchlistReason,
+      });
+      setCombinedSuggestion(null);
+    } catch (error) {
+      setSuggestionError(error instanceof Error ? error.message : "Failed to process suggestion");
+    } finally {
+      setSuggestionProcessing(false);
+    }
+  };
+
+  const handleAcceptSuggestion = () => {
+    void handleSuggestionDecision("accepted");
+  };
+
+  const handleDeclineSuggestion = () => {
+    void handleSuggestionDecision("declined");
+  };
+
+  const handleStopStreaming = () => {
+    try {
+      streamingAbortRef.current?.abort();
+    } catch {
+      // ignore
+    } finally {
+      streamingAbortRef.current = null;
+      setIsStreamingAgent(false);
+      setShowThinkingIndicator(false);
+      setIndicatorLabel(DEFAULT_INDICATOR_LABEL);
     }
   };
 
@@ -595,7 +905,7 @@ export function MarketAgentInstanceView({ instance, events, state: _state }: Pro
           </div>
           </header>
 
-          <div className="flex flex-1 min-h-0 h-full overflow-hidden gap-4 items-stretch">
+          <div className="flex flex-1 min-h-0 h-full overflow-hidden gap-0 items-stretch">
             <div className="flex-1 min-h-0 min-w-0 overflow-y-auto space-y-6 p-1 sm:p-3">
               <div className="space-y-3">
               {events.length === 0 ? (
@@ -627,6 +937,15 @@ export function MarketAgentInstanceView({ instance, events, state: _state }: Pro
             isLoading={isLoadingMessages}
             error={chatError}
             onSendChat={handleSendChat}
+            onStopStreaming={handleStopStreaming}
+            isStreaming={isStreamingAgent}
+            showThinkingIndicator={showThinkingIndicator}
+            indicatorLabel={indicatorLabel}
+            onAcceptSuggestion={handleAcceptSuggestion}
+            onDeclineSuggestion={handleDeclineSuggestion}
+            suggestion={combinedSuggestion}
+            suggestionProcessing={suggestionProcessing}
+            suggestionError={suggestionError}
             chatListRef={chatListRef}
             showScrollToBottom={showScrollToBottom}
             onScroll={handleChatScroll}
@@ -674,6 +993,15 @@ type AgentChatSidebarProps = {
   isLoading: boolean;
   error: string | null;
   onSendChat: (message: string) => void;
+  onStopStreaming: () => void;
+  isStreaming: boolean;
+  showThinkingIndicator: boolean;
+  indicatorLabel: string;
+  suggestion: CombinedSuggestion | null;
+  onAcceptSuggestion: () => void;
+  onDeclineSuggestion: () => void;
+  suggestionProcessing: boolean;
+  suggestionError: string | null;
   chatListRef: MutableRefObject<HTMLDivElement | null>;
   showScrollToBottom: boolean;
   onScroll: () => void;
@@ -692,6 +1020,15 @@ function AgentChatSidebar({
   isLoading,
   error,
   onSendChat,
+  onStopStreaming,
+  isStreaming,
+  showThinkingIndicator,
+  indicatorLabel,
+  suggestion,
+  onAcceptSuggestion,
+  onDeclineSuggestion,
+  suggestionProcessing,
+  suggestionError,
   chatListRef,
   showScrollToBottom,
   onScroll,
@@ -699,6 +1036,47 @@ function AgentChatSidebar({
   pinSpacerHeight,
   bottomSpacerPx,
 }: AgentChatSidebarProps) {
+  const cadenceValue = suggestion?.cadenceSeconds;
+  const hasCadenceSuggestion =
+    typeof cadenceValue === "number" && Number.isFinite(cadenceValue) && cadenceValue > 0;
+  const hasWatchlistSuggestion =
+    Array.isArray(suggestion?.watchlistSymbols) && suggestion.watchlistSymbols.length > 0;
+  const suggestionTitle = (() => {
+    if (hasCadenceSuggestion && hasWatchlistSuggestion && cadenceValue !== undefined) {
+      return `${formatCadence(cadenceValue)} cadence + watchlist update`;
+    }
+    if (hasCadenceSuggestion && cadenceValue !== undefined) {
+      return `${formatCadence(cadenceValue)} cadence`;
+    }
+    if (hasWatchlistSuggestion) {
+      return "Watchlist update";
+    }
+    return "Agent suggestion";
+  })();
+  const suggestionRef = useRef<HTMLDivElement | null>(null);
+  const [suggestionHeight, setSuggestionHeight] = useState(0);
+  const baseScrollBottom = 96;
+  const scrollTipBottom = baseScrollBottom + (suggestion ? suggestionHeight : 0);
+
+  useEffect(() => {
+    const node = suggestionRef.current;
+    if (!suggestion || !node) {
+      setSuggestionHeight(0);
+      return;
+    }
+    const updateHeight = () => {
+      setSuggestionHeight(node.offsetHeight);
+    };
+    updateHeight();
+    if (typeof ResizeObserver === "undefined") {
+      return;
+    }
+    const observer = new ResizeObserver(updateHeight);
+    observer.observe(node);
+    return () => {
+      observer.disconnect();
+    };
+  }, [suggestion]);
   return (
     <div
       className={cn(
@@ -714,16 +1092,13 @@ function AgentChatSidebar({
         )}
       >
         <div className="flex items-start justify-between border-b border-white/10 px-6 py-4">
-          <div className="space-y-1">
-            <p className="text-xs uppercase tracking-[0.3em] text-white/60">Agent Chat</p>
-            <p className="text-lg font-semibold text-white">{instance.label || "Market Agent"}</p>
-            <p className="text-[11px] text-muted-foreground">
-              Talk to the agent, refine focus, or request a report.
-            </p>
-            <Badge variant="outline" className={cn("text-[11px] gap-1 border px-2 py-0.5", statusTone)}>
-              {statusLabel}
-            </Badge>
-          </div>
+            <div className="space-y-1">
+              <p className="text-xs uppercase tracking-[0.3em] text-white/60">Agent Chat</p>
+              <p className="text-lg font-semibold text-white">{instance.label || "Market Agent"}</p>
+              <p className="text-[11px] text-muted-foreground">
+                Talk to the agent, refine focus, or request a report.
+              </p>
+            </div>
           <Button variant="ghost" size="icon" onClick={onClose}>
             <X className="h-4 w-4" />
           </Button>
@@ -733,44 +1108,52 @@ function AgentChatSidebar({
           <div className="relative flex-1 min-h-0 overflow-hidden" style={{ minWidth: 0 }}>
             <div
               ref={chatListRef}
-              className="h-full min-h-0 overflow-y-auto overflow-x-hidden space-y-3 agent-chat-message-list"
+              className="h-full min-h-0 overflow-y-auto overflow-x-hidden space-y-1 agent-chat-message-list agent-chat-scroll-area"
               onScroll={onScroll}
             >
               {pinSpacerHeight > 0 && (
                 <div aria-hidden className="w-full" style={{ height: pinSpacerHeight }} />
               )}
-            {isLoading ? (
-              <p className="px-2 text-xs text-muted-foreground">Loading chat...</p>
-            ) : error ? (
-              <p className="px-2 text-xs text-rose-300">{error}</p>
-            ) : messages.length === 0 ? (
-              <p className="px-2 text-xs text-muted-foreground">No messages yet. Start the conversation below.</p>
-            ) : (
-              messages.map((msg) => {
-                const metadata =
-                  msg.metadata && typeof msg.metadata === "object" && !Array.isArray(msg.metadata)
-                    ? (msg.metadata as Record<string, unknown>)
-                    : null;
-                return (
-                  <ChatMessage
-                    key={msg.id}
-                    messageId={msg.id}
-                    role={msg.role === "agent" ? "assistant" : "user"}
-                    content={msg.content}
-                    metadata={metadata}
-                    forceFullWidth
-                    forceStaticBubble
-                  />
-                );
-              })
-            )}
+              {isLoading ? (
+                <p className="px-2 text-xs text-muted-foreground">Loading chat...</p>
+              ) : error ? (
+                <p className="px-2 text-xs text-rose-300">{error}</p>
+              ) : messages.length === 0 ? (
+                <p className="px-2 text-xs text-muted-foreground">No messages yet. Start the conversation below.</p>
+              ) : (
+                messages.map((msg) => {
+                  const metadata =
+                    msg.metadata && typeof msg.metadata === "object" && !Array.isArray(msg.metadata)
+                      ? (msg.metadata as Record<string, unknown>)
+                      : null;
+                  return (
+                    <ChatMessage
+                      key={msg.id}
+                      messageId={msg.id}
+                      role={msg.role === "agent" ? "assistant" : "user"}
+                      content={msg.content}
+                      metadata={metadata}
+                      forceFullWidth
+                      forceStaticBubble
+                    />
+                  );
+                })
+              )}
+              {isStreaming && showThinkingIndicator && !isLoading && (
+                <div className="px-1 pb-1 text-white/80">
+                  <p className="text-base leading-relaxed">
+                    <span className="inline-block thinking-shimmer-text">{indicatorLabel}</span>
+                  </p>
+                </div>
+              )}
             <div aria-hidden className="w-full" style={{ height: bottomSpacerPx }} />
             </div>
             {showScrollToBottom && (
               <div
-                className={`scroll-tip pointer-events-none fixed inset-x-0 bottom-[calc(96px+env(safe-area-inset-bottom,0px))] z-30 transition-opacity duration-200 ${
+                className={`scroll-tip pointer-events-none fixed inset-x-0 z-30 transition-opacity duration-200 ${
                   showScrollToBottom ? "opacity-100 scroll-tip-visible" : "opacity-0"
                 }`}
+                style={{ bottom: `calc(${scrollTipBottom}px + env(safe-area-inset-bottom,0px))` }}
               >
                 <div className="flex w-full justify-center">
                   <Button
@@ -786,13 +1169,68 @@ function AgentChatSidebar({
             )}
           </div>
 
-          <div className="border-t border-border/60 px-2 pt-3 agent-chat-composer-wrapper">
+          <div className="border-t border-border/60 px-2 pt-2 agent-chat-composer-wrapper space-y-3">
             {error && !isLoading ? (
-              <p className="text-xs text-rose-300 mb-2">{error}</p>
+              <p className="text-xs text-rose-300 mb-1">{error}</p>
             ) : null}
+              {suggestion ? (
+                <div
+                  className="rounded-2xl border border-emerald-500/20 bg-white/5 p-4 text-sm text-foreground"
+                  ref={suggestionRef}
+                >
+                  <div className="flex flex-col gap-1">
+                    <p className="text-[10px] uppercase tracking-[0.3em] text-emerald-200">
+                      Agent suggestion
+                    </p>
+                    <div className="space-y-1 text-white">
+                      <p className="text-base font-semibold">{suggestionTitle}</p>
+                      {hasWatchlistSuggestion ? (
+                        <p className="text-xs uppercase text-muted-foreground tracking-wide">
+                          Watchlist: {suggestion.watchlistSymbols?.join(", ")}
+                        </p>
+                      ) : null}
+                      {suggestion.cadenceReason ? (
+                        <p className="text-[11px] text-muted-foreground">
+                          Cadence reason: {suggestion.cadenceReason}
+                        </p>
+                      ) : null}
+                      {suggestion.watchlistReason ? (
+                        <p className="text-[11px] text-muted-foreground">
+                          Watchlist reason: {suggestion.watchlistReason}
+                        </p>
+                      ) : null}
+                    </div>
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={onDeclineSuggestion}
+                      disabled={suggestionProcessing || isStreaming}
+                    >
+                      Decline
+                    </Button>
+                    <Button
+                      size="sm"
+                      onClick={onAcceptSuggestion}
+                      disabled={suggestionProcessing || isStreaming}
+                    >
+                      Accept suggestion
+                    </Button>
+                  </div>
+                  {suggestionProcessing && !suggestionError ? (
+                    <p className="mt-2 text-[11px] text-muted-foreground">Processing...</p>
+                  ) : null}
+                  {suggestionError ? (
+                    <p className="mt-2 text-xs text-rose-300">{suggestionError}</p>
+                  ) : null}
+                </div>
+              ) : null}
             <div className="mx-auto w-full max-w-3xl">
               <ChatComposer
                 onSendMessage={onSendChat}
+                isStreaming={isStreaming}
+                onStop={onStopStreaming}
                 placeholder="Ask the agent..."
                 disableAccentStyles
                 showAttachmentButton={false}
