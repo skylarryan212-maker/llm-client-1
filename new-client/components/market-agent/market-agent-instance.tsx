@@ -1081,6 +1081,9 @@ export function MarketAgentInstanceView({ instance, events, thesis, state: _stat
                             {seedLoading ? "Generating…" : "Generate demo"}
                           </Button>
                         ) : null}
+                        {statusError ? (
+                          <p className="text-[11px] text-rose-300">{statusError}</p>
+                        ) : null}
                       </div>
                     </div>
                     <div className="flex-1 min-h-0 overflow-y-auto space-y-2 pr-1">
