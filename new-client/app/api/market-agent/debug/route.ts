@@ -37,7 +37,7 @@ export async function GET(request: Request) {
     let helperError: string | null = null;
     if (instanceId) {
       try {
-        instanceViaHelper = await getMarketAgentInstance(instanceId);
+        instanceViaHelper = await getMarketAgentInstance(instanceId, userId);
       } catch (err) {
         helperError = err instanceof Error ? err.message : String(err);
       }

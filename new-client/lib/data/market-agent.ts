@@ -73,9 +73,12 @@ export async function listMarketAgentInstances(): Promise<MarketAgentInstanceWit
   }));
 }
 
-export async function getMarketAgentInstance(instanceId: string): Promise<MarketAgentInstanceWithWatchlist | null> {
+export async function getMarketAgentInstance(
+  instanceId: string,
+  providedUserId?: string | null
+): Promise<MarketAgentInstanceWithWatchlist | null> {
   if (!isValidUuid(instanceId)) return null;
-  const userId = await requireUserIdServer();
+  const userId = providedUserId ?? (await requireUserIdServer());
   const admin = await getAdminClient();
   const supabase = await supabaseServer();
   const client: any = admin ?? (supabase as any);
@@ -105,7 +108,8 @@ export async function getMarketAgentInstance(instanceId: string): Promise<Market
 
 export async function getMarketAgentState(instanceId: string): Promise<MarketAgentStateRow | null> {
   if (!isValidUuid(instanceId)) return null;
-  const ownerInstance = await getMarketAgentInstance(instanceId);
+  const userId = await requireUserIdServer();
+  const ownerInstance = await getMarketAgentInstance(instanceId, userId);
   if (!ownerInstance) return null;
 
   const admin = await getAdminClient();
@@ -131,7 +135,8 @@ export async function getMarketAgentEvents(params: {
   limit?: number;
   beforeTs?: string;
 }): Promise<MarketAgentEventRow[]> {
-  const ownerInstance = await getMarketAgentInstance(params.instanceId);
+  const userId = await requireUserIdServer();
+  const ownerInstance = await getMarketAgentInstance(params.instanceId, userId);
   if (!ownerInstance) return [];
 
   const admin = await getAdminClient();

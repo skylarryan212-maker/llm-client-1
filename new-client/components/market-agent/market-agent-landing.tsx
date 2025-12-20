@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { AlarmClock, Pause, Play, Plus, Sparkles, Trash2, TrendingUp } from "lucide-react";
+import { Pause, Play, Plus, Sparkles, Trash2, TrendingUp } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";

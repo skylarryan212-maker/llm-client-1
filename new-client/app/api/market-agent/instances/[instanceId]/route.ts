@@ -6,19 +6,18 @@ import {
   updateMarketAgentStatus,
 } from "@/lib/data/market-agent";
 import { requireUserIdServer } from "@/lib/supabase/user";
-import { headers } from "next/headers";
 
 export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ instanceId: string }> }
 ) {
   try {
-    await requireUserIdServer();
+    const userId = await requireUserIdServer();
     const { instanceId } = await params;
     if (!instanceId) {
       return NextResponse.json({ error: "Invalid instance id" }, { status: 400 });
     }
-    const instance = await getMarketAgentInstance(instanceId);
+    const instance = await getMarketAgentInstance(instanceId, userId);
     if (!instance) {
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     }

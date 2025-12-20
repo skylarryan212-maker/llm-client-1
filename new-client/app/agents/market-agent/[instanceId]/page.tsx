@@ -2,7 +2,6 @@ export const dynamic = "force-dynamic";
 export const fetchCache = "force-no-store";
 export const runtime = "nodejs";
 
-import { notFound } from "next/navigation";
 import { redirect } from "next/navigation";
 import Link from "next/link";
 
@@ -28,7 +27,7 @@ export default async function MarketAgentInstancePage({
     redirect(`/login?next=/agents/market-agent/${instanceId}`);
   }
 
-  const instance = await getMarketAgentInstance(instanceId);
+  const instance = await getMarketAgentInstance(instanceId, userId);
   let adminVisibleInstance: Record<string, unknown> | null = null;
 
   if (!instance) {
