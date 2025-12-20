@@ -15,6 +15,7 @@ import type { MarketAgentFeedEvent, MarketAgentInstanceWithWatchlist, MarketAgen
 import type { Database } from "@/lib/supabase/types";
 import { cn } from "@/lib/utils";
 import { MarkdownContent } from "@/components/markdown-content";
+import { useUserPlan } from "@/lib/hooks/use-user-plan";
 
 type MarketAgentStateRow = Database["public"]["Tables"]["market_agent_state"]["Row"];
 
@@ -101,6 +102,7 @@ export function MarketAgentInstanceView({ instance, events, thesis, state: _stat
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const { plan } = useUserPlan();
   const [statusError, setStatusError] = useState<string | null>(null);
   const [isBusy, setIsBusy] = useState(false);
   const isDraft = instance.status === "draft";
@@ -176,6 +178,7 @@ export function MarketAgentInstanceView({ instance, events, thesis, state: _stat
       : null;
   const timelineEmpty = timelineEvents.length === 0;
   const isDev = process.env.NODE_ENV !== "production";
+  const canSeedDemo = isDev || plan === "max";
 
   const handleSelectEvent = (eventId: string) => {
     setSelectedEventId(eventId);
@@ -1073,7 +1076,7 @@ export function MarketAgentInstanceView({ instance, events, thesis, state: _stat
                         <p className="text-[11px] text-muted-foreground">Newest first</p>
                       </div>
                       <div className="flex items-center gap-2">
-                        {isDev ? (
+                        {canSeedDemo ? (
                           <Button size="sm" variant="outline" onClick={handleGenerateDemoEvents} disabled={seedLoading}>
                             {seedLoading ? "Generating…" : "Generate demo"}
                           </Button>

@@ -7,11 +7,14 @@ import {
   getMarketAgentThesis,
   upsertMarketAgentThesis,
 } from "@/lib/data/market-agent";
+import { getUserPlan } from "@/app/actions/plan-actions";
 import { requireUserIdServer } from "@/lib/supabase/user";
 
 export async function POST(request: Request, context: { params: Promise<{ instanceId: string }> }) {
-  if (process.env.NODE_ENV === "production") {
-    return NextResponse.json({ error: "not_available" }, { status: 404 });
+  const plan = await getUserPlan();
+  const isDev = process.env.NODE_ENV !== "production";
+  if (!isDev && plan !== "max") {
+    return NextResponse.json({ error: "forbidden" }, { status: 403 });
   }
 
   const { instanceId } = await context.params;
