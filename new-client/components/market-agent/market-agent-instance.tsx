@@ -616,6 +616,12 @@ function AgentChatSidebar({
                 placeholder="Ask the agent..."
                 disableAccentStyles
                 showAttachmentButton={false}
+                sendButtonStyle={{
+                  backgroundColor: "#ffffff",
+                  color: "#050505",
+                  border: "1px solid rgba(15, 20, 25, 0.35)",
+                  boxShadow: "0 4px 12px rgba(0, 0, 0, 0.25)",
+                }}
               />
             </div>
           </div>
