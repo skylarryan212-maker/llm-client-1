@@ -81,21 +81,47 @@ export async function getMarketAgentInstance(
   const userId = providedUserId ?? (await requireUserIdServer());
   const admin = await getAdminClient();
   const supabase = await supabaseServer();
-  const client: any = admin ?? (supabase as any);
+  const supabaseClient: any = supabase as any;
 
-  const { data: instance, error } = await client
+  let instance: MarketAgentInstanceRow | null = null;
+  let instanceClient: any = supabaseClient;
+
+  // First try with the RLS-scoped client
+  const { data: rlsInstance, error: rlsError } = await supabaseClient
     .from("market_agent_instances")
     .select("*")
     .eq("id", instanceId)
     .maybeSingle();
 
-  if (error) {
-    throw new Error(`Failed to load market agent instance: ${error.message}`);
+  if (rlsError) {
+    throw new Error(`Failed to load market agent instance: ${rlsError.message}`);
+  }
+
+  if (rlsInstance && rlsInstance.user_id === userId) {
+    instance = rlsInstance as MarketAgentInstanceRow;
+  }
+
+  // Fallback to admin client (still enforce ownership) in case RLS/session blocks read
+  if (!instance && admin) {
+    const { data: adminInstance, error: adminError } = await (admin as any)
+      .from("market_agent_instances")
+      .select("*")
+      .eq("id", instanceId)
+      .maybeSingle();
+
+    if (adminError) {
+      throw new Error(`Failed to load market agent instance: ${adminError.message}`);
+    }
+
+    if (adminInstance && adminInstance.user_id === userId) {
+      instance = adminInstance as MarketAgentInstanceRow;
+      instanceClient = admin as any;
+    }
   }
 
   if (!instance || instance.user_id !== userId) return null;
 
-  const { data: watchlistRows } = await client
+  const { data: watchlistRows } = await instanceClient
     .from("market_agent_watchlist_items")
     .select("symbol")
     .eq("instance_id", instanceId);
