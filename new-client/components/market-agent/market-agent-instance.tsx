@@ -265,6 +265,7 @@ export function MarketAgentInstanceView({ instance, events, state: _state }: Pro
   };
 
   useEffect(() => {
+    if (alignNextUserMessageToTopRef.current) return;
     if (!isChatOpen) {
       releasePinning();
       setShowScrollToBottom(false);
@@ -275,7 +276,7 @@ export function MarketAgentInstanceView({ instance, events, state: _state }: Pro
     scrollToBottom("auto");
     setShowScrollToBottom(false);
     releasePinning();
-  }, [chatMessages.length, isChatOpen, isAutoScroll]);
+  }, [alignTrigger, chatMessages.length, isChatOpen, isAutoScroll]);
 
   useEffect(() => {
       const targetMessageId = alignNextUserMessageToTopRef.current;
