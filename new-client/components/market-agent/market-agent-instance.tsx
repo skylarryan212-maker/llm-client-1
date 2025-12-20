@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { AlarmClock, Pause, Play, Settings2, Trash2 } from "lucide-react";
+import { AlarmClock, ArrowLeft, Pause, Play, Settings2, Trash2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -135,8 +135,24 @@ export function MarketAgentInstanceView({ instance, events, state }: Props) {
   };
 
   return (
-    <div className="min-h-screen bg-[#050505] text-foreground space-y-6 p-1 sm:p-3">
-      <div className="rounded-2xl border border-border/60 bg-card/60 p-5 shadow-lg shadow-black/30 backdrop-blur">
+    <div className="min-h-screen bg-[#050505] text-foreground">
+      <header className="flex h-[56px] items-center gap-3 border-b border-white/10 bg-black/60 px-4 backdrop-blur">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-8 w-8 text-white/80 hover:text-white"
+          onClick={() => router.push("/agents/market-agent")}
+        >
+          <ArrowLeft className="h-4 w-4" />
+        </Button>
+        <div className="flex flex-col min-w-0">
+          <p className="text-xs uppercase tracking-[0.25em] text-white/40">Market Agent</p>
+          <p className="text-sm text-white/80 truncate">{instance.label || "Market Agent"}</p>
+        </div>
+      </header>
+
+      <div className="space-y-6 p-1 sm:p-3">
+        <div className="rounded-2xl border border-border/60 bg-card/60 p-5 shadow-lg shadow-black/30 backdrop-blur">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="space-y-2">
             <div className="flex items-center gap-2">
@@ -308,6 +324,7 @@ export function MarketAgentInstanceView({ instance, events, state }: Props) {
             </div>
           </div>
         </div>
+      </div>
       </div>
     </div>
   );

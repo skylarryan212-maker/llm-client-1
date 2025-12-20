@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Pause, Play, Plus, Sparkles, Trash2, TrendingUp } from "lucide-react";
+import Link from "next/link";
+import { ArrowLeft, Pause, Play, Plus, Sparkles, Trash2, TrendingUp } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -141,6 +142,13 @@ export function MarketAgentLanding({ initialInstances, initialEvents }: LandingP
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-10 sm:py-12 space-y-10">
         <div className="flex flex-wrap items-start justify-between gap-6">
           <div className="space-y-3">
+            <Link
+              href="/agents"
+              className="inline-flex items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground"
+            >
+              <ArrowLeft className="h-4 w-4" />
+              Back to Agents
+            </Link>
             <div className="inline-flex items-center gap-2 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-emerald-100">
               <TrendingUp className="h-4 w-4" />
               Market Agent
