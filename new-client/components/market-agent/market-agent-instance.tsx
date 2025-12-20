@@ -75,6 +75,7 @@ export function MarketAgentInstanceView({ instance, events, state: _state }: Pro
   const [isAutoScroll, setIsAutoScroll] = useState(true);
   const [bottomSpacerPx, setBottomSpacerPx] = useState(baseBottomSpacerPx);
   const chatListRef = useRef<HTMLDivElement | null>(null);
+  const pinnedMessageIdRef = useRef<string | null>(null);
   const [pinSpacerHeight, setPinSpacerHeight] = useState(0);
   const [isLoadingMessages, setIsLoadingMessages] = useState(true);
   const mockReplyTimeoutRef = useRef<number | null>(null);
@@ -276,8 +277,9 @@ export function MarketAgentInstanceView({ instance, events, state: _state }: Pro
   }, [chatMessages.length, isChatOpen, isAutoScroll]);
 
   useEffect(() => {
-    const targetMessageId = alignNextUserMessageToTopRef.current;
-    if (!isChatOpen || !targetMessageId) return;
+      const targetMessageId = alignNextUserMessageToTopRef.current;
+      if (!isChatOpen || !targetMessageId) return;
+      pinnedMessageIdRef.current = targetMessageId;
 
     let cancelled = false;
     let retryRaf: number | null = null;
@@ -373,6 +375,34 @@ export function MarketAgentInstanceView({ instance, events, state: _state }: Pro
     getEffectiveScrollBottom,
     isChatOpen,
   ]);
+
+  useEffect(() => {
+    if (pinToPromptRef.current) return;
+    pinnedScrollTopRef.current = null;
+    const pinnedId = pinnedMessageIdRef.current;
+    if (!pinnedId) return;
+    const desiredSpacer = computeRequiredSpacerForMessage(pinnedId);
+    if (typeof desiredSpacer !== "number") return;
+    const nextSpacer = Math.max(baseBottomSpacerPx, desiredSpacer);
+    if (nextSpacer >= bottomSpacerPx) return;
+    const viewport = chatListRef.current;
+    if (!viewport) return;
+    const contentWithoutSpacer = viewport.scrollHeight - bottomSpacerPx;
+    const nextMaxScrollTop = Math.max(0, contentWithoutSpacer + nextSpacer - viewport.clientHeight);
+    const shouldClampScrollTop = viewport.scrollTop > nextMaxScrollTop + 1;
+    setBottomSpacerPx(nextSpacer);
+    if (shouldClampScrollTop && typeof requestAnimationFrame !== "undefined") {
+      requestAnimationFrame(() => {
+        const v = chatListRef.current;
+        if (!v) return;
+        const maxTop = Math.max(0, v.scrollHeight - v.clientHeight);
+        if (v.scrollTop > maxTop) v.scrollTop = maxTop;
+      });
+    }
+    if (nextSpacer === baseBottomSpacerPx) {
+      pinnedMessageIdRef.current = null;
+    }
+  }, [chatMessages.length, bottomSpacerPx, baseBottomSpacerPx, computeRequiredSpacerForMessage]);
 
   useEffect(() => {
     const ensureSpacer = () => {
