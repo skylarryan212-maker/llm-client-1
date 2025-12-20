@@ -75,6 +75,7 @@ export function MarketAgentInstanceView({ instance, events, state: _state }: Pro
   const [isAutoScroll, setIsAutoScroll] = useState(true);
   const [bottomSpacerPx, setBottomSpacerPx] = useState(baseBottomSpacerPx);
   const chatListRef = useRef<HTMLDivElement | null>(null);
+  const [alignTrigger, setAlignTrigger] = useState(0);
   const pinnedMessageIdRef = useRef<string | null>(null);
   const [pinSpacerHeight, setPinSpacerHeight] = useState(0);
   const [isLoadingMessages, setIsLoadingMessages] = useState(true);
@@ -368,6 +369,7 @@ export function MarketAgentInstanceView({ instance, events, state: _state }: Pro
       isProgrammaticScrollRef.current = false;
     };
   }, [
+    alignTrigger,
     baseBottomSpacerPx,
     chatMessages.length,
     bottomSpacerPx,
@@ -488,6 +490,7 @@ export function MarketAgentInstanceView({ instance, events, state: _state }: Pro
     pinnedScrollTopRef.current = currentScrollTop;
     setPinSpacerHeight(currentScrollTop);
     alignNextUserMessageToTopRef.current = tempId;
+    setAlignTrigger((prev) => prev + 1);
     setIsAutoScroll(false);
     setShowScrollToBottom(true);
     try {
@@ -503,6 +506,7 @@ export function MarketAgentInstanceView({ instance, events, state: _state }: Pro
       if (payload?.message) {
         upsertChatMessage(payload.message as AgentChatMessage, tempId);
         alignNextUserMessageToTopRef.current = payload.message.id;
+        setAlignTrigger((prev) => prev + 1);
       }
       sendMockReply(content);
     } catch (error) {
