@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { MutableRefObject } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowDown, ArrowLeft, MessageCircle, Pause, Play, Settings2, Trash2, X } from "lucide-react";
@@ -50,6 +50,8 @@ const REPORT_DEPTH_OPTIONS: Array<{ value: ReportDepth; label: string; descripti
   { value: "deep", label: "Deep", description: "More thorough" },
 ];
 
+const baseBottomSpacerPx = 28;
+
 type AgentChatMessage = MarketAgentChatMessage;
 
 export function MarketAgentInstanceView({ instance, events, state: _state }: Props) {
@@ -71,6 +73,7 @@ export function MarketAgentInstanceView({ instance, events, state: _state }: Pro
   const [chatError, setChatError] = useState<string | null>(null);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const [isAutoScroll, setIsAutoScroll] = useState(true);
+  const [bottomSpacerPx, setBottomSpacerPx] = useState(baseBottomSpacerPx);
   const chatListRef = useRef<HTMLDivElement | null>(null);
   const [pinSpacerHeight, setPinSpacerHeight] = useState(0);
   const [isLoadingMessages, setIsLoadingMessages] = useState(true);
@@ -177,11 +180,21 @@ export function MarketAgentInstanceView({ instance, events, state: _state }: Pro
     }, 160);
   };
 
+  const getEffectiveScrollBottom = useCallback(
+    (viewport: HTMLDivElement) => {
+      const extraSpacer = Math.max(0, bottomSpacerPx - baseBottomSpacerPx);
+      return Math.max(0, viewport.scrollHeight - extraSpacer);
+    },
+    [bottomSpacerPx]
+  );
+
   const scrollToBottom = (behavior: ScrollBehavior = "smooth") => {
     const viewport = chatListRef.current;
     if (!viewport) return;
+    const bottom = getEffectiveScrollBottom(viewport);
+    const targetTop = Math.max(0, bottom - viewport.clientHeight);
     isProgrammaticScrollRef.current = true;
-    viewport.scrollTo({ top: viewport.scrollHeight, behavior });
+    viewport.scrollTo({ top: targetTop, behavior });
     scheduleProgrammaticScrollReset();
   };
 
@@ -201,11 +214,33 @@ export function MarketAgentInstanceView({ instance, events, state: _state }: Pro
     scheduleProgrammaticScrollReset();
   };
 
+  const computeRequiredSpacerForMessage = useCallback(
+    (messageId: string) => {
+      const viewport = chatListRef.current;
+      if (!viewport) return null;
+      const messageEl = viewport.querySelector(`[data-agent-message-id="${messageId}"]`) as HTMLElement | null;
+      if (!messageEl) return null;
+      const viewportRect = viewport.getBoundingClientRect();
+      const elRect = messageEl.getBoundingClientRect();
+      const desiredPadding = 14;
+      const elContentTop = viewport.scrollTop + (elRect.top - viewportRect.top);
+      const requiredScrollTop = Math.max(0, Math.round(elContentTop - desiredPadding));
+      const contentWithoutSpacer = viewport.scrollHeight - bottomSpacerPx;
+      const maxScrollTopWithBase = Math.max(
+        0,
+        contentWithoutSpacer + baseBottomSpacerPx - viewport.clientHeight
+      );
+      const extraNeeded = Math.max(0, requiredScrollTop - maxScrollTopWithBase);
+      return baseBottomSpacerPx + extraNeeded;
+    },
+    [baseBottomSpacerPx, bottomSpacerPx]
+  );
+
   const handleChatScroll = () => {
     const viewport = chatListRef.current;
     if (!viewport) return;
     if (isProgrammaticScrollRef.current) return;
-    const { scrollTop, scrollHeight, clientHeight } = viewport;
+    const { scrollTop, clientHeight } = viewport;
     if (pinToPromptRef.current && pinnedScrollTopRef.current !== null) {
       const maxAllowed = pinnedScrollTopRef.current;
       if (scrollTop > maxAllowed + 2) {
@@ -215,8 +250,9 @@ export function MarketAgentInstanceView({ instance, events, state: _state }: Pro
         return;
       }
     }
-    const distance = scrollHeight - (scrollTop + clientHeight);
-    const atBottom = distance <= 40;
+    const distance = getEffectiveScrollBottom(viewport) - (scrollTop + clientHeight);
+    const tolerance = Math.max(12, bottomSpacerPx / 3);
+    const atBottom = distance <= tolerance;
     setShowScrollToBottom(!atBottom);
     if (atBottom) {
       releasePinning();
@@ -240,12 +276,115 @@ export function MarketAgentInstanceView({ instance, events, state: _state }: Pro
   }, [chatMessages.length, isChatOpen, isAutoScroll]);
 
   useEffect(() => {
-    if (!isChatOpen) return;
-    const nextId = alignNextUserMessageToTopRef.current;
-    if (!nextId) return;
-    alignNextUserMessageToTopRef.current = null;
-    alignMessageToTop(nextId);
-  }, [chatMessages.length, isChatOpen]);
+    const targetMessageId = alignNextUserMessageToTopRef.current;
+    if (!isChatOpen || !targetMessageId) return;
+
+    let cancelled = false;
+    let retryRaf: number | null = null;
+    let scrollTimer: number | null = null;
+    let guardTimer: number | null = null;
+    const startMs = typeof performance !== "undefined" ? performance.now() : Date.now();
+    const deadlineMs = startMs + 2500;
+
+    const doScroll = () => {
+      if (cancelled) return;
+      const nowMs = typeof performance !== "undefined" ? performance.now() : Date.now();
+      if (nowMs > deadlineMs) return;
+
+      const viewport = chatListRef.current;
+      if (!viewport) return;
+
+      const el = viewport.querySelector(
+        `[data-agent-message-id="${targetMessageId}"]`
+      ) as HTMLElement | null;
+      if (!el) {
+        if (typeof requestAnimationFrame !== "undefined") {
+          retryRaf = requestAnimationFrame(doScroll);
+        }
+        return;
+      }
+
+      const minimumSpacerForAlign = baseBottomSpacerPx + viewport.clientHeight + 80;
+      if (bottomSpacerPx < minimumSpacerForAlign) {
+        setBottomSpacerPx((prev) => Math.max(prev, minimumSpacerForAlign));
+        if (typeof requestAnimationFrame !== "undefined") {
+          retryRaf = requestAnimationFrame(doScroll);
+        }
+        return;
+      }
+
+      const viewportRect = viewport.getBoundingClientRect();
+      const elRect = el.getBoundingClientRect();
+      const desiredPadding = 14;
+      const nextTop = viewport.scrollTop + (elRect.top - viewportRect.top) - desiredPadding;
+      const targetTop = Math.max(0, Math.round(nextTop));
+      const maxScrollTop = Math.max(0, viewport.scrollHeight - viewport.clientHeight);
+      if (targetTop > maxScrollTop) {
+        const desiredSpacer = computeRequiredSpacerForMessage(targetMessageId);
+        if (typeof desiredSpacer === "number") {
+          setBottomSpacerPx((prev) => Math.max(prev, desiredSpacer));
+        }
+        if (typeof requestAnimationFrame !== "undefined") {
+          retryRaf = requestAnimationFrame(doScroll);
+        }
+        return;
+      }
+
+      isProgrammaticScrollRef.current = true;
+      pinnedScrollTopRef.current = targetTop;
+      setIsAutoScroll(false);
+      const effectiveBottom = getEffectiveScrollBottom(viewport);
+      const distanceFromBottom = effectiveBottom - (targetTop + viewport.clientHeight);
+      const tolerance = Math.max(12, bottomSpacerPx / 3);
+      setShowScrollToBottom(!(distanceFromBottom <= tolerance));
+      alignNextUserMessageToTopRef.current = null;
+
+      scrollTimer = window.setTimeout(() => {
+        viewport.scrollTo({ top: targetTop, behavior: "smooth" });
+      }, 80);
+
+      guardTimer = window.setTimeout(() => {
+        isProgrammaticScrollRef.current = false;
+        pinToPromptRef.current = false;
+        pinnedScrollTopRef.current = null;
+      }, 900);
+    };
+
+    if (typeof requestAnimationFrame !== "undefined") {
+      requestAnimationFrame(() => requestAnimationFrame(doScroll));
+    } else {
+      doScroll();
+    }
+
+    return () => {
+      cancelled = true;
+      if (retryRaf && typeof cancelAnimationFrame !== "undefined") {
+        cancelAnimationFrame(retryRaf);
+      }
+      if (scrollTimer) clearTimeout(scrollTimer);
+      if (guardTimer) clearTimeout(guardTimer);
+      isProgrammaticScrollRef.current = false;
+    };
+  }, [
+    baseBottomSpacerPx,
+    chatMessages.length,
+    bottomSpacerPx,
+    computeRequiredSpacerForMessage,
+    getEffectiveScrollBottom,
+    isChatOpen,
+  ]);
+
+  useEffect(() => {
+    const ensureSpacer = () => {
+      setBottomSpacerPx((prev) => Math.max(baseBottomSpacerPx, prev));
+    };
+    ensureSpacer();
+    if (typeof window === "undefined") return;
+    window.addEventListener("resize", ensureSpacer);
+    return () => {
+      window.removeEventListener("resize", ensureSpacer);
+    };
+  }, [baseBottomSpacerPx, chatMessages.length]);
 
   const handleScrollToBottomClick = () => {
     releasePinning();
@@ -460,6 +599,7 @@ export function MarketAgentInstanceView({ instance, events, state: _state }: Pro
             onScroll={handleChatScroll}
             onScrollToBottom={handleScrollToBottomClick}
             pinSpacerHeight={pinSpacerHeight}
+            bottomSpacerPx={bottomSpacerPx}
           />
         </div>
       </div>
@@ -506,6 +646,7 @@ type AgentChatSidebarProps = {
   onScroll: () => void;
   onScrollToBottom: () => void;
   pinSpacerHeight: number;
+  bottomSpacerPx: number;
 };
 
 function AgentChatSidebar({
@@ -523,6 +664,7 @@ function AgentChatSidebar({
   onScroll,
   onScrollToBottom,
   pinSpacerHeight,
+  bottomSpacerPx,
 }: AgentChatSidebarProps) {
   return (
     <div
@@ -589,19 +731,24 @@ function AgentChatSidebar({
                 );
               })
             )}
+            <div aria-hidden className="w-full" style={{ height: bottomSpacerPx }} />
             </div>
             {showScrollToBottom && (
-              <div className="pointer-events-none absolute inset-x-0 bottom-16 z-20 flex justify-center">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="pointer-events-auto h-10 w-10 rounded-full border border-white/15 bg-black/60 text-white shadow-md backdrop-blur hover:bg-black/80"
-                  onClick={() => {
-                    onScrollToBottom();
-                  }}
-                >
-                  <ArrowDown className="h-4 w-4" />
-                </Button>
+              <div
+                className={`scroll-tip pointer-events-none fixed inset-x-0 bottom-[calc(96px+env(safe-area-inset-bottom,0px))] z-30 transition-opacity duration-200 ${
+                  showScrollToBottom ? "opacity-100 scroll-tip-visible" : "opacity-0"
+                }`}
+              >
+                <div className="flex w-full justify-center">
+                  <Button
+                    type="button"
+                    size="icon"
+                    className={`${showScrollToBottom ? "scroll-tip-button" : ""} pointer-events-auto h-10 w-10 rounded-full border border-border bg-card/90 text-foreground shadow-md backdrop-blur hover:bg-background`}
+                    onClick={onScrollToBottom}
+                  >
+                    <ArrowDown className="h-4 w-4 text-foreground" />
+                  </Button>
+                </div>
               </div>
             )}
           </div>
