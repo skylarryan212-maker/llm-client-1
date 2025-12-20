@@ -485,11 +485,9 @@ export function MarketAgentInstanceView({ instance, events, state: _state }: Pro
       metadata: { agent: "market-agent", market_agent_instance_id: instance.id },
     };
     upsertChatMessage(optimistic);
-    const viewport = chatListRef.current;
-    const currentScrollTop = viewport?.scrollTop ?? 0;
     pinToPromptRef.current = true;
-    pinnedScrollTopRef.current = currentScrollTop;
-    setPinSpacerHeight(currentScrollTop);
+    pinnedScrollTopRef.current = null;
+    setPinSpacerHeight(0);
     alignNextUserMessageToTopRef.current = tempId;
     setAlignTrigger((prev) => prev + 1);
     setIsAutoScroll(false);
