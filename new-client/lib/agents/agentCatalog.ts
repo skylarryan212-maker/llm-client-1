@@ -18,9 +18,9 @@ export const AGENT_CATALOG: AgentCatalogItem[] = [
     id: "codex",
     slug: "codex",
     icon: Code2,
-    title: "Codex",
+    title: "Long Horizon Software Agent (LHSA)",
     description:
-      "Your AI coding assistant. Build applications, review code, debug issues, and get expert programming guidance across all major languages and frameworks.",
+      "Fully autonomous 24-hour engineering cycles. Deploy HOOTL protocols to build complete systems, audit architectures, and verify logic while you sleep with Assurance Level 3 reliability.",
     href: "/agents/codex",
     gradient: "bg-gradient-to-br from-blue-500 to-purple-600",
   },

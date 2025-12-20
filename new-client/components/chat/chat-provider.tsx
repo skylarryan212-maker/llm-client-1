@@ -79,9 +79,10 @@ export function ChatProvider({ children, initialChats = [], userId }: ChatProvid
         return;
       }
 
-      const rows = (data ?? []).filter(
-        (row) => (row.metadata as any)?.agent !== "human-writing"
-      );
+      const rows = (data ?? []).filter((row) => {
+        const agent = (row.metadata as any)?.agent;
+        return agent !== "human-writing" && agent !== "market-agent";
+      });
       const conversationIds = rows.map((row) => row.id);
       const { data: messageRows } = await supabaseClient
         .from("messages")

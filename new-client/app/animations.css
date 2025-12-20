@@ -171,6 +171,56 @@
     mix-blend-mode: screen;
   }
 
+  @keyframes thinking-shimmer {
+    0% {
+      background-position: 0% 50%;
+    }
+    100% {
+      background-position: 200% 50%;
+    }
+  }
+
+  .thinking-shimmer-text {
+    background: linear-gradient(
+      90deg,
+      rgba(120, 126, 140, 0.9),
+      rgba(255, 255, 255, 0.95),
+      rgba(120, 126, 140, 0.9)
+    );
+    background-size: 200% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    animation: thinking-shimmer 1.4s linear infinite;
+  }
+
+  .agent-chat-scroll-area {
+    scrollbar-width: none;
+    scrollbar-gutter: stable;
+  }
+
+  .agent-chat-scroll-area::-webkit-scrollbar {
+    width: 0;
+    background: transparent;
+  }
+
+  .agent-chat-scroll-area.show-scrollbar {
+    scrollbar-width: thin;
+  }
+
+  .agent-chat-scroll-area.show-scrollbar::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  .agent-chat-scroll-area.show-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .agent-chat-scroll-area.show-scrollbar::-webkit-scrollbar-thumb {
+    border-radius: 999px;
+    background-color: rgba(255, 255, 255, 0.18);
+  }
+
   .sidebar-entry {
     transition: transform 180ms ease, background-color 200ms ease;
     will-change: transform;
