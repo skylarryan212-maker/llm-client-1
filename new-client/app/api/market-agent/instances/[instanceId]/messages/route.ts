@@ -395,7 +395,7 @@ export async function POST(
         type ToolCallPayload = {
           type: "function_call";
           name: string;
-          call_id?: string;
+          call_id: string;
           arguments: string;
         };
 
@@ -407,6 +407,15 @@ export async function POST(
 
         const toolCallOutputs: ToolCallOutput[] = [];
         const toolCallPayloads: ToolCallPayload[] = [];
+        const ensureCallId = (call: any) => {
+          if (call?.call_id && typeof call.call_id === "string" && call.call_id.trim()) {
+            return call.call_id;
+          }
+          if (call?.id && typeof call.id === "string" && call.id.trim()) {
+            return call.id;
+          }
+          return `call_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+        };
         let combinedSuggestion: CombinedSuggestionPayload | null = null;
         let suggestionCounter = 0;
         const captureSuggestion = (update: Partial<CombinedSuggestionPayload>) => {
@@ -440,10 +449,11 @@ export async function POST(
               (item: any) => item?.type === "function_call" && item?.name === SUGGEST_CADENCE_TOOL.name
             );
             if (toolCall) {
+              const callId = ensureCallId(toolCall);
               toolCallPayloads.push({
                 type: "function_call",
                 name: toolCall.name,
-                call_id: toolCall.call_id,
+                call_id: callId,
                 arguments: typeof toolCall.arguments === "string" ? toolCall.arguments : "",
               });
             }
@@ -456,7 +466,7 @@ export async function POST(
               if (toolCall.call_id) {
                 toolCallOutputs.push({
                   type: "function_call_output",
-                  call_id: toolCall.call_id,
+                  call_id: ensureCallId(toolCall),
                   output: JSON.stringify(
                     suggestion
                       ? {
@@ -531,14 +541,15 @@ export async function POST(
             const watchlistCall = watchlistItems.find(
               (item: any) => item?.type === "function_call" && item?.name === SUGGEST_WATCHLIST_TOOL.name
             );
-              if (watchlistCall) {
-                toolCallPayloads.push({
-                  type: "function_call",
-                  name: watchlistCall.name,
-                  call_id: watchlistCall.call_id,
-                  arguments: typeof watchlistCall.arguments === "string" ? watchlistCall.arguments : "",
-                });
-              }
+            if (watchlistCall) {
+              const callId = ensureCallId(watchlistCall);
+              toolCallPayloads.push({
+                type: "function_call",
+                name: watchlistCall.name,
+                call_id: callId,
+                arguments: typeof watchlistCall.arguments === "string" ? watchlistCall.arguments : "",
+              });
+            }
             if (watchlistCall && typeof watchlistCall.arguments === "string") {
               try {
                 const parsed = JSON.parse(watchlistCall.arguments);
@@ -559,7 +570,7 @@ export async function POST(
               if (watchlistCall.call_id) {
                 toolCallOutputs.push({
                   type: "function_call_output",
-                  call_id: watchlistCall.call_id,
+                  call_id: ensureCallId(watchlistCall),
                   output: JSON.stringify({
                     status: "suggested",
                     watchlist: watchlistCall.arguments,
