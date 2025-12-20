@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { RefObject } from "react";
+import type { MutableRefObject } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowDown, ArrowLeft, MessageCircle, Pause, Play, Settings2, Trash2, X } from "lucide-react";
 
@@ -41,6 +41,8 @@ const CUSTOM_CADENCE_UNITS = [
   { label: "Minutes", value: "min", multiplier: 60 },
   { label: "Hours", value: "hour", multiplier: 3600 },
 ] as const;
+
+type CustomCadenceUnit = (typeof CUSTOM_CADENCE_UNITS)[number]["value"];
 
 const REPORT_DEPTH_OPTIONS: Array<{ value: ReportDepth; label: string; description: string }> = [
   { value: "short", label: "Short", description: "Fast, lightweight" },
@@ -499,7 +501,7 @@ type AgentChatSidebarProps = {
   isLoading: boolean;
   error: string | null;
   onSendChat: (message: string) => void;
-  chatListRef: RefObject<HTMLDivElement>;
+  chatListRef: MutableRefObject<HTMLDivElement | null>;
   showScrollToBottom: boolean;
   onScroll: () => void;
   onScrollToBottom: () => void;
@@ -569,17 +571,23 @@ function AgentChatSidebar({
             ) : messages.length === 0 ? (
               <p className="px-2 text-xs text-muted-foreground">No messages yet. Start the conversation below.</p>
             ) : (
-              messages.map((msg) => (
-                <ChatMessage
-                  key={msg.id}
-                  messageId={msg.id}
-                  role={msg.role === "agent" ? "assistant" : "user"}
-                  content={msg.content}
-                  metadata={msg.metadata ?? null}
-                  forceFullWidth
-                  forceStaticBubble
-                />
-              ))
+              messages.map((msg) => {
+                const metadata =
+                  msg.metadata && typeof msg.metadata === "object" && !Array.isArray(msg.metadata)
+                    ? (msg.metadata as Record<string, unknown>)
+                    : null;
+                return (
+                  <ChatMessage
+                    key={msg.id}
+                    messageId={msg.id}
+                    role={msg.role === "agent" ? "assistant" : "user"}
+                    content={msg.content}
+                    metadata={metadata}
+                    forceFullWidth
+                    forceStaticBubble
+                  />
+                );
+              })
             )}
             </div>
             {showScrollToBottom && (
@@ -648,7 +656,7 @@ function SettingsSidebar({
   const [customCadenceValue, setCustomCadenceValue] = useState(() =>
     scheduleSelection === null ? String(Math.max(Math.round(cadenceSeconds / 60), 1)) : ""
   );
-  const [customCadenceUnit, setCustomCadenceUnit] = useState(CUSTOM_CADENCE_UNITS[0].value);
+  const [customCadenceUnit, setCustomCadenceUnit] = useState<CustomCadenceUnit>(CUSTOM_CADENCE_UNITS[0].value);
   const [scheduleError, setScheduleError] = useState<string | null>(null);
   const [scheduleStatus, setScheduleStatus] = useState<string | null>(null);
   const [scheduleLoading, setScheduleLoading] = useState(false);
@@ -764,7 +772,7 @@ function SettingsSidebar({
     ? [...watchlistCandidate.symbols].sort()
     : null;
   const isWatchlistDirty =
-    Boolean(normalizedCandidateWatchlist) &&
+    normalizedCandidateWatchlist !== null &&
     normalizedCandidateWatchlist.join(",") !== normalizedCurrentWatchlist.join(",");
 
   const handleSaveWatchlist = async () => {

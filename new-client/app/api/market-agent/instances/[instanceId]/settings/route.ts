@@ -80,7 +80,7 @@ export async function PATCH(
       return NextResponse.json({ error: "Invalid instance id" }, { status: 400 });
     }
 
-    const body = (await request.json()) as Partial<SettingsPayload>;
+    const body = (await request.json()) as SettingsPayload | null;
     if (!body?.type) {
       return NextResponse.json({ error: "Invalid update type" }, { status: 400 });
     }

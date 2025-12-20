@@ -8,10 +8,14 @@ function extractInstanceId(request: NextRequest, params?: { instanceId?: string 
   return segments[segments.length - 2] || null;
 }
 
-export async function GET(request: NextRequest, context: { params?: { instanceId?: string } }) {
+export async function GET(
+  request: NextRequest,
+  context: { params: Promise<{ instanceId: string }> },
+) {
   try {
     await requireUserIdServer();
-    const instanceId = extractInstanceId(request, context.params);
+    const params = await context.params;
+    const instanceId = extractInstanceId(request, params);
     if (!instanceId) {
       return NextResponse.json({ error: "Invalid instance id" }, { status: 400 });
     }
@@ -24,10 +28,14 @@ export async function GET(request: NextRequest, context: { params?: { instanceId
   }
 }
 
-export async function POST(request: NextRequest, context: { params?: { instanceId?: string } }) {
+export async function POST(
+  request: NextRequest,
+  context: { params: Promise<{ instanceId: string }> },
+) {
   try {
     await requireUserIdServer();
-    const instanceId = extractInstanceId(request, context.params);
+    const params = await context.params;
+    const instanceId = extractInstanceId(request, params);
     if (!instanceId) {
       return NextResponse.json({ error: "Invalid instance id" }, { status: 400 });
     }
