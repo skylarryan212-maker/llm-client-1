@@ -138,8 +138,11 @@ const SUGGEST_WATCHLIST_TOOL: FunctionTool = {
   strict: false,
 };
 
-const RESPONSE_TOOLS: FunctionTool[] = [SUGGEST_CADENCE_TOOL, SUGGEST_WATCHLIST_TOOL];
-const TOOL_NAMES = RESPONSE_TOOLS.map((tool) => tool.name);
+const WEB_SEARCH_TOOL: Tool = { type: "web_search_preview" };
+const RESPONSE_TOOLS: Tool[] = [SUGGEST_CADENCE_TOOL, SUGGEST_WATCHLIST_TOOL, WEB_SEARCH_TOOL];
+const TOOL_NAMES = RESPONSE_TOOLS.map((tool) =>
+  tool.type === "function" ? (tool as FunctionTool).name : tool.type
+);
 
 type CombinedSuggestionPayload = {
   suggestionId: string;
@@ -426,7 +429,7 @@ export async function POST(
             stream: true,
             store: false,
             tools: RESPONSE_TOOLS,
-            tool_choice: "required",
+            tool_choice: "auto",
             reasoning: { effort: "low" },
           });
           console.log("[market-agent] OpenAI stream started", {
