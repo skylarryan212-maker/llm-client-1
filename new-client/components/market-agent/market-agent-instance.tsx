@@ -1080,8 +1080,8 @@ export function MarketAgentInstanceView({ instance, events, thesis: _thesis, sta
                 <div className="flex h-full flex-col gap-4">
                   <div className="flex flex-1 min-h-0 gap-4">
                     {timelineExpanded ? (
-                      <div className="w-[44%] min-w-[280px] flex flex-col gap-2">
-                        <div className="flex items-center justify-between">
+                      <div className="w-fit min-w-[280px] max-w-[420px] flex-none flex flex-col gap-2">
+                        <div className="flex items-center justify-between gap-2">
                           <div>
                             <p className="text-xs uppercase tracking-[0.3em] text-white/60">Timeline</p>
                             <p className="text-[11px] text-muted-foreground">Newest first</p>
@@ -1136,7 +1136,7 @@ export function MarketAgentInstanceView({ instance, events, thesis: _thesis, sta
                                       </p>
                                     </div>
                                     {evt.tickers && evt.tickers.length ? (
-                                      <div className="flex flex-wrap items-center gap-1 text-[11px]">
+                                      <div className="flex flex-nowrap items-center gap-1 text-[11px] whitespace-nowrap">
                                         {evt.tickers.map((ticker) => (
                                           <span
                                             key={ticker}
