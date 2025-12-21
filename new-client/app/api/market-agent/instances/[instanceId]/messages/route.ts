@@ -34,6 +34,8 @@ const TOOL_USAGE_INSTRUCTIONS = [
   "Assistant: (calls suggest_schedule_cadence with cadence_seconds=60, reason=\"Faster intraday checks as requested.\") then replies with a short summary mentioning current cadence and proposed 60s cadence.",
   "User: add AAPL, MSFT, NVDA to my watchlist",
   "Assistant: (calls suggest_watchlist_change with watchlist=[AAPL, MSFT, NVDA], reason=\"User requested these tickers.\") then replies with a short summary.",
+  "User: add QQQ and set cadence to 1m",
+  "Assistant: (calls suggest_watchlist_change with watchlist=[QQQ], reason=\"User requested to track QQQ.\") then calls suggest_schedule_cadence with cadence_seconds=60, reason=\"Set cadence to 1m as requested.\") before replying with one sentence that mentions both updates and the current cadence context.",
   "User: got it, thanks",
   "Assistant: (calls acknowledge_request) then replies with a brief acknowledgment.",
 ].join(" ");
