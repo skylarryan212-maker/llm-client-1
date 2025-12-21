@@ -392,6 +392,12 @@ export function MarketAgentInstanceView({ instance, events, thesis: _thesis, sta
     setMobileActiveTab("timeline");
   };
 
+  useEffect(() => {
+    if (mobileActiveTab !== "chat") {
+      setIsChatOpen(false);
+    }
+  }, [mobileActiveTab]);
+
   const scheduleProgrammaticScrollReset = () => {
     if (typeof window === "undefined") return;
     if (programmaticScrollTimeoutRef.current) {
