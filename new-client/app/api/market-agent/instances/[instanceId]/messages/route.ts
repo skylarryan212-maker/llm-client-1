@@ -225,14 +225,6 @@ export async function POST(
     const role = body?.role === "agent" ? "agent" : body?.role === "system" ? "system" : "user";
     const content = (body?.content ?? "").toString();
     const suggestionOutcome = body.suggestionOutcome;
-    const lowerContent = content.toLowerCase();
-    const userRequestedCadenceChange =
-      /\b(cadence|schedule|frequency|interval|refresh|check|checks)\b/.test(lowerContent) ||
-      /\b\d+\s*(s|sec|secs|second|seconds|m|min|mins|minute|minutes|hr|hour|hours)\b/.test(lowerContent);
-    const userRequestedWatchlistChange =
-      /\bwatch ?list\b/.test(lowerContent) ||
-      /\bticker(s)?\b/.test(lowerContent) ||
-      /\bsymbols?\b/.test(lowerContent);
     const userMessage = await insertMarketAgentMessage({ instanceId, role, content });
 
     if (role !== "user") {
@@ -261,24 +253,8 @@ export async function POST(
       ? [{ role: "system" as const, content: suggestionOutcomeMessage }]
       : [];
     const chatPrompt = buildChatPrompt(cadenceSeconds);
-    const toolHints: Array<{ role: "system"; content: string }> = [];
-    if (userRequestedCadenceChange) {
-      toolHints.push({
-        role: "system",
-        content:
-          "The user explicitly requested a cadence change. Call suggest_schedule_cadence with cadence_seconds set to their requested interval and include a concise reason.",
-      });
-    }
-    if (userRequestedWatchlistChange) {
-      toolHints.push({
-        role: "system",
-        content:
-          "The user explicitly requested a watchlist change. Call suggest_watchlist_change with the requested symbols and a brief reason before replying.",
-      });
-    }
     const chatMessages = [
       { role: "system" as const, content: chatPrompt },
-      ...toolHints,
       ...suggestionOutcomeEntries,
       ...historyMessages,
     ];
