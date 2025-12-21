@@ -1049,29 +1049,32 @@ export function MarketAgentInstanceView({ instance, events, thesis, state: _stat
                     aria-hidden={thesisCollapsed}
                   >
                     {workspaceThesis ? (
-                      <div className="grid gap-5 md:grid-cols-[1.25fr_0.9fr] text-sm leading-tight">
-                        <div className="space-y-3 text-sm">
+                      <div className="grid gap-3 md:grid-cols-[1.35fr_1fr] text-sm leading-snug">
+                        <div className="space-y-2">
                           {[
                             { label: "Bias", value: workspaceThesis.bias },
                             { label: "Invalidation", value: workspaceThesis.invalidation },
                             { label: "Next check", value: workspaceThesis.next_check },
                           ].map((item) => (
-                            <div key={item.label}>
-                              <p className="text-[10px] font-semibold tracking-[0.35em] text-white/50 uppercase">
+                            <div key={item.label} className="flex items-start gap-3">
+                              <span className="w-24 text-[10px] font-semibold uppercase tracking-[0.3em] text-white/50">
                                 {item.label}
-                              </p>
-                              <p className="mt-0.5 text-sm text-muted-foreground">{item.value || "None"}</p>
+                              </span>
+                              <span className="text-sm text-muted-foreground">{item.value || "None"}</span>
                             </div>
                           ))}
                         </div>
-                        <div className="space-y-3 text-sm">
-                          <div>
-                            <p className="text-[10px] font-semibold tracking-[0.35em] text-white/50 uppercase">
-                              Watched tickers
-                            </p>
-                            <div className="mt-1 flex flex-wrap gap-1 text-[11px]">
+                        <div className="space-y-2">
+                          <div className="flex items-start gap-3">
+                            <span className="w-24 text-[10px] font-semibold uppercase tracking-[0.3em] text-white/50">
+                              Tickers
+                            </span>
+                            <div className="flex flex-wrap gap-1">
                               {(workspaceThesis.watched ?? []).map((sym) => (
-                                <span key={sym} className="rounded-full border border-border/60 px-2 py-0.5 text-xs text-white/80">
+                                <span
+                                  key={sym}
+                                  className="rounded-full border border-border/60 px-2 py-0.5 text-[11px] text-white/80"
+                                >
                                   {sym}
                                 </span>
                               ))}
@@ -1080,23 +1083,21 @@ export function MarketAgentInstanceView({ instance, events, thesis, state: _stat
                               ) : null}
                             </div>
                           </div>
-                          <div>
-                            <p className="text-[10px] font-semibold tracking-[0.35em] text-white/50 uppercase">
-                              Key levels
-                            </p>
-                            <div className="mt-1 space-y-1 text-xs text-muted-foreground">
+                          <div className="flex items-start gap-3">
+                            <span className="w-24 text-[10px] font-semibold uppercase tracking-[0.3em] text-white/50">
+                              Levels
+                            </span>
+                            <div className="flex flex-wrap gap-1 text-xs text-muted-foreground">
                               {workspaceThesis.key_levels && typeof workspaceThesis.key_levels === "object"
                                 ? Object.entries(workspaceThesis.key_levels as Record<string, any>).map(([ticker, levels]) => (
-                                    <div
+                                    <span
                                       key={ticker}
-                                      className="rounded-full border border-border/40 px-3 py-1 text-[11px] font-medium text-white/90"
+                                      className="rounded-full border border-border/40 px-2 py-0.5 text-[11px] text-white/90"
                                     >
-                                      <span>{ticker} — </span>
-                                      <span>Support: {levels?.support ?? "N/A"} </span>
-                                      <span>| Resistance: {levels?.resistance ?? "N/A"}</span>
-                                    </div>
+                                      {ticker} S:{levels?.support ?? "N/A"} R:{levels?.resistance ?? "N/A"}
+                                    </span>
                                   ))
-                                : <p className="text-xs text-muted-foreground">None</p>}
+                                : <span className="text-xs text-muted-foreground">None</span>}
                             </div>
                           </div>
                         </div>
