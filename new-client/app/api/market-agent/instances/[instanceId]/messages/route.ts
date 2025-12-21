@@ -449,6 +449,7 @@ export async function POST(
           }
         };
         let sawFunctionCall = false;
+        let acknowledged = false;
         const registerFunctionCall = (call: any, source: string) => {
           if (!call) return;
           const callId = ensureCallId(call);
@@ -461,6 +462,9 @@ export async function POST(
           }
           argBuffer[callId] = existing;
           sawFunctionCall = true;
+          if (existing.name === NO_OP_TOOL.name) {
+            acknowledged = true;
+          }
           console.log("[market-agent] Tool call event", {
             source,
             callId,
@@ -610,10 +614,19 @@ export async function POST(
           enqueue({ suggestion: combinedSuggestion });
         }
 
+        const suggestionSummary = combinedSuggestion
+          ? buildSuggestionSummary(combinedSuggestion, cadenceSeconds) ?? ""
+          : "";
         let assistantContent =
-          assistantText ||
-          (combinedSuggestion ? buildSuggestionSummary(combinedSuggestion, cadenceSeconds) : "");
-        if (!assistantContent) {
+          (assistantText ?? "").trim() ? assistantText ?? "" : suggestionSummary;
+        if (!assistantContent.trim()) {
+          if (acknowledged) {
+            assistantContent = "Request acknowledged; no cadence or watchlist change needed.";
+          } else {
+            assistantContent = suggestionSummary;
+          }
+        }
+        if (!assistantContent.trim()) {
           assistantContent = "I'm here. Ask me about the markets.";
         }
         const agentMetadata = {
