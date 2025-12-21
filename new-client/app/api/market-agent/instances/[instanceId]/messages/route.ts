@@ -1,11 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
-import type {
-  Tool,
-  FunctionTool,
-  ToolChoiceOptions,
-  ToolChoiceFunction,
-} from "openai/resources/responses/responses";
+import type { Tool, FunctionTool } from "openai/resources/responses/responses";
 
 import { calculateCost } from "@/lib/pricing";
 import { estimateTokens } from "@/lib/tokens/estimateTokens";
@@ -143,11 +138,8 @@ const SUGGEST_WATCHLIST_TOOL: FunctionTool = {
   strict: false,
 };
 
-const WEB_SEARCH_TOOL: Tool = { type: "web_search_preview" };
-const RESPONSE_TOOLS: Tool[] = [SUGGEST_CADENCE_TOOL, SUGGEST_WATCHLIST_TOOL, WEB_SEARCH_TOOL];
-const TOOL_NAMES = RESPONSE_TOOLS.map((tool) =>
-  tool.type === "function" ? (tool as FunctionTool).name : tool.type
-);
+const RESPONSE_TOOLS: FunctionTool[] = [SUGGEST_CADENCE_TOOL, SUGGEST_WATCHLIST_TOOL];
+const TOOL_NAMES = RESPONSE_TOOLS.map((tool) => tool.name);
 
 type CombinedSuggestionPayload = {
   suggestionId: string;
@@ -254,15 +246,6 @@ export async function POST(
       content: msg.content,
     }));
     const suggestionOutcomeMessage = buildSuggestionOutcomeMessage(suggestionOutcome);
-    const lowerContent = content.toLowerCase();
-    const userRequestedCadenceChange =
-      /\b(cadence|schedule|frequency|interval|refresh|check|checks)\b/.test(lowerContent) ||
-      /\b\d+\s*(s|sec|secs|second|seconds|m|min|mins|minute|minutes|hr|hour|hours)\b/.test(lowerContent);
-    const userRequestedWatchlistChange =
-      /\bwatch ?list\b/.test(lowerContent) ||
-      /\bticker(s)?\b/.test(lowerContent) ||
-      /\bsymbols?\b/.test(lowerContent);
-
     const suggestionOutcomeEntries = suggestionOutcomeMessage
       ? [{ role: "system" as const, content: suggestionOutcomeMessage }]
       : [];
@@ -401,19 +384,6 @@ export async function POST(
         };
         let combinedSuggestion: CombinedSuggestionPayload | null = null;
         let suggestionCounter = 0;
-        const toolChoice: ToolChoiceOptions | ToolChoiceFunction | undefined = (() => {
-          if (userRequestedCadenceChange && !userRequestedWatchlistChange) {
-            return { type: "function", name: SUGGEST_CADENCE_TOOL.name };
-          }
-          if (userRequestedWatchlistChange && !userRequestedCadenceChange) {
-            return { type: "function", name: SUGGEST_WATCHLIST_TOOL.name };
-          }
-          if (userRequestedCadenceChange && userRequestedWatchlistChange) {
-            return "required";
-          }
-          return "auto";
-        })();
-
         const captureSuggestion = (update: Partial<CombinedSuggestionPayload>) => {
           if (!combinedSuggestion) {
             combinedSuggestion = {
@@ -456,13 +426,12 @@ export async function POST(
             stream: true,
             store: false,
             tools: RESPONSE_TOOLS,
-            tool_choice: toolChoice,
+            tool_choice: "required",
             reasoning: { effort: "low" },
           });
           console.log("[market-agent] OpenAI stream started", {
             model: MODEL_ID,
             tools: TOOL_NAMES,
-            toolChoice,
           });
 
           for await (const event of stream as any) {
