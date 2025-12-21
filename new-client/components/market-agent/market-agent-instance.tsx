@@ -130,6 +130,8 @@ export function MarketAgentInstanceView({ instance, events, thesis, state: _stat
   const [pendingSuggestionOutcome, setPendingSuggestionOutcome] = useState<SuggestionOutcome | null>(null);
   const [bottomSpacerPx, setBottomSpacerPx] = useState(baseBottomSpacerPx);
   const [workspaceThesis, setWorkspaceThesis] = useState<MarketAgentThesis | null>(null);
+  const thesisContentRef = useRef<HTMLDivElement | null>(null);
+  const [thesisContentHeight, setThesisContentHeight] = useState(0);
   const [timelineEvents, setTimelineEvents] = useState<MarketAgentFeedEvent[]>(events ?? []);
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
   const [thesisCollapsed, setThesisCollapsed] = useState(false);
@@ -290,6 +292,17 @@ export function MarketAgentInstanceView({ instance, events, thesis, state: _stat
     setWorkspaceThesis(thesis ?? null);
     setTimelineEvents(events ?? []);
   }, [events, thesis]);
+
+  useEffect(() => {
+    const node = thesisContentRef.current;
+    if (!node) return;
+    const updateHeight = () => setThesisContentHeight(node.scrollHeight);
+    updateHeight();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(updateHeight);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [workspaceThesis]);
 
   useEffect(() => {
     if (selectedEventId) return;
@@ -1006,11 +1019,11 @@ export function MarketAgentInstanceView({ instance, events, thesis, state: _stat
           <div className="flex flex-1 min-h-0 h-full overflow-hidden gap-0 items-stretch">
             <div className="flex-1 min-h-0 min-w-0 overflow-hidden px-1 sm:px-3 py-3">
               <div className="flex h-full flex-col gap-4">
-                <section className="rounded-2xl border border-border/60 bg-background/70 p-4">
-                  <div className="flex items-center justify-between gap-3">
+                <section className="rounded-2xl border border-border/60 bg-background/70 p-3">
+                  <div className="flex items-start justify-between gap-2">
                     <div className="space-y-1">
                       <p className="text-xs uppercase tracking-[0.3em] text-white/60">Current thesis</p>
-                      <p className="text-sm text-muted-foreground">
+                      <p className="text-[11px] text-muted-foreground">
                         {workspaceThesis?.updated_at ? `Last updated ${formatTimestamp(workspaceThesis.updated_at)}` : "Pinned context for this agent"}
                       </p>
                     </div>
@@ -1026,22 +1039,30 @@ export function MarketAgentInstanceView({ instance, events, thesis, state: _stat
                       </Button>
                     </div>
                   </div>
-                  {!thesisCollapsed ? (
-                    workspaceThesis ? (
-                      <div className="mt-3 grid gap-3 md:grid-cols-2">
-                        <div className="space-y-2">
-                          <p className="text-sm font-semibold text-white">Bias</p>
+                  <div
+                    ref={thesisContentRef}
+                    className="mt-2 overflow-hidden transition-[max-height,opacity] duration-300 ease-out"
+                    style={{
+                      maxHeight: thesisCollapsed ? 0 : thesisContentHeight ? `${thesisContentHeight}px` : "999px",
+                      opacity: thesisCollapsed ? 0 : 1,
+                    }}
+                    aria-hidden={thesisCollapsed}
+                  >
+                    {workspaceThesis ? (
+                      <div className="grid gap-2 md:grid-cols-2 text-sm">
+                        <div className="space-y-1.5">
+                          <p className="text-xs font-semibold tracking-[0.2em] text-white/60 uppercase">Bias</p>
                           <p className="text-sm text-muted-foreground">{workspaceThesis.bias || "None"}</p>
-                          <p className="text-sm font-semibold text-white">Invalidation</p>
+                          <p className="text-xs font-semibold tracking-[0.2em] text-white/60 uppercase">Invalidation</p>
                           <p className="text-sm text-muted-foreground">{workspaceThesis.invalidation || "None"}</p>
-                          <p className="text-sm font-semibold text-white">Next check</p>
+                          <p className="text-xs font-semibold tracking-[0.2em] text-white/60 uppercase">Next check</p>
                           <p className="text-sm text-muted-foreground">{workspaceThesis.next_check || "None"}</p>
                         </div>
-                        <div className="space-y-2">
-                          <p className="text-sm font-semibold text-white">Watched tickers</p>
+                        <div className="space-y-2 text-sm">
+                          <p className="text-xs font-semibold tracking-[0.2em] text-white/60 uppercase">Watched tickers</p>
                           <div className="flex flex-wrap gap-1">
                             {(workspaceThesis.watched ?? []).map((sym) => (
-                              <span key={sym} className="rounded-full border border-border/60 px-2 py-1 text-xs text-white/80">
+                              <span key={sym} className="rounded-full border border-border/60 px-2 py-0.5 text-xs text-white/80">
                                 {sym}
                               </span>
                             ))}
@@ -1049,11 +1070,11 @@ export function MarketAgentInstanceView({ instance, events, thesis, state: _stat
                               <span className="text-sm text-muted-foreground">None</span>
                             ) : null}
                           </div>
-                          <p className="text-sm font-semibold text-white">Key levels</p>
+                          <p className="text-xs font-semibold tracking-[0.2em] text-white/60 uppercase">Key levels</p>
                           <div className="space-y-1 text-sm text-muted-foreground">
                             {workspaceThesis.key_levels && typeof workspaceThesis.key_levels === "object"
                               ? Object.entries(workspaceThesis.key_levels as Record<string, any>).map(([ticker, levels]) => (
-                                  <div key={ticker} className="rounded-lg border border-border/50 px-2 py-1">
+                                  <div key={ticker} className="rounded-lg border border-border/50 px-2 py-1 text-xs">
                                     <p className="text-xs text-white/80">{ticker}</p>
                                     <p className="text-xs text-muted-foreground">
                                       Support: {levels?.support ?? "N/A"} | Resistance: {levels?.resistance ?? "N/A"}
@@ -1065,11 +1086,11 @@ export function MarketAgentInstanceView({ instance, events, thesis, state: _stat
                         </div>
                       </div>
                     ) : (
-                      <div className="mt-3 rounded-xl border border-dashed border-border/60 bg-black/30 p-3 text-sm text-muted-foreground">
+                      <div className="rounded-xl border border-dashed border-border/60 bg-black/30 p-3 text-sm text-muted-foreground">
                         No thesis yet. Use the dev button below to generate demo data or update the thesis from the agent.
                       </div>
-                    )
-                  ) : null}
+                    )}
+                  </div>
                 </section>
 
                 <div className="flex flex-1 min-h-0 gap-4">
