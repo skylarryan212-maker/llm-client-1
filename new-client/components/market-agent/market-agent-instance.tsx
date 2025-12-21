@@ -1049,39 +1049,55 @@ export function MarketAgentInstanceView({ instance, events, thesis, state: _stat
                     aria-hidden={thesisCollapsed}
                   >
                     {workspaceThesis ? (
-                      <div className="grid gap-2 md:grid-cols-2 text-sm">
-                        <div className="space-y-1.5">
-                          <p className="text-xs font-semibold tracking-[0.2em] text-white/60 uppercase">Bias</p>
-                          <p className="text-sm text-muted-foreground">{workspaceThesis.bias || "None"}</p>
-                          <p className="text-xs font-semibold tracking-[0.2em] text-white/60 uppercase">Invalidation</p>
-                          <p className="text-sm text-muted-foreground">{workspaceThesis.invalidation || "None"}</p>
-                          <p className="text-xs font-semibold tracking-[0.2em] text-white/60 uppercase">Next check</p>
-                          <p className="text-sm text-muted-foreground">{workspaceThesis.next_check || "None"}</p>
+                      <div className="grid gap-5 md:grid-cols-[1.25fr_0.9fr] text-sm leading-tight">
+                        <div className="space-y-3 text-sm">
+                          {[
+                            { label: "Bias", value: workspaceThesis.bias },
+                            { label: "Invalidation", value: workspaceThesis.invalidation },
+                            { label: "Next check", value: workspaceThesis.next_check },
+                          ].map((item) => (
+                            <div key={item.label}>
+                              <p className="text-[10px] font-semibold tracking-[0.35em] text-white/50 uppercase">
+                                {item.label}
+                              </p>
+                              <p className="mt-0.5 text-sm text-muted-foreground">{item.value || "None"}</p>
+                            </div>
+                          ))}
                         </div>
-                        <div className="space-y-2 text-sm">
-                          <p className="text-xs font-semibold tracking-[0.2em] text-white/60 uppercase">Watched tickers</p>
-                          <div className="flex flex-wrap gap-1">
-                            {(workspaceThesis.watched ?? []).map((sym) => (
-                              <span key={sym} className="rounded-full border border-border/60 px-2 py-0.5 text-xs text-white/80">
-                                {sym}
-                              </span>
-                            ))}
-                            {!workspaceThesis.watched?.length ? (
-                              <span className="text-sm text-muted-foreground">None</span>
-                            ) : null}
+                        <div className="space-y-3 text-sm">
+                          <div>
+                            <p className="text-[10px] font-semibold tracking-[0.35em] text-white/50 uppercase">
+                              Watched tickers
+                            </p>
+                            <div className="mt-1 flex flex-wrap gap-1 text-[11px]">
+                              {(workspaceThesis.watched ?? []).map((sym) => (
+                                <span key={sym} className="rounded-full border border-border/60 px-2 py-0.5 text-xs text-white/80">
+                                  {sym}
+                                </span>
+                              ))}
+                              {!workspaceThesis.watched?.length ? (
+                                <span className="text-xs text-muted-foreground">None</span>
+                              ) : null}
+                            </div>
                           </div>
-                          <p className="text-xs font-semibold tracking-[0.2em] text-white/60 uppercase">Key levels</p>
-                          <div className="space-y-1 text-sm text-muted-foreground">
-                            {workspaceThesis.key_levels && typeof workspaceThesis.key_levels === "object"
-                              ? Object.entries(workspaceThesis.key_levels as Record<string, any>).map(([ticker, levels]) => (
-                                  <div key={ticker} className="rounded-lg border border-border/50 px-2 py-1 text-xs">
-                                    <p className="text-xs text-white/80">{ticker}</p>
-                                    <p className="text-xs text-muted-foreground">
-                                      Support: {levels?.support ?? "N/A"} | Resistance: {levels?.resistance ?? "N/A"}
-                                    </p>
-                                  </div>
-                                ))
-                              : <p className="text-sm text-muted-foreground">None</p>}
+                          <div>
+                            <p className="text-[10px] font-semibold tracking-[0.35em] text-white/50 uppercase">
+                              Key levels
+                            </p>
+                            <div className="mt-1 space-y-1 text-xs text-muted-foreground">
+                              {workspaceThesis.key_levels && typeof workspaceThesis.key_levels === "object"
+                                ? Object.entries(workspaceThesis.key_levels as Record<string, any>).map(([ticker, levels]) => (
+                                    <div
+                                      key={ticker}
+                                      className="rounded-full border border-border/40 px-3 py-1 text-[11px] font-medium text-white/90"
+                                    >
+                                      <span>{ticker} — </span>
+                                      <span>Support: {levels?.support ?? "N/A"} </span>
+                                      <span>| Resistance: {levels?.resistance ?? "N/A"}</span>
+                                    </div>
+                                  ))
+                                : <p className="text-xs text-muted-foreground">None</p>}
+                            </div>
                           </div>
                         </div>
                       </div>
