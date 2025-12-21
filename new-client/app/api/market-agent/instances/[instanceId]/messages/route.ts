@@ -143,8 +143,27 @@ const SUGGEST_WATCHLIST_TOOL: FunctionTool = {
   strict: false,
 };
 
+const NO_OP_TOOL: FunctionTool = {
+  type: "function",
+  name: "acknowledge_request",
+  description:
+    "Use this when no cadence or watchlist change is needed, but a tool call is required before replying. Returns an acknowledgment only.",
+  parameters: {
+    type: "object",
+    properties: {},
+    required: [],
+    additionalProperties: false,
+  },
+  strict: false,
+};
+
 const WEB_SEARCH_TOOL: Tool = { type: "web_search_preview" };
-const RESPONSE_TOOLS: Tool[] = [SUGGEST_CADENCE_TOOL, SUGGEST_WATCHLIST_TOOL, WEB_SEARCH_TOOL];
+const RESPONSE_TOOLS: Tool[] = [
+  SUGGEST_CADENCE_TOOL,
+  SUGGEST_WATCHLIST_TOOL,
+  NO_OP_TOOL,
+  WEB_SEARCH_TOOL,
+];
 const TOOL_NAMES = RESPONSE_TOOLS.map((tool) =>
   tool.type === "function" ? (tool as FunctionTool).name : tool.type
 );
