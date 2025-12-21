@@ -1114,80 +1114,43 @@ export function MarketAgentInstanceView({ instance, events, thesis, state: _stat
                             </div>
                           ))}
                         </div>
-                        <div className="grid gap-2 md:grid-cols-2">
-                          <div className="rounded-xl border border-border/50 bg-black/30 px-3 py-2">
-                            <p className="text-[10px] font-semibold uppercase tracking-[0.35em] text-white/50">
-                              Tickers
-                            </p>
-                            <div className="mt-2 flex flex-wrap gap-1">
-                              {(workspaceThesis.watched ?? []).map((sym) => (
-                                <span
-                                  key={sym}
-                                  className="rounded-full border border-border/60 px-2 py-0.5 text-[11px] text-white/80"
-                                >
-                                  ${sym}
-                                </span>
-                              ))}
-                              {!workspaceThesis.watched?.length ? (
-                                <span className="text-xs text-muted-foreground">None</span>
-                              ) : null}
-                            </div>
-                          </div>
-                          <div className="rounded-xl border border-border/50 bg-black/30 px-3 py-2">
-                            <p className="text-[10px] font-semibold uppercase tracking-[0.35em] text-white/50">
-                              Levels
-                            </p>
-                            <div className="mt-2 space-y-2">
-                              {workspaceThesis.key_levels && typeof workspaceThesis.key_levels === "object"
-                                ? Object.entries(workspaceThesis.key_levels as Record<string, any>).map(([ticker, levels]) => {
-                                    const supportValue = Number(levels?.support);
-                                    const resistanceValue = Number(levels?.resistance);
-                                    const currentValue = Number(levels?.current ?? levels?.price ?? levels?.last);
-                                    const hasRange =
-                                      Number.isFinite(supportValue) &&
-                                      Number.isFinite(resistanceValue) &&
-                                      resistanceValue > supportValue;
-                                    const midValue = hasRange
-                                      ? supportValue + (resistanceValue - supportValue) * 0.5
-                                      : 0;
-                                    const normalized = hasRange
-                                      ? ((Number.isFinite(currentValue) ? currentValue : midValue) - supportValue) /
-                                        (resistanceValue - supportValue)
-                                      : 0.5;
-                                    const clamped = Math.min(1, Math.max(0, normalized));
-                                    return (
-                                      <div key={ticker} className="rounded-lg border border-border/40 px-3 py-2 text-xs">
-                                        <div className="flex items-center justify-between text-[11px] text-white/80">
-                                          <span>{ticker}</span>
-                                          {Number.isFinite(currentValue) ? (
-                                            <span className="text-white/70">Current {currentValue}</span>
-                                          ) : (
-                                            <span className="text-white/50">Midpoint</span>
-                                          )}
-                                        </div>
-                                        {hasRange ? (
-                                          <>
-                                            <div className="mt-2 h-1.5 w-full rounded-full bg-white/10">
-                                              <div className="relative h-full">
-                                                <span
-                                                  className="absolute top-1/2 h-3 w-3 -translate-y-1/2 rounded-full border border-white/60 bg-white/80 shadow"
-                                                  style={{ left: `calc(${clamped * 100}% - 6px)` }}
-                                                />
-                                              </div>
-                                            </div>
-                                            <div className="mt-1 flex items-center justify-between text-[10px] text-white/50">
-                                              <span>S {supportValue}</span>
-                                              <span>R {resistanceValue}</span>
-                                            </div>
-                                          </>
-                                        ) : (
-                                          <p className="mt-1 text-[11px] text-white/50">Support/Resistance unavailable</p>
-                                        )}
-                                      </div>
-                                    );
-                                  })
-                                : <p className="text-xs text-muted-foreground">None</p>}
-                            </div>
+                        <div className="rounded-xl border border-border/50 bg-black/30 px-3 py-2">
+                          <p className="text-[10px] font-semibold uppercase tracking-[0.35em] text-white/50">
+                            Tickers + Levels
+                          </p>
+                          <div className="mt-2 flex flex-wrap gap-1">
+                            {(() => {
+                              const watched = workspaceThesis.watched ?? [];
+                              const levelMap =
+                                workspaceThesis.key_levels && typeof workspaceThesis.key_levels === "object"
+                                  ? (workspaceThesis.key_levels as Record<string, any>)
+                                  : {};
+                              const symbols = Array.from(new Set([...watched, ...Object.keys(levelMap)])).filter(Boolean);
+                              if (!symbols.length) {
+                                return <span className="text-xs text-muted-foreground">None</span>;
+                              }
+                              return symbols.map((sym) => {
+                                const levels = levelMap?.[sym] ?? null;
+                                const supportValue = levels?.support;
+                                const resistanceValue = levels?.resistance;
+                                const hasSupport = typeof supportValue !== "undefined" && supportValue !== null;
+                                const hasResistance = typeof resistanceValue !== "undefined" && resistanceValue !== null;
+                                return (
+                                  <span
+                                    key={sym}
+                                    className="rounded-full border border-border/60 px-2 py-0.5 text-[11px] text-white/80"
+                                  >
+                                    ${sym}
+                                    {hasSupport || hasResistance ? (
+                                      <span className="text-white/50">
+                                        {" "}
+                                        S:{hasSupport ? supportValue : "—"} R:{hasResistance ? resistanceValue : "—"}
+                                      </span>
+                                    ) : null}
+                                  </span>
+                                );
+                              });
+                            })()}
                           </div>
                         </div>
                       </div>
