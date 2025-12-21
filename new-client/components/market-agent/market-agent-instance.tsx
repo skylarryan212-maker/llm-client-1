@@ -8,6 +8,7 @@ import {
   ArrowLeft,
   ChevronDown,
   ChevronRight,
+  FileText,
   LineChart,
   List,
   MessageCircle,
@@ -42,6 +43,8 @@ type Props = {
 };
 
 type ReportDepth = "short" | "standard" | "deep";
+type WorkspaceView = "timeline" | "charts" | "news" | "report";
+type MobileNavButtonId = WorkspaceView | "chat";
 
 const WATCHLIST_LIMIT = 25;
 
@@ -122,8 +125,10 @@ export function MarketAgentInstanceView({ instance, events, thesis: _thesis, sta
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [watchlistState, setWatchlistState] = useState(instance.watchlist);
   const [cadenceSecondsState, setCadenceSecondsState] = useState(instance.cadence_seconds);
-  const [activeWorkspace, setActiveWorkspace] = useState<"timeline" | "charts" | "news">("timeline");
+  const [activeWorkspace, setActiveWorkspace] = useState<WorkspaceView>("timeline");
   const [timelineOpen, setTimelineOpen] = useState(true);
+  const [isMobileView, setIsMobileView] = useState(false);
+  const [mobileActiveTab, setMobileActiveTab] = useState<MobileNavButtonId>("timeline");
   const initialReportDepth = (() => {
     const depth = instance.report_depth ?? "standard";
     return REPORT_DEPTH_OPTIONS.some((option) => option.value === depth) ? (depth as ReportDepth) : "standard";
@@ -194,6 +199,14 @@ export function MarketAgentInstanceView({ instance, events, thesis: _thesis, sta
   const timelineExpanded = activeWorkspace === "timeline" && timelineOpen;
   const selectedEventIndex = selectedEventId ? timelineEvents.findIndex((evt) => evt.id === selectedEventId) : -1;
   const timelineEmpty = timelineEvents.length === 0;
+  const isTimelineMode = activeWorkspace === "timeline";
+  const isReportMode = activeWorkspace === "report";
+  const showTimelineColumn = isTimelineMode;
+  const showReportColumn = !isMobileView ? isTimelineMode : isReportMode;
+  const timelinePanelMaxWidth = timelineExpanded ? (isMobileView ? "100%" : 420) : 0;
+  const timelinePanelTransitionClass = isMobileView ? "transition-none" : "transition-all duration-300 ease-out";
+  const timelinePanelOrderClass = isMobileView ? "order-2 md:order-none" : "";
+  const reportPanelOrderClass = isMobileView ? "order-1 md:order-none" : "";
   const isDev = process.env.NODE_ENV !== "production";
   const canSeedDemo = isDev || plan === "max";
 
@@ -350,6 +363,34 @@ export function MarketAgentInstanceView({ instance, events, thesis: _thesis, sta
   useEffect(() => {
     initialScrollDoneRef.current = false;
   }, [instance.id]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const update = () => setIsMobileView(window.innerWidth < 768);
+    update();
+    window.addEventListener("resize", update);
+    return () => window.removeEventListener("resize", update);
+  }, []);
+
+  const handleTimelineNavClick = () => {
+    setActiveWorkspace("timeline");
+    setTimelineOpen(true);
+  };
+
+  const handleMobileNavSelect = (selection: MobileNavButtonId) => {
+    setMobileActiveTab(selection);
+    if (selection === "chat") {
+      setIsChatOpen(true);
+      return;
+    }
+    setIsChatOpen(false);
+    setActiveWorkspace(selection);
+    setTimelineOpen(selection === "timeline");
+  };
+  const closeChatOverlay = () => {
+    setIsChatOpen(false);
+    setMobileActiveTab("timeline");
+  };
 
   const scheduleProgrammaticScrollReset = () => {
     if (typeof window === "undefined") return;
@@ -949,10 +990,10 @@ export function MarketAgentInstanceView({ instance, events, thesis: _thesis, sta
 
   return (
     <>
-      <div className="h-screen overflow-hidden bg-[#050505] text-foreground">
-        <div className="flex h-full flex-col">
-          <header className="flex items-center gap-4 border-b border-white/10 bg-black/80 px-4 py-2 backdrop-blur">
-          <div className="flex items-center gap-3">
+      <div className="min-h-screen md:h-screen md:overflow-hidden bg-[#050505] text-foreground pb-20 md:pb-0">
+        <div className="flex min-h-screen md:h-full flex-col">
+          <header className="sticky top-0 z-30 flex flex-wrap md:flex-nowrap items-center gap-3 md:gap-4 border-b border-white/10 bg-black/80 px-4 py-2 backdrop-blur md:static md:z-auto">
+          <div className="flex w-full md:w-auto items-center gap-3">
             <Button
               variant="ghost"
               size="icon"
@@ -972,7 +1013,7 @@ export function MarketAgentInstanceView({ instance, events, thesis: _thesis, sta
               </div>
             </div>
           </div>
-          <div className="flex flex-1 items-center justify-center overflow-hidden rounded-full border border-white/10 bg-white/5 px-2 py-1 text-xs text-white/80">
+          <div className="hidden md:flex flex-1 items-center justify-center overflow-hidden rounded-full border border-white/10 bg-white/5 px-2 py-1 text-xs text-white/80">
             <div className="ticker-strip relative flex-1 overflow-hidden">
               <div className="ticker-track flex gap-8 whitespace-nowrap px-4">
                 {loopedTickers.map((ticker, idx) => (
@@ -988,7 +1029,7 @@ export function MarketAgentInstanceView({ instance, events, thesis: _thesis, sta
               </div>
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex w-full md:w-auto flex-wrap items-center gap-2 md:justify-end">
             <Button
               variant={instance.status === "running" ? "ghost" : "secondary"}
               size="sm"
@@ -1005,7 +1046,7 @@ export function MarketAgentInstanceView({ instance, events, thesis: _thesis, sta
             <Button
               variant={isChatOpen ? "secondary" : "outline"}
               size="sm"
-              className="gap-1"
+              className="gap-1 hidden md:flex"
               onClick={() => setIsChatOpen((prev) => !prev)}
             >
               <MessageCircle className="h-4 w-4" />
@@ -1027,12 +1068,12 @@ export function MarketAgentInstanceView({ instance, events, thesis: _thesis, sta
           </div>
           </header>
 
-          <div className="flex flex-1 min-h-0 h-full overflow-hidden gap-0 items-stretch">
-            <div className="flex h-full w-[76px] flex-col items-center gap-2 border-r border-white/10 bg-[#050505] px-2 py-3">
+            <div className="flex flex-1 min-h-0 h-full flex-col md:flex-row overflow-hidden gap-0 items-stretch">
+            <div className="hidden md:flex h-full w-[76px] flex-col items-center gap-2 border-r border-white/10 bg-[#050505] px-2 py-3">
               <button
                 type="button"
                 className={cn(
-                  "relative flex w-full flex-col items-center gap-1 rounded-xl px-2 py-2 text-[11px] font-medium transition",
+                  "relative flex flex-col items-center gap-1 rounded-xl px-2 py-2 text-[11px] font-medium transition md:w-full",
                   activeWorkspace === "timeline" ? "bg-white/5 text-white" : "text-white/60 hover:text-white"
                 )}
                 onClick={() => {
@@ -1042,14 +1083,14 @@ export function MarketAgentInstanceView({ instance, events, thesis: _thesis, sta
               >
                 <List className="h-5 w-5" />
                 <span>Timeline</span>
-                <span className="absolute right-1 top-1 text-white/60">
+                <span className="hidden md:block absolute right-1 top-1 text-white/60">
                   {timelineExpanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
                 </span>
               </button>
               <button
                 type="button"
                 className={cn(
-                  "flex w-full flex-col items-center gap-1 rounded-xl px-2 py-2 text-[11px] font-medium transition",
+                  "flex flex-col items-center gap-1 rounded-xl px-2 py-2 text-[11px] font-medium transition md:w-full",
                   activeWorkspace === "charts" ? "bg-white/5 text-white" : "text-white/60 hover:text-white"
                 )}
                 onClick={() => {
@@ -1063,7 +1104,7 @@ export function MarketAgentInstanceView({ instance, events, thesis: _thesis, sta
               <button
                 type="button"
                 className={cn(
-                  "flex w-full flex-col items-center gap-1 rounded-xl px-2 py-2 text-[11px] font-medium transition",
+                  "flex flex-col items-center gap-1 rounded-xl px-2 py-2 text-[11px] font-medium transition md:w-full",
                   activeWorkspace === "news" ? "bg-white/5 text-white" : "text-white/60 hover:text-white"
                 )}
                 onClick={() => {
@@ -1076,131 +1117,143 @@ export function MarketAgentInstanceView({ instance, events, thesis: _thesis, sta
               </button>
             </div>
             <div className="flex-1 min-h-0 min-w-0 overflow-hidden px-1 sm:px-3 py-3">
-              {activeWorkspace === "timeline" ? (
+              {isTimelineMode || isReportMode ? (
                 <div className="flex h-full flex-col gap-4">
-                  <div className="flex flex-1 min-h-0 gap-4">
-                    <div
-                      className={cn(
-                        "flex flex-col gap-2 overflow-hidden transition-[max-width,opacity,transform] duration-300 ease-out",
-                        timelineExpanded ? "max-w-[420px] opacity-100 translate-x-0" : "max-w-0 opacity-0 -translate-x-2"
-                      )}
-                    >
-                      <div className="w-fit min-w-[280px] max-w-[420px] flex-none flex flex-col gap-2">
-                        <div className="flex items-center justify-between gap-2">
-                          <div>
-                            <p className="text-xs uppercase tracking-[0.3em] text-white/60">Timeline</p>
-                            <p className="text-[11px] text-muted-foreground">Newest first</p>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            {canSeedDemo ? (
-                              <Button size="sm" variant="outline" onClick={handleGenerateDemoEvents} disabled={seedLoading}>
-                                {seedLoading ? "Generating..." : "Generate demo"}
-                              </Button>
-                            ) : null}
-                            {statusError ? (
-                              <p className="text-[11px] text-rose-300">{statusError}</p>
-                            ) : null}
-                          </div>
-                        </div>
-                        <div className="flex-1 min-h-0 overflow-y-auto space-y-2 pr-1">
-                          {timelineEmpty ? (
-                            <div className="rounded-2xl border border-dashed border-border/60 bg-background/70 p-4 text-sm text-muted-foreground">
-                              <p className="font-semibold text-white">No reports yet. Start the agent to generate your first report.</p>
-                              <ul className="mt-2 list-disc space-y-1 pl-5">
-                                <li>Reports</li>
-                              </ul>
+                  <div className="flex flex-1 min-h-0 flex-col md:flex-row gap-4">
+                    {showTimelineColumn && (
+                      <div
+                        className={cn(
+                          "flex flex-col gap-2 overflow-hidden",
+                          timelinePanelTransitionClass,
+                          timelineExpanded ? "opacity-100 translate-x-0" : "opacity-0 -translate-x-2",
+                          timelinePanelOrderClass
+                        )}
+                        style={{ maxWidth: timelinePanelMaxWidth }}
+                      >
+                        <div className="w-full md:w-fit md:min-w-[280px] md:max-w-[420px] flex-none flex flex-col gap-2">
+                          <div className="flex items-center justify-between gap-2">
+                            <div>
+                              <p className="text-xs uppercase tracking-[0.3em] text-white/60">Timeline</p>
+                              <p className="text-[11px] text-muted-foreground">Newest first</p>
                             </div>
-                          ) : (
-                            timelineEvents.map((evt, index) => {
-                              const isActive = evt.id === selectedEventId;
-                              const reportLabel = getReportLabel(index, timelineEvents.length);
-                              return (
-                                <button
-                                  key={evt.id}
-                                  type="button"
-                                  className={cn(
-                                    "relative w-full text-left rounded-2xl border px-3 py-2 transition",
-                                    "hover:border-white/25 hover:bg-white/[0.03]",
-                                    isActive
-                                      ? "border-white/35 bg-white/[0.07] shadow-[0_10px_30px_rgba(0,0,0,0.25)]"
-                                      : "border-border/60 bg-black/25"
-                                  )}
-                                  onClick={() => handleSelectEvent(evt.id)}
-                                >
-                                  {isActive ? (
-                                    <span
-                                      aria-hidden
-                                      className="absolute left-0 top-0 h-full w-1 rounded-l-2xl bg-emerald-400/80"
-                                    />
-                                  ) : null}
-                                  <div className="flex items-start justify-between gap-2">
-                                    <div className="space-y-1">
-                                      <p className="text-sm font-semibold text-white">{reportLabel}</p>
-                                      <p className="text-[11px] text-muted-foreground">
-                                        {formatTimestamp(evt.created_at || evt.ts)}
-                                      </p>
-                                    </div>
-                                    {evt.tickers && evt.tickers.length ? (
-                                      <div className="flex flex-nowrap items-center gap-1 text-[11px] whitespace-nowrap">
-                                        {evt.tickers.map((ticker) => (
-                                          <span
-                                            key={ticker}
-                                            className="rounded-full border border-border/50 px-2 py-0.5 text-[11px] text-white/80"
-                                          >
-                                            {ticker}
-                                          </span>
-                                        ))}
-                                      </div>
+                            <div className="flex items-center gap-2">
+                              {canSeedDemo ? (
+                                <Button size="sm" variant="outline" onClick={handleGenerateDemoEvents} disabled={seedLoading}>
+                                  {seedLoading ? "Generating..." : "Generate demo"}
+                                </Button>
+                              ) : null}
+                              {statusError ? (
+                                <p className="text-[11px] text-rose-300">{statusError}</p>
+                              ) : null}
+                            </div>
+                          </div>
+                          <div className="flex-1 min-h-0 overflow-y-auto space-y-2 pr-1">
+                            {timelineEmpty ? (
+                              <div className="rounded-2xl border border-dashed border-border/60 bg-background/70 p-4 text-sm text-muted-foreground">
+                                <p className="font-semibold text-white">No reports yet. Start the agent to generate your first report.</p>
+                                <ul className="mt-2 list-disc space-y-1 pl-5">
+                                  <li>Reports</li>
+                                </ul>
+                              </div>
+                            ) : (
+                              timelineEvents.map((evt, index) => {
+                                const isActive = evt.id === selectedEventId;
+                                const reportLabel = getReportLabel(index, timelineEvents.length);
+                                return (
+                                  <button
+                                    key={evt.id}
+                                    type="button"
+                                    className={cn(
+                                      "relative w-full text-left rounded-2xl border px-3 py-2 transition",
+                                      "hover:border-white/25 hover:bg-white/[0.03]",
+                                      isActive
+                                        ? "border-white/35 bg-white/[0.07] shadow-[0_10px_30px_rgba(0,0,0,0.25)]"
+                                        : "border-border/60 bg-black/25"
+                                    )}
+                                    onClick={() => handleSelectEvent(evt.id)}
+                                  >
+                                    {isActive ? (
+                                      <span
+                                        aria-hidden
+                                        className="absolute left-0 top-0 h-full w-1 rounded-l-2xl bg-emerald-400/80"
+                                      />
                                     ) : null}
-                                  </div>
-                                </button>
-                              );
-                            })
-                          )}
+                                    <div className="flex items-start justify-between gap-2">
+                                      <div className="space-y-1">
+                                        <p className="text-sm font-semibold text-white">{reportLabel}</p>
+                                        <p className="text-[11px] text-muted-foreground">
+                                          {formatTimestamp(evt.created_at || evt.ts)}
+                                        </p>
+                                      </div>
+                                      {evt.tickers && evt.tickers.length ? (
+                                        <div className="flex flex-nowrap items-center gap-1 text-[11px] whitespace-nowrap">
+                                          {evt.tickers.map((ticker) => (
+                                            <span
+                                              key={ticker}
+                                              className="rounded-full border border-border/50 px-2 py-0.5 text-[11px] text-white/80"
+                                            >
+                                              {ticker}
+                                            </span>
+                                          ))}
+                                        </div>
+                                      ) : null}
+                                    </div>
+                                  </button>
+                                );
+                              })
+                            )}
+                          </div>
                         </div>
                       </div>
-                    </div>
-                    <div className="flex-1 min-h-0 rounded-2xl border border-border/60 bg-background/60 p-4 overflow-y-auto">
-                      {selectedEvent ? (
-                        <div className="space-y-2">
-                          <div className="flex items-start justify-between gap-3">
-                            <div className="space-y-1">
-                              <p className="text-xs uppercase tracking-[0.3em] text-white/60">Report</p>
-                              <p className="text-xl font-semibold text-white">
-                                {selectedEventIndex >= 0 ? getReportLabel(selectedEventIndex, timelineEvents.length) : "Report"}
-                              </p>
-                              <p className="text-sm text-muted-foreground">
-                                {formatTimestamp(selectedEvent.created_at || selectedEvent.ts)}
-                              </p>
+                    )}
+                    {showReportColumn && (
+                      <div
+                        className={cn(
+                          "flex-1 min-h-0 rounded-2xl border border-border/60 bg-background/60 p-4 overflow-y-auto",
+                          reportPanelOrderClass
+                        )}
+                      >
+                        {selectedEvent ? (
+                          <div className="space-y-2">
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="space-y-1">
+                                <p className="text-xs uppercase tracking-[0.3em] text-white/60">Report</p>
+                                <p className="text-xl font-semibold text-white">
+                                  {selectedEventIndex >= 0 ? getReportLabel(selectedEventIndex, timelineEvents.length) : "Report"}
+                                </p>
+                                <p className="text-sm text-muted-foreground">
+                                  {formatTimestamp(selectedEvent.created_at || selectedEvent.ts)}
+                                </p>
+                              </div>
+                            </div>
+                            {selectedEvent.tickers && selectedEvent.tickers.length ? (
+                              <div className="flex flex-wrap gap-1">
+                                {selectedEvent.tickers.map((ticker) => (
+                                  <span key={ticker} className="rounded-full border border-border/50 px-2 py-0.5 text-[11px] text-white/80">
+                                    {ticker}
+                                  </span>
+                                ))}
+                              </div>
+                            ) : null}
+                            <div className="mt-2 rounded-xl border border-border/50 bg-black/20 p-4">
+                              <MarkdownContent
+                                content={
+                                  selectedEvent.body_md ||
+                                  selectedEvent.summary ||
+                                  reportFallbackBodies[
+                                    Math.max(0, selectedEventIndex) % reportFallbackBodies.length
+                                  ]
+                                }
+                              />
                             </div>
                           </div>
-                          {selectedEvent.tickers && selectedEvent.tickers.length ? (
-                            <div className="flex flex-wrap gap-1">
-                              {selectedEvent.tickers.map((ticker) => (
-                                <span key={ticker} className="rounded-full border border-border/50 px-2 py-0.5 text-[11px] text-white/80">
-                                  {ticker}
-                                </span>
-                              ))}
-                            </div>
-                          ) : null}
-                          <div className="mt-2 rounded-xl border border-border/50 bg-black/20 p-4">
-                            <MarkdownContent
-                              content={
-                                selectedEvent.body_md ||
-                                selectedEvent.summary ||
-                                reportFallbackBodies[
-                                  Math.max(0, selectedEventIndex) % reportFallbackBodies.length
-                                ]
-                              }
-                            />
+                        ) : (
+                          <div className="flex h-full items-center justify-center rounded-xl border border-dashed border-border/60 bg-black/20 p-6 text-sm text-muted-foreground">
+                            Select a report to view details.
                           </div>
-                        </div>
-                      ) : (
-                        <div className="flex h-full items-center justify-center rounded-xl border border-dashed border-border/60 bg-black/20 p-6 text-sm text-muted-foreground">
-                          Select a report to view details.
-                        </div>
-                      )}
-                    </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
               ) : (
@@ -1211,7 +1264,7 @@ export function MarketAgentInstanceView({ instance, events, thesis: _thesis, sta
             </div>
             <AgentChatSidebar
               open={isChatOpen}
-              onClose={() => setIsChatOpen(false)}
+              onClose={closeChatOverlay}
               instance={instance}
               statusLabel={statusLabel}
               statusTone={statusTone}
@@ -1235,10 +1288,41 @@ export function MarketAgentInstanceView({ instance, events, thesis: _thesis, sta
               pinSpacerHeight={pinSpacerHeight}
               bottomSpacerPx={bottomSpacerPx}
               prefillValue={chatPrefill}
+              isMobileView={isMobileView}
               onPrefillUsed={() => setChatPrefill(null)}
               onApplyStarter={(text) => setChatPrefill(text)}
             />
           </div>
+      </div>
+      <div
+        className="md:hidden fixed inset-x-0 bottom-0 z-40 border-t border-white/10 bg-[#050505]/90 backdrop-blur px-4 pt-2"
+        style={{ paddingBottom: "calc(0.75rem + env(safe-area-inset-bottom, 0px))" }}
+      >
+        <div className="mx-auto flex max-w-3xl items-center justify-between">
+          {[
+            { id: "timeline" as MobileNavButtonId, label: "Timeline", Icon: List },
+            { id: "report" as MobileNavButtonId, label: "Report", Icon: FileText },
+            { id: "charts" as MobileNavButtonId, label: "Charts", Icon: LineChart },
+            { id: "news" as MobileNavButtonId, label: "News", Icon: Newspaper },
+            { id: "chat" as MobileNavButtonId, label: "Chat", Icon: MessageCircle },
+          ].map((item) => {
+            const isActive = mobileActiveTab === item.id;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                className={cn(
+                  "flex flex-col items-center gap-1 rounded-full px-3 py-2 text-[11px] font-medium transition",
+                  isActive ? "bg-white/5 text-white" : "text-white/60 hover:text-white"
+                )}
+                onClick={() => handleMobileNavSelect(item.id)}
+              >
+                <item.Icon className="h-4 w-4" />
+                {item.label}
+              </button>
+            );
+          })}
+        </div>
       </div>
     </div>
       <SettingsSidebar
@@ -1296,6 +1380,7 @@ type AgentChatSidebarProps = {
   prefillValue?: string | null;
   onPrefillUsed?: () => void;
   onApplyStarter?: (text: string) => void;
+  isMobileView: boolean;
 };
 
 function AgentChatSidebar({
@@ -1326,6 +1411,7 @@ function AgentChatSidebar({
   prefillValue,
   onPrefillUsed,
   onApplyStarter,
+  isMobileView,
 }: AgentChatSidebarProps) {
   const cadenceValue = suggestion?.cadenceSeconds;
   const hasCadenceSuggestion =
@@ -1344,10 +1430,20 @@ function AgentChatSidebar({
     }
     return "Agent suggestion";
   })();
+  const composerWrapperClass = cn(
+    "agent-chat-composer-wrapper border-t border-border/60 space-y-3",
+    isMobileView ? "sticky left-0 right-0 z-20 bg-[#050505]/95 px-4 pt-3" : "px-2 pt-2"
+  );
+  const composerStickyStyle = isMobileView
+    ? { bottom: `calc(4rem + env(safe-area-inset-bottom, 0px))`, paddingBottom: "1rem" }
+    : undefined;
   const suggestionRef = useRef<HTMLDivElement | null>(null);
   const [suggestionHeight, setSuggestionHeight] = useState(0);
   const baseScrollBottom = 96;
   const scrollTipBottom = baseScrollBottom + (suggestion ? suggestionHeight : 0);
+  const scrollTipBottomPosition = isMobileView
+    ? `calc(${scrollTipBottom}px + 4rem + env(safe-area-inset-bottom,0px))`
+    : `calc(${scrollTipBottom}px + env(safe-area-inset-bottom,0px))`;
 
   useEffect(() => {
     const node = suggestionRef.current;
@@ -1374,14 +1470,15 @@ function AgentChatSidebar({
     "What would invalidate this bias today?",
     "Tighten alerts around key levels and volatility.",
   ];
+  const sidebarShellClass = cn(
+    "flex-shrink-0 min-h-0 overflow-hidden transition-[width] duration-300",
+    open
+      ? "fixed inset-0 z-40 h-full w-full md:relative md:z-auto md:h-full md:w-[440px] md:max-w-[440px]"
+      : "hidden md:block md:w-0"
+  );
+
   return (
-    <div
-      className={cn(
-        "relative flex-shrink-0 h-full min-h-0 overflow-hidden transition-[width] duration-300 max-w-[440px]",
-        open ? "w-[440px]" : "w-0"
-      )}
-      aria-hidden={!open}
-    >
+    <div className={sidebarShellClass} aria-hidden={!open}>
       <div
         className={cn(
           "flex h-full min-h-0 w-full flex-col border-l border-white/10 bg-[#050505] px-0 text-foreground backdrop-blur-xl transition-opacity duration-300",
@@ -1396,7 +1493,7 @@ function AgentChatSidebar({
                 Talk to the agent, refine focus, or request a report.
               </p>
             </div>
-          <Button variant="ghost" size="icon" onClick={onClose}>
+          <Button variant="ghost" size="icon" onClick={onClose} className="hidden md:inline-flex">
             <X className="h-4 w-4" />
           </Button>
         </div>
@@ -1448,12 +1545,12 @@ function AgentChatSidebar({
             <div aria-hidden className="w-full" style={{ height: bottomSpacerPx }} />
             </div>
             {showScrollToBottom && (
-              <div
-                className={`scroll-tip pointer-events-none fixed inset-x-0 z-30 transition-opacity duration-200 ${
-                  showScrollToBottom ? "opacity-100 scroll-tip-visible" : "opacity-0"
-                }`}
-                style={{ bottom: `calc(${scrollTipBottom}px + env(safe-area-inset-bottom,0px))` }}
-              >
+                <div
+                  className={`scroll-tip pointer-events-none fixed inset-x-0 z-30 transition-opacity duration-200 ${
+                    showScrollToBottom ? "opacity-100 scroll-tip-visible" : "opacity-0"
+                  }`}
+                  style={{ bottom: scrollTipBottomPosition }}
+                >
                 <div className="flex w-full justify-center">
                   <Button
                     type="button"
@@ -1468,7 +1565,7 @@ function AgentChatSidebar({
             )}
           </div>
 
-          <div className="border-t border-border/60 px-2 pt-2 agent-chat-composer-wrapper space-y-3">
+          <div className={composerWrapperClass} style={composerStickyStyle}>
             {showStarterPrompts ? (
               <div className="rounded-xl border border-dashed border-border/60 bg-white/[0.02] px-3 py-3">
                 <p className="text-xs text-muted-foreground">
