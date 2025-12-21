@@ -1079,7 +1079,12 @@ export function MarketAgentInstanceView({ instance, events, thesis: _thesis, sta
               {activeWorkspace === "timeline" ? (
                 <div className="flex h-full flex-col gap-4">
                   <div className="flex flex-1 min-h-0 gap-4">
-                    {timelineExpanded ? (
+                    <div
+                      className={cn(
+                        "flex flex-col gap-2 overflow-hidden transition-[max-width,opacity,transform] duration-300 ease-out",
+                        timelineExpanded ? "max-w-[420px] opacity-100 translate-x-0" : "max-w-0 opacity-0 -translate-x-2"
+                      )}
+                    >
                       <div className="w-fit min-w-[280px] max-w-[420px] flex-none flex flex-col gap-2">
                         <div className="flex items-center justify-between gap-2">
                           <div>
@@ -1154,7 +1159,7 @@ export function MarketAgentInstanceView({ instance, events, thesis: _thesis, sta
                           )}
                         </div>
                       </div>
-                    ) : null}
+                    </div>
                     <div className="flex-1 min-h-0 rounded-2xl border border-border/60 bg-background/60 p-4 overflow-y-auto">
                       {selectedEvent ? (
                         <div className="space-y-2">
