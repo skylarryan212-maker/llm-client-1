@@ -17,7 +17,7 @@ import { requireUserIdServer } from "@/lib/supabase/user";
 const MODEL_ID = "gpt-5-nano";
 const CONTEXT_LIMIT_TOKENS = 350_000;
 const BASE_SYSTEM_PROMPT =
-  "You are the Market Agent, here to help the user configure the agent and explain recent report findings. Help with setup choices and answer follow-up questions, without pretending to run the analysis yourself.";
+  "You are the Market Agent. Keep replies short and focused on helping the user configure the agent or understand the latest reports. Only propose watchlist or cadence changes when the user explicitly asks or when the report clearly supports a change.";
 const ALLOWED_CADENCE_SECONDS = [60, 120, 300, 600, 1800, 3600] as const;
 const buildCadenceContext = (cadenceSeconds: number | null) =>
   typeof cadenceSeconds === "number" && Number.isFinite(cadenceSeconds)
@@ -26,11 +26,9 @@ const buildCadenceContext = (cadenceSeconds: number | null) =>
 const buildToolPrompt = (cadenceSeconds: number | null) =>
   [
     BASE_SYSTEM_PROMPT,
-    "Always call suggest_schedule_cadence exactly once per user turn.",
-    "Use cadence_seconds in seconds and choose one of: 60, 120, 300, 600, 1800, 3600.",
-    "If the user does not request a change, keep cadence_seconds equal to the current cadence.",
-    "Do not mention accepting or declining the suggestion; the UI handles acceptance.",
-    "Explain your reasoning in no more than one concise sentence.",
+    "Only propose a new cadence when it meaningfully improves coverage; you do not need to call this tool every turn.",
+    "Use cadence_seconds in seconds and stick to one of: 60, 120, 300, 600, 1800, 3600.",
+    "If a suggestion is made, summarize the rationale in one concise sentence and mention the current cadence.",
     buildCadenceContext(cadenceSeconds),
   ].join(" ");
 const buildChatPrompt = (cadenceSeconds: number | null, hasSuggestion = false) =>
@@ -161,8 +159,7 @@ const SUGGEST_WATCHLIST_TOOL = {
 const buildWatchlistPrompt = (cadenceSeconds: number | null) =>
   [
     BASE_SYSTEM_PROMPT,
-    "Suggest modifications to the watchlist to keep the focus tight. Return the new watchlist symbols and a short reason.",
-    "Keep the watchlist reasoning brief—no more than one sentence.",
+    "Only refresh the watchlist when the user asks or the latest report clearly supports it. Return the new symbols and a concise reason, no more than one sentence.",
     buildCadenceContext(cadenceSeconds),
   ].join(" ");
 
