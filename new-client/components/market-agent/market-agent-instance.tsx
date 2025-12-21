@@ -97,6 +97,7 @@ const formatCadence = (seconds: number) => {
   return parts.length ? parts.join(" ") : `${seconds}s`;
 };
 type AgentChatMessage = MarketAgentChatMessage;
+type BiasTag = "bullish" | "bearish" | "neutral";
 
 export function MarketAgentInstanceView({ instance, events, thesis, state: _state, initialSelectedEventId }: Props) {
   const router = useRouter();
@@ -217,7 +218,7 @@ export function MarketAgentInstanceView({ instance, events, thesis, state: _stat
   };
 
   const formatTimestamp = (iso?: string | null) => {
-    if (!iso) return "—";
+    if (!iso) return "-";
     try {
       return new Intl.DateTimeFormat("en", {
         month: "short",
@@ -229,6 +230,42 @@ export function MarketAgentInstanceView({ instance, events, thesis, state: _stat
       return iso;
     }
   };
+  const formatRelativeTime = (iso?: string | null) => {
+    if (!iso) return "Updated recently";
+    const parsed = new Date(iso);
+    if (Number.isNaN(parsed.getTime())) return "Updated recently";
+    const diffMs = Date.now() - parsed.getTime();
+    const seconds = Math.max(0, Math.round(diffMs / 1000));
+    if (seconds < 45) return "Updated just now";
+    const minutes = Math.round(seconds / 60);
+    if (minutes < 60) return `Updated ${minutes}m ago`;
+    const hours = Math.round(minutes / 60);
+    if (hours < 24) return `Updated ${hours}h ago`;
+    const days = Math.round(hours / 24);
+    if (days < 7) return `Updated ${days}d ago`;
+    const weeks = Math.round(days / 7);
+    if (weeks < 5) return `Updated ${weeks}w ago`;
+    const months = Math.round(days / 30);
+    if (months < 12) return `Updated ${months}mo ago`;
+    const years = Math.round(days / 365);
+    return `Updated ${years}y ago`;
+  };
+
+  const biasTag = (() => {
+    const source = workspaceThesis?.bias?.toLowerCase() ?? "";
+    if (source.includes("bear")) return "bearish" as BiasTag;
+    if (source.includes("bull")) return "bullish" as BiasTag;
+    if (source.includes("neutral") || source.includes("range")) return "neutral" as BiasTag;
+    return "neutral" as BiasTag;
+  })();
+  const biasPillLabel = biasTag.toUpperCase();
+  const biasPillTone =
+    biasTag === "bullish"
+      ? "border-emerald-400/50 bg-emerald-500/15 text-emerald-200"
+      : biasTag === "bearish"
+        ? "border-rose-400/50 bg-rose-500/15 text-rose-200"
+        : "border-amber-300/40 bg-amber-500/10 text-amber-100";
+  const showLive = instance.status === "running";
 
   const handleStatusChange = async (next: "running" | "paused") => {
     try {
@@ -1021,11 +1058,24 @@ export function MarketAgentInstanceView({ instance, events, thesis, state: _stat
               <div className="flex h-full flex-col gap-4">
                 <section className="rounded-2xl border border-border/60 bg-background/70 p-3">
                   <div className="flex items-start justify-between gap-2">
-                    <div className="space-y-1">
-                      <p className="text-xs uppercase tracking-[0.3em] text-white/60">Current thesis</p>
-                      <p className="text-[11px] text-muted-foreground">
-                        {workspaceThesis?.updated_at ? `Last updated ${formatTimestamp(workspaceThesis.updated_at)}` : "Pinned context for this agent"}
-                      </p>
+                    <div className="flex items-start gap-3">
+                      <div className={cn("rounded-full border px-3 py-1 text-[11px] font-semibold tracking-[0.2em]", biasPillTone)}>
+                        {biasPillLabel}
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-xs uppercase tracking-[0.3em] text-white/60">Current thesis</p>
+                        <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+                          <span>
+                            {workspaceThesis?.updated_at ? formatRelativeTime(workspaceThesis.updated_at) : "Pinned context for this agent"}
+                          </span>
+                          {showLive ? (
+                            <span className="inline-flex items-center gap-1 text-emerald-300">
+                              <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+                              Live
+                            </span>
+                          ) : null}
+                        </div>
+                      </div>
                     </div>
                     <div className="flex items-center gap-2">
                       <Button
@@ -1049,33 +1099,33 @@ export function MarketAgentInstanceView({ instance, events, thesis, state: _stat
                     aria-hidden={thesisCollapsed}
                   >
                     {workspaceThesis ? (
-                      <div className="grid gap-3 md:grid-cols-[1.35fr_1fr] text-sm leading-snug">
-                        <div className="space-y-2">
+                      <div className="space-y-3 text-sm leading-snug">
+                        <div className="grid gap-2 md:grid-cols-3">
                           {[
                             { label: "Bias", value: workspaceThesis.bias },
                             { label: "Invalidation", value: workspaceThesis.invalidation },
                             { label: "Next check", value: workspaceThesis.next_check },
                           ].map((item) => (
-                            <div key={item.label} className="flex items-start gap-3">
-                              <span className="w-24 text-[10px] font-semibold uppercase tracking-[0.3em] text-white/50">
+                            <div key={item.label} className="rounded-xl border border-border/50 bg-black/30 px-3 py-2">
+                              <p className="text-[10px] font-semibold uppercase tracking-[0.35em] text-white/50">
                                 {item.label}
-                              </span>
-                              <span className="text-sm text-muted-foreground">{item.value || "None"}</span>
+                              </p>
+                              <p className="mt-1 text-sm text-muted-foreground">{item.value || "None"}</p>
                             </div>
                           ))}
                         </div>
-                        <div className="space-y-2">
-                          <div className="flex items-start gap-3">
-                            <span className="w-24 text-[10px] font-semibold uppercase tracking-[0.3em] text-white/50">
+                        <div className="grid gap-2 md:grid-cols-2">
+                          <div className="rounded-xl border border-border/50 bg-black/30 px-3 py-2">
+                            <p className="text-[10px] font-semibold uppercase tracking-[0.35em] text-white/50">
                               Tickers
-                            </span>
-                            <div className="flex flex-wrap gap-1">
+                            </p>
+                            <div className="mt-2 flex flex-wrap gap-1">
                               {(workspaceThesis.watched ?? []).map((sym) => (
                                 <span
                                   key={sym}
                                   className="rounded-full border border-border/60 px-2 py-0.5 text-[11px] text-white/80"
                                 >
-                                  {sym}
+                                  ${sym}
                                 </span>
                               ))}
                               {!workspaceThesis.watched?.length ? (
@@ -1083,21 +1133,60 @@ export function MarketAgentInstanceView({ instance, events, thesis, state: _stat
                               ) : null}
                             </div>
                           </div>
-                          <div className="flex items-start gap-3">
-                            <span className="w-24 text-[10px] font-semibold uppercase tracking-[0.3em] text-white/50">
+                          <div className="rounded-xl border border-border/50 bg-black/30 px-3 py-2">
+                            <p className="text-[10px] font-semibold uppercase tracking-[0.35em] text-white/50">
                               Levels
-                            </span>
-                            <div className="flex flex-wrap gap-1 text-xs text-muted-foreground">
+                            </p>
+                            <div className="mt-2 space-y-2">
                               {workspaceThesis.key_levels && typeof workspaceThesis.key_levels === "object"
-                                ? Object.entries(workspaceThesis.key_levels as Record<string, any>).map(([ticker, levels]) => (
-                                    <span
-                                      key={ticker}
-                                      className="rounded-full border border-border/40 px-2 py-0.5 text-[11px] text-white/90"
-                                    >
-                                      {ticker} S:{levels?.support ?? "N/A"} R:{levels?.resistance ?? "N/A"}
-                                    </span>
-                                  ))
-                                : <span className="text-xs text-muted-foreground">None</span>}
+                                ? Object.entries(workspaceThesis.key_levels as Record<string, any>).map(([ticker, levels]) => {
+                                    const supportValue = Number(levels?.support);
+                                    const resistanceValue = Number(levels?.resistance);
+                                    const currentValue = Number(levels?.current ?? levels?.price ?? levels?.last);
+                                    const hasRange =
+                                      Number.isFinite(supportValue) &&
+                                      Number.isFinite(resistanceValue) &&
+                                      resistanceValue > supportValue;
+                                    const midValue = hasRange
+                                      ? supportValue + (resistanceValue - supportValue) * 0.5
+                                      : 0;
+                                    const normalized = hasRange
+                                      ? ((Number.isFinite(currentValue) ? currentValue : midValue) - supportValue) /
+                                        (resistanceValue - supportValue)
+                                      : 0.5;
+                                    const clamped = Math.min(1, Math.max(0, normalized));
+                                    return (
+                                      <div key={ticker} className="rounded-lg border border-border/40 px-3 py-2 text-xs">
+                                        <div className="flex items-center justify-between text-[11px] text-white/80">
+                                          <span>{ticker}</span>
+                                          {Number.isFinite(currentValue) ? (
+                                            <span className="text-white/70">Current {currentValue}</span>
+                                          ) : (
+                                            <span className="text-white/50">Midpoint</span>
+                                          )}
+                                        </div>
+                                        {hasRange ? (
+                                          <>
+                                            <div className="mt-2 h-1.5 w-full rounded-full bg-white/10">
+                                              <div className="relative h-full">
+                                                <span
+                                                  className="absolute top-1/2 h-3 w-3 -translate-y-1/2 rounded-full border border-white/60 bg-white/80 shadow"
+                                                  style={{ left: `calc(${clamped * 100}% - 6px)` }}
+                                                />
+                                              </div>
+                                            </div>
+                                            <div className="mt-1 flex items-center justify-between text-[10px] text-white/50">
+                                              <span>S {supportValue}</span>
+                                              <span>R {resistanceValue}</span>
+                                            </div>
+                                          </>
+                                        ) : (
+                                          <p className="mt-1 text-[11px] text-white/50">Support/Resistance unavailable</p>
+                                        )}
+                                      </div>
+                                    );
+                                  })
+                                : <p className="text-xs text-muted-foreground">None</p>}
                             </div>
                           </div>
                         </div>
