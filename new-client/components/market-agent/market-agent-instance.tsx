@@ -252,47 +252,10 @@ export function MarketAgentInstanceView({ instance, events, thesis, state: _stat
     return `Updated ${years}y ago`;
   };
 
-  const biasTag = (() => {
-    const source = workspaceThesis?.bias?.toLowerCase() ?? "";
-    if (source.includes("bear")) return "bearish" as BiasTag;
-    if (source.includes("bull")) return "bullish" as BiasTag;
-    if (source.includes("neutral") || source.includes("range")) return "neutral" as BiasTag;
-    return "neutral" as BiasTag;
-  })();
-  const biasPillLabel = biasTag.toUpperCase();
-  const biasPillTone =
-    biasTag === "bullish"
-      ? "border-emerald-400/50 bg-emerald-500/15 text-emerald-200"
-      : biasTag === "bearish"
-        ? "border-rose-400/50 bg-rose-500/15 text-rose-200"
-        : "border-amber-300/40 bg-amber-500/10 text-amber-100";
-  const showLive = instance.status === "running";
-  const getReportLabel = (index: number) => `Report ${index + 1}`;
-  const latestReport = timelineEvents.length ? timelineEvents[0] : null;
-  const latestReportLabel = latestReport ? getReportLabel(0) : "Report";
-  const latestReportTime = latestReport ? formatTimestamp(latestReport.created_at || latestReport.ts) : "-";
-  const latestReportSummary = latestReport?.summary || "Concise report highlights will appear here.";
-  const latestReportTickers = latestReport?.tickers ?? [];
-  const tickerLevelChips = (() => {
-    const watched = latestReportTickers.length ? latestReportTickers : workspaceThesis?.watched ?? [];
-    const levelMap =
-      workspaceThesis?.key_levels && typeof workspaceThesis.key_levels === "object"
-        ? (workspaceThesis.key_levels as Record<string, any>)
-        : {};
-    const symbols = Array.from(new Set([...watched])).filter(Boolean);
-    return symbols.map((sym) => {
-      const levels = levelMap?.[sym] ?? null;
-      const supportValue = levels?.support;
-      const resistanceValue = levels?.resistance;
-      const hasSupport = typeof supportValue !== "undefined" && supportValue !== null;
-      const hasResistance = typeof resistanceValue !== "undefined" && resistanceValue !== null;
-      return {
-        symbol: sym,
-        support: hasSupport ? supportValue : null,
-        resistance: hasResistance ? resistanceValue : null,
-      };
-    });
-  })();
+  const getReportLabel = (index: number, total: number) => {
+    if (!total || index < 0) return "Report";
+    return `Report ${Math.max(1, total - index)}`;
+  };
   const reportFallbackBodies = [
     "## Market recap\n- Semis led risk-on flows; momentum concentrated in NVDA and QQQ.\n- Breadth remains narrow; avoid over-sizing.\n- Watching macro catalyst for regime confirmation.",
     "## Focus update\n- Buyers defended key support; short-term bias intact.\n- Tighten stops near recent lows.\n- Wait for breakouts before adding risk.",
@@ -1088,115 +1051,6 @@ export function MarketAgentInstanceView({ instance, events, thesis, state: _stat
           <div className="flex flex-1 min-h-0 h-full overflow-hidden gap-0 items-stretch">
             <div className="flex-1 min-h-0 min-w-0 overflow-hidden px-1 sm:px-3 py-3">
               <div className="flex h-full flex-col gap-4">
-                <section className="rounded-2xl border border-border/60 bg-background/70 p-3">
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div className="flex min-w-[240px] items-start gap-3">
-                      <div className={cn("rounded-full border px-3 py-1 text-[11px] font-semibold tracking-[0.2em]", biasPillTone)}>
-                        {biasPillLabel}
-                      </div>
-                      <div className="space-y-1">
-                        <p className="text-xs uppercase tracking-[0.3em] text-white/60">Latest report snapshot</p>
-                        <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
-                          <span>
-                            {workspaceThesis?.updated_at ? formatRelativeTime(workspaceThesis.updated_at) : "Pinned context for this agent"}
-                          </span>
-                          {showLive ? (
-                            <span className="inline-flex items-center gap-1 text-emerald-300">
-                              <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
-                              Live
-                            </span>
-                          ) : null}
-                        </div>
-                      </div>
-                    </div>
-                    <div className="flex flex-1 flex-wrap items-center gap-1 text-[11px] text-white/80">
-                      {tickerLevelChips.length ? (
-                        tickerLevelChips.map((chip) => (
-                          <span
-                            key={chip.symbol}
-                            className="rounded-full border border-border/60 px-2 py-0.5 text-[11px] text-white/80"
-                          >
-                            ${chip.symbol}
-                            {chip.support !== null || chip.resistance !== null ? (
-                              <span className="text-white/50">
-                                {" "}
-                                S:{chip.support ?? "--"} R:{chip.resistance ?? "--"}
-                              </span>
-                            ) : null}
-                          </span>
-                        ))
-                      ) : (
-                        <span className="text-xs text-muted-foreground">No tickers yet</span>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="text-xs gap-1"
-                        onClick={() => setThesisCollapsed((prev) => !prev)}
-                      >
-                        {thesisCollapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-                        {thesisCollapsed ? "Expand" : "Collapse"}
-                      </Button>
-                    </div>
-                  </div>
-                  <div
-                    ref={thesisContentRef}
-                    className="mt-2 overflow-hidden transition-[max-height,opacity] duration-300 ease-out"
-                    style={{
-                      maxHeight: thesisCollapsed ? 0 : thesisContentHeight ? `${thesisContentHeight}px` : "999px",
-                      opacity: thesisCollapsed ? 0 : 1,
-                    }}
-                    aria-hidden={thesisCollapsed}
-                  >
-                    {workspaceThesis ? (
-                      <div className="space-y-3 text-sm leading-snug">
-                        <div className="grid gap-2 md:grid-cols-3">
-                          <div className="rounded-xl border border-border/50 bg-black/30 px-3 py-2">
-                            <p className="text-[10px] font-semibold uppercase tracking-[0.35em] text-white/50">
-                              Latest report
-                            </p>
-                            <p className="mt-1 text-sm font-semibold text-white">{latestReportLabel}</p>
-                            <p className="text-[11px] text-muted-foreground">{latestReportTime}</p>
-                          </div>
-                          <div className="rounded-xl border border-border/50 bg-black/30 px-3 py-2">
-                            <p className="text-[10px] font-semibold uppercase tracking-[0.35em] text-white/50">
-                              Key takeaway
-                            </p>
-                            <p className="mt-1 text-sm text-muted-foreground line-clamp-3">
-                              {latestReportSummary}
-                            </p>
-                          </div>
-                          <div className="rounded-xl border border-border/50 bg-black/30 px-3 py-2">
-                            <p className="text-[10px] font-semibold uppercase tracking-[0.35em] text-white/50">
-                              Focus tickers
-                            </p>
-                            <div className="mt-2 flex flex-wrap gap-1">
-                              {latestReportTickers.length ? (
-                                latestReportTickers.map((sym) => (
-                                  <span
-                                    key={sym}
-                                    className="rounded-full border border-border/60 px-2 py-0.5 text-[11px] text-white/80"
-                                  >
-                                    ${sym}
-                                  </span>
-                                ))
-                              ) : (
-                                <span className="text-xs text-muted-foreground">None</span>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="rounded-xl border border-dashed border-border/60 bg-black/30 p-3 text-sm text-muted-foreground">
-                        No thesis yet. Use the dev button below to generate demo data or update the thesis from the agent.
-                      </div>
-                    )}
-                  </div>
-                </section>
-
                 <div className="flex flex-1 min-h-0 gap-4">
                   <div className="w-[44%] min-w-[280px] flex flex-col gap-2">
                     <div className="flex items-center justify-between">
@@ -1228,7 +1082,7 @@ export function MarketAgentInstanceView({ instance, events, thesis, state: _stat
                       ) : (
                         timelineEvents.map((evt, index) => {
                           const isActive = evt.id === selectedEventId;
-                          const reportLabel = getReportLabel(index);
+                          const reportLabel = getReportLabel(index, timelineEvents.length);
                           return (
                             <button
                               key={evt.id}
@@ -1281,7 +1135,7 @@ export function MarketAgentInstanceView({ instance, events, thesis, state: _stat
                           <div className="space-y-1">
                             <p className="text-xs uppercase tracking-[0.3em] text-white/60">Report</p>
                             <p className="text-xl font-semibold text-white">
-                              {selectedEventIndex >= 0 ? getReportLabel(selectedEventIndex) : "Report"}
+                              {selectedEventIndex >= 0 ? getReportLabel(selectedEventIndex, timelineEvents.length) : "Report"}
                             </p>
                             <p className="text-sm text-muted-foreground">
                               {formatTimestamp(selectedEvent.created_at || selectedEvent.ts)}
