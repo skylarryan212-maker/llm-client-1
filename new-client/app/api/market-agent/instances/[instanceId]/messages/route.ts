@@ -25,16 +25,9 @@ const buildCadenceContext = (cadenceSeconds: number | null) =>
     ? `Current cadence: ${cadenceSeconds} seconds.`
     : "Current cadence: unknown.";
 const TOOL_USAGE_INSTRUCTIONS = [
-  "When a cadence or watchlist change is requested or implied by the latest report, call the appropriate tool before replying.",
-  "After calling the tool, include a one-sentence summary that mentions the current cadence and the rationale.",
-  "Stay within the allowed cadence set and keep responses tight.",
-  "Examples:",
-  "User: set cadence to 1m",
-  "Assistant: (calls suggest_schedule_cadence with cadence_seconds=60, reason=\"Faster intraday checks as requested.\") then replies with a short summary mentioning current cadence and the 60s proposal.",
-  "User: add AAPL, MSFT, NVDA to my watchlist",
-  "Assistant: (calls suggest_watchlist_change with watchlist=[AAPL, MSFT, NVDA], reason=\"User requested these tickers.\") then replies with a short summary.",
-  "User: add QQQ and set cadence to 1m",
-  "Assistant: (calls suggest_watchlist_and_cadence with watchlist=[QQQ] and cadence_seconds=60, giving reasons for both) before replying with a short note describing the combined change.",
+  "Use the cadence and watchlist tools whenever the user asks for or implies a relevant change.",
+  "Let your response before/after the tool call flow naturally; you do not need to explain tool mechanics or repeat the schema.",
+  "When proposing both cadence and watchlist adjustments together, a single combined call is fine.",
 ].join(" ");
 const buildChatPrompt = (cadenceSeconds: number | null) =>
   [BASE_SYSTEM_PROMPT, TOOL_USAGE_INSTRUCTIONS, buildCadenceContext(cadenceSeconds)].join(" ");
