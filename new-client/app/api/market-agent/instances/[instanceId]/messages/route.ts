@@ -214,14 +214,14 @@ const buildSuggestionSummary = (
   if (typeof suggestion.cadenceSeconds === "number" && Number.isFinite(suggestion.cadenceSeconds)) {
     const cadenceLabel = formatCadenceLabel(suggestion.cadenceSeconds);
     const cadenceReason = suggestion.cadenceReason?.trim();
-    pieces.push(cadenceReason ? `Proposed ${cadenceLabel} cadence: ${cadenceReason}.` : `Proposed ${cadenceLabel} cadence.`);
+    const cadenceSentence = cadenceReason ?? `Switching cadence to ${cadenceLabel} as requested.`;
+    pieces.push(cadenceSentence);
   }
   if (suggestion.watchlistSymbols?.length) {
     const watchlistLabel = suggestion.watchlistSymbols.join(", ");
     const watchlistReason = suggestion.watchlistReason?.trim();
-    pieces.push(
-      watchlistReason ? `Watchlist update (${watchlistLabel}): ${watchlistReason}.` : `Watchlist update (${watchlistLabel}).`
-    );
+    const watchlistSentence = watchlistReason ?? `Tracking ${watchlistLabel} as requested.`;
+    pieces.push(watchlistSentence);
   }
   if (!pieces.length) return null;
   const cadenceContext =
