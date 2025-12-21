@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
+import type { Tool, FunctionTool } from "openai/resources/responses/responses";
 
 import { calculateCost } from "@/lib/pricing";
 import { estimateTokens } from "@/lib/tokens/estimateTokens";
@@ -25,7 +26,7 @@ const buildCadenceContext = (cadenceSeconds: number | null) =>
     : "Current cadence: unknown.";
 const TOOL_USAGE_INSTRUCTIONS = [
   "When the user asks to adjust cadence or watchlist, call the matching function tool (suggest_schedule_cadence or suggest_watchlist_change) instead of claiming the change was applied.",
-  "Always include a short natural-language summary alongside any tool call; mention the current cadence and keep it to 1–2 sentences.",
+  "Always include a short natural-language summary alongside any tool call; mention the current cadence and keep it to 1-2 sentences.",
   "Stay within the allowed cadence set and keep responses tight.",
 ].join(" ");
 const buildChatPrompt = (cadenceSeconds: number | null) =>
@@ -85,7 +86,7 @@ const buildSuggestionOutcomeMessage = (outcome?: SuggestionOutcomePayload) => {
   const reasonText = reason?.trim() ? ` Reason: ${reason.trim()}.` : "";
   return `${base} ${statements.join(" ")}${reasonText}`;
 };
-const SUGGEST_CADENCE_TOOL = {
+const SUGGEST_CADENCE_TOOL: FunctionTool = {
   type: "function" as const,
   name: "suggest_schedule_cadence",
   description:
@@ -109,7 +110,7 @@ const SUGGEST_CADENCE_TOOL = {
   strict: false,
 };
 
-const SUGGEST_WATCHLIST_TOOL = {
+const SUGGEST_WATCHLIST_TOOL: FunctionTool = {
   type: "function" as const,
   name: "suggest_watchlist_change",
   description:
@@ -136,6 +137,12 @@ const SUGGEST_WATCHLIST_TOOL = {
   },
   strict: false,
 };
+
+const WEB_SEARCH_TOOL: Tool = { type: "web_search_preview" };
+const RESPONSE_TOOLS: Tool[] = [SUGGEST_CADENCE_TOOL, SUGGEST_WATCHLIST_TOOL, WEB_SEARCH_TOOL];
+const TOOL_NAMES = RESPONSE_TOOLS.map((tool) =>
+  tool.type === "function" ? (tool as FunctionTool).name : tool.type
+);
 
 type CombinedSuggestionPayload = {
   suggestionId: string;
@@ -440,20 +447,18 @@ export async function POST(
         };
 
         try {
-          const tools = [SUGGEST_CADENCE_TOOL, SUGGEST_WATCHLIST_TOOL, { type: "web_search" as const }];
-          const toolNames = tools.map((tool) => (tool as any)?.type === "function" ? (tool as any).name : (tool as any)?.type);
           const stream = await client.responses.create({
             model: MODEL_ID,
             input: chatMessages,
             stream: true,
             store: false,
-            tools,
+            tools: RESPONSE_TOOLS,
             tool_choice: "auto",
             reasoning: { effort: "low" },
           });
           console.log("[market-agent] OpenAI stream started", {
             model: MODEL_ID,
-            tools: toolNames,
+            tools: TOOL_NAMES,
           });
 
           for await (const event of stream as any) {
