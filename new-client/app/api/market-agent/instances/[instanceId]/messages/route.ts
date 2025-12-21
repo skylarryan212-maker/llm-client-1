@@ -28,16 +28,13 @@ const TOOL_USAGE_INSTRUCTIONS = [
   "When a cadence or watchlist change is requested or implied by the latest report, call the appropriate tool before replying.",
   "After calling the tool, include a one-sentence summary that mentions the current cadence and the rationale.",
   "Stay within the allowed cadence set and keep responses tight.",
-  "Only use acknowledge_request when no cadence or watchlist change is needed. Do not use acknowledge_request when the user explicitly requests a cadence or watchlist change.",
   "Examples:",
   "User: set cadence to 1m",
-  "Assistant: (calls suggest_schedule_cadence with cadence_seconds=60, reason=\"Faster intraday checks as requested.\") then replies with a short summary mentioning current cadence and proposed 60s cadence.",
+  "Assistant: (calls suggest_schedule_cadence with cadence_seconds=60, reason=\"Faster intraday checks as requested.\") then replies with a short summary mentioning current cadence and the 60s proposal.",
   "User: add AAPL, MSFT, NVDA to my watchlist",
   "Assistant: (calls suggest_watchlist_change with watchlist=[AAPL, MSFT, NVDA], reason=\"User requested these tickers.\") then replies with a short summary.",
   "User: add QQQ and set cadence to 1m",
-  "Assistant: (calls suggest_watchlist_change with watchlist=[QQQ], reason=\"User requested to track QQQ.\") then calls suggest_schedule_cadence with cadence_seconds=60, reason=\"Set cadence to 1m as requested.\") before replying with one sentence that mentions both updates and the current cadence context.",
-  "User: got it, thanks",
-  "Assistant: (calls acknowledge_request) then replies with a brief acknowledgment.",
+  "Assistant: (calls suggest_watchlist_and_cadence with watchlist=[QQQ] and cadence_seconds=60, giving reasons for both) before replying with a short note describing the combined change.",
 ].join(" ");
 const buildChatPrompt = (cadenceSeconds: number | null) =>
   [BASE_SYSTEM_PROMPT, TOOL_USAGE_INSTRUCTIONS, buildCadenceContext(cadenceSeconds)].join(" ");
@@ -148,20 +145,6 @@ const SUGGEST_WATCHLIST_TOOL: FunctionTool = {
   strict: false,
 };
 
-const NO_OP_TOOL: FunctionTool = {
-  type: "function",
-  name: "acknowledge_request",
-  description:
-    "Use this when no cadence or watchlist change is needed, but a tool call is required before replying. Returns an acknowledgment only.",
-  parameters: {
-    type: "object",
-    properties: {},
-    required: [],
-    additionalProperties: false,
-  },
-  strict: false,
-};
-
 const SUGGEST_BOTH_TOOL: FunctionTool = {
   type: "function",
   name: "suggest_watchlist_and_cadence",
@@ -203,7 +186,6 @@ const RESPONSE_TOOLS: Tool[] = [
   SUGGEST_CADENCE_TOOL,
   SUGGEST_WATCHLIST_TOOL,
   SUGGEST_BOTH_TOOL,
-  NO_OP_TOOL,
   WEB_SEARCH_TOOL,
 ];
 const TOOL_NAMES = RESPONSE_TOOLS.map((tool) =>
@@ -520,7 +502,6 @@ export async function POST(
           }
         };
         let sawFunctionCall = false;
-        let acknowledged = false;
         const registerFunctionCall = (call: any, source: string) => {
           if (!call) return;
           const callId = ensureCallId(call);
@@ -533,9 +514,6 @@ export async function POST(
           }
           argBuffer[callId] = existing;
           sawFunctionCall = true;
-          if (existing.name === NO_OP_TOOL.name) {
-            acknowledged = true;
-          }
           console.log("[market-agent] Tool call event", {
             source,
             callId,
@@ -691,11 +669,7 @@ export async function POST(
         let assistantContent =
           (assistantText ?? "").trim() ? assistantText ?? "" : suggestionSummary;
         if (!assistantContent.trim()) {
-          if (acknowledged) {
-            assistantContent = "Request acknowledged; no cadence or watchlist change needed.";
-          } else {
-            assistantContent = suggestionSummary;
-          }
+          assistantContent = suggestionSummary;
         }
         if (!assistantContent.trim()) {
           assistantContent = "I'm here. Ask me about the markets.";
