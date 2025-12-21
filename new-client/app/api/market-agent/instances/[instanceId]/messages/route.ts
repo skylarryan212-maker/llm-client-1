@@ -544,6 +544,11 @@ export async function POST(
         }
 
         if (combinedSuggestion) {
+          console.log("[market-agent] Tool suggestion generated", {
+            instanceId,
+            conversationId: conversation.id,
+            suggestion: combinedSuggestion,
+          });
           enqueue({ suggestion: combinedSuggestion });
         }
 
