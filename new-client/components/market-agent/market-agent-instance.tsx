@@ -266,6 +266,26 @@ export function MarketAgentInstanceView({ instance, events, thesis, state: _stat
         ? "border-rose-400/50 bg-rose-500/15 text-rose-200"
         : "border-amber-300/40 bg-amber-500/10 text-amber-100";
   const showLive = instance.status === "running";
+  const tickerLevelChips = (() => {
+    const watched = workspaceThesis?.watched ?? [];
+    const levelMap =
+      workspaceThesis?.key_levels && typeof workspaceThesis.key_levels === "object"
+        ? (workspaceThesis.key_levels as Record<string, any>)
+        : {};
+    const symbols = Array.from(new Set([...watched, ...Object.keys(levelMap)])).filter(Boolean);
+    return symbols.map((sym) => {
+      const levels = levelMap?.[sym] ?? null;
+      const supportValue = levels?.support;
+      const resistanceValue = levels?.resistance;
+      const hasSupport = typeof supportValue !== "undefined" && supportValue !== null;
+      const hasResistance = typeof resistanceValue !== "undefined" && resistanceValue !== null;
+      return {
+        symbol: sym,
+        support: hasSupport ? supportValue : null,
+        resistance: hasResistance ? resistanceValue : null,
+      };
+    });
+  })();
 
   const handleStatusChange = async (next: "running" | "paused") => {
     try {
@@ -1057,8 +1077,8 @@ export function MarketAgentInstanceView({ instance, events, thesis, state: _stat
             <div className="flex-1 min-h-0 min-w-0 overflow-hidden px-1 sm:px-3 py-3">
               <div className="flex h-full flex-col gap-4">
                 <section className="rounded-2xl border border-border/60 bg-background/70 p-3">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="flex items-start gap-3">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="flex min-w-[240px] items-start gap-3">
                       <div className={cn("rounded-full border px-3 py-1 text-[11px] font-semibold tracking-[0.2em]", biasPillTone)}>
                         {biasPillLabel}
                       </div>
@@ -1076,6 +1096,26 @@ export function MarketAgentInstanceView({ instance, events, thesis, state: _stat
                           ) : null}
                         </div>
                       </div>
+                    </div>
+                    <div className="flex flex-1 flex-wrap items-center gap-1 text-[11px] text-white/80">
+                      {tickerLevelChips.length ? (
+                        tickerLevelChips.map((chip) => (
+                          <span
+                            key={chip.symbol}
+                            className="rounded-full border border-border/60 px-2 py-0.5 text-[11px] text-white/80"
+                          >
+                            ${chip.symbol}
+                            {chip.support !== null || chip.resistance !== null ? (
+                              <span className="text-white/50">
+                                {" "}
+                                S:{chip.support ?? "--"} R:{chip.resistance ?? "--"}
+                              </span>
+                            ) : null}
+                          </span>
+                        ))
+                      ) : (
+                        <span className="text-xs text-muted-foreground">No tickers yet</span>
+                      )}
                     </div>
                     <div className="flex items-center gap-2">
                       <Button
@@ -1113,45 +1153,6 @@ export function MarketAgentInstanceView({ instance, events, thesis, state: _stat
                               <p className="mt-1 text-sm text-muted-foreground">{item.value || "None"}</p>
                             </div>
                           ))}
-                        </div>
-                        <div className="rounded-xl border border-border/50 bg-black/30 px-3 py-2">
-                          <p className="text-[10px] font-semibold uppercase tracking-[0.35em] text-white/50">
-                            Tickers + Levels
-                          </p>
-                          <div className="mt-2 flex flex-wrap gap-1">
-                            {(() => {
-                              const watched = workspaceThesis.watched ?? [];
-                              const levelMap =
-                                workspaceThesis.key_levels && typeof workspaceThesis.key_levels === "object"
-                                  ? (workspaceThesis.key_levels as Record<string, any>)
-                                  : {};
-                              const symbols = Array.from(new Set([...watched, ...Object.keys(levelMap)])).filter(Boolean);
-                              if (!symbols.length) {
-                                return <span className="text-xs text-muted-foreground">None</span>;
-                              }
-                              return symbols.map((sym) => {
-                                const levels = levelMap?.[sym] ?? null;
-                                const supportValue = levels?.support;
-                                const resistanceValue = levels?.resistance;
-                                const hasSupport = typeof supportValue !== "undefined" && supportValue !== null;
-                                const hasResistance = typeof resistanceValue !== "undefined" && resistanceValue !== null;
-                                return (
-                                  <span
-                                    key={sym}
-                                    className="rounded-full border border-border/60 px-2 py-0.5 text-[11px] text-white/80"
-                                  >
-                                    ${sym}
-                                    {hasSupport || hasResistance ? (
-                                      <span className="text-white/50">
-                                        {" "}
-                                        S:{hasSupport ? supportValue : "—"} R:{hasResistance ? resistanceValue : "—"}
-                                      </span>
-                                    ) : null}
-                                  </span>
-                                );
-                              });
-                            })()}
-                          </div>
                         </div>
                       </div>
                     ) : (
