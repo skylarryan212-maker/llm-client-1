@@ -162,10 +162,47 @@ const NO_OP_TOOL: FunctionTool = {
   strict: false,
 };
 
+const SUGGEST_BOTH_TOOL: FunctionTool = {
+  type: "function",
+  name: "suggest_watchlist_and_cadence",
+  description:
+    "Recommend both a watchlist adjustment and a cadence update in one unified suggestion.",
+  parameters: {
+    type: "object",
+    properties: {
+      watchlist: {
+        type: "array",
+        description: "Symbols to track (uppercase).",
+        items: {
+          type: "string",
+          pattern: "^[A-Z0-9]{1,6}$",
+        },
+        minItems: 1,
+      },
+      watchlist_reason: {
+        type: ["string", "null"],
+        description: "Why these symbols should be tracked.",
+      },
+      cadence_seconds: {
+        type: "number",
+        enum: ALLOWED_CADENCE_SECONDS,
+        description: "Desired cadence between reports.",
+      },
+      cadence_reason: {
+        type: ["string", "null"],
+        description: "Why this cadence makes sense.",
+      },
+    },
+    additionalProperties: false,
+  },
+  strict: false,
+};
+
 const WEB_SEARCH_TOOL: Tool = { type: "web_search_preview" };
 const RESPONSE_TOOLS: Tool[] = [
   SUGGEST_CADENCE_TOOL,
   SUGGEST_WATCHLIST_TOOL,
+  SUGGEST_BOTH_TOOL,
   NO_OP_TOOL,
   WEB_SEARCH_TOOL,
 ];
@@ -404,6 +441,28 @@ export async function POST(
             return null;
           }
         };
+        const parseCombinedSuggestion = (argsRaw: string) => {
+          try {
+            const parsed = JSON.parse(argsRaw);
+            const symbols =
+              Array.isArray(parsed.watchlist) && parsed.watchlist.every((sym: unknown) => typeof sym === "string")
+                ? parsed.watchlist.map((sym: string) => sym.trim().toUpperCase()).filter(Boolean)
+                : null;
+            const watchlistReason = typeof parsed.watchlist_reason === "string" ? parsed.watchlist_reason.trim() : undefined;
+            const cadenceSeconds =
+              typeof parsed.cadence_seconds === "number" ? parsed.cadence_seconds : null;
+            const cadenceReason = typeof parsed.cadence_reason === "string" ? parsed.cadence_reason.trim() : undefined;
+            if ((!symbols || !symbols.length) && cadenceSeconds === null) return null;
+            return {
+              watchlist: symbols,
+              watchlistReason,
+              cadenceSeconds: cadenceSeconds ?? undefined,
+              cadenceReason,
+            };
+          } catch {
+            return null;
+          }
+        };
 
         const ensureCallId = (call: any) => {
           if (call?.call_id && typeof call.call_id === "string" && call.call_id.trim()) {
@@ -446,6 +505,16 @@ export async function POST(
               captureSuggestion({
                 watchlistSymbols: suggestion.watchlist,
                 watchlistReason: suggestion.reason,
+              });
+            }
+          } else if (buf.name === SUGGEST_BOTH_TOOL.name) {
+            const suggestion = parseCombinedSuggestion(buf.args);
+            if (suggestion) {
+              captureSuggestion({
+                cadenceSeconds: suggestion.cadenceSeconds,
+                cadenceReason: suggestion.cadenceReason,
+                watchlistSymbols: suggestion.watchlist,
+                watchlistReason: suggestion.watchlistReason,
               });
             }
           }
