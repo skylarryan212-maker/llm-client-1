@@ -130,3 +130,12 @@ export function calculateGeminiImageCost(model: string, inputTokens: number, ima
   const outputCost = Math.max(0, imageCount) * pricing.outputPerImage;
   return inputCost + outputCost;
 }
+
+// Embedding pricing (OpenAI text-embedding-3-small as of December 2025).
+// $0.02 / 1M tokens for batch embedding calls.
+export const EMBEDDING_COST_PER_1M_TOKENS = 0.02;
+
+export function calculateEmbeddingCost(tokens: number): number {
+  if (!tokens || tokens <= 0) return 0;
+  return (tokens / 1_000_000) * EMBEDDING_COST_PER_1M_TOKENS;
+}

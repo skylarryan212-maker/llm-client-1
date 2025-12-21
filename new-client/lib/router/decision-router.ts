@@ -1,6 +1,7 @@
 import { getModelAndReasoningConfig } from "../modelConfig";
 import type { ReasoningEffort } from "../modelConfig";
 import { callDeepInfraLlama } from "../deepInfraLlama";
+import { computeTopicSemantics } from "../semantic/topicSimilarity";
 
 export type DecisionRouterInput = {
   userMessage: string;
@@ -66,6 +67,31 @@ export async function runDecisionRouter(params: {
         .filter((t) => !!t)
     )
   );
+  const semanticMatches = await computeTopicSemantics(input.userMessage, input.topics);
+  if (semanticMatches && semanticMatches.length) {
+    console.log("[semantic] top topic matches", semanticMatches.slice(0, 4));
+  }
+  const semanticSection =
+    semanticMatches && semanticMatches.length
+      ? semanticMatches
+          .slice(0, 4)
+          .map((match) => {
+            const flag = match.topicId === input.activeTopicId ? " (active topic)" : "";
+            const preview =
+              (match.summary || match.description || "No summary available.")
+                .replace(/\s+/g, " ")
+                .trim()
+                .slice(0, 160);
+            return `- [${match.topicId}]${flag} ${match.label} (score ${match.similarity.toFixed(3)}): ${preview}`;
+          })
+          .join("\n")
+      : "No semantic similarity data available.";
+  const bestNonActiveMatch = semanticMatches?.find((match) => match.topicId !== input.activeTopicId);
+  const bestNonActiveHint = bestNonActiveMatch
+    ? `Closest non-active topic: [${bestNonActiveMatch.topicId}] ${bestNonActiveMatch.label} (score ${bestNonActiveMatch.similarity.toFixed(
+        3
+      )}).`
+    : "No strong non-active topic detected.";
 
   const systemPrompt = `You are a single decision router. All inputs are provided as JSON. You MUST output ONE JSON object with a "labels" field only, matching the schema below. Do not include the input in your response.
 
@@ -91,6 +117,7 @@ Rules:
   * reopen_existing: when the user intent best matches a past topic in the provided topics/artifacts (same subject/entity/task), but the active topic is different or stale. Pick the best-matching previous topic as primaryTopicId.
   * new: when the request starts a new subject/task not covered by the active topic or any prior topic (no strong match).
 - Use topic summaries/labels/descriptions plus artifacts to judge matching intent; prefer reuse when the fit is strong, otherwise start new.
+- Use the "Semantic similarity to prior topics" section (below) to weigh reopen_existing decisions: if a non-active topic shows the strongest similarity to the new message, strongly consider reusing that topic id.
 - secondaryTopicIds: subset of provided topic ids, exclude primary; may be empty.
 - newParentTopicId: null or a provided topic id.
 - Model selection:
@@ -133,6 +160,12 @@ ${JSON.stringify(inputPayload, null, 2)}
 
 Memory summary:
 ${memorySection}
+
+Semantic similarity to prior topics (higher score = stronger match):
+${semanticSection}
+
+Closest non-active topic hint:
+${bestNonActiveHint}
 
 Return only the "labels" object matching the output schema.`;
 
