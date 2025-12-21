@@ -2591,7 +2591,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Prepare both the full six-message history and a user-only subset for the writer router.
-    const writerRecentMessages = (recentMessages || [])
+    const writerRecentMessages: Array<{ role: "user" | "assistant" | "system"; content: string }> = (recentMessages || [])
       .slice(-6)
       .map((m: any) => ({
         role: (m.role as "user" | "assistant" | "system") ?? "user",
