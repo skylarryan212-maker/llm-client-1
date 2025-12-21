@@ -3,7 +3,21 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { MutableRefObject } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { ArrowDown, ArrowLeft, ChevronDown, ChevronRight, MessageCircle, Pause, Play, Settings2, Trash2, X } from "lucide-react";
+import {
+  ArrowDown,
+  ArrowLeft,
+  ChevronDown,
+  ChevronRight,
+  LineChart,
+  List,
+  MessageCircle,
+  Newspaper,
+  Pause,
+  Play,
+  Settings2,
+  Trash2,
+  X,
+} from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -97,9 +111,7 @@ const formatCadence = (seconds: number) => {
   return parts.length ? parts.join(" ") : `${seconds}s`;
 };
 type AgentChatMessage = MarketAgentChatMessage;
-type BiasTag = "bullish" | "bearish" | "neutral";
-
-export function MarketAgentInstanceView({ instance, events, thesis, state: _state, initialSelectedEventId }: Props) {
+export function MarketAgentInstanceView({ instance, events, thesis: _thesis, state: _state, initialSelectedEventId }: Props) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -110,6 +122,8 @@ export function MarketAgentInstanceView({ instance, events, thesis, state: _stat
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [watchlistState, setWatchlistState] = useState(instance.watchlist);
   const [cadenceSecondsState, setCadenceSecondsState] = useState(instance.cadence_seconds);
+  const [activeWorkspace, setActiveWorkspace] = useState<"timeline" | "charts" | "news">("timeline");
+  const [timelineOpen, setTimelineOpen] = useState(true);
   const initialReportDepth = (() => {
     const depth = instance.report_depth ?? "standard";
     return REPORT_DEPTH_OPTIONS.some((option) => option.value === depth) ? (depth as ReportDepth) : "standard";
@@ -130,12 +144,8 @@ export function MarketAgentInstanceView({ instance, events, thesis, state: _stat
   const [suggestionError, setSuggestionError] = useState<string | null>(null);
   const [pendingSuggestionOutcome, setPendingSuggestionOutcome] = useState<SuggestionOutcome | null>(null);
   const [bottomSpacerPx, setBottomSpacerPx] = useState(baseBottomSpacerPx);
-  const [workspaceThesis, setWorkspaceThesis] = useState<MarketAgentThesis | null>(null);
-  const thesisContentRef = useRef<HTMLDivElement | null>(null);
-  const [thesisContentHeight, setThesisContentHeight] = useState(0);
   const [timelineEvents, setTimelineEvents] = useState<MarketAgentFeedEvent[]>(events ?? []);
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
-  const [thesisCollapsed, setThesisCollapsed] = useState(false);
   const [seedLoading, setSeedLoading] = useState(false);
   const chatListRef = useRef<HTMLDivElement | null>(null);
   const [alignTrigger, setAlignTrigger] = useState(0);
@@ -153,6 +163,7 @@ export function MarketAgentInstanceView({ instance, events, thesis, state: _stat
   const streamingResponseIdRef = useRef<string | null>(null);
   const streamingAgentTempIdRef = useRef<string | null>(null);
   void _state;
+  void _thesis;
 
   const tickerHighlights = [
     { symbol: "NVDA", detail: "+2.3% today", value: "$835.50" },
@@ -180,6 +191,7 @@ export function MarketAgentInstanceView({ instance, events, thesis, state: _stat
     selectedEventId && timelineEvents.length
       ? timelineEvents.find((evt) => evt.id === selectedEventId) ?? null
       : null;
+  const timelineExpanded = activeWorkspace === "timeline" && timelineOpen;
   const selectedEventIndex = selectedEventId ? timelineEvents.findIndex((evt) => evt.id === selectedEventId) : -1;
   const timelineEmpty = timelineEvents.length === 0;
   const isDev = process.env.NODE_ENV !== "production";
@@ -204,7 +216,6 @@ export function MarketAgentInstanceView({ instance, events, thesis, state: _stat
       if (!res.ok) {
         throw new Error(payload?.error ?? "Failed to generate demo events");
       }
-      setWorkspaceThesis(payload?.thesis ?? null);
       if (Array.isArray(payload?.events)) {
         setTimelineEvents(payload.events);
         if (payload.events[0]?.id) {
@@ -230,26 +241,6 @@ export function MarketAgentInstanceView({ instance, events, thesis, state: _stat
     } catch {
       return iso;
     }
-  };
-  const formatRelativeTime = (iso?: string | null) => {
-    if (!iso) return "Updated recently";
-    const parsed = new Date(iso);
-    if (Number.isNaN(parsed.getTime())) return "Updated recently";
-    const diffMs = Date.now() - parsed.getTime();
-    const seconds = Math.max(0, Math.round(diffMs / 1000));
-    if (seconds < 45) return "Updated just now";
-    const minutes = Math.round(seconds / 60);
-    if (minutes < 60) return `Updated ${minutes}m ago`;
-    const hours = Math.round(minutes / 60);
-    if (hours < 24) return `Updated ${hours}h ago`;
-    const days = Math.round(hours / 24);
-    if (days < 7) return `Updated ${days}d ago`;
-    const weeks = Math.round(days / 7);
-    if (weeks < 5) return `Updated ${weeks}w ago`;
-    const months = Math.round(days / 30);
-    if (months < 12) return `Updated ${months}mo ago`;
-    const years = Math.round(days / 365);
-    return `Updated ${years}y ago`;
   };
 
   const getReportLabel = (index: number, total: number) => {
@@ -321,20 +312,8 @@ export function MarketAgentInstanceView({ instance, events, thesis, state: _stat
   }, [instance.id]);
 
   useEffect(() => {
-    setWorkspaceThesis(thesis ?? null);
     setTimelineEvents(events ?? []);
-  }, [events, thesis]);
-
-  useEffect(() => {
-    const node = thesisContentRef.current;
-    if (!node) return;
-    const updateHeight = () => setThesisContentHeight(node.scrollHeight);
-    updateHeight();
-    if (typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(updateHeight);
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, [workspaceThesis]);
+  }, [events]);
 
   useEffect(() => {
     if (selectedEventId) return;
@@ -1049,128 +1028,181 @@ export function MarketAgentInstanceView({ instance, events, thesis, state: _stat
           </header>
 
           <div className="flex flex-1 min-h-0 h-full overflow-hidden gap-0 items-stretch">
+            <div className="flex h-full w-[76px] flex-col items-center gap-2 border-r border-white/10 bg-[#050505] px-2 py-3">
+              <button
+                type="button"
+                className={cn(
+                  "relative flex w-full flex-col items-center gap-1 rounded-xl px-2 py-2 text-[11px] font-medium transition",
+                  activeWorkspace === "timeline" ? "bg-white/5 text-white" : "text-white/60 hover:text-white"
+                )}
+                onClick={() => {
+                  setActiveWorkspace("timeline");
+                  setTimelineOpen((prev) => (activeWorkspace === "timeline" ? !prev : true));
+                }}
+              >
+                <List className="h-5 w-5" />
+                <span>Timeline</span>
+                <span className="absolute right-1 top-1 text-white/60">
+                  {timelineExpanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+                </span>
+              </button>
+              <button
+                type="button"
+                className={cn(
+                  "flex w-full flex-col items-center gap-1 rounded-xl px-2 py-2 text-[11px] font-medium transition",
+                  activeWorkspace === "charts" ? "bg-white/5 text-white" : "text-white/60 hover:text-white"
+                )}
+                onClick={() => {
+                  setActiveWorkspace("charts");
+                  setTimelineOpen(false);
+                }}
+              >
+                <LineChart className="h-5 w-5" />
+                <span>Charts</span>
+              </button>
+              <button
+                type="button"
+                className={cn(
+                  "flex w-full flex-col items-center gap-1 rounded-xl px-2 py-2 text-[11px] font-medium transition",
+                  activeWorkspace === "news" ? "bg-white/5 text-white" : "text-white/60 hover:text-white"
+                )}
+                onClick={() => {
+                  setActiveWorkspace("news");
+                  setTimelineOpen(false);
+                }}
+              >
+                <Newspaper className="h-5 w-5" />
+                <span>News</span>
+              </button>
+            </div>
             <div className="flex-1 min-h-0 min-w-0 overflow-hidden px-1 sm:px-3 py-3">
-              <div className="flex h-full flex-col gap-4">
-                <div className="flex flex-1 min-h-0 gap-4">
-                  <div className="w-[44%] min-w-[280px] flex flex-col gap-2">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="text-xs uppercase tracking-[0.3em] text-white/60">Timeline</p>
-                        <p className="text-[11px] text-muted-foreground">Newest first</p>
+              {activeWorkspace === "timeline" ? (
+                <div className="flex h-full flex-col gap-4">
+                  <div className="flex flex-1 min-h-0 gap-4">
+                    {timelineExpanded ? (
+                      <div className="w-[44%] min-w-[280px] flex flex-col gap-2">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-xs uppercase tracking-[0.3em] text-white/60">Timeline</p>
+                            <p className="text-[11px] text-muted-foreground">Newest first</p>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {canSeedDemo ? (
+                              <Button size="sm" variant="outline" onClick={handleGenerateDemoEvents} disabled={seedLoading}>
+                                {seedLoading ? "Generating..." : "Generate demo"}
+                              </Button>
+                            ) : null}
+                            {statusError ? (
+                              <p className="text-[11px] text-rose-300">{statusError}</p>
+                            ) : null}
+                          </div>
+                        </div>
+                        <div className="flex-1 min-h-0 overflow-y-auto space-y-2 pr-1">
+                          {timelineEmpty ? (
+                            <div className="rounded-2xl border border-dashed border-border/60 bg-background/70 p-4 text-sm text-muted-foreground">
+                              <p className="font-semibold text-white">No reports yet. Start the agent to generate your first report.</p>
+                              <ul className="mt-2 list-disc space-y-1 pl-5">
+                                <li>Reports</li>
+                              </ul>
+                            </div>
+                          ) : (
+                            timelineEvents.map((evt, index) => {
+                              const isActive = evt.id === selectedEventId;
+                              const reportLabel = getReportLabel(index, timelineEvents.length);
+                              return (
+                                <button
+                                  key={evt.id}
+                                  type="button"
+                                  className={cn(
+                                    "relative w-full text-left rounded-2xl border px-3 py-2 transition",
+                                    "hover:border-white/25 hover:bg-white/[0.03]",
+                                    isActive
+                                      ? "border-white/35 bg-white/[0.07] shadow-[0_10px_30px_rgba(0,0,0,0.25)]"
+                                      : "border-border/60 bg-black/25"
+                                  )}
+                                  onClick={() => handleSelectEvent(evt.id)}
+                                >
+                                  {isActive ? (
+                                    <span
+                                      aria-hidden
+                                      className="absolute left-0 top-0 h-full w-1 rounded-l-2xl bg-emerald-400/80"
+                                    />
+                                  ) : null}
+                                  <div className="flex items-start justify-between gap-2">
+                                    <div className="space-y-1">
+                                      <p className="text-sm font-semibold text-white">{reportLabel}</p>
+                                      <p className="text-[11px] text-muted-foreground">
+                                        {formatTimestamp(evt.created_at || evt.ts)}
+                                      </p>
+                                    </div>
+                                    {evt.tickers && evt.tickers.length ? (
+                                      <div className="flex flex-wrap items-center gap-1 text-[11px]">
+                                        {evt.tickers.map((ticker) => (
+                                          <span
+                                            key={ticker}
+                                            className="rounded-full border border-border/50 px-2 py-0.5 text-[11px] text-white/80"
+                                          >
+                                            {ticker}
+                                          </span>
+                                        ))}
+                                      </div>
+                                    ) : null}
+                                  </div>
+                                </button>
+                              );
+                            })
+                          )}
+                        </div>
                       </div>
-                      <div className="flex items-center gap-2">
-                        {canSeedDemo ? (
-                          <Button size="sm" variant="outline" onClick={handleGenerateDemoEvents} disabled={seedLoading}>
-                            {seedLoading ? "Generating..." : "Generate demo"}
-                          </Button>
-                        ) : null}
-                        {statusError ? (
-                          <p className="text-[11px] text-rose-300">{statusError}</p>
-                        ) : null}
-                      </div>
-                    </div>
-                    <div className="flex-1 min-h-0 overflow-y-auto space-y-2 pr-1">
-                      {timelineEmpty ? (
-                        <div className="rounded-2xl border border-dashed border-border/60 bg-background/70 p-4 text-sm text-muted-foreground">
-                          <p className="font-semibold text-white">No reports yet. Start the agent to generate your first report.</p>
-                          <ul className="mt-2 list-disc space-y-1 pl-5">
-                            <li>Reports</li>
-                            <li>Alerts</li>
-                            <li>State changes</li>
-                          </ul>
+                    ) : null}
+                    <div className="flex-1 min-h-0 rounded-2xl border border-border/60 bg-background/60 p-4 overflow-y-auto">
+                      {selectedEvent ? (
+                        <div className="space-y-2">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="space-y-1">
+                              <p className="text-xs uppercase tracking-[0.3em] text-white/60">Report</p>
+                              <p className="text-xl font-semibold text-white">
+                                {selectedEventIndex >= 0 ? getReportLabel(selectedEventIndex, timelineEvents.length) : "Report"}
+                              </p>
+                              <p className="text-sm text-muted-foreground">
+                                {formatTimestamp(selectedEvent.created_at || selectedEvent.ts)}
+                              </p>
+                            </div>
+                          </div>
+                          {selectedEvent.tickers && selectedEvent.tickers.length ? (
+                            <div className="flex flex-wrap gap-1">
+                              {selectedEvent.tickers.map((ticker) => (
+                                <span key={ticker} className="rounded-full border border-border/50 px-2 py-0.5 text-[11px] text-white/80">
+                                  {ticker}
+                                </span>
+                              ))}
+                            </div>
+                          ) : null}
+                          <div className="mt-2 rounded-xl border border-border/50 bg-black/20 p-4">
+                            <MarkdownContent
+                              content={
+                                selectedEvent.body_md ||
+                                selectedEvent.summary ||
+                                reportFallbackBodies[
+                                  Math.max(0, selectedEventIndex) % reportFallbackBodies.length
+                                ]
+                              }
+                            />
+                          </div>
                         </div>
                       ) : (
-                        timelineEvents.map((evt, index) => {
-                          const isActive = evt.id === selectedEventId;
-                          const reportLabel = getReportLabel(index, timelineEvents.length);
-                          return (
-                            <button
-                              key={evt.id}
-                              type="button"
-                              className={cn(
-                                "relative w-full text-left rounded-2xl border px-3 py-2 transition",
-                                "hover:border-white/25 hover:bg-white/[0.03]",
-                                isActive
-                                  ? "border-white/35 bg-white/[0.07] shadow-[0_10px_30px_rgba(0,0,0,0.25)]"
-                                  : "border-border/60 bg-black/25"
-                              )}
-                              onClick={() => handleSelectEvent(evt.id)}
-                              >
-                              {isActive ? (
-                                <span
-                                  aria-hidden
-                                  className="absolute left-0 top-0 h-full w-1 rounded-l-2xl bg-emerald-400/80"
-                                />
-                              ) : null}
-                              <div className="flex items-start justify-between gap-2">
-                                <div className="space-y-1">
-                                  <p className="text-sm font-semibold text-white">{reportLabel}</p>
-                                  <p className="text-[11px] text-muted-foreground">
-                                    {formatTimestamp(evt.created_at || evt.ts)}
-                                  </p>
-                                </div>
-                                {evt.tickers && evt.tickers.length ? (
-                                  <div className="flex flex-wrap items-center gap-1 text-[11px]">
-                                    {evt.tickers.map((ticker) => (
-                                      <span
-                                        key={ticker}
-                                        className="rounded-full border border-border/50 px-2 py-0.5 text-[11px] text-white/80"
-                                      >
-                                        {ticker}
-                                      </span>
-                                    ))}
-                                  </div>
-                                ) : null}
-                              </div>
-                            </button>
-                          );
-                        })
+                        <div className="flex h-full items-center justify-center rounded-xl border border-dashed border-border/60 bg-black/20 p-6 text-sm text-muted-foreground">
+                          Select a report to view details.
+                        </div>
                       )}
                     </div>
                   </div>
-                  <div className="flex-1 min-h-0 rounded-2xl border border-border/60 bg-background/60 p-4 overflow-y-auto">
-                    {selectedEvent ? (
-                      <div className="space-y-2">
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="space-y-1">
-                            <p className="text-xs uppercase tracking-[0.3em] text-white/60">Report</p>
-                            <p className="text-xl font-semibold text-white">
-                              {selectedEventIndex >= 0 ? getReportLabel(selectedEventIndex, timelineEvents.length) : "Report"}
-                            </p>
-                            <p className="text-sm text-muted-foreground">
-                              {formatTimestamp(selectedEvent.created_at || selectedEvent.ts)}
-                            </p>
-                          </div>
-                        </div>
-                        {selectedEvent.tickers && selectedEvent.tickers.length ? (
-                          <div className="flex flex-wrap gap-1">
-                            {selectedEvent.tickers.map((ticker) => (
-                              <span key={ticker} className="rounded-full border border-border/50 px-2 py-0.5 text-[11px] text-white/80">
-                                {ticker}
-                              </span>
-                            ))}
-                          </div>
-                        ) : null}
-                        <div className="mt-2 rounded-xl border border-border/50 bg-black/20 p-4">
-                          <MarkdownContent
-                            content={
-                              selectedEvent.body_md ||
-                              selectedEvent.summary ||
-                              reportFallbackBodies[
-                                Math.max(0, selectedEventIndex) % reportFallbackBodies.length
-                              ]
-                            }
-                          />
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="flex h-full items-center justify-center rounded-xl border border-dashed border-border/60 bg-black/20 p-6 text-sm text-muted-foreground">
-                        Select a report to view details.
-                      </div>
-                    )}
-                  </div>
                 </div>
-              </div>
+              ) : (
+                <div className="flex h-full items-center justify-center rounded-2xl border border-dashed border-border/60 bg-black/20 p-6 text-sm text-muted-foreground">
+                  {activeWorkspace === "charts" ? "Charts coming soon." : "News coming soon."}
+                </div>
+              )}
             </div>
             <AgentChatSidebar
               open={isChatOpen}
