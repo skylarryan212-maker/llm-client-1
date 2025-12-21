@@ -180,6 +180,7 @@ export function MarketAgentInstanceView({ instance, events, thesis, state: _stat
     selectedEventId && timelineEvents.length
       ? timelineEvents.find((evt) => evt.id === selectedEventId) ?? null
       : null;
+  const selectedEventIndex = selectedEventId ? timelineEvents.findIndex((evt) => evt.id === selectedEventId) : -1;
   const timelineEmpty = timelineEvents.length === 0;
   const isDev = process.env.NODE_ENV !== "production";
   const canSeedDemo = isDev || plan === "max";
@@ -266,13 +267,19 @@ export function MarketAgentInstanceView({ instance, events, thesis, state: _stat
         ? "border-rose-400/50 bg-rose-500/15 text-rose-200"
         : "border-amber-300/40 bg-amber-500/10 text-amber-100";
   const showLive = instance.status === "running";
+  const getReportLabel = (index: number) => `Report ${index + 1}`;
+  const latestReport = timelineEvents.length ? timelineEvents[0] : null;
+  const latestReportLabel = latestReport ? getReportLabel(0) : "Report";
+  const latestReportTime = latestReport ? formatTimestamp(latestReport.created_at || latestReport.ts) : "-";
+  const latestReportSummary = latestReport?.summary || "Concise report highlights will appear here.";
+  const latestReportTickers = latestReport?.tickers ?? [];
   const tickerLevelChips = (() => {
-    const watched = workspaceThesis?.watched ?? [];
+    const watched = latestReportTickers.length ? latestReportTickers : workspaceThesis?.watched ?? [];
     const levelMap =
       workspaceThesis?.key_levels && typeof workspaceThesis.key_levels === "object"
         ? (workspaceThesis.key_levels as Record<string, any>)
         : {};
-    const symbols = Array.from(new Set([...watched, ...Object.keys(levelMap)])).filter(Boolean);
+    const symbols = Array.from(new Set([...watched])).filter(Boolean);
     return symbols.map((sym) => {
       const levels = levelMap?.[sym] ?? null;
       const supportValue = levels?.support;
@@ -286,6 +293,11 @@ export function MarketAgentInstanceView({ instance, events, thesis, state: _stat
       };
     });
   })();
+  const reportFallbackBodies = [
+    "## Market recap\n- Semis led risk-on flows; momentum concentrated in NVDA and QQQ.\n- Breadth remains narrow; avoid over-sizing.\n- Watching macro catalyst for regime confirmation.",
+    "## Focus update\n- Buyers defended key support; short-term bias intact.\n- Tighten stops near recent lows.\n- Wait for breakouts before adding risk.",
+    "## Risk check\n- Volatility bid into the close; watch for gap risk.\n- Reduce exposure into catalyst windows.\n- Favor liquid tickers for faster exits.",
+  ];
 
   const handleStatusChange = async (next: "running" | "paused") => {
     try {
@@ -1083,7 +1095,7 @@ export function MarketAgentInstanceView({ instance, events, thesis, state: _stat
                         {biasPillLabel}
                       </div>
                       <div className="space-y-1">
-                        <p className="text-xs uppercase tracking-[0.3em] text-white/60">Current thesis</p>
+                        <p className="text-xs uppercase tracking-[0.3em] text-white/60">Latest report snapshot</p>
                         <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
                           <span>
                             {workspaceThesis?.updated_at ? formatRelativeTime(workspaceThesis.updated_at) : "Pinned context for this agent"}
@@ -1141,18 +1153,40 @@ export function MarketAgentInstanceView({ instance, events, thesis, state: _stat
                     {workspaceThesis ? (
                       <div className="space-y-3 text-sm leading-snug">
                         <div className="grid gap-2 md:grid-cols-3">
-                          {[
-                            { label: "Bias", value: workspaceThesis.bias },
-                            { label: "Invalidation", value: workspaceThesis.invalidation },
-                            { label: "Next check", value: workspaceThesis.next_check },
-                          ].map((item) => (
-                            <div key={item.label} className="rounded-xl border border-border/50 bg-black/30 px-3 py-2">
-                              <p className="text-[10px] font-semibold uppercase tracking-[0.35em] text-white/50">
-                                {item.label}
-                              </p>
-                              <p className="mt-1 text-sm text-muted-foreground">{item.value || "None"}</p>
+                          <div className="rounded-xl border border-border/50 bg-black/30 px-3 py-2">
+                            <p className="text-[10px] font-semibold uppercase tracking-[0.35em] text-white/50">
+                              Latest report
+                            </p>
+                            <p className="mt-1 text-sm font-semibold text-white">{latestReportLabel}</p>
+                            <p className="text-[11px] text-muted-foreground">{latestReportTime}</p>
+                          </div>
+                          <div className="rounded-xl border border-border/50 bg-black/30 px-3 py-2">
+                            <p className="text-[10px] font-semibold uppercase tracking-[0.35em] text-white/50">
+                              Key takeaway
+                            </p>
+                            <p className="mt-1 text-sm text-muted-foreground line-clamp-3">
+                              {latestReportSummary}
+                            </p>
+                          </div>
+                          <div className="rounded-xl border border-border/50 bg-black/30 px-3 py-2">
+                            <p className="text-[10px] font-semibold uppercase tracking-[0.35em] text-white/50">
+                              Focus tickers
+                            </p>
+                            <div className="mt-2 flex flex-wrap gap-1">
+                              {latestReportTickers.length ? (
+                                latestReportTickers.map((sym) => (
+                                  <span
+                                    key={sym}
+                                    className="rounded-full border border-border/60 px-2 py-0.5 text-[11px] text-white/80"
+                                  >
+                                    ${sym}
+                                  </span>
+                                ))
+                              ) : (
+                                <span className="text-xs text-muted-foreground">None</span>
+                              )}
                             </div>
-                          ))}
+                          </div>
                         </div>
                       </div>
                     ) : (
@@ -1192,9 +1226,9 @@ export function MarketAgentInstanceView({ instance, events, thesis, state: _stat
                           </ul>
                         </div>
                       ) : (
-                        timelineEvents.map((evt) => {
+                        timelineEvents.map((evt, index) => {
                           const isActive = evt.id === selectedEventId;
-                          const kind = evt.kind || evt.event_type || "report";
+                          const reportLabel = getReportLabel(index);
                           return (
                             <button
                               key={evt.id}
@@ -1215,40 +1249,22 @@ export function MarketAgentInstanceView({ instance, events, thesis, state: _stat
                                 />
                               ) : null}
                               <div className="flex items-start justify-between gap-2">
-                                <div className="flex flex-col gap-1">
-                                  <div className="flex items-center gap-2">
-                                    <Badge
-                                      variant="outline"
-                                      className="border px-2 py-0.5 text-[11px] uppercase tracking-wide"
-                                    >
-                                      {kind}
-                                    </Badge>
-                                    <span className="text-[11px] text-muted-foreground">
-                                      {formatTimestamp(evt.created_at || evt.ts)}
-                                    </span>
-                                  </div>
-                                  <p className="text-sm font-semibold text-white line-clamp-1">{evt.title || "Untitled event"}</p>
+                                <div className="space-y-1">
+                                  <p className="text-sm font-semibold text-white">{reportLabel}</p>
+                                  <p className="text-[11px] text-muted-foreground">
+                                    {formatTimestamp(evt.created_at || evt.ts)}
+                                  </p>
                                 </div>
-                                {(evt.tickers && evt.tickers.length) || evt.severity_label ? (
+                                {evt.tickers && evt.tickers.length ? (
                                   <div className="flex flex-wrap items-center gap-1 text-[11px]">
-                                    {evt.tickers &&
-                                      evt.tickers.length &&
-                                      evt.tickers.map((ticker) => (
-                                        <span
-                                          key={ticker}
-                                          className="rounded-full border border-border/50 px-2 py-0.5 text-[11px] text-white/80"
-                                        >
-                                          {ticker}
-                                        </span>
-                                      ))}
-                                    {evt.severity_label ? (
-                                      <Badge
-                                        variant="outline"
-                                        className="border border-amber-400/50 text-[11px] text-amber-200"
+                                    {evt.tickers.map((ticker) => (
+                                      <span
+                                        key={ticker}
+                                        className="rounded-full border border-border/50 px-2 py-0.5 text-[11px] text-white/80"
                                       >
-                                        {evt.severity_label}
-                                      </Badge>
-                                    ) : null}
+                                        {ticker}
+                                      </span>
+                                    ))}
                                   </div>
                                 ) : null}
                               </div>
@@ -1263,15 +1279,14 @@ export function MarketAgentInstanceView({ instance, events, thesis, state: _stat
                       <div className="space-y-2">
                         <div className="flex items-start justify-between gap-3">
                           <div className="space-y-1">
-                            <p className="text-xs uppercase tracking-[0.3em] text-white/60">{selectedEvent.kind || selectedEvent.event_type || "Report"}</p>
-                            <p className="text-xl font-semibold text-white">{selectedEvent.title || selectedEvent.summary || "Report detail"}</p>
-                            <p className="text-sm text-muted-foreground">{formatTimestamp(selectedEvent.created_at || selectedEvent.ts)}</p>
+                            <p className="text-xs uppercase tracking-[0.3em] text-white/60">Report</p>
+                            <p className="text-xl font-semibold text-white">
+                              {selectedEventIndex >= 0 ? getReportLabel(selectedEventIndex) : "Report"}
+                            </p>
+                            <p className="text-sm text-muted-foreground">
+                              {formatTimestamp(selectedEvent.created_at || selectedEvent.ts)}
+                            </p>
                           </div>
-                          {selectedEvent.severity_label ? (
-                            <Badge variant="outline" className="border border-amber-400/50 text-[11px] text-amber-200">
-                              {selectedEvent.severity_label}
-                            </Badge>
-                          ) : null}
                         </div>
                         {selectedEvent.tickers && selectedEvent.tickers.length ? (
                           <div className="flex flex-wrap gap-1">
@@ -1283,7 +1298,15 @@ export function MarketAgentInstanceView({ instance, events, thesis, state: _stat
                           </div>
                         ) : null}
                         <div className="mt-2 rounded-xl border border-border/50 bg-black/20 p-4">
-                          <MarkdownContent content={selectedEvent.body_md || selectedEvent.summary || "No content"} />
+                          <MarkdownContent
+                            content={
+                              selectedEvent.body_md ||
+                              selectedEvent.summary ||
+                              reportFallbackBodies[
+                                Math.max(0, selectedEventIndex) % reportFallbackBodies.length
+                              ]
+                            }
+                          />
                         </div>
                       </div>
                     ) : (

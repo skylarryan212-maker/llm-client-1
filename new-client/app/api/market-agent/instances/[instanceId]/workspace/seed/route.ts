@@ -40,35 +40,35 @@ export async function POST(request: Request, context: { params: Promise<{ instan
   const sampleEvents = [
     {
       kind: "report",
-      title: "Opening prep: semis leading",
-      summary: "Semi strength vs broad tape; watching NVDA/TSM as leaders.",
-      bodyMd: "- NVDA holding >20d EMA; buyers on dips.\n- TSM ADR reclaiming 140; upside room to 150.\n- SPY stuck in range; breadth narrow.",
-      severityLabel: "med",
-      tickers: ["NVDA", "TSM", "SPY"],
+      title: "Report 1",
+      summary: "Semis led early; breadth still narrow. Focus on liquid leaders.",
+      bodyMd:
+        "## Report 1 — Opening tone\n- NVDA and QQQ led risk-on flows; buyers defended dips.\n- Breadth remains narrow; keep sizing tight.\n- Watch 860 on NVDA and 490 on QQQ for confirmation.\n\n**Plan:** stay tactical, add only on confirmed breakouts.",
+      tickers: ["NVDA", "QQQ", "SPY"],
     },
     {
-      kind: "alert",
-      title: "NVDA at resistance",
-      summary: "NVDA approaching 860 resistance; monitor for reversal wicks.",
-      bodyMd: "Intraday push toward 860. Watch for:\n- Rejection w/ >1.5x volume\n- Hold above 845 keeps short-term bullish bias intact.",
-      severityLabel: "high",
-      tickers: ["NVDA"],
+      kind: "report",
+      title: "Report 2",
+      summary: "Midday update: volatility compressed; waiting on catalyst.",
+      bodyMd:
+        "## Report 2 — Midday update\n- Volatility compressed into lunch; tape is coiling.\n- Semis steady, mega-cap bid shallow.\n- Avoid chasing; keep powder for catalyst.\n\n**Watch:** QQQ 485, SPY 513 for range breaks.",
+      tickers: ["QQQ", "SPY", "NVDA"],
     },
     {
-      kind: "state_change",
-      title: "Bias trimmed",
-      summary: "Trimmed risk; awaiting confirmation on breadth.",
-      bodyMd: "Reduced exposure after weak breadth in afternoon. Will re-add if QQQ > 485 with improving A/D.",
-      severityLabel: "low",
-      tickers: ["QQQ", "SPY"],
-    },
-    {
-      kind: "note",
-      title: "Macro watch",
-      summary: "CPI tomorrow; expect higher vol at open.",
-      bodyMd: "- Keep sizing tight pre-print\n- Focus on liquid tickers for quick adjustments",
-      severityLabel: "med",
+      kind: "report",
+      title: "Report 3",
+      summary: "Afternoon check: momentum faded, risk trimmed.",
+      bodyMd:
+        "## Report 3 — Afternoon check\n- Momentum cooled; breadth failed to expand.\n- Trimmed risk and tightened stops.\n- Waiting for confirmation before re-adding.\n\n**Risk:** headline volatility into close.",
       tickers: ["SPY", "QQQ"],
+    },
+    {
+      kind: "report",
+      title: "Report 4",
+      summary: "Close recap: focus remains on leading semis and index levels.",
+      bodyMd:
+        "## Report 4 — Close recap\n- Buyers defended key supports into the close.\n- Semis remain leadership pocket; watch NVDA/QQQ.\n- Plan next session around key levels.\n\n**Next:** reassess at NY open.",
+      tickers: ["NVDA", "QQQ", "SPY"],
     },
   ];
 
@@ -79,7 +79,6 @@ export async function POST(request: Request, context: { params: Promise<{ instan
       title: evt.title,
       summary: evt.summary,
       bodyMd: evt.bodyMd,
-      severityLabel: evt.severityLabel,
       tickers: evt.tickers,
     });
   }
