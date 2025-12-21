@@ -23,16 +23,13 @@ const buildCadenceContext = (cadenceSeconds: number | null) =>
   typeof cadenceSeconds === "number" && Number.isFinite(cadenceSeconds)
     ? `Current cadence: ${cadenceSeconds} seconds.`
     : "Current cadence: unknown.";
-const buildToolPrompt = (cadenceSeconds: number | null) =>
-  [
-    BASE_SYSTEM_PROMPT,
-    "Only propose a new cadence when it meaningfully improves coverage; you do not need to call this tool every turn.",
-    "Use cadence_seconds in seconds and stick to one of: 60, 120, 300, 600, 1800, 3600.",
-    "If a suggestion is made, summarize the rationale in one concise sentence and mention the current cadence.",
-    buildCadenceContext(cadenceSeconds),
-  ].join(" ");
+const TOOL_USAGE_INSTRUCTIONS = [
+  "When the user asks to adjust cadence or watchlist, call the matching function tool (suggest_schedule_cadence or suggest_watchlist_change) instead of claiming the change was applied.",
+  "Always include a short natural-language summary alongside any tool call; mention the current cadence and keep it to 1–2 sentences.",
+  "Stay within the allowed cadence set and keep responses tight.",
+].join(" ");
 const buildChatPrompt = (cadenceSeconds: number | null) =>
-  [BASE_SYSTEM_PROMPT, buildCadenceContext(cadenceSeconds)].join(" ");
+  [BASE_SYSTEM_PROMPT, TOOL_USAGE_INSTRUCTIONS, buildCadenceContext(cadenceSeconds)].join(" ");
 
 type SuggestionOutcomePayload = {
   decision: "accepted" | "declined";
@@ -140,13 +137,6 @@ const SUGGEST_WATCHLIST_TOOL = {
   strict: false,
 };
 
-const buildWatchlistPrompt = (cadenceSeconds: number | null) =>
-  [
-    BASE_SYSTEM_PROMPT,
-    "Only refresh the watchlist when the user asks or the latest report clearly supports it. Return the new symbols and a concise reason, no more than one sentence.",
-    buildCadenceContext(cadenceSeconds),
-  ].join(" ");
-
 type CombinedSuggestionPayload = {
   suggestionId: string;
   cadenceSeconds?: number;
@@ -160,6 +150,31 @@ function extractInstanceId(request: NextRequest, params?: { instanceId?: string 
   const segments = request.nextUrl.pathname.split("/").filter(Boolean);
   return segments[segments.length - 2] || null;
 }
+
+const buildSuggestionSummary = (
+  suggestion: CombinedSuggestionPayload,
+  currentCadenceSeconds: number | null,
+) => {
+  const pieces: string[] = [];
+  if (typeof suggestion.cadenceSeconds === "number" && Number.isFinite(suggestion.cadenceSeconds)) {
+    const cadenceLabel = formatCadenceLabel(suggestion.cadenceSeconds);
+    const cadenceReason = suggestion.cadenceReason?.trim();
+    pieces.push(cadenceReason ? `Proposed ${cadenceLabel} cadence: ${cadenceReason}.` : `Proposed ${cadenceLabel} cadence.`);
+  }
+  if (suggestion.watchlistSymbols?.length) {
+    const watchlistLabel = suggestion.watchlistSymbols.join(", ");
+    const watchlistReason = suggestion.watchlistReason?.trim();
+    pieces.push(
+      watchlistReason ? `Watchlist update (${watchlistLabel}): ${watchlistReason}.` : `Watchlist update (${watchlistLabel}).`
+    );
+  }
+  if (!pieces.length) return null;
+  const cadenceContext =
+    typeof currentCadenceSeconds === "number" && Number.isFinite(currentCadenceSeconds)
+      ? `Current cadence: ${formatCadenceLabel(currentCadenceSeconds)}.`
+      : "";
+  return `${pieces.join(" ")} ${cadenceContext}`.trim();
+};
 
 export async function GET(
   request: NextRequest,
@@ -203,6 +218,14 @@ export async function POST(
     const role = body?.role === "agent" ? "agent" : body?.role === "system" ? "system" : "user";
     const content = (body?.content ?? "").toString();
     const suggestionOutcome = body.suggestionOutcome;
+    const lowerContent = content.toLowerCase();
+    const userRequestedCadenceChange =
+      /\b(cadence|schedule|frequency|interval|refresh|check|checks)\b/.test(lowerContent) ||
+      /\b\d+\s*(s|sec|secs|second|seconds|m|min|mins|minute|minutes|hr|hour|hours)\b/.test(lowerContent);
+    const userRequestedWatchlistChange =
+      /\bwatch ?list\b/.test(lowerContent) ||
+      /\bticker(s)?\b/.test(lowerContent) ||
+      /\bsymbols?\b/.test(lowerContent);
     const userMessage = await insertMarketAgentMessage({ instanceId, role, content });
 
     if (role !== "user") {
@@ -231,8 +254,24 @@ export async function POST(
       ? [{ role: "system" as const, content: suggestionOutcomeMessage }]
       : [];
     const chatPrompt = buildChatPrompt(cadenceSeconds);
+    const toolHints: Array<{ role: "system"; content: string }> = [];
+    if (userRequestedCadenceChange) {
+      toolHints.push({
+        role: "system",
+        content:
+          "The user explicitly requested a cadence change. Call suggest_schedule_cadence with cadence_seconds set to their requested interval and include a concise reason.",
+      });
+    }
+    if (userRequestedWatchlistChange) {
+      toolHints.push({
+        role: "system",
+        content:
+          "The user explicitly requested a watchlist change. Call suggest_watchlist_change with the requested symbols and a brief reason before replying.",
+      });
+    }
     const chatMessages = [
       { role: "system" as const, content: chatPrompt },
+      ...toolHints,
       ...suggestionOutcomeEntries,
       ...historyMessages,
     ];
@@ -401,17 +440,20 @@ export async function POST(
         };
 
         try {
+          const tools = [SUGGEST_CADENCE_TOOL, SUGGEST_WATCHLIST_TOOL, { type: "web_search" as const }];
+          const toolNames = tools.map((tool) => (tool as any)?.type === "function" ? (tool as any).name : (tool as any)?.type);
           const stream = await client.responses.create({
             model: MODEL_ID,
             input: chatMessages,
             stream: true,
             store: false,
-            tools: [SUGGEST_CADENCE_TOOL, SUGGEST_WATCHLIST_TOOL, { type: "web_search" as any }],
+            tools,
+            tool_choice: "auto",
             reasoning: { effort: "low" },
           });
           console.log("[market-agent] OpenAI stream started", {
             model: MODEL_ID,
-            tools: ["web_search"],
+            tools: toolNames,
           });
 
           for await (const event of stream as any) {
@@ -524,7 +566,12 @@ export async function POST(
           enqueue({ suggestion: combinedSuggestion });
         }
 
-        const assistantContent = assistantText || "I'm here. Ask me about the markets.";
+        let assistantContent =
+          assistantText ||
+          (combinedSuggestion ? buildSuggestionSummary(combinedSuggestion, cadenceSeconds) : "");
+        if (!assistantContent) {
+          assistantContent = "I'm here. Ask me about the markets.";
+        }
         const agentMetadata = {
           agent: "market-agent",
           market_agent_instance_id: instanceId,
