@@ -28,11 +28,14 @@ const TOOL_USAGE_INSTRUCTIONS = [
   "When a cadence or watchlist change is requested or implied by the latest report, call the appropriate tool before replying.",
   "After calling the tool, include a one-sentence summary that mentions the current cadence and the rationale.",
   "Stay within the allowed cadence set and keep responses tight.",
+  "Only use acknowledge_request when no cadence or watchlist change is needed. Do not use acknowledge_request when the user explicitly requests a cadence or watchlist change.",
   "Examples:",
   "User: set cadence to 1m",
   "Assistant: (calls suggest_schedule_cadence with cadence_seconds=60, reason=\"Faster intraday checks as requested.\") then replies with a short summary mentioning current cadence and proposed 60s cadence.",
   "User: add AAPL, MSFT, NVDA to my watchlist",
   "Assistant: (calls suggest_watchlist_change with watchlist=[AAPL, MSFT, NVDA], reason=\"User requested these tickers.\") then replies with a short summary.",
+  "User: got it, thanks",
+  "Assistant: (calls acknowledge_request) then replies with a brief acknowledgment.",
 ].join(" ");
 const buildChatPrompt = (cadenceSeconds: number | null) =>
   [BASE_SYSTEM_PROMPT, TOOL_USAGE_INSTRUCTIONS, buildCadenceContext(cadenceSeconds)].join(" ");
@@ -445,6 +448,29 @@ export async function POST(
             }
           }
         };
+        let sawFunctionCall = false;
+        const registerFunctionCall = (call: any, source: string) => {
+          if (!call) return;
+          const callId = ensureCallId(call);
+          const existing = argBuffer[callId] ?? { name: "", args: "" };
+          if (typeof call?.name === "string" && call.name.trim()) {
+            existing.name = call.name;
+          }
+          if (typeof call?.arguments === "string") {
+            existing.args = call.arguments;
+          }
+          argBuffer[callId] = existing;
+          sawFunctionCall = true;
+          console.log("[market-agent] Tool call event", {
+            source,
+            callId,
+            name: existing.name || call?.name || null,
+            argsLength: existing.args.length,
+          });
+          if (existing.name && existing.args) {
+            finalizeFunctionCall(callId);
+          }
+        };
 
         try {
           const stream = await client.responses.create({
@@ -496,17 +522,7 @@ export async function POST(
             }
 
             if (eventType === "response.output_item.added" && (event as any)?.item?.type === "function_call") {
-              const item = (event as any).item;
-              const callId = ensureCallId(item);
-              const existing = argBuffer[callId] ?? { name: item?.name ?? "", args: "" };
-              if (typeof item?.arguments === "string") {
-                existing.args = item.arguments;
-              }
-              existing.name = item?.name ?? existing.name;
-              argBuffer[callId] = existing;
-              if (existing.args) {
-                finalizeFunctionCall(callId);
-              }
+              registerFunctionCall((event as any).item, "output_item.added");
             }
 
             if (eventType === "response.function_call_arguments.delta") {
@@ -515,6 +531,7 @@ export async function POST(
                 const existing = argBuffer[callId] ?? { name: (event as any)?.name ?? "", args: "" };
                 existing.args += String((event as any)?.delta ?? "");
                 argBuffer[callId] = existing;
+                sawFunctionCall = true;
               }
             }
 
@@ -526,8 +543,18 @@ export async function POST(
                   existing.args = (event as any).arguments;
                 }
                 argBuffer[callId] = existing;
+                sawFunctionCall = true;
+                console.log("[market-agent] Tool call arguments done", {
+                  callId,
+                  name: existing.name || null,
+                  argsLength: existing.args.length,
+                });
                 finalizeFunctionCall(callId);
               }
+            }
+
+            if (eventType === "response.output_item.done" && (event as any)?.item?.type === "function_call") {
+              registerFunctionCall((event as any).item, "output_item.done");
             }
 
             if (eventType === "response.completed") {
@@ -565,6 +592,13 @@ export async function POST(
           enqueue({ error: err?.message || "stream_error" });
           close();
           return;
+        }
+
+        if (!sawFunctionCall) {
+          console.warn("[market-agent] No tool calls emitted despite tool_choice=required", {
+            instanceId,
+            responseId,
+          });
         }
 
         if (combinedSuggestion) {
