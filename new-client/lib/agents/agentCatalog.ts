@@ -15,13 +15,13 @@ export type AgentCatalogItem = {
 // "Available" agents should have an `href` that points to an actual route.
 export const AGENT_CATALOG: AgentCatalogItem[] = [
   {
-    id: "codex",
-    slug: "codex",
+    id: "LHSA",
+    slug: "LHSA",
     icon: Code2,
     title: "Long Horizon Software Agent (LHSA)",
     description:
       "Fully autonomous 24-hour engineering cycles. Deploy HOOTL protocols to build complete systems, audit architectures, and verify logic while you sleep with Assurance Level 3 reliability.",
-    href: "/agents/codex",
+    href: "/agents/lhsa",
     gradient: "bg-gradient-to-br from-blue-500 to-purple-600",
   },
   {

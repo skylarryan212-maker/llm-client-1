@@ -23,6 +23,9 @@ export function AgentCard({
   gradient,
   onClick,
 }: AgentCardProps) {
+  const hasAction = Boolean(href || onClick);
+  const buttonLabel = hasAction ? "Open Agent" : "Coming soon";
+
   const handleLinkClick: React.MouseEventHandler<HTMLAnchorElement> = (event) => {
     if (!onClick) return;
     // Let parent code run (routing, etc.) instead of default link navigation
@@ -60,7 +63,7 @@ export function AgentCard({
                 asChild
               >
                 <Link href={href} onClick={handleLinkClick}>
-                  <span>Open Agent</span>
+                  <span>{buttonLabel}</span>
                   <ArrowRight className="h-4 w-4 transition-transform group-hover/btn:translate-x-1" />
                 </Link>
               </Button>
@@ -70,9 +73,12 @@ export function AgentCard({
                 variant="ghost"
                 className="group/btn inline-flex items-center gap-2 px-0 text-primary hover:bg-transparent"
                 onClick={onClick}
+                disabled={!hasAction}
               >
-                <span>Open Agent</span>
-                <ArrowRight className="h-4 w-4 transition-transform group-hover/btn:translate-x-1" />
+                <span>{buttonLabel}</span>
+                {hasAction && (
+                  <ArrowRight className="h-4 w-4 transition-transform group-hover/btn:translate-x-1" />
+                )}
               </Button>
             )}
           </div>

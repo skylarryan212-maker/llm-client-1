@@ -14,11 +14,11 @@ const plans = [
     name: "Plus",
     price: 20,
     description: "Everyday plan with generous limits.",
-    features: [
-      "Core models and Human Writing agent",
-      "Adds Market & Codex agents",
-      "File uploads and image generation with higher allowances",
-    ],
+      features: [
+        "Core models and Human Writing agent",
+        "Adds Market agent",
+        "File uploads and image generation with higher allowances",
+      ],
     recommended: false,
     gradientFrom: "from-purple-400/5",
     gradientTo: "to-fuchsia-700/5",
