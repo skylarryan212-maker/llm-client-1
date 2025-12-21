@@ -214,6 +214,37 @@ const ctaCards = [
   },
 ];
 
+const heroRailCards = [
+  { title: "Autonomy tuned", text: "24h cycles with checkpoints and gates." },
+  { title: "Verified output", text: "Diffs, logs, and guardrails every loop." },
+  { title: "Model orchestration", text: "Routes planning, execution, and QA separately." },
+  { title: "Human control", text: "Escalations, approvals, and pause switches." },
+];
+
+const capabilityTiles = [
+  {
+    title: "Plan with intent",
+    text: "Phased roadmaps, dependencies, and budgets mapped as cards not chat logs.",
+    chips: ["Milestones", "Dependencies", "Cost windows"],
+  },
+  {
+    title: "Execute in place",
+    text: "Edits real files, installs deps, and runs toolchains from your repo.",
+    chips: ["IDE aware", "Toolchain hooks", "Repo diffing"],
+  },
+  {
+    title: "Verify relentlessly",
+    text: "Independent validation per phase with assurance levels and logs.",
+    chips: ["Assurance ladder", "Replayable logs", "Risk-aware"],
+  },
+];
+
+const experienceMoments = [
+  { title: "Ambient glow", text: "Background shifts with scroll for a living canvas." },
+  { title: "Card-first", text: "Every idea lives in a tile—no walls of text." },
+  { title: "Guided reveals", text: "Staggered animations keep the story flowing." },
+];
+
 export default function LhsaPage() {
   useEffect(() => {
     const targets = Array.from(document.querySelectorAll<HTMLElement>("[data-animate]"));
@@ -242,6 +273,28 @@ export default function LhsaPage() {
     targets.forEach((target) => observer.observe(target));
 
     return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    const prefersReducedMotion =
+      typeof window !== "undefined" &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+    if (prefersReducedMotion) return;
+
+    const root = document.documentElement;
+    let rafId = 0;
+
+    const updateShift = () => {
+      const maxScroll = document.body.scrollHeight - window.innerHeight;
+      const ratio = maxScroll > 0 ? Math.min(1, Math.max(0, window.scrollY / maxScroll)) : 0;
+      root.style.setProperty("--lhsa-shift", ratio.toString());
+      rafId = window.requestAnimationFrame(updateShift);
+    };
+
+    rafId = window.requestAnimationFrame(updateShift);
+
+    return () => window.cancelAnimationFrame(rafId);
   }, []);
 
   return (
@@ -287,6 +340,19 @@ export default function LhsaPage() {
                   </div>
                 ))}
               </div>
+              <div className="lhsa-hero-rail" data-animate="slide-right">
+                {heroRailCards.map((card, index) => (
+                  <div
+                    key={card.title}
+                    className="lhsa-hero-card"
+                    style={{ "--delay": `${index * 90}ms` } as CSSProperties}
+                  >
+                    <div className={`${plexMono.className} lhsa-hero-tag`}>Pulse</div>
+                    <div className="lhsa-hero-card-title">{card.title}</div>
+                    <p className="lhsa-body">{card.text}</p>
+                  </div>
+                ))}
+              </div>
             </div>
             <div className="lhsa-hero-panel space-y-4">
               <div className="lhsa-panel" data-animate="fade">
@@ -327,37 +393,39 @@ export default function LhsaPage() {
             <div className="lhsa-section-grid">
               <div className="space-y-4" data-animate="fade">
                 <h2 className="lhsa-title">Why chat-based coding breaks down</h2>
-                <p className="lhsa-body">
-                  Large initiatives require persistent context, reliable execution, and structured
-                  verification. One-off chat prompts cannot maintain that continuity.
-                </p>
-                <div className="lhsa-panel lhsa-panel-compact">
-                  <div className={`${plexMono.className} lhsa-panel-label`}>Impact</div>
-                  <ul className="mt-3 space-y-2">
-                    {impactPoints.map((point) => (
-                      <li key={point} className="lhsa-body">
-                        {point}
-                      </li>
-                    ))}
-                  </ul>
+                <div className="lhsa-pill-row">
+                  <span className="lhsa-pill">Persistent context</span>
+                  <span className="lhsa-pill">Tool-aware</span>
+                  <span className="lhsa-pill">Verified loops</span>
+                </div>
+                <div className="lhsa-mini-grid lhsa-grid-cards">
+                  {impactPoints.map((point, index) => (
+                    <div
+                      key={point}
+                      className="lhsa-peek-card"
+                      data-animate="fade"
+                      style={{ "--delay": `${index * 80}ms` } as CSSProperties}
+                    >
+                      <div className={`${plexMono.className} lhsa-panel-label`}>Impact</div>
+                      <p className="lhsa-body mt-2">{point}</p>
+                    </div>
+                  ))}
                 </div>
               </div>
               <div className="space-y-5">
-                <div className="lhsa-panel" data-animate="fade">
-                  <div className={`${plexMono.className} lhsa-panel-label`}>Failure modes</div>
-                  <ul className="mt-4 space-y-3">
-                    {problemPoints.map((point, index) => (
-                      <li
-                        key={point}
-                        data-animate="fade"
-                        style={{ "--delay": `${index * 120}ms` } as CSSProperties}
-                        className="lhsa-list-item"
-                      >
-                        <span className="lhsa-bullet" />
-                        <span className="lhsa-body">{point}</span>
-                      </li>
-                    ))}
-                  </ul>
+                <div className="lhsa-rail" data-animate="fade">
+                  {problemPoints.map((point, index) => (
+                    <div
+                      key={point}
+                      className="lhsa-peek-card"
+                      style={{ "--delay": `${index * 70}ms` } as CSSProperties}
+                    >
+                      <div className={`${plexMono.className} lhsa-rail-index`}>
+                        {String(index + 1).padStart(2, "0")}
+                      </div>
+                      <p className="lhsa-body mt-2">{point}</p>
+                    </div>
+                  ))}
                 </div>
                 <div className="grid gap-4 sm:grid-cols-2">
                   {failureCards.map((card, index) => (
@@ -365,7 +433,7 @@ export default function LhsaPage() {
                       key={card.title}
                       data-animate="fade"
                       style={{ "--delay": `${index * 110}ms` } as CSSProperties}
-                      className="lhsa-card"
+                      className="lhsa-card lhsa-card-floating"
                     >
                       <div className="text-sm font-semibold text-white">{card.title}</div>
                       <p className="lhsa-body mt-2">{card.description}</p>
@@ -387,6 +455,26 @@ export default function LhsaPage() {
                   plans work, executes in the real repository, and keeps iterating until objectives
                   or limits are reached.
                 </p>
+                <div className="lhsa-mini-grid lhsa-grid-cards">
+                  {capabilityTiles.map((tile, index) => (
+                    <div
+                      key={tile.title}
+                      className="lhsa-peek-card"
+                      data-animate="fade"
+                      style={{ "--delay": `${index * 80}ms` } as CSSProperties}
+                    >
+                      <div className="lhsa-mini-title">{tile.title}</div>
+                      <p className="lhsa-body mt-2">{tile.text}</p>
+                      <div className="lhsa-pill-row mt-3">
+                        {tile.chips.map((chip) => (
+                          <span key={chip} className="lhsa-pill">
+                            {chip}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
                 <div className="lhsa-panel">
                   <div className={`${plexMono.className} lhsa-panel-label`}>Persistent agent loop</div>
                   <p className="lhsa-body mt-3">
@@ -422,6 +510,39 @@ export default function LhsaPage() {
                     </div>
                   ))}
                 </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="mx-auto max-w-6xl px-6 py-16">
+          <div className="lhsa-section lhsa-ribbon">
+            <div className="flex flex-col gap-8 lg:flex-row lg:items-center lg:justify-between">
+              <div className="space-y-4" data-animate="fade">
+                <h2 className="lhsa-title">An experiential scroll</h2>
+                <p className="lhsa-body max-w-2xl">
+                  The page is built around motion and layered cards—background hues shift as you move
+                  down the story, with each panel arriving in sequence.
+                </p>
+                <div className="lhsa-pill-row">
+                  <span className="lhsa-pill">Animated canvas</span>
+                  <span className="lhsa-pill">Card reveals</span>
+                  <span className="lhsa-pill">No wall of text</span>
+                </div>
+              </div>
+              <div className="lhsa-mini-grid lhsa-grid-cards">
+                {experienceMoments.map((moment, index) => (
+                  <div
+                    key={moment.title}
+                    className="lhsa-peek-card lhsa-peek-card-glow"
+                    data-animate="fade"
+                    style={{ "--delay": `${index * 90}ms` } as CSSProperties}
+                  >
+                    <div className={`${plexMono.className} lhsa-panel-label`}>Motion cue</div>
+                    <div className="lhsa-mini-title mt-2">{moment.title}</div>
+                    <p className="lhsa-body mt-2">{moment.text}</p>
+                  </div>
+                ))}
               </div>
             </div>
           </div>
@@ -477,13 +598,13 @@ export default function LhsaPage() {
               </div>
               <div className="lhsa-panel lhsa-panel-compact" data-animate="fade">
                 <div className={`${plexMono.className} lhsa-panel-label`}>Assurance defaults</div>
-                <ul className="mt-3 space-y-2">
+                <div className="lhsa-pill-row lhsa-pill-wrap mt-3">
                   {assuranceNotes.map((note) => (
-                    <li key={note} className="lhsa-body">
+                    <span key={note} className="lhsa-pill lhsa-pill-ghost">
                       {note}
-                    </li>
+                    </span>
                   ))}
-                </ul>
+                </div>
               </div>
             </div>
             <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -537,7 +658,7 @@ export default function LhsaPage() {
                   key={role.title}
                   data-animate="fade"
                   style={{ "--delay": `${index * 120}ms` } as CSSProperties}
-                  className="lhsa-card"
+                  className="lhsa-card lhsa-card-floating"
                 >
                   <h3 className="text-base font-semibold text-white">{role.title}</h3>
                   <p className="lhsa-body mt-3">{role.text}</p>
@@ -588,6 +709,10 @@ export default function LhsaPage() {
       </main>
 
       <style jsx>{`
+        :global(:root) {
+          --lhsa-shift: 0;
+        }
+
         :global(.lhsa-page) {
           background-color: var(--lhsa-bg);
         }
@@ -596,11 +721,42 @@ export default function LhsaPage() {
           position: absolute;
           inset: 0;
           background:
-            radial-gradient(circle at 20% 10%, rgba(14, 165, 168, 0.18), transparent 45%),
-            radial-gradient(circle at 80% 20%, rgba(56, 189, 248, 0.12), transparent 50%),
-            radial-gradient(circle at 60% 70%, rgba(15, 23, 42, 0.4), transparent 60%);
+            radial-gradient(
+              circle at calc(18% + 22% * var(--lhsa-shift)) 12%,
+              rgba(14, 165, 168, 0.18),
+              transparent 45%
+            ),
+            radial-gradient(
+              circle at calc(82% - 18% * var(--lhsa-shift)) 22%,
+              rgba(56, 189, 248, 0.14),
+              transparent 50%
+            ),
+            radial-gradient(
+              circle at calc(55% + 10% * var(--lhsa-shift)) 70%,
+              rgba(15, 23, 42, 0.5),
+              transparent 64%
+            );
+          background-size: 130% 130%;
+          filter: saturate(1.12);
+          transition: background-position 0.35s ease, filter 0.35s ease;
           pointer-events: none;
           z-index: 0;
+          animation: lhsa-bg-pan 24s ease-in-out infinite alternate;
+        }
+
+        .lhsa-bg-layer::after {
+          content: "";
+          position: absolute;
+          inset: 0;
+          background: radial-gradient(
+            circle at 50% 40%,
+            rgba(110, 231, 249, 0.1),
+            transparent 40%
+          );
+          mix-blend-mode: screen;
+          opacity: 0.8;
+          filter: blur(70px);
+          animation: lhsa-orbit 26s ease-in-out infinite alternate;
         }
 
         .lhsa-section {
@@ -701,6 +857,51 @@ export default function LhsaPage() {
           color: rgba(226, 232, 240, 0.9);
         }
 
+        .lhsa-hero-rail {
+          display: grid;
+          gap: 0.85rem;
+          grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        }
+
+        .lhsa-hero-card {
+          position: relative;
+          padding: 1rem 1.1rem;
+          border-radius: 1rem;
+          border: 1px solid rgba(110, 231, 249, 0.3);
+          background: linear-gradient(145deg, rgba(15, 23, 42, 0.7), rgba(6, 10, 15, 0.9));
+          overflow: hidden;
+          box-shadow: 0 14px 40px rgba(6, 10, 15, 0.45);
+        }
+
+        .lhsa-hero-card::after {
+          content: "";
+          position: absolute;
+          inset: 0;
+          background: radial-gradient(circle at 20% 20%, rgba(110, 231, 249, 0.08), transparent 45%);
+          opacity: 0.9;
+          pointer-events: none;
+        }
+
+        .lhsa-hero-tag {
+          display: inline-flex;
+          align-items: center;
+          gap: 0.35rem;
+          padding: 0.25rem 0.55rem;
+          border-radius: 999px;
+          border: 1px solid rgba(110, 231, 249, 0.35);
+          color: rgba(110, 231, 249, 0.9);
+          font-size: 0.65rem;
+          letter-spacing: 0.18em;
+          text-transform: uppercase;
+        }
+
+        .lhsa-hero-card-title {
+          margin-top: 0.5rem;
+          font-weight: 600;
+          color: white;
+          letter-spacing: -0.01em;
+        }
+
         .lhsa-title {
           font-size: clamp(1.5rem, 1.2rem + 1vw, 2.1rem);
           font-weight: 600;
@@ -711,6 +912,34 @@ export default function LhsaPage() {
         .lhsa-body {
           color: var(--lhsa-muted);
           line-height: 1.7;
+        }
+
+        .lhsa-pill-row {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 0.5rem;
+        }
+
+        .lhsa-pill {
+          display: inline-flex;
+          align-items: center;
+          gap: 0.35rem;
+          padding: 0.35rem 0.7rem;
+          border-radius: 999px;
+          border: 1px solid rgba(148, 163, 184, 0.35);
+          background: rgba(15, 23, 42, 0.45);
+          color: rgba(226, 232, 240, 0.85);
+          font-size: 0.8rem;
+        }
+
+        .lhsa-pill-ghost {
+          background: rgba(110, 231, 249, 0.08);
+          border-color: rgba(110, 231, 249, 0.35);
+          color: rgba(226, 232, 240, 0.95);
+        }
+
+        .lhsa-pill-wrap {
+          gap: 0.45rem;
         }
 
         .lhsa-panel {
@@ -750,6 +979,39 @@ export default function LhsaPage() {
           padding: 0.95rem 1rem;
         }
 
+        .lhsa-grid-cards {
+          grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+        }
+
+        .lhsa-peek-card {
+          position: relative;
+          border-radius: 1rem;
+          border: 1px solid rgba(148, 163, 184, 0.22);
+          background: linear-gradient(160deg, rgba(15, 23, 42, 0.55), rgba(7, 11, 16, 0.85));
+          padding: 1.1rem 1.25rem;
+          box-shadow: 0 10px 28px rgba(6, 10, 15, 0.3);
+          overflow: hidden;
+        }
+
+        .lhsa-peek-card::before {
+          content: "";
+          position: absolute;
+          inset: 0;
+          background: linear-gradient(145deg, rgba(110, 231, 249, 0.08), transparent 55%);
+          opacity: 0;
+          transition: opacity 0.35s ease;
+          pointer-events: none;
+        }
+
+        .lhsa-peek-card:hover::before {
+          opacity: 1;
+        }
+
+        .lhsa-peek-card-glow {
+          border-color: rgba(110, 231, 249, 0.35);
+          box-shadow: 0 18px 44px rgba(14, 165, 168, 0.2);
+        }
+
         .lhsa-mini-title {
           font-size: 0.85rem;
           font-weight: 600;
@@ -768,6 +1030,26 @@ export default function LhsaPage() {
             grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
             align-items: start;
           }
+        }
+
+        .lhsa-rail {
+          display: grid;
+          gap: 0.85rem;
+          grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+        }
+
+        .lhsa-rail-index {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          width: 2.2rem;
+          height: 2.2rem;
+          border-radius: 999px;
+          border: 1px solid rgba(110, 231, 249, 0.25);
+          color: rgba(110, 231, 249, 0.85);
+          font-size: 0.8rem;
+          letter-spacing: 0.15em;
+          background: rgba(110, 231, 249, 0.1);
         }
 
         .lhsa-list-item {
@@ -801,6 +1083,22 @@ export default function LhsaPage() {
           border-radius: 1rem;
           position: relative;
           overflow: hidden;
+        }
+
+        .lhsa-card-floating {
+          box-shadow: 0 14px 40px rgba(6, 10, 15, 0.35);
+          transform: translateY(0);
+          transition: transform 0.4s ease, box-shadow 0.4s ease;
+        }
+
+        .lhsa-card-floating:hover {
+          transform: translateY(-6px);
+          box-shadow: 0 18px 50px rgba(14, 165, 168, 0.18);
+        }
+
+        .lhsa-ribbon {
+          border-color: rgba(110, 231, 249, 0.35);
+          background: linear-gradient(145deg, rgba(6, 10, 15, 0.75), rgba(7, 11, 16, 0.9));
         }
 
         .lhsa-flow {
@@ -948,6 +1246,28 @@ export default function LhsaPage() {
           to {
             opacity: 1;
             transform: translateY(0);
+          }
+        }
+
+        @keyframes lhsa-bg-pan {
+          0% {
+            background-size: 130% 130%;
+            filter: saturate(1.04);
+          }
+          100% {
+            background-size: 142% 142%;
+            filter: saturate(1.16);
+          }
+        }
+
+        @keyframes lhsa-orbit {
+          0% {
+            transform: translate3d(-10px, -8px, 0) scale(0.98);
+            opacity: 0.75;
+          }
+          100% {
+            transform: translate3d(10px, 12px, 0) scale(1.06);
+            opacity: 1;
           }
         }
       `}</style>
