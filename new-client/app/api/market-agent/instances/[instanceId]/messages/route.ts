@@ -25,8 +25,8 @@ const buildCadenceContext = (cadenceSeconds: number | null) =>
     ? `Current cadence: ${cadenceSeconds} seconds.`
     : "Current cadence: unknown.";
 const TOOL_USAGE_INSTRUCTIONS = [
-  "When the user asks to adjust cadence or watchlist, call the matching function tool (suggest_schedule_cadence or suggest_watchlist_change) instead of claiming the change was applied.",
-  "Always include a short natural-language summary alongside any tool call; mention the current cadence and keep it to 1-2 sentences.",
+  "When the user asks to apply or change cadence or watchlist, call the matching function tool (suggest_schedule_cadence or suggest_watchlist_change) before you emit any other response text.",
+  "Always include a short natural-language summary after the tool call; mention the current cadence and keep it to 1-2 sentences.",
   "Stay within the allowed cadence set and keep responses tight.",
 ].join(" ");
 const buildChatPrompt = (cadenceSeconds: number | null) =>
