@@ -2590,14 +2590,21 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Prepare both the full six-message history and a user-only subset for the writer router.
+    const writerRecentMessages = (recentMessages || [])
+      .slice(-6)
+      .map((m: any) => ({
+        role: (m.role as "user" | "assistant" | "system") ?? "user",
+        content: m.content ?? "",
+      }));
+    const writerMemoryMessages = writerRecentMessages.filter((m) => m.role === "user");
+
     // Kick off writer router for topic metadata and memory/permanent instructions (do not block OpenAI call)
     const writerPromise = runWriterRouter(
       {
         userMessageText: message,
-        recentMessages: (recentMessages || []).slice(-6).map((m: any) => ({
-          role: (m.role as "user" | "assistant" | "system") ?? "user",
-          content: m.content ?? "",
-        })),
+        recentMessages: writerRecentMessages,
+        memoryRelevantMessages: writerMemoryMessages,
         currentTopic: {
           id: activeTopicId,
           summary: currentTopicMeta?.summary ?? null,
