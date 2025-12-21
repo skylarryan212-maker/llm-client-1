@@ -453,7 +453,7 @@ export async function POST(
             stream: true,
             store: false,
             tools: RESPONSE_TOOLS,
-            tool_choice: "auto",
+            tool_choice: "required",
             reasoning: { effort: "low" },
           });
           console.log("[market-agent] OpenAI stream started", {
