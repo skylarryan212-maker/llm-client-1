@@ -1116,48 +1116,51 @@ export function MarketAgentInstanceView({ instance, events, thesis, state: _stat
                                   : "border-border/60 bg-black/25"
                               )}
                               onClick={() => handleSelectEvent(evt.id)}
-                            >
+                              >
                               {isActive ? (
                                 <span
                                   aria-hidden
                                   className="absolute left-0 top-0 h-full w-1 rounded-l-2xl bg-emerald-400/80"
                                 />
                               ) : null}
-                              <div className="flex items-center justify-between gap-2">
-                                <div className="flex items-center gap-2">
-                                  <Badge
-                                    variant="outline"
-                                    className="border px-2 py-0.5 text-[11px] uppercase tracking-wide"
-                                  >
-                                    {kind}
-                                  </Badge>
-                                  <span className="text-[11px] text-muted-foreground">
-                                    {formatTimestamp(evt.created_at || evt.ts)}
-                                  </span>
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="flex flex-col gap-1">
+                                  <div className="flex items-center gap-2">
+                                    <Badge
+                                      variant="outline"
+                                      className="border px-2 py-0.5 text-[11px] uppercase tracking-wide"
+                                    >
+                                      {kind}
+                                    </Badge>
+                                    <span className="text-[11px] text-muted-foreground">
+                                      {formatTimestamp(evt.created_at || evt.ts)}
+                                    </span>
+                                  </div>
+                                  <p className="text-sm font-semibold text-white line-clamp-1">{evt.title || "Untitled event"}</p>
                                 </div>
-                                {evt.severity_label ? (
-                                  <Badge variant="outline" className="border border-amber-400/50 text-[11px] text-amber-200">
-                                    {evt.severity_label}
-                                  </Badge>
+                                {(evt.tickers && evt.tickers.length) || evt.severity_label ? (
+                                  <div className="flex flex-wrap items-center gap-1 text-[11px]">
+                                    {evt.tickers &&
+                                      evt.tickers.length &&
+                                      evt.tickers.map((ticker) => (
+                                        <span
+                                          key={ticker}
+                                          className="rounded-full border border-border/50 px-2 py-0.5 text-[11px] text-white/80"
+                                        >
+                                          {ticker}
+                                        </span>
+                                      ))}
+                                    {evt.severity_label ? (
+                                      <Badge
+                                        variant="outline"
+                                        className="border border-amber-400/50 text-[11px] text-amber-200"
+                                      >
+                                        {evt.severity_label}
+                                      </Badge>
+                                    ) : null}
+                                  </div>
                                 ) : null}
                               </div>
-                              <p className="mt-1 text-sm font-semibold text-white line-clamp-1">
-                                {evt.title || evt.summary || "Untitled event"}
-                              </p>
-                              {evt.summary ? (
-                                <p className="mt-0.5 text-xs text-muted-foreground line-clamp-2 leading-snug">
-                                  {evt.summary}
-                                </p>
-                              ) : null}
-                              {evt.tickers && evt.tickers.length ? (
-                                <div className="mt-1 flex flex-wrap gap-1">
-                                  {evt.tickers.map((ticker) => (
-                                    <span key={ticker} className="rounded-full border border-border/50 px-2 py-0.5 text-[11px] text-white/80">
-                                      {ticker}
-                                    </span>
-                                  ))}
-                                </div>
-                              ) : null}
                             </button>
                           );
                         })
