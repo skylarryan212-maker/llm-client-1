@@ -116,6 +116,7 @@ export function MarketAgentInstanceView({ instance, events, thesis, state: _stat
   const [reportDepthState, setReportDepthState] = useState<ReportDepth>(initialReportDepth);
   const [isChatOpen, setIsChatOpen] = useState(true);
   const [chatMessages, setChatMessages] = useState<AgentChatMessage[]>([]);
+  const [chatPrefill, setChatPrefill] = useState<string | null>(null);
   const [isSendingChat, setIsSendingChat] = useState(false);
   const [isStreamingAgent, setIsStreamingAgent] = useState(false);
   const [showThinkingIndicator, setShowThinkingIndicator] = useState(false);
@@ -1030,11 +1031,11 @@ export function MarketAgentInstanceView({ instance, events, thesis, state: _stat
                       <div className="mt-3 grid gap-3 md:grid-cols-2">
                         <div className="space-y-2">
                           <p className="text-sm font-semibold text-white">Bias</p>
-                          <p className="text-sm text-muted-foreground">{workspaceThesis.bias || "â€”"}</p>
+                          <p className="text-sm text-muted-foreground">{workspaceThesis.bias || "None"}</p>
                           <p className="text-sm font-semibold text-white">Invalidation</p>
-                          <p className="text-sm text-muted-foreground">{workspaceThesis.invalidation || "â€”"}</p>
+                          <p className="text-sm text-muted-foreground">{workspaceThesis.invalidation || "None"}</p>
                           <p className="text-sm font-semibold text-white">Next check</p>
-                          <p className="text-sm text-muted-foreground">{workspaceThesis.next_check || "â€”"}</p>
+                          <p className="text-sm text-muted-foreground">{workspaceThesis.next_check || "None"}</p>
                         </div>
                         <div className="space-y-2">
                           <p className="text-sm font-semibold text-white">Watched tickers</p>
@@ -1055,7 +1056,7 @@ export function MarketAgentInstanceView({ instance, events, thesis, state: _stat
                                   <div key={ticker} className="rounded-lg border border-border/50 px-2 py-1">
                                     <p className="text-xs text-white/80">{ticker}</p>
                                     <p className="text-xs text-muted-foreground">
-                                      Support: {levels?.support ?? "â€”"} Â· Resistance: {levels?.resistance ?? "â€”"}
+                                      Support: {levels?.support ?? "N/A"} | Resistance: {levels?.resistance ?? "N/A"}
                                     </p>
                                   </div>
                                 ))
@@ -1081,7 +1082,7 @@ export function MarketAgentInstanceView({ instance, events, thesis, state: _stat
                       <div className="flex items-center gap-2">
                         {canSeedDemo ? (
                           <Button size="sm" variant="outline" onClick={handleGenerateDemoEvents} disabled={seedLoading}>
-                            {seedLoading ? "Generatingâ€¦" : "Generate demo"}
+                            {seedLoading ? "Generating..." : "Generate demo"}
                           </Button>
                         ) : null}
                         {statusError ? (
@@ -1108,17 +1109,31 @@ export function MarketAgentInstanceView({ instance, events, thesis, state: _stat
                               key={evt.id}
                               type="button"
                               className={cn(
-                                "w-full text-left rounded-2xl border px-3 py-3 transition hover:border-emerald-400/60 hover:bg-white/[0.04]",
-                                isActive ? "border-emerald-400/70 bg-white/[0.05]" : "border-border/70 bg-black/20"
+                                "relative w-full text-left rounded-2xl border px-3 py-2 transition",
+                                "hover:border-white/25 hover:bg-white/[0.03]",
+                                isActive
+                                  ? "border-white/35 bg-white/[0.07] shadow-[0_10px_30px_rgba(0,0,0,0.25)]"
+                                  : "border-border/60 bg-black/25"
                               )}
                               onClick={() => handleSelectEvent(evt.id)}
                             >
+                              {isActive ? (
+                                <span
+                                  aria-hidden
+                                  className="absolute left-0 top-0 h-full w-1 rounded-l-2xl bg-emerald-400/80"
+                                />
+                              ) : null}
                               <div className="flex items-center justify-between gap-2">
                                 <div className="flex items-center gap-2">
-                                  <Badge variant="outline" className="border px-2 py-0.5 text-[11px] uppercase tracking-wide">
+                                  <Badge
+                                    variant="outline"
+                                    className="border px-2 py-0.5 text-[11px] uppercase tracking-wide"
+                                  >
                                     {kind}
                                   </Badge>
-                                  <span className="text-[11px] text-muted-foreground">{formatTimestamp(evt.created_at || evt.ts)}</span>
+                                  <span className="text-[11px] text-muted-foreground">
+                                    {formatTimestamp(evt.created_at || evt.ts)}
+                                  </span>
                                 </div>
                                 {evt.severity_label ? (
                                   <Badge variant="outline" className="border border-amber-400/50 text-[11px] text-amber-200">
@@ -1126,12 +1141,16 @@ export function MarketAgentInstanceView({ instance, events, thesis, state: _stat
                                   </Badge>
                                 ) : null}
                               </div>
-                              <p className="mt-1 text-sm font-semibold text-white">{evt.title || evt.summary || "Untitled event"}</p>
+                              <p className="mt-1 text-sm font-semibold text-white line-clamp-1">
+                                {evt.title || evt.summary || "Untitled event"}
+                              </p>
                               {evt.summary ? (
-                                <p className="text-xs text-muted-foreground line-clamp-2">{evt.summary}</p>
+                                <p className="mt-0.5 text-xs text-muted-foreground line-clamp-2 leading-snug">
+                                  {evt.summary}
+                                </p>
                               ) : null}
                               {evt.tickers && evt.tickers.length ? (
-                                <div className="mt-2 flex flex-wrap gap-1">
+                                <div className="mt-1 flex flex-wrap gap-1">
                                   {evt.tickers.map((ticker) => (
                                     <span key={ticker} className="rounded-full border border-border/50 px-2 py-0.5 text-[11px] text-white/80">
                                       {ticker}
@@ -1207,6 +1226,9 @@ export function MarketAgentInstanceView({ instance, events, thesis, state: _stat
               onScrollToBottom={handleScrollToBottomClick}
               pinSpacerHeight={pinSpacerHeight}
               bottomSpacerPx={bottomSpacerPx}
+              prefillValue={chatPrefill}
+              onPrefillUsed={() => setChatPrefill(null)}
+              onApplyStarter={(text) => setChatPrefill(text)}
             />
           </div>
       </div>
@@ -1263,6 +1285,9 @@ type AgentChatSidebarProps = {
   onScrollToBottom: () => void;
   pinSpacerHeight: number;
   bottomSpacerPx: number;
+  prefillValue?: string | null;
+  onPrefillUsed?: () => void;
+  onApplyStarter?: (text: string) => void;
 };
 
 function AgentChatSidebar({
@@ -1290,6 +1315,9 @@ function AgentChatSidebar({
   onScrollToBottom,
   pinSpacerHeight,
   bottomSpacerPx,
+  prefillValue,
+  onPrefillUsed,
+  onApplyStarter,
 }: AgentChatSidebarProps) {
   const cadenceValue = suggestion?.cadenceSeconds;
   const hasCadenceSuggestion =
@@ -1332,6 +1360,12 @@ function AgentChatSidebar({
       observer.disconnect();
     };
   }, [suggestion]);
+  const showStarterPrompts = !isLoading && !error && messages.length === 0;
+  const starterPrompts = [
+    "Refine the current thesis for these tickers.",
+    "What would invalidate this bias today?",
+    "Tighten alerts around key levels and volatility.",
+  ];
   return (
     <div
       className={cn(
@@ -1374,7 +1408,9 @@ function AgentChatSidebar({
               ) : error ? (
                 <p className="px-2 text-xs text-rose-300">{error}</p>
               ) : messages.length === 0 ? (
-                <p className="px-2 text-xs text-muted-foreground">No messages yet. Start the conversation below.</p>
+                <p className="px-2 text-xs text-muted-foreground">
+                  Use chat to refine the thesis, adjust alerts, or request a report.
+                </p>
               ) : (
                 messages.map((msg) => {
                   const metadata =
@@ -1425,6 +1461,26 @@ function AgentChatSidebar({
           </div>
 
           <div className="border-t border-border/60 px-2 pt-2 agent-chat-composer-wrapper space-y-3">
+            {showStarterPrompts ? (
+              <div className="rounded-xl border border-dashed border-border/60 bg-white/[0.02] px-3 py-3">
+                <p className="text-xs text-muted-foreground">
+                  Use chat to refine the thesis, adjust alerts, or request a report.
+                </p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {starterPrompts.map((prompt) => (
+                    <Button
+                      key={prompt}
+                      size="sm"
+                      variant="secondary"
+                      className="bg-white/5 text-xs text-white/90 hover:bg-white/10"
+                      onClick={() => onApplyStarter?.(prompt)}
+                    >
+                      {prompt}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
             {error && !isLoading ? (
               <p className="text-xs text-rose-300 mb-1">{error}</p>
             ) : null}
@@ -1495,6 +1551,8 @@ function AgentChatSidebar({
                   border: "1px solid rgba(15, 20, 25, 0.35)",
                   boxShadow: "0 4px 12px rgba(0, 0, 0, 0.25)",
                 }}
+                prefillValue={prefillValue}
+                onPrefillUsed={onPrefillUsed}
               />
             </div>
           </div>
