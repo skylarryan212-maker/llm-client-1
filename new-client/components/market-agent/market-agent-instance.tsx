@@ -574,13 +574,6 @@ export function MarketAgentInstanceView({
     }
     const { scrollTop, clientHeight } = viewport;
     const effectiveBottom = getEffectiveScrollBottom(viewport);
-    const maxScrollTop = Math.max(0, effectiveBottom - clientHeight);
-    if (scrollTop > maxScrollTop) {
-      isProgrammaticScrollRef.current = true;
-      viewport.scrollTop = maxScrollTop;
-      scheduleProgrammaticScrollReset();
-      return;
-    }
     const distanceFromBottom = effectiveBottom - (scrollTop + clientHeight);
     const tolerance = Math.max(16, bottomSpacerPx / 3);
     const atBottom = distanceFromBottom <= tolerance;
