@@ -25,7 +25,7 @@ const DEFAULT_PREFS: PersonalizationPreferences = {
   allowSavingMemory: true,
 };
 
-const DEFAULT_CONTEXT_MODE_GLOBAL: ContextModeGlobal = "advanced";
+const DEFAULT_CONTEXT_MODE_GLOBAL: ContextModeGlobal = "simple";
 
 export async function getPersonalizationPreferences(): Promise<PersonalizationPreferences> {
   const row = await getUserPreferences();

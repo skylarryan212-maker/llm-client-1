@@ -193,12 +193,12 @@ function readAutoStreamPrefs(conversationId: string): AutoStreamPrefs | null {
 }
 
 function loadInitialContextModeGlobal(): "advanced" | "simple" {
-  if (typeof window === "undefined") return "advanced";
+  if (typeof window === "undefined") return "simple";
   try {
     const raw = window.localStorage.getItem("context-mode-global");
-    return raw === "simple" || raw === "advanced" ? raw : "advanced";
+    return raw === "simple" || raw === "advanced" ? raw : "simple";
   } catch {
-    return "advanced";
+    return "simple";
   }
 }
 

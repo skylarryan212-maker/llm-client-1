@@ -8,7 +8,7 @@ ALTER TABLE public.user_preferences
   ADD COLUMN IF NOT EXISTS reference_saved_memories boolean NOT NULL DEFAULT true,
   ADD COLUMN IF NOT EXISTS reference_chat_history boolean NOT NULL DEFAULT true,
   ADD COLUMN IF NOT EXISTS allow_saving_memory boolean NOT NULL DEFAULT true,
-  ADD COLUMN IF NOT EXISTS context_mode_global text NOT NULL DEFAULT 'advanced';
+  ADD COLUMN IF NOT EXISTS context_mode_global text NOT NULL DEFAULT 'simple';
 
 DO $$
 BEGIN
