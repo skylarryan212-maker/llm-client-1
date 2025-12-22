@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { MutableRefObject } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
@@ -28,6 +28,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import type { MarketAgentFeedEvent, MarketAgentInstanceWithWatchlist, MarketAgentChatMessage, MarketAgentThesis } from "@/lib/data/market-agent";
 import type { Database } from "@/lib/supabase/types";
+import { type MarketSuggestionEvent } from "@/types/market-suggestion";
 import { cn } from "@/lib/utils";
 import { MarkdownContent } from "@/components/markdown-content";
 import { useUserPlan } from "@/lib/hooks/use-user-plan";
@@ -40,6 +41,8 @@ type Props = {
   thesis: MarketAgentThesis | null;
   state: MarketAgentStateRow | null;
   initialSelectedEventId?: string | null;
+  initialSuggestionEvents?: MarketSuggestionEvent[];
+  initialSuggestionEventIds?: string[];
 };
 
 type ReportDepth = "short" | "standard" | "deep";
@@ -47,6 +50,7 @@ type WorkspaceView = "timeline" | "charts" | "news" | "report";
 type MobileNavButtonId = WorkspaceView | "chat";
 
 const WATCHLIST_LIMIT = 25;
+const MAX_SUGGESTION_CARDS = 5;
 
 const SCHEDULE_OPTIONS = [
   { label: "1m", value: 60 },
@@ -78,40 +82,27 @@ type ToolStatusEvent = {
   query?: string;
 };
 
-type CombinedSuggestion = {
-  suggestionId?: string;
-  cadenceSeconds?: number;
-  cadenceReason?: string;
-  watchlistSymbols?: string[];
-  watchlistReason?: string;
-};
-
-type SuggestionOutcome = {
-  decision: "accepted" | "declined";
-  cadenceSeconds: number;
-  watchlistSymbols?: string[];
-  reason?: string;
-};
-
-const formatCadence = (seconds: number) => {
+const formatCadenceLabelForHeader = (seconds: number) => {
   if (!Number.isFinite(seconds) || seconds <= 0) {
-    return `${seconds} sec`;
+    return `${seconds}s`;
   }
-  const normalized = Math.round(seconds);
-  const hours = Math.floor(normalized / 3600);
-  const minutes = Math.floor((normalized % 3600) / 60);
-  const secs = normalized % 60;
+  if (seconds === 60) return "1m";
+  if (seconds === 300) return "5m";
+  if (seconds % 60 === 0) {
+    return `${seconds / 60}m`;
+  }
+  return `${seconds}s`;
+};
+
+const getSuggestionHeader = (event: MarketSuggestionEvent) => {
   const parts: string[] = [];
-  if (hours) {
-    parts.push(`${hours}h`);
+  if (event.cadence) {
+    parts.push(`${formatCadenceLabelForHeader(event.cadence.intervalSeconds)} cadence`);
   }
-  if (minutes) {
-    parts.push(`${minutes}m`);
+  if (event.watchlist) {
+    parts.push("+ watchlist update");
   }
-  if (!hours && secs) {
-    parts.push(`${secs}s`);
-  }
-  return parts.length ? parts.join(" ") : `${seconds}s`;
+  return parts.join(" ").trim() || "Suggestion";
 };
 type AgentChatMessage = MarketAgentChatMessage;
 export function MarketAgentInstanceView({ instance, events, thesis: _thesis, state: _state, initialSelectedEventId }: Props) {
@@ -144,10 +135,42 @@ export function MarketAgentInstanceView({ instance, events, thesis: _thesis, sta
   const [chatError, setChatError] = useState<string | null>(null);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const [isAutoScroll, setIsAutoScroll] = useState(true);
-  const [combinedSuggestion, setCombinedSuggestion] = useState<CombinedSuggestion | null>(null);
-  const [suggestionProcessing, setSuggestionProcessing] = useState(false);
+  const [suggestionEvents, setSuggestionEvents] = useState<MarketSuggestionEvent[]>(initialSuggestionEvents ?? []);
+  const [suggestionActionState, setSuggestionActionState] = useState<Record<string, { applying?: boolean; dismissing?: boolean }>>({});
+  const [isRefreshingSuggestions, setIsRefreshingSuggestions] = useState(false);
   const [suggestionError, setSuggestionError] = useState<string | null>(null);
-  const [pendingSuggestionOutcome, setPendingSuggestionOutcome] = useState<SuggestionOutcome | null>(null);
+  const lastEventIdsRef = useRef<string[]>(initialSuggestionEventIds ?? []);
+  const lastEventIdsSetRef = useRef(new Set(initialSuggestionEventIds ?? []));
+  const suggestionCooldownRef = useRef(0);
+  const suggestionRequestInFlightRef = useRef(false);
+  const userTimezone = useMemo(() => {
+    if (typeof Intl === "undefined") return "UTC";
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  }, []);
+  const addEventIdToCache = useCallback((eventId: string) => {
+    if (lastEventIdsSetRef.current.has(eventId)) return;
+    lastEventIdsSetRef.current.add(eventId);
+    lastEventIdsRef.current.push(eventId);
+    if (lastEventIdsRef.current.length > 50) {
+      const removed = lastEventIdsRef.current.shift();
+      if (removed) {
+        lastEventIdsSetRef.current.delete(removed);
+      }
+    }
+  }, []);
+  const appendSuggestionEvents = useCallback(
+    (events: MarketSuggestionEvent[]) => {
+      if (!events.length) return;
+      setSuggestionEvents((prev) => {
+        const unique = events.filter((event) => !lastEventIdsSetRef.current.has(event.eventId));
+        if (!unique.length) return prev;
+        unique.forEach((event) => addEventIdToCache(event.eventId));
+        const next = [...unique, ...prev];
+        return next.slice(0, MAX_SUGGESTION_CARDS);
+      });
+    },
+    [addEventIdToCache]
+  );
   const [bottomSpacerPx, setBottomSpacerPx] = useState(baseBottomSpacerPx);
   const [timelineEvents, setTimelineEvents] = useState<MarketAgentFeedEvent[]>(events ?? []);
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
@@ -355,10 +378,12 @@ export function MarketAgentInstanceView({ instance, events, thesis: _thesis, sta
   }, [pathname, router, searchParamsString, selectedEventId]);
 
   useEffect(() => {
-    setCombinedSuggestion(null);
+    setSuggestionEvents(initialSuggestionEvents ?? []);
+    setSuggestionActionState({});
     setSuggestionError(null);
-    setSuggestionProcessing(false);
-  }, [instance.id]);
+    lastEventIdsRef.current = initialSuggestionEventIds ?? [];
+    lastEventIdsSetRef.current = new Set(initialSuggestionEventIds ?? []);
+  }, [instance.id, initialSuggestionEvents, initialSuggestionEventIds]);
 
   useEffect(() => {
     initialScrollDoneRef.current = false;
@@ -711,6 +736,75 @@ export function MarketAgentInstanceView({ instance, events, thesis: _thesis, sta
     }
   }, []);
 
+  const triggerSuggestionRefresh = useCallback(
+    async (userMessage: string) => {
+      if (!instance.id || suggestionRequestInFlightRef.current) return;
+      const now = Date.now();
+      if (now - suggestionCooldownRef.current < 90_000) return;
+      suggestionRequestInFlightRef.current = true;
+      setIsRefreshingSuggestions(true);
+      setSuggestionError(null);
+      try {
+        const lastEvent = timelineEvents[0];
+        const lastRunAt = lastEvent?.ts ?? lastEvent?.created_at ?? new Date().toISOString();
+        const agentStatePayload = {
+          status: instance.status === "running" ? "running" : "paused",
+          cadenceSeconds: cadenceSecondsState,
+          cadenceMode:
+            (instance.config?.cadence_mode as "market_hours" | "always_on") === "market_hours"
+              ? "market_hours"
+              : "always_on",
+          watchlistTickers: watchlistState,
+          timezone: userTimezone,
+          lastRunAt,
+        };
+        const marketSnapshot = {
+          timestamp: lastRunAt,
+          summary: lastEvent?.summary ?? "",
+          tickers: lastEvent?.tickers ?? [],
+          state: state?.state ?? {},
+        };
+        const payload = {
+          agentInstanceId: instance.id,
+          userMessage,
+          agentState: agentStatePayload,
+          marketSnapshot,
+          lastAnalysisSummary: lastEvent?.summary ?? "",
+          lastUiEventIds: [...lastEventIdsRef.current],
+        };
+        const response = await fetch("/api/agents/market-agent/a2ui-suggestions", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        if (!response.ok) {
+          const errorBody = await response.json().catch(() => null);
+          throw new Error(errorBody?.error ?? "Failed to refresh suggestions");
+        }
+        const data = (await response.json().catch(() => null)) as { events?: MarketSuggestionEvent[] } | null;
+        const events = Array.isArray(data?.events) ? data.events : [];
+        appendSuggestionEvents(events);
+      } catch (error) {
+        setSuggestionError(error instanceof Error ? error.message : "Failed to refresh suggestions");
+      } finally {
+        suggestionRequestInFlightRef.current = false;
+        setIsRefreshingSuggestions(false);
+        suggestionCooldownRef.current = Date.now();
+      }
+    },
+    [
+      instance.config,
+      instance.id,
+      instance.status,
+      cadenceSecondsState,
+      watchlistState,
+      timelineEvents,
+      state,
+      userTimezone,
+      appendSuggestionEvents,
+    ],
+  );
+
   const handleSendChat = async (inputContent: string) => {
     const content = inputContent.trim();
     if (!content || isSendingChat || isStreamingAgent) return;
@@ -734,7 +828,6 @@ export function MarketAgentInstanceView({ instance, events, thesis: _thesis, sta
     setAlignTrigger((prev) => prev + 1);
     setIsAutoScroll(false);
     setShowScrollToBottom(true);
-    const suggestionOutcomeForRequest = pendingSuggestionOutcome;
     try {
       const controller = new AbortController();
       streamingAbortRef.current = controller;
@@ -745,9 +838,6 @@ export function MarketAgentInstanceView({ instance, events, thesis: _thesis, sta
       hasStreamedTokenRef.current = false;
 
       const requestPayload: Record<string, unknown> = { role: "user", content };
-      if (suggestionOutcomeForRequest) {
-        requestPayload.suggestionOutcome = suggestionOutcomeForRequest;
-      }
       const res = await fetch(`/api/market-agent/instances/${instance.id}/messages`, {
         method: "POST",
         headers: {
@@ -843,19 +933,6 @@ export function MarketAgentInstanceView({ instance, events, thesis: _thesis, sta
         if (payload.toolStatus && typeof payload.toolStatus.type === "string") {
           handleToolStatus(payload.toolStatus as ToolStatusEvent);
         }
-        if (payload.suggestion && typeof payload.suggestion === "object") {
-          setCombinedSuggestion({
-            cadenceSeconds: typeof payload.suggestion.cadenceSeconds === "number" ? payload.suggestion.cadenceSeconds : undefined,
-            cadenceReason: typeof payload.suggestion.cadenceReason === "string" ? payload.suggestion.cadenceReason : undefined,
-            watchlistSymbols: Array.isArray(payload.suggestion.watchlistSymbols)
-              ? payload.suggestion.watchlistSymbols
-              : undefined,
-            watchlistReason: typeof payload.suggestion.watchlistReason === "string" ? payload.suggestion.watchlistReason : undefined,
-            suggestionId: typeof payload.suggestion.suggestionId === "string" ? payload.suggestion.suggestionId : undefined,
-          });
-          setSuggestionProcessing(false);
-          setSuggestionError(null);
-        }
         if (payload.agentMessage) {
           replaceAgentMessage(payload.agentMessage as AgentChatMessage);
         }
@@ -898,9 +975,7 @@ export function MarketAgentInstanceView({ instance, events, thesis: _thesis, sta
             )
           );
       }
-      if (suggestionOutcomeForRequest) {
-        setPendingSuggestionOutcome(null);
-      }
+      void triggerSuggestionRefresh(content);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to send message";
       setChatError(message);
@@ -922,64 +997,107 @@ export function MarketAgentInstanceView({ instance, events, thesis: _thesis, sta
     }
   };
 
-  const handleSuggestionDecision = async (choice: "accepted" | "declined") => {
-    const suggestion = combinedSuggestion;
-    if (!suggestion || suggestionProcessing) return;
-    setSuggestionProcessing(true);
-    setSuggestionError(null);
-    try {
-      if (choice === "accepted") {
-        if (typeof suggestion.cadenceSeconds === "number") {
-          const res = await fetch(`/api/market-agent/instances/${instance.id}/settings`, {
-            method: "PATCH",
+  const handleApplySuggestion = useCallback(
+    async (event: MarketSuggestionEvent) => {
+      setSuggestionActionState((prev) => ({ ...prev, [event.eventId]: { applying: true } }));
+      setSuggestionError(null);
+      try {
+        if (event.cadence) {
+          const response = await fetch("/api/agents/market-agent/apply-cadence", {
+            method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ type: "schedule", cadenceSeconds: suggestion.cadenceSeconds }),
+            body: JSON.stringify({
+              agentInstanceId: instance.id,
+              eventId: event.eventId,
+              intervalSeconds: event.cadence.intervalSeconds,
+              mode:
+                (instance.config?.cadence_mode as "market_hours" | "always_on") === "market_hours"
+                  ? "market_hours"
+                  : "always_on",
+            }),
           });
-          const payload = await res.json().catch(() => null);
-          if (!res.ok) {
-            throw new Error(payload?.error ?? `Failed to update schedule (${res.status})`);
+          if (!response.ok) {
+            const payload = await response.json().catch(() => null);
+            throw new Error(payload?.error ?? "Failed to apply cadence");
           }
+          const payload = await response.json().catch(() => null);
           setCadenceSecondsState(
-            typeof payload?.cadenceSeconds === "number" ? payload.cadenceSeconds : suggestion.cadenceSeconds
+            typeof payload?.cadenceSeconds === "number" ? payload.cadenceSeconds : event.cadence!.intervalSeconds
           );
         }
-        if (Array.isArray(suggestion.watchlistSymbols) && suggestion.watchlistSymbols.length) {
-          const res = await fetch(`/api/market-agent/instances/${instance.id}/settings`, {
-            method: "PATCH",
+        if (event.watchlist) {
+          const response = await fetch("/api/agents/market-agent/apply-watchlist", {
+            method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ type: "watchlist", watchlist: suggestion.watchlistSymbols }),
+            body: JSON.stringify({
+              agentInstanceId: instance.id,
+              eventId: event.eventId,
+              tickers: event.watchlist.tickers,
+              action: "add",
+            }),
           });
-          const payload = await res.json().catch(() => null);
-          if (!res.ok) {
-            throw new Error(payload?.error ?? `Failed to update watchlist (${res.status})`);
+          if (!response.ok) {
+            const payload = await response.json().catch(() => null);
+            throw new Error(payload?.error ?? "Failed to apply watchlist");
           }
-          const savedList = Array.isArray(payload?.watchlist)
-            ? payload.watchlist
-            : suggestion.watchlistSymbols;
-          setWatchlistState(savedList);
+          const payload = await response.json().catch(() => null);
+          if (Array.isArray(payload?.watchlist)) {
+            setWatchlistState(payload.watchlist);
+          }
         }
+        const statusResponse = await fetch("/api/agents/market-agent/update-suggestion-status", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ agentInstanceId: instance.id, eventId: event.eventId, status: "applied" }),
+        });
+        if (!statusResponse.ok) {
+          const payload = await statusResponse.json().catch(() => null);
+          throw new Error(payload?.error ?? "Failed to finalize suggestion");
+        }
+        addEventIdToCache(event.eventId);
+        setSuggestionEvents((prev) => prev.filter((item) => item.eventId !== event.eventId));
+      } catch (error) {
+        setSuggestionError(error instanceof Error ? error.message : "Failed to apply suggestion");
+      } finally {
+        setSuggestionActionState((prev) => {
+          const next = { ...prev };
+          delete next[event.eventId];
+          return next;
+        });
       }
-      setPendingSuggestionOutcome({
-        decision: choice,
-        cadenceSeconds: suggestion.cadenceSeconds ?? 0,
-        watchlistSymbols: suggestion.watchlistSymbols,
-        reason: suggestion.cadenceReason || suggestion.watchlistReason,
-      });
-      setCombinedSuggestion(null);
-    } catch (error) {
-      setSuggestionError(error instanceof Error ? error.message : "Failed to process suggestion");
-    } finally {
-      setSuggestionProcessing(false);
-    }
-  };
+    },
+    [addEventIdToCache, instance.id, instance.config]
+  );
 
-  const handleAcceptSuggestion = () => {
-    void handleSuggestionDecision("accepted");
-  };
+  const handleDismissSuggestion = useCallback(
+    async (eventId: string) => {
+      setSuggestionActionState((prev) => ({ ...prev, [eventId]: { dismissing: true } }));
+      setSuggestionError(null);
+      try {
+        const response = await fetch("/api/agents/market-agent/update-suggestion-status", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ agentInstanceId: instance.id, eventId, status: "dismissed" }),
+        });
+        if (!response.ok) {
+          const payload = await response.json().catch(() => null);
+          throw new Error(payload?.error ?? "Failed to dismiss suggestion");
+        }
+        addEventIdToCache(eventId);
+        setSuggestionEvents((prev) => prev.filter((item) => item.eventId !== eventId));
+      } catch (error) {
+        setSuggestionError(error instanceof Error ? error.message : "Failed to dismiss suggestion");
+      } finally {
+        setSuggestionActionState((prev) => {
+          const next = { ...prev };
+          delete next[eventId];
+          return next;
+        });
+      }
+    },
+    [addEventIdToCache, instance.id]
+  );
 
-  const handleDeclineSuggestion = () => {
-    void handleSuggestionDecision("declined");
-  };
 
   const handleStopStreaming = () => {
     try {
@@ -1282,10 +1400,11 @@ export function MarketAgentInstanceView({ instance, events, thesis: _thesis, sta
               isStreaming={isStreamingAgent}
               showThinkingIndicator={showThinkingIndicator}
               indicatorLabel={indicatorLabel}
-              onAcceptSuggestion={handleAcceptSuggestion}
-              onDeclineSuggestion={handleDeclineSuggestion}
-              suggestion={combinedSuggestion}
-              suggestionProcessing={suggestionProcessing}
+              suggestionEvents={suggestionEvents}
+              suggestionActionState={suggestionActionState}
+              onApplySuggestion={handleApplySuggestion}
+              onDismissSuggestion={handleDismissSuggestion}
+              isRefreshingSuggestions={isRefreshingSuggestions}
               suggestionError={suggestionError}
               chatListRef={chatListRef}
               showScrollToBottom={showScrollToBottom}
@@ -1372,10 +1491,11 @@ type AgentChatSidebarProps = {
   isStreaming: boolean;
   showThinkingIndicator: boolean;
   indicatorLabel: string;
-  suggestion: CombinedSuggestion | null;
-  onAcceptSuggestion: () => void;
-  onDeclineSuggestion: () => void;
-  suggestionProcessing: boolean;
+  suggestionEvents: MarketSuggestionEvent[];
+  suggestionActionState: Record<string, { applying?: boolean; dismissing?: boolean }>;
+  onApplySuggestion: (event: MarketSuggestionEvent) => void;
+  onDismissSuggestion: (eventId: string) => void;
+  isRefreshingSuggestions: boolean;
   suggestionError: string | null;
   chatListRef: MutableRefObject<HTMLDivElement | null>;
   showScrollToBottom: boolean;
@@ -1403,10 +1523,11 @@ function AgentChatSidebar({
   isStreaming,
   showThinkingIndicator,
   indicatorLabel,
-  suggestion,
-  onAcceptSuggestion,
-  onDeclineSuggestion,
-  suggestionProcessing,
+  suggestionEvents,
+  suggestionActionState,
+  onApplySuggestion,
+  onDismissSuggestion,
+  isRefreshingSuggestions,
   suggestionError,
   chatListRef,
   showScrollToBottom,
@@ -1419,23 +1540,6 @@ function AgentChatSidebar({
   onApplyStarter,
   isMobileView,
 }: AgentChatSidebarProps) {
-  const cadenceValue = suggestion?.cadenceSeconds;
-  const hasCadenceSuggestion =
-    typeof cadenceValue === "number" && Number.isFinite(cadenceValue) && cadenceValue > 0;
-  const hasWatchlistSuggestion =
-    Array.isArray(suggestion?.watchlistSymbols) && suggestion.watchlistSymbols.length > 0;
-  const suggestionTitle = (() => {
-    if (hasCadenceSuggestion && hasWatchlistSuggestion && cadenceValue !== undefined) {
-      return `${formatCadence(cadenceValue)} cadence + watchlist update`;
-    }
-    if (hasCadenceSuggestion && cadenceValue !== undefined) {
-      return `${formatCadence(cadenceValue)} cadence`;
-    }
-    if (hasWatchlistSuggestion) {
-      return "Watchlist update";
-    }
-    return "Agent suggestion";
-  })();
   const composerWrapperClass = cn(
     "agent-chat-composer-wrapper border-t border-border/60 space-y-3",
     isMobileView ? "sticky left-0 right-0 z-20 bg-[#050505]/95 px-4 pt-3" : "px-2 pt-2"
@@ -1443,33 +1547,12 @@ function AgentChatSidebar({
   const composerStickyStyle = isMobileView
     ? { bottom: `calc(4rem + env(safe-area-inset-bottom, 0px))`, paddingBottom: "1rem" }
     : undefined;
-  const suggestionRef = useRef<HTMLDivElement | null>(null);
-  const [suggestionHeight, setSuggestionHeight] = useState(0);
   const baseScrollBottom = 96;
-  const scrollTipBottom = baseScrollBottom + (suggestion ? suggestionHeight : 0);
+  const scrollTipBottom = baseScrollBottom;
   const scrollTipBottomPosition = isMobileView
     ? `calc(${scrollTipBottom}px + 4rem + env(safe-area-inset-bottom,0px))`
     : `calc(${scrollTipBottom}px + env(safe-area-inset-bottom,0px))`;
 
-  useEffect(() => {
-    const node = suggestionRef.current;
-    if (!suggestion || !node) {
-      setSuggestionHeight(0);
-      return;
-    }
-    const updateHeight = () => {
-      setSuggestionHeight(node.offsetHeight);
-    };
-    updateHeight();
-    if (typeof ResizeObserver === "undefined") {
-      return;
-    }
-    const observer = new ResizeObserver(updateHeight);
-    observer.observe(node);
-    return () => {
-      observer.disconnect();
-    };
-  }, [suggestion]);
   const showStarterPrompts = !isLoading && !error && messages.length === 0;
   const starterPrompts = [
     "Refine the current thesis for these tickers.",
@@ -1595,59 +1678,78 @@ function AgentChatSidebar({
             {error && !isLoading ? (
               <p className="text-xs text-rose-300 mb-1">{error}</p>
             ) : null}
-              {suggestion ? (
-                <div
-                  className="rounded-2xl border border-emerald-500/20 bg-white/5 p-4 text-sm text-foreground"
-                  ref={suggestionRef}
-                >
-                  <div className="flex flex-col gap-1">
-                    <p className="text-[10px] uppercase tracking-[0.3em] text-emerald-200">
-                      Agent suggestion
+              <div className="space-y-2 rounded-2xl border border-emerald-500/20 bg-white/5 p-4 text-sm text-foreground">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-[10px] uppercase tracking-[0.3em] text-emerald-200">Suggestions</p>
+                    <p className="text-[11px] text-muted-foreground">
+                      Cards are based on agent insights and snapshot.
                     </p>
-                    <div className="space-y-1 text-white">
-                      <p className="text-base font-semibold">{suggestionTitle}</p>
-                      {hasWatchlistSuggestion ? (
-                        <p className="text-xs uppercase text-muted-foreground tracking-wide">
-                          Watchlist: {suggestion.watchlistSymbols?.join(", ")}
-                        </p>
-                      ) : null}
-                      {suggestion.cadenceReason ? (
-                        <p className="text-[11px] text-muted-foreground">
-                          Cadence reason: {suggestion.cadenceReason}
-                        </p>
-                      ) : null}
-                      {suggestion.watchlistReason ? (
-                        <p className="text-[11px] text-muted-foreground">
-                          Watchlist reason: {suggestion.watchlistReason}
-                        </p>
-                      ) : null}
-                    </div>
                   </div>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={onDeclineSuggestion}
-                      disabled={suggestionProcessing || isStreaming}
-                    >
-                      Decline
-                    </Button>
-                    <Button
-                      size="sm"
-                      onClick={onAcceptSuggestion}
-                      disabled={suggestionProcessing || isStreaming}
-                    >
-                      Accept suggestion
-                    </Button>
-                  </div>
-                  {suggestionProcessing && !suggestionError ? (
-                    <p className="mt-2 text-[11px] text-muted-foreground">Processing...</p>
-                  ) : null}
-                  {suggestionError ? (
-                    <p className="mt-2 text-xs text-rose-300">{suggestionError}</p>
+                  {isRefreshingSuggestions ? (
+                    <p className="text-[11px] text-emerald-200">Refreshing suggestions…</p>
                   ) : null}
                 </div>
-              ) : null}
+                {suggestionError ? (
+                  <p className="text-xs text-rose-300">{suggestionError}</p>
+                ) : null}
+                {suggestionEvents.length ? (
+                  suggestionEvents.map((event) => {
+                    const actionState = suggestionActionState[event.eventId] ?? {};
+                    return (
+                      <div
+                        key={event.eventId}
+                        className="space-y-2 rounded-2xl border border-white/15 bg-black/30 p-3"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="text-sm font-semibold text-white">{getSuggestionHeader(event)}</p>
+                          {actionState.applying ? (
+                            <span className="text-[11px] text-muted-foreground">Applying…</span>
+                          ) : actionState.dismissing ? (
+                            <span className="text-[11px] text-muted-foreground">Dismissing…</span>
+                          ) : null}
+                        </div>
+                        {event.watchlist ? (
+                          <p className="text-xs uppercase text-muted-foreground tracking-[0.2em]">
+                            WATCHLIST: {event.watchlist.tickers.join(", ")}
+                          </p>
+                        ) : null}
+                        {event.cadence ? (
+                          <p className="text-[11px] text-muted-foreground">
+                            Cadence reason: {event.cadence.reason}
+                          </p>
+                        ) : null}
+                        {event.watchlist ? (
+                          <p className="text-[11px] text-muted-foreground">
+                            Watchlist reason: {event.watchlist.reason}
+                          </p>
+                        ) : null}
+                        <div className="flex flex-wrap gap-2">
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => onDismissSuggestion(event.eventId)}
+                            disabled={isStreaming || actionState.dismissing}
+                          >
+                            Dismiss
+                          </Button>
+                          <Button
+                            size="sm"
+                            onClick={() => onApplySuggestion(event)}
+                            disabled={isStreaming || actionState.applying}
+                          >
+                            Apply
+                          </Button>
+                        </div>
+                      </div>
+                    );
+                  })
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    No suggestions right now. Ask the agent or wait for new insights.
+                  </p>
+                )}
+              </div>
             <div className="mx-auto w-full max-w-3xl">
               <ChatComposer
                 onSendMessage={onSendChat}

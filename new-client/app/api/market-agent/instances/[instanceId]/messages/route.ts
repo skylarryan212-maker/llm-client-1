@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import OpenAI from "openai";
-import type { Tool, FunctionTool } from "openai/resources/responses/responses";
+import type { Tool } from "openai/resources/responses/responses";
 
 import { calculateCost } from "@/lib/pricing";
 import { estimateTokens } from "@/lib/tokens/estimateTokens";
@@ -19,18 +19,12 @@ const MODEL_ID = "gpt-5-nano";
 const CONTEXT_LIMIT_TOKENS = 350_000;
 const BASE_SYSTEM_PROMPT =
   "You are the Market Agent. Keep replies short and focused on helping the user configure the agent or understand the latest reports. Only propose watchlist or cadence changes when the user explicitly asks or when the report clearly supports a change.";
-const ALLOWED_CADENCE_SECONDS = [60, 120, 300, 600, 1800, 3600] as const;
 const buildCadenceContext = (cadenceSeconds: number | null) =>
   typeof cadenceSeconds === "number" && Number.isFinite(cadenceSeconds)
     ? `Current cadence: ${cadenceSeconds} seconds.`
     : "Current cadence: unknown.";
-const TOOL_USAGE_INSTRUCTIONS = [
-  "Use the cadence and watchlist tools whenever the user asks for or implies a relevant change.",
-  "Let your response before/after the tool call flow naturally; you do not need to explain tool mechanics or repeat the schema.",
-  "When proposing both cadence and watchlist adjustments together, a single combined call is fine.",
-].join(" ");
 const buildChatPrompt = (cadenceSeconds: number | null) =>
-  [BASE_SYSTEM_PROMPT, TOOL_USAGE_INSTRUCTIONS, buildCadenceContext(cadenceSeconds)].join(" ");
+  [BASE_SYSTEM_PROMPT, buildCadenceContext(cadenceSeconds)].join(" ");
 
 type SuggestionOutcomePayload = {
   decision: "accepted" | "declined";
@@ -86,143 +80,13 @@ const buildSuggestionOutcomeMessage = (outcome?: SuggestionOutcomePayload) => {
   const reasonText = reason?.trim() ? ` Reason: ${reason.trim()}.` : "";
   return `${base} ${statements.join(" ")}${reasonText}`;
 };
-const SUGGEST_CADENCE_TOOL: FunctionTool = {
-  type: "function" as const,
-  name: "suggest_schedule_cadence",
-  description:
-    "Recommend a schedule cadence (in seconds) and explain why the change makes sense.",
-  parameters: {
-    type: "object",
-    properties: {
-      cadence_seconds: {
-        type: "number",
-        enum: ALLOWED_CADENCE_SECONDS,
-        description: "Desired cadence between reports or checks, expressed in seconds.",
-      },
-      reason: {
-        type: ["string", "null"],
-        description: "Short rationale for the cadence recommendation.",
-      },
-    },
-    required: ["cadence_seconds", "reason"],
-    additionalProperties: false,
-  },
-  strict: false,
-};
-
-const SUGGEST_WATCHLIST_TOOL: FunctionTool = {
-  type: "function" as const,
-  name: "suggest_watchlist_change",
-  description:
-    "Propose an updated watchlist by listing the symbol set the agent should track going forward.",
-  parameters: {
-    type: "object",
-    properties: {
-      watchlist: {
-        type: "array",
-        description: "Symbols to track (uppercase).",
-        items: {
-          type: "string",
-          pattern: "^[A-Z0-9]{1,6}$",
-        },
-        minItems: 1,
-      },
-      reason: {
-        type: ["string", "null"],
-        description: "Why these symbols should be tracked (optional).",
-      },
-    },
-    required: ["watchlist"],
-    additionalProperties: false,
-  },
-  strict: false,
-};
-
-const SUGGEST_BOTH_TOOL: FunctionTool = {
-  type: "function",
-  name: "suggest_watchlist_and_cadence",
-  description:
-    "Recommend both a watchlist adjustment and a cadence update in one unified suggestion.",
-  parameters: {
-    type: "object",
-    properties: {
-      watchlist: {
-        type: "array",
-        description: "Symbols to track (uppercase).",
-        items: {
-          type: "string",
-          pattern: "^[A-Z0-9]{1,6}$",
-        },
-        minItems: 1,
-      },
-      watchlist_reason: {
-        type: ["string", "null"],
-        description: "Why these symbols should be tracked.",
-      },
-      cadence_seconds: {
-        type: "number",
-        enum: ALLOWED_CADENCE_SECONDS,
-        description: "Desired cadence between reports.",
-      },
-      cadence_reason: {
-        type: ["string", "null"],
-        description: "Why this cadence makes sense.",
-      },
-    },
-    additionalProperties: false,
-  },
-  strict: false,
-};
-
 const WEB_SEARCH_TOOL: Tool = { type: "web_search_preview" };
-const RESPONSE_TOOLS: Tool[] = [
-  SUGGEST_CADENCE_TOOL,
-  SUGGEST_WATCHLIST_TOOL,
-  SUGGEST_BOTH_TOOL,
-  WEB_SEARCH_TOOL,
-];
-const TOOL_NAMES = RESPONSE_TOOLS.map((tool) =>
-  tool.type === "function" ? (tool as FunctionTool).name : tool.type
-);
-
-type CombinedSuggestionPayload = {
-  suggestionId: string;
-  cadenceSeconds?: number;
-  cadenceReason?: string;
-  watchlistSymbols?: string[];
-  watchlistReason?: string;
-};
 
 function extractInstanceId(request: NextRequest, params?: { instanceId?: string }) {
   if (params?.instanceId) return params.instanceId;
   const segments = request.nextUrl.pathname.split("/").filter(Boolean);
   return segments[segments.length - 2] || null;
 }
-
-const buildSuggestionSummary = (
-  suggestion: CombinedSuggestionPayload,
-  currentCadenceSeconds: number | null,
-) => {
-  const pieces: string[] = [];
-  if (typeof suggestion.cadenceSeconds === "number" && Number.isFinite(suggestion.cadenceSeconds)) {
-    const cadenceLabel = formatCadenceLabel(suggestion.cadenceSeconds);
-    const cadenceReason = suggestion.cadenceReason?.trim();
-    const cadenceSentence = cadenceReason ?? `Switching cadence to ${cadenceLabel} as requested.`;
-    pieces.push(cadenceSentence);
-  }
-  if (suggestion.watchlistSymbols?.length) {
-    const watchlistLabel = suggestion.watchlistSymbols.join(", ");
-    const watchlistReason = suggestion.watchlistReason?.trim();
-    const watchlistSentence = watchlistReason ?? `Tracking ${watchlistLabel} as requested.`;
-    pieces.push(watchlistSentence);
-  }
-  if (!pieces.length) return null;
-  const cadenceContext =
-    typeof currentCadenceSeconds === "number" && Number.isFinite(currentCadenceSeconds)
-      ? `Current cadence: ${formatCadenceLabel(currentCadenceSeconds)}.`
-      : "";
-  return `${pieces.join(" ")} ${cadenceContext}`.trim();
-};
 
 export async function GET(
   request: NextRequest,
@@ -383,154 +247,19 @@ export async function POST(
           });
         }
 
-        const parseCadenceSuggestion = (argsRaw: string) => {
-          try {
-            const parsedArgs = JSON.parse(argsRaw) as {
-              cadence_seconds?: number;
-              reason?: string;
-            };
-            const cadenceSeconds =
-              typeof parsedArgs.cadence_seconds === "number" ? parsedArgs.cadence_seconds : null;
-            if (cadenceSeconds === null || !Number.isFinite(cadenceSeconds) || cadenceSeconds <= 0) {
-              return null;
-            }
-            return {
-              cadenceSeconds,
-              reason: typeof parsedArgs.reason === "string" ? parsedArgs.reason : undefined,
-            };
-          } catch {
-            return null;
-          }
-        };
-        const parseWatchlistSuggestion = (argsRaw: string) => {
-          try {
-            const parsed = JSON.parse(argsRaw);
-            const symbols =
-              Array.isArray(parsed.watchlist) && parsed.watchlist.every((sym: unknown) => typeof sym === "string")
-                ? parsed.watchlist.map((sym: string) => sym.trim().toUpperCase()).filter(Boolean)
-                : null;
-            const reason = typeof parsed.reason === "string" ? parsed.reason.trim() : undefined;
-            if (!symbols || !symbols.length) return null;
-            return { watchlist: symbols, reason };
-          } catch {
-            return null;
-          }
-        };
-        const parseCombinedSuggestion = (argsRaw: string) => {
-          try {
-            const parsed = JSON.parse(argsRaw);
-            const symbols =
-              Array.isArray(parsed.watchlist) && parsed.watchlist.every((sym: unknown) => typeof sym === "string")
-                ? parsed.watchlist.map((sym: string) => sym.trim().toUpperCase()).filter(Boolean)
-                : null;
-            const watchlistReason = typeof parsed.watchlist_reason === "string" ? parsed.watchlist_reason.trim() : undefined;
-            const cadenceSeconds =
-              typeof parsed.cadence_seconds === "number" ? parsed.cadence_seconds : null;
-            const cadenceReason = typeof parsed.cadence_reason === "string" ? parsed.cadence_reason.trim() : undefined;
-            if ((!symbols || !symbols.length) && cadenceSeconds === null) return null;
-            return {
-              watchlist: symbols,
-              watchlistReason,
-              cadenceSeconds: cadenceSeconds ?? undefined,
-              cadenceReason,
-            };
-          } catch {
-            return null;
-          }
-        };
-
-        const ensureCallId = (call: any) => {
-          if (call?.call_id && typeof call.call_id === "string" && call.call_id.trim()) {
-            return call.call_id;
-          }
-          if (call?.id && typeof call.id === "string" && call.id.trim()) {
-            return call.id;
-          }
-          return `call_${Date.now()}_${Math.random().toString(16).slice(2)}`;
-        };
-        let combinedSuggestion: CombinedSuggestionPayload | null = null;
-        let suggestionCounter = 0;
-        const captureSuggestion = (update: Partial<CombinedSuggestionPayload>) => {
-          if (!combinedSuggestion) {
-            combinedSuggestion = {
-              suggestionId: `${Date.now()}-${suggestionCounter++}`,
-              ...update,
-            };
-          } else {
-            combinedSuggestion = {
-              ...combinedSuggestion,
-              ...update,
-            };
-          }
-        };
-
-        const argBuffer: Record<string, { name: string; args: string }> = {};
-        const finalizeFunctionCall = (callId: string) => {
-          const buf = argBuffer[callId];
-          if (!buf || !buf.name) return;
-          if (buf.name === SUGGEST_CADENCE_TOOL.name) {
-            const suggestion = parseCadenceSuggestion(buf.args);
-            captureSuggestion({
-              cadenceSeconds: suggestion?.cadenceSeconds,
-              cadenceReason: suggestion?.reason,
-            });
-          } else if (buf.name === SUGGEST_WATCHLIST_TOOL.name) {
-            const suggestion = parseWatchlistSuggestion(buf.args);
-            if (suggestion) {
-              captureSuggestion({
-                watchlistSymbols: suggestion.watchlist,
-                watchlistReason: suggestion.reason,
-              });
-            }
-          } else if (buf.name === SUGGEST_BOTH_TOOL.name) {
-            const suggestion = parseCombinedSuggestion(buf.args);
-            if (suggestion) {
-              captureSuggestion({
-                cadenceSeconds: suggestion.cadenceSeconds,
-                cadenceReason: suggestion.cadenceReason,
-                watchlistSymbols: suggestion.watchlist,
-                watchlistReason: suggestion.watchlistReason,
-              });
-            }
-          }
-        };
-        let sawFunctionCall = false;
-        const registerFunctionCall = (call: any, source: string) => {
-          if (!call) return;
-          const callId = ensureCallId(call);
-          const existing = argBuffer[callId] ?? { name: "", args: "" };
-          if (typeof call?.name === "string" && call.name.trim()) {
-            existing.name = call.name;
-          }
-          if (typeof call?.arguments === "string") {
-            existing.args = call.arguments;
-          }
-          argBuffer[callId] = existing;
-          sawFunctionCall = true;
-          console.log("[market-agent] Tool call event", {
-            source,
-            callId,
-            name: existing.name || call?.name || null,
-            argsLength: existing.args.length,
-          });
-          if (existing.name && existing.args) {
-            finalizeFunctionCall(callId);
-          }
-        };
-
         try {
           const stream = await client.responses.create({
             model: MODEL_ID,
             input: chatMessages,
             stream: true,
             store: false,
-            tools: RESPONSE_TOOLS,
+            tools: [WEB_SEARCH_TOOL],
             tool_choice: "auto",
             reasoning: { effort: "low" },
           });
           console.log("[market-agent] OpenAI stream started", {
             model: MODEL_ID,
-            tools: TOOL_NAMES,
+            tools: ["web_search_preview"],
           });
 
           for await (const event of stream as any) {
@@ -565,42 +294,6 @@ export async function POST(
               const delta = String((event as any).delta);
               assistantText += delta;
               enqueue({ token: delta });
-            }
-
-            if (eventType === "response.output_item.added" && (event as any)?.item?.type === "function_call") {
-              registerFunctionCall((event as any).item, "output_item.added");
-            }
-
-            if (eventType === "response.function_call_arguments.delta") {
-              const callId = (event as any)?.item_id || (event as any)?.call_id;
-              if (callId) {
-                const existing = argBuffer[callId] ?? { name: (event as any)?.name ?? "", args: "" };
-                existing.args += String((event as any)?.delta ?? "");
-                argBuffer[callId] = existing;
-                sawFunctionCall = true;
-              }
-            }
-
-            if (eventType === "response.function_call_arguments.done") {
-              const callId = (event as any)?.item_id || (event as any)?.call_id;
-              if (callId) {
-                const existing = argBuffer[callId] ?? { name: (event as any)?.name ?? "", args: "" };
-                if (typeof (event as any)?.arguments === "string") {
-                  existing.args = (event as any).arguments;
-                }
-                argBuffer[callId] = existing;
-                sawFunctionCall = true;
-                console.log("[market-agent] Tool call arguments done", {
-                  callId,
-                  name: existing.name || null,
-                  argsLength: existing.args.length,
-                });
-                finalizeFunctionCall(callId);
-              }
-            }
-
-            if (eventType === "response.output_item.done" && (event as any)?.item?.type === "function_call") {
-              registerFunctionCall((event as any).item, "output_item.done");
             }
 
             if (eventType === "response.completed") {
@@ -640,30 +333,7 @@ export async function POST(
           return;
         }
 
-        if (!sawFunctionCall) {
-          console.warn("[market-agent] No tool calls emitted despite tool_choice=required", {
-            instanceId,
-            responseId,
-          });
-        }
-
-        if (combinedSuggestion) {
-          console.log("[market-agent] Tool suggestion generated", {
-            instanceId,
-            conversationId: conversation.id,
-            suggestion: combinedSuggestion,
-          });
-          enqueue({ suggestion: combinedSuggestion });
-        }
-
-        const suggestionSummary = combinedSuggestion
-          ? buildSuggestionSummary(combinedSuggestion, cadenceSeconds) ?? ""
-          : "";
-        let assistantContent =
-          (assistantText ?? "").trim() ? assistantText ?? "" : suggestionSummary;
-        if (!assistantContent.trim()) {
-          assistantContent = suggestionSummary;
-        }
+        let assistantContent = (assistantText ?? "").trim() ? assistantText ?? "" : "";
         if (!assistantContent.trim()) {
           assistantContent = "I'm here. Ask me about the markets.";
         }

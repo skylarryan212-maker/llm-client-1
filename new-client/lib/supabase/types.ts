@@ -375,6 +375,35 @@ export interface MarketAgentEventUpdate {
   created_at?: string | null;
 }
 
+export interface MarketAgentUiEvent {
+  id: string;
+  agent_instance_id: string;
+  event_id: string;
+  kind: string;
+  payload: Json;
+  status: "proposed" | "dismissed" | "applied";
+  created_at: string | null;
+  updated_at: string | null;
+}
+
+export interface MarketAgentUiEventInsert {
+  id?: string;
+  agent_instance_id: string;
+  event_id: string;
+  kind?: string;
+  payload: Json;
+  status?: "proposed" | "dismissed" | "applied";
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface MarketAgentUiEventUpdate {
+  kind?: string;
+  payload?: Json;
+  status?: "proposed" | "dismissed" | "applied";
+  updated_at?: string | null;
+}
+
 export interface MarketAgentState {
   instance_id: string;
   state: Json;
@@ -495,6 +524,11 @@ export interface Database {
         Row: MarketAgentEvent;
         Insert: MarketAgentEventInsert;
         Update: MarketAgentEventUpdate;
+      };
+      market_agent_ui_events: {
+        Row: MarketAgentUiEvent;
+        Insert: MarketAgentUiEventInsert;
+        Update: MarketAgentUiEventUpdate;
       };
       market_agent_state: {
         Row: MarketAgentState;

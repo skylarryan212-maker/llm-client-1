@@ -4,6 +4,7 @@ import type { Database, Json } from "@/lib/supabase/types";
 
 type MarketAgentInstanceRow = Database["public"]["Tables"]["market_agent_instances"]["Row"];
 type MarketAgentEventRow = Database["public"]["Tables"]["market_agent_events"]["Row"];
+type MarketAgentUiEventRow = Database["public"]["Tables"]["market_agent_ui_events"]["Row"];
 type MarketAgentStateRow = Database["public"]["Tables"]["market_agent_state"]["Row"];
 type MarketAgentThesisRow = Database["public"]["Tables"]["market_agent_thesis"]["Row"];
 type ConversationRow = Database["public"]["Tables"]["conversations"]["Row"];
@@ -13,6 +14,7 @@ const ALLOWED_CADENCES = new Set([60, 120, 300, 600, 1800, 3600]);
 export type MarketAgentReportDepth = "short" | "standard" | "deep";
 const ALLOWED_REPORT_DEPTH = new Set<MarketAgentReportDepth>(["short", "standard", "deep"]);
 const ALLOWED_STATUSES = new Set(["draft", "running", "paused"] as const);
+export type MarketAgentUiEventStatus = "proposed" | "applied" | "dismissed";
 
 function isValidUuid(id?: string | null) {
   return typeof id === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id);
@@ -206,6 +208,117 @@ export async function getMarketAgentEvents(params: {
   }
 
   return data ?? [];
+}
+
+export async function listMarketAgentUiEvents(params: {
+  instanceId: string;
+  status?: MarketAgentUiEventStatus;
+  limit?: number;
+}): Promise<MarketAgentUiEventRow[]> {
+  const userId = await requireUserIdServer();
+  const ownerInstance = await getMarketAgentInstance(params.instanceId, userId);
+  if (!ownerInstance) return [];
+
+  const admin = await getAdminClient();
+  const supabase = await supabaseServer();
+  const client: any = admin ?? (supabase as any);
+
+  let query = client
+    .from("market_agent_ui_events")
+    .select("*")
+    .eq("agent_instance_id", params.instanceId)
+    .order("created_at", { ascending: false });
+
+  if (params.status) {
+    query = query.eq("status", params.status);
+  }
+
+  if (params.limit) {
+    query = query.limit(params.limit);
+  }
+
+  const { data, error } = await query;
+  if (error) {
+    throw new Error(`Failed to load market agent UI events: ${error.message}`);
+  }
+
+  return (data ?? []) as MarketAgentUiEventRow[];
+}
+
+export async function listMarketAgentUiEventIds(instanceId: string, limit = 50): Promise<string[]> {
+  const rows = await listMarketAgentUiEvents({ instanceId, limit });
+  return rows.map((row) => row.event_id);
+}
+
+export async function upsertMarketAgentUiEvent(params: {
+  instanceId: string;
+  eventId: string;
+  payload: Json;
+  kind?: string;
+  status?: MarketAgentUiEventStatus;
+  createdAt?: string;
+}): Promise<MarketAgentUiEventRow> {
+  if (!isValidUuid(params.instanceId)) {
+    throw new Error("Invalid agent instance id");
+  }
+  const userId = await requireUserIdServer();
+  const ownerInstance = await getMarketAgentInstance(params.instanceId, userId);
+  if (!ownerInstance) {
+    throw new Error("Instance not found or not owned");
+  }
+
+  const supabase = await supabaseServer();
+  const supabaseAny = supabase as any;
+  const now = new Date().toISOString();
+
+  const { data, error } = await supabaseAny
+    .from("market_agent_ui_events")
+    .upsert([
+      {
+        agent_instance_id: params.instanceId,
+        event_id: params.eventId,
+        kind: params.kind ?? "market_suggestion",
+        payload: params.payload ?? {},
+        status: params.status ?? "proposed",
+        created_at: params.createdAt ?? now,
+        updated_at: now,
+      },
+    ])
+    .select()
+    .maybeSingle();
+
+  if (error || !data) {
+    throw new Error(`Failed to upsert market agent UI event: ${error?.message ?? "unknown error"}`);
+  }
+
+  return data as MarketAgentUiEventRow;
+}
+
+export async function updateMarketAgentUiEventStatus(
+  instanceId: string,
+  eventId: string,
+  status: MarketAgentUiEventStatus
+) {
+  if (!isValidUuid(instanceId)) {
+    throw new Error("Invalid agent instance id");
+  }
+  const userId = await requireUserIdServer();
+  const ownerInstance = await getMarketAgentInstance(instanceId, userId);
+  if (!ownerInstance) {
+    throw new Error("Instance not found or not owned");
+  }
+
+  const supabase = await supabaseServer();
+  const supabaseAny = supabase as any;
+  const { error } = await supabaseAny
+    .from("market_agent_ui_events")
+    .update({ status, updated_at: new Date().toISOString() })
+    .eq("agent_instance_id", instanceId)
+    .eq("event_id", eventId);
+
+  if (error) {
+    throw new Error(`Failed to update UI event status: ${error.message}`);
+  }
 }
 
 export async function getMarketAgentThesis(instanceId: string): Promise<MarketAgentThesisRow | null> {

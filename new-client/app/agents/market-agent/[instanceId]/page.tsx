@@ -11,8 +11,11 @@ import {
   getMarketAgentInstance,
   getMarketAgentState,
   getMarketAgentThesis,
+  listMarketAgentUiEventIds,
+  listMarketAgentUiEvents,
   type MarketAgentFeedEvent,
 } from "@/lib/data/market-agent";
+import { type MarketSuggestionEvent } from "@/types/market-suggestion";
 import { getCurrentUserIdServer } from "@/lib/supabase/user";
 import { supabaseServerAdmin } from "@/lib/supabase/server";
 
@@ -85,10 +88,12 @@ export default async function MarketAgentInstancePage({
     );
   }
 
-  const [state, events, thesis] = await Promise.all([
+  const [state, events, thesis, suggestionRows, recentSuggestionIds] = await Promise.all([
     getMarketAgentState(instanceId),
     getMarketAgentEvents({ instanceId, limit: 20 }),
     getMarketAgentThesis(instanceId),
+    listMarketAgentUiEvents({ instanceId, status: "proposed", limit: 5 }),
+    listMarketAgentUiEventIds(instanceId, 50),
   ]);
 
   const feedEvents: MarketAgentFeedEvent[] = (events ?? []).map((evt) => ({
@@ -96,12 +101,21 @@ export default async function MarketAgentInstancePage({
     instance,
   }));
 
+  const initialSuggestionEvents: MarketSuggestionEvent[] = (suggestionRows ?? [])
+    .map((row) => row.payload as MarketSuggestionEvent | null)
+    .filter(
+      (payload): payload is MarketSuggestionEvent =>
+        Boolean(payload && payload.kind === "market_suggestion" && typeof payload.eventId === "string")
+    );
+
   return (
     <MarketAgentInstanceView
       instance={instance}
       events={feedEvents}
       thesis={thesis}
       state={state}
+      initialSuggestionEvents={initialSuggestionEvents}
+      initialSuggestionEventIds={recentSuggestionIds ?? []}
       initialSelectedEventId={initialSelectedEventId}
     />
   );
