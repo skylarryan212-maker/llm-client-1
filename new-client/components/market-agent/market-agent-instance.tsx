@@ -720,23 +720,8 @@ export function MarketAgentInstanceView({
     const desiredSpacer = computeRequiredSpacerForMessage(pinnedId);
     if (typeof desiredSpacer !== "number") return;
     const nextSpacer = Math.max(baseBottomSpacerPx, desiredSpacer);
-    if (nextSpacer >= bottomSpacerPx) return;
-    const viewport = chatListRef.current;
-    if (!viewport) return;
-    const contentWithoutSpacer = viewport.scrollHeight - bottomSpacerPx;
-    const nextMaxScrollTop = Math.max(0, contentWithoutSpacer + nextSpacer - viewport.clientHeight);
-    const shouldClampScrollTop = viewport.scrollTop > nextMaxScrollTop + 1;
-    setBottomSpacerPx(nextSpacer);
-    if (shouldClampScrollTop && typeof requestAnimationFrame !== "undefined") {
-      requestAnimationFrame(() => {
-        const v = chatListRef.current;
-        if (!v) return;
-        const maxTop = Math.max(0, v.scrollHeight - v.clientHeight);
-        if (v.scrollTop > maxTop) v.scrollTop = maxTop;
-      });
-    }
-    if (nextSpacer === baseBottomSpacerPx) {
-      pinnedMessageIdRef.current = null;
+    if (nextSpacer > bottomSpacerPx) {
+      setBottomSpacerPx(nextSpacer);
     }
   }, [chatMessages.length, bottomSpacerPx, baseBottomSpacerPx, computeRequiredSpacerForMessage]);
 
