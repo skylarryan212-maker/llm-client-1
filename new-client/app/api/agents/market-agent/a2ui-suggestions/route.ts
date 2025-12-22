@@ -183,6 +183,10 @@ export async function POST(request: NextRequest) {
     }
 
     const client = new OpenAI({ apiKey });
+    const startedAt = Date.now();
+    console.log("[a2ui] Calling OpenAI responses", { model: MODEL_ID });
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 20000);
     const systemMessage = {
       id: "msg_a2ui_system",
       role: "system" as const,
@@ -199,18 +203,25 @@ export async function POST(request: NextRequest) {
       ],
     };
 
-    const response = await client.responses.create({
-      model: MODEL_ID,
-      input: [systemMessage, userMessageInput],
-      text: {
-        format: {
-          type: "json_schema",
-          name: "MarketSuggestionResponse",
-          schema: SUGGESTION_RESPONSE_SCHEMA,
+    let response;
+    try {
+      response = await client.responses.create({
+        model: MODEL_ID,
+        input: [systemMessage, userMessageInput],
+        text: {
+          format: {
+            type: "json_schema",
+            name: "MarketSuggestionResponse",
+            schema: SUGGESTION_RESPONSE_SCHEMA,
+          },
         },
-      },
-      store: false,
-    });
+        store: false,
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timeoutId);
+    }
+    console.log("[a2ui] OpenAI responses completed", { ms: Date.now() - startedAt });
 
     if (response.error) {
       console.error("[a2ui] OpenAI response error", response.error);
@@ -258,6 +269,10 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ events: insertedEvents });
   } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      console.warn("[a2ui] OpenAI call timed out");
+      return NextResponse.json({ events: [] }, { status: 504 });
+    }
     console.error("[a2ui] Failed to generate suggestions", error);
     return NextResponse.json({ events: [] }, { status: 500 });
   }
