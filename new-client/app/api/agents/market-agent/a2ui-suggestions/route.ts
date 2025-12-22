@@ -204,7 +204,6 @@ export async function POST(request: NextRequest) {
           schema: SUGGESTION_RESPONSE_SCHEMA,
         },
       },
-      temperature: 0.2,
       store: false,
     });
 
