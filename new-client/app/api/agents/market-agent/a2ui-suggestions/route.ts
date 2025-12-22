@@ -216,7 +216,6 @@ export async function POST(request: NextRequest) {
           },
         },
         store: false,
-        signal: controller.signal,
       });
     } finally {
       clearTimeout(timeoutId);
