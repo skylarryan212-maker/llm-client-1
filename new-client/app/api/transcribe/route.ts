@@ -6,7 +6,7 @@ import { supabaseServer } from "@/lib/supabase/server";
 import { logUsageRecord } from "@/lib/usage";
 import { estimateTokens } from "@/lib/tokens/estimateTokens";
 import { measureAudioDurationSeconds } from "@/lib/audio-duration";
-import { estimateTokens } from "@/lib/tokens/estimateTokens";
+import { calculateGpt4oTranscribeCost } from "@/lib/pricing";
 
 function getOpenAIClient() {
   const apiKey = process.env.OPENAI_API_KEY;
@@ -43,7 +43,7 @@ export async function POST(request: Request) {
       file: audioFile,
       model: "gpt-4o-transcribe",
       temperature: 0,
-      response_format: "verbose_json",
+      response_format: "json",
     });
 
     const transcript = (typeof transcription?.text === "string" ? transcription.text : "").trim();
