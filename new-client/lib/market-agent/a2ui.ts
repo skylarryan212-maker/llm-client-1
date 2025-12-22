@@ -23,16 +23,17 @@ export const A2UI_TAG_END = "</A2UI>";
 
 export const SUGGESTION_CHAT_PROMPT = [
   "You are chatting with the user normally.",
-  "If you have a strong cadence or watchlist suggestion, append it at the very end using the exact tag:",
+  "Always append a suggestion payload at the very end using the exact tag:",
   `${A2UI_TAG_START}{"events":[...]}${A2UI_TAG_END}`,
   "Inside the tag, output JSON matching this shape:",
   "{\"events\":[{\"kind\":\"market_suggestion\",\"eventId\":\"...\",\"cadence\":{\"intervalSeconds\":1800,\"reason\":\"...\"}}]}",
   "Each event must include kind + eventId and either cadence or watchlist (or both).",
   `Cadence interval must be one of ${ALLOWED_CADENCES.join(", ")} seconds.`,
   `Watchlist tickers must be 1-${WATCHLIST_LIMIT} symbols.`,
+  "If there is no strong suggestion, use {\"events\":[]} in the tag.",
   "Do not mention the tag or JSON in the visible response.",
+  "Never include any JSON, braces, or tags in the visible response.",
   "Do not add any text after the closing tag.",
-  "If there is no strong suggestion, do not include the tag at all.",
 ].join(" ");
 
 export const SUGGESTION_RESPONSE_SCHEMA = {

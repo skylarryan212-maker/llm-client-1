@@ -432,6 +432,13 @@ export async function POST(
         let assistantContent = (assistantText ?? "").trim() ? assistantText ?? "" : "";
         const taggedSuggestion = extractSuggestionPayloadFromText(assistantContent);
         assistantContent = taggedSuggestion.cleanedText;
+        const hadTag = assistantText.includes(A2UI_TAG_START);
+        console.log("[a2ui] Tag scan", {
+          instanceId,
+          hadTag,
+          payloadFound: Boolean(taggedSuggestion.payload),
+          outputLength: assistantText.length,
+        });
         if (!assistantContent.trim()) {
           assistantContent = "I'm here. Ask me about the markets.";
         }
@@ -441,6 +448,9 @@ export async function POST(
         }
         if (taggedSuggestion.payload === null && assistantText.includes(A2UI_TAG_START)) {
           console.warn("[a2ui] Failed to parse tagged suggestion payload");
+        }
+        if (!suggestionPayload) {
+          console.log("[a2ui] No suggestion payload parsed");
         }
         if (suggestionPayload) {
           const candidates = extractSuggestionEvents(suggestionPayload);
