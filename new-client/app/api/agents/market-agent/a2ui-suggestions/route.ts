@@ -95,18 +95,13 @@ const sanitizeCadence = (cadence: any) => {
 };
 
 const tickerPattern = /^[A-Z0-9.\-]{1,6}$/;
-const sanitizeWatchlist = (watchlist: any) => {
+const sanitizeWatchlist = (watchlist: any): { tickers: string[]; reason: string } | null => {
   if (!watchlist || typeof watchlist !== "object") return null;
-  const tickers =
-    Array.isArray(watchlist.tickers) && watchlist.tickers.length
-      ? Array.from(
-          new Set(
-            watchlist.tickers
-              .map((ticker: unknown) => (typeof ticker === "string" ? ticker.trim().toUpperCase() : ""))
-              .filter((ticker: string) => tickerPattern.test(ticker))
-          )
-        ).slice(0, 50)
-      : [];
+  const rawTickers = Array.isArray(watchlist.tickers) ? (watchlist.tickers as unknown[]) : [];
+  const normalizedTickers = rawTickers
+    .map((ticker) => (typeof ticker === "string" ? ticker.trim().toUpperCase() : ""))
+    .filter((ticker): ticker is string => Boolean(ticker) && tickerPattern.test(ticker));
+  const tickers = Array.from(new Set<string>(normalizedTickers)).slice(0, 50);
   if (!tickers.length) return null;
   const reason = typeof watchlist.reason === "string" ? watchlist.reason.trim() : "";
   if (!reason) return null;
