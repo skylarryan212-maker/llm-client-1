@@ -435,7 +435,7 @@ export async function POST(
         if (!assistantContent.trim()) {
           assistantContent = "I'm here. Ask me about the markets.";
         }
-        let suggestionPayload = taggedSuggestion.payload ?? null;
+        let suggestionPayload: unknown | null = taggedSuggestion.payload ?? null;
         if (!suggestionPayload && finalResponse) {
           suggestionPayload = parseSuggestionResponsePayload(finalResponse);
         }
