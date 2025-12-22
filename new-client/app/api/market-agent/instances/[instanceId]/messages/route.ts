@@ -94,6 +94,14 @@ const buildSuggestionOutcomeMessage = (outcome?: SuggestionOutcomePayload) => {
 };
 const WEB_SEARCH_TOOL: Tool = { type: "web_search_preview" };
 
+const extractTimezoneFromState = (state: unknown): string | undefined => {
+  if (!state || typeof state !== "object" || Array.isArray(state)) {
+    return undefined;
+  }
+  const timezone = (state as Record<string, unknown>).timezone;
+  return typeof timezone === "string" ? timezone : undefined;
+};
+
 function extractInstanceId(request: NextRequest, params?: { instanceId?: string }) {
   if (params?.instanceId) return params.instanceId;
   const segments = request.nextUrl.pathname.split("/").filter(Boolean);
@@ -183,7 +191,7 @@ export async function POST(
       cadenceSeconds: instance.cadence_seconds ?? null,
       cadenceMode,
       watchlistTickers: instance.watchlist,
-      timezone: typeof stateRow?.state?.timezone === "string" ? stateRow.state.timezone : undefined,
+      timezone: extractTimezoneFromState(stateRow?.state ?? null),
       lastRunAt: latestEvent?.ts ?? latestEvent?.created_at ?? new Date().toISOString(),
     };
     const marketSnapshot = {
