@@ -626,7 +626,6 @@ export function MarketAgentInstanceView({
     let cancelled = false;
     let retryRaf: number | null = null;
     let scrollTimer: number | null = null;
-    let guardTimer: number | null = null;
     const startMs = typeof performance !== "undefined" ? performance.now() : Date.now();
     const deadlineMs = startMs + 2500;
 
@@ -687,11 +686,6 @@ export function MarketAgentInstanceView({
         viewport.scrollTo({ top: targetTop, behavior: "smooth" });
       }, 80);
 
-      guardTimer = window.setTimeout(() => {
-        isProgrammaticScrollRef.current = false;
-        pinToPromptRef.current = false;
-        pinnedScrollTopRef.current = null;
-      }, 900);
     };
 
     if (typeof requestAnimationFrame !== "undefined") {
@@ -706,7 +700,6 @@ export function MarketAgentInstanceView({
         cancelAnimationFrame(retryRaf);
       }
       if (scrollTimer) clearTimeout(scrollTimer);
-      if (guardTimer) clearTimeout(guardTimer);
       isProgrammaticScrollRef.current = false;
     };
   }, [
@@ -746,6 +739,15 @@ export function MarketAgentInstanceView({
       pinnedMessageIdRef.current = null;
     }
   }, [chatMessages.length, bottomSpacerPx, baseBottomSpacerPx, computeRequiredSpacerForMessage]);
+
+  useEffect(() => {
+    if (!pinToPromptRef.current) return;
+    if (isStreamingAgent) return;
+    const timer = window.setTimeout(() => {
+      releasePinning();
+    }, 200);
+    return () => window.clearTimeout(timer);
+  }, [isStreamingAgent]);
 
   useEffect(() => {
     const ensureSpacer = () => {
