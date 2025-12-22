@@ -155,6 +155,16 @@ export function MarketAgentInstanceView({
     if (typeof Intl === "undefined") return "UTC";
     return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
   }, []);
+  const cadenceMode: "market_hours" | "always_on" = useMemo(() => {
+    const config = instance.config;
+    if (config && typeof config === "object" && !Array.isArray(config)) {
+      const mode = (config as Record<string, unknown>).cadence_mode;
+      if (mode === "market_hours") {
+        return "market_hours";
+      }
+    }
+    return "always_on";
+  }, [instance.config]);
   const addEventIdToCache = useCallback((eventId: string) => {
     if (lastEventIdsSetRef.current.has(eventId)) return;
     lastEventIdsSetRef.current.add(eventId);
@@ -754,18 +764,15 @@ export function MarketAgentInstanceView({
       setSuggestionError(null);
       try {
         const lastEvent = timelineEvents[0];
-        const lastRunAt = lastEvent?.ts ?? lastEvent?.created_at ?? new Date().toISOString();
-        const agentStatePayload = {
-          status: instance.status === "running" ? "running" : "paused",
-          cadenceSeconds: cadenceSecondsState,
-          cadenceMode:
-            (instance.config?.cadence_mode as "market_hours" | "always_on") === "market_hours"
-              ? "market_hours"
-              : "always_on",
-          watchlistTickers: watchlistState,
-          timezone: userTimezone,
-          lastRunAt,
-        };
+          const lastRunAt = lastEvent?.ts ?? lastEvent?.created_at ?? new Date().toISOString();
+          const agentStatePayload = {
+            status: instance.status === "running" ? "running" : "paused",
+            cadenceSeconds: cadenceSecondsState,
+            cadenceMode,
+            watchlistTickers: watchlistState,
+            timezone: userTimezone,
+            lastRunAt,
+          };
         const marketSnapshot = {
           timestamp: lastRunAt,
           summary: lastEvent?.summary ?? "",
@@ -801,7 +808,7 @@ export function MarketAgentInstanceView({
       }
     },
     [
-      instance.config,
+      cadenceMode,
       instance.id,
       instance.status,
       cadenceSecondsState,
@@ -1018,10 +1025,7 @@ export function MarketAgentInstanceView({
               agentInstanceId: instance.id,
               eventId: event.eventId,
               intervalSeconds: event.cadence.intervalSeconds,
-              mode:
-                (instance.config?.cadence_mode as "market_hours" | "always_on") === "market_hours"
-                  ? "market_hours"
-                  : "always_on",
+              mode: cadenceMode,
             }),
           });
           if (!response.ok) {
@@ -1074,7 +1078,7 @@ export function MarketAgentInstanceView({
         });
       }
     },
-    [addEventIdToCache, instance.id, instance.config]
+    [addEventIdToCache, instance.id, cadenceMode]
   );
 
   const handleDismissSuggestion = useCallback(
