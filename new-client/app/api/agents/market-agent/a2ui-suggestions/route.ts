@@ -56,7 +56,18 @@ const SUGGESTION_RESPONSE_SCHEMA = {
         },
         required: ["kind", "eventId"],
         additionalProperties: false,
-        anyOf: [{ required: ["cadence"] }, { required: ["watchlist"] }],
+        anyOf: [
+          {
+            type: "object",
+            required: ["cadence"],
+            additionalProperties: false,
+          },
+          {
+            type: "object",
+            required: ["watchlist"],
+            additionalProperties: false,
+          },
+        ],
       },
     },
   },
