@@ -1,4 +1,5 @@
 import { calculateCost, calculateGpt4oTranscribeCost } from "@/lib/pricing";
+import { measureAudioDurationSeconds } from "@/lib/audio-duration";
 import { supabaseServerAdmin } from "@/lib/supabase/server";
 import { estimateTokens } from "@/lib/tokens/estimateTokens";
 
@@ -63,14 +64,27 @@ export async function logGpt4oTranscribeUsageFromBytes({
   conversationId,
   fileSizeBytes,
   transcript,
+  durationSeconds,
+  buffer,
+  fileName,
+  mimeType,
 }: {
   userId?: string | null;
   conversationId?: string | null;
   fileSizeBytes: number;
   transcript?: string;
+  durationSeconds?: number;
+  buffer?: Buffer;
+  fileName?: string;
+  mimeType?: string;
 }) {
   if (!userId) return;
-  const duration = estimateAudioDurationSeconds(fileSizeBytes);
+  const duration =
+    typeof durationSeconds === "number"
+      ? durationSeconds
+      : buffer
+        ? await measureAudioDurationSeconds(buffer, fileName, mimeType)
+        : fileSizeBytes / 18_000;
   const textTokens = transcript ? estimateTokens(transcript) : 0;
   const cost = calculateGpt4oTranscribeCost(duration, textTokens);
   await logUsageRecord({

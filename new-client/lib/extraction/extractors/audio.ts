@@ -40,6 +40,9 @@ export const audioExtractor: Extractor = async (buffer, name, mime, ctx) => {
         conversationId: ctx.conversationId,
         fileSizeBytes: ctx.size,
         transcript: text,
+        buffer,
+        fileName: name,
+        mimeType: mime || undefined,
       });
     }
     const preview = truncateUtf8(

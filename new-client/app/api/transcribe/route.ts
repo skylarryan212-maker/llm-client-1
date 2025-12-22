@@ -2,9 +2,10 @@ export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
-import { calculateGpt4oTranscribeCost } from "@/lib/pricing";
 import { supabaseServer } from "@/lib/supabase/server";
-import { logUsageRecord, estimateAudioDurationSeconds } from "@/lib/usage";
+import { logUsageRecord } from "@/lib/usage";
+import { estimateTokens } from "@/lib/tokens/estimateTokens";
+import { measureAudioDurationSeconds } from "@/lib/audio-duration";
 import { estimateTokens } from "@/lib/tokens/estimateTokens";
 
 function getOpenAIClient() {
@@ -66,12 +67,16 @@ export async function POST(request: Request) {
       
       if (user) {
         const fileSizeBytes = buffer.length;
-        const estimatedDuration = estimateAudioDurationSeconds(fileSizeBytes);
+        const durationSeconds = await measureAudioDurationSeconds(buffer, fileName, mimeType);
         const transcriptTokens = estimateTokens(transcript);
-        const cost = calculateGpt4oTranscribeCost(estimatedDuration, transcriptTokens);
-        
-        console.log(`[gpt-4o-transcribe] Transcribed ${fileSizeBytes} bytes (~${estimatedDuration.toFixed(1)}s), cost: $${cost.toFixed(6)}`);
-        
+        const cost = calculateGpt4oTranscribeCost(durationSeconds, transcriptTokens);
+
+        console.log(
+          `[gpt-4o-transcribe] Transcribed ${fileSizeBytes} bytes (~${durationSeconds.toFixed(
+            1
+          )}s), cost: $${cost.toFixed(6)}`
+        );
+
         await logUsageRecord({
           userId: user.id,
           conversationId: null,
