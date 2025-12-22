@@ -141,14 +141,24 @@ const sanitizeCadence = (cadence: any) => {
 
 const sanitizeWatchlist = (watchlist: any): { tickers: string[]; reason: string } | null => {
   if (!watchlist || typeof watchlist !== "object") return null;
-  const rawTickers = Array.isArray(watchlist.tickers) ? (watchlist.tickers as unknown[]) : [];
+  let rawTickers: unknown[] = [];
+  if (Array.isArray(watchlist.tickers)) {
+    rawTickers = watchlist.tickers as unknown[];
+  } else if (typeof watchlist.tickers === "string") {
+    rawTickers = (watchlist.tickers
+      .split(/[,;\n]+/)
+      .map((item: string) => item.trim())
+      .filter((item: string) => Boolean(item))) as unknown[];
+  }
   const normalizedTickers = rawTickers
     .map((ticker) => (typeof ticker === "string" ? ticker.trim().toUpperCase() : ""))
     .filter((ticker): ticker is string => Boolean(ticker) && tickerPattern.test(ticker));
   const tickers = Array.from(new Set<string>(normalizedTickers));
   if (!tickers.length || tickers.length > WATCHLIST_LIMIT) return null;
-  const reason = typeof watchlist.reason === "string" ? watchlist.reason.trim() : "";
-  if (!reason) return null;
+  let reason = typeof watchlist.reason === "string" ? watchlist.reason.trim() : "";
+  if (!reason) {
+    reason = `Update watchlist with ${tickers.join(", ")}`;
+  }
   return { tickers, reason };
 };
 
