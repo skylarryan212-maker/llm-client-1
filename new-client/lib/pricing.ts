@@ -89,7 +89,9 @@ export const GEMINI_IMAGE_PRICING = {
 export const CODE_INTERPRETER_SESSION_COST = 0.03;
 
 const GPT4O_TRANSCRIBE_AUDIO_COST_PER_TOKEN = 6 / 1_000_000;
-const GPT4O_TRANSCRIBE_AUDIO_TOKENS_PER_SECOND = 50;
+// Docs (Realtime cost guide) describe user input audio tokens as ~1 token / 100ms => ~10 tokens/sec.
+// The /v1/audio/transcriptions endpoint does not currently return audio token usage, so we estimate.
+const GPT4O_TRANSCRIBE_AUDIO_TOKENS_PER_SECOND = 10;
 const GPT4O_TRANSCRIBE_TEXT_OUTPUT_COST_PER_TOKEN = 10 / 1_000_000;
 
 export function calculateCost(
