@@ -25,6 +25,7 @@ import {
   extractSuggestionEvents,
   extractSuggestionPayloadFromText,
   parseSuggestionResponsePayload,
+  stripSuggestionPayloadFromText,
 } from "@/lib/market-agent/a2ui";
 import { supabaseServer } from "@/lib/supabase/server";
 import { requireUserIdServer } from "@/lib/supabase/user";
@@ -446,6 +447,11 @@ export async function POST(
         if (!suggestionPayload && finalResponse) {
           suggestionPayload = parseSuggestionResponsePayload(finalResponse);
         }
+        assistantContent = stripSuggestionPayloadFromText(
+          assistantContent,
+          suggestionPayload,
+          taggedSuggestion.payloadFragment
+        );
         if (taggedSuggestion.payload === null && assistantText.includes(A2UI_TAG_START)) {
           console.warn("[a2ui] Failed to parse tagged suggestion payload");
         }
@@ -481,6 +487,10 @@ export async function POST(
               }
             }
             if (insertedEvents.length) {
+              console.log("[a2ui] Streaming suggestion events", {
+                count: insertedEvents.length,
+                eventIds: insertedEvents.map((c) => c.eventId),
+              });
               enqueue({ marketSuggestions: insertedEvents });
             }
           }

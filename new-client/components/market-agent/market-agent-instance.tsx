@@ -127,7 +127,7 @@ export function MarketAgentInstanceView({
   const [activeWorkspace, setActiveWorkspace] = useState<WorkspaceView>("timeline");
   const [timelineOpen, setTimelineOpen] = useState(true);
   const [isMobileView, setIsMobileView] = useState(false);
-  const [mobileActiveTab, setMobileActiveTab] = useState<MobileNavButtonId>("timeline");
+  const [mobileActiveTab, setMobileActiveTab] = useState<MobileNavButtonId>("chat");
   const initialReportDepth = (() => {
     const depth = instance.report_depth ?? "standard";
     return REPORT_DEPTH_OPTIONS.some((option) => option.value === depth) ? (depth as ReportDepth) : "standard";
@@ -207,6 +207,7 @@ export function MarketAgentInstanceView({
   const streamingAbortRef = useRef<AbortController | null>(null);
   const streamingResponseIdRef = useRef<string | null>(null);
   const streamingAgentTempIdRef = useRef<string | null>(null);
+  const mobileNavInitializedRef = useRef(false);
   void _state;
   void _thesis;
 
@@ -435,10 +436,18 @@ export function MarketAgentInstanceView({
   };
 
   useEffect(() => {
+    if (!isMobileView) {
+      mobileNavInitializedRef.current = false;
+      return;
+    }
+    if (!mobileNavInitializedRef.current) {
+      mobileNavInitializedRef.current = true;
+      return;
+    }
     if (mobileActiveTab !== "chat") {
       setIsChatOpen(false);
     }
-  }, [mobileActiveTab]);
+  }, [mobileActiveTab, isMobileView]);
 
   const scheduleProgrammaticScrollReset = () => {
     if (typeof window === "undefined") return;

@@ -194,15 +194,21 @@ export const buildSuggestionContextMessage = (payload: {
   return `Suggestion context:\n${JSON.stringify(filtered, null, 2)}`;
 };
 
-export const extractSuggestionPayloadFromText = (text: string) => {
-  if (!text) return { cleanedText: text, payload: null };
+export type SuggestionExtractionResult = {
+  cleanedText: string;
+  payload: unknown | null;
+  payloadFragment: string | null;
+};
+
+export const extractSuggestionPayloadFromText = (text: string): SuggestionExtractionResult => {
+  if (!text) return { cleanedText: text, payload: null, payloadFragment: null };
   const startIndex = text.indexOf(A2UI_TAG_START);
   if (startIndex === -1) {
-    return { cleanedText: text, payload: null };
+    return { cleanedText: text, payload: null, payloadFragment: null };
   }
   const endIndex = text.indexOf(A2UI_TAG_END, startIndex + A2UI_TAG_START.length);
   if (endIndex === -1) {
-    return { cleanedText: text, payload: null };
+    return { cleanedText: text, payload: null, payloadFragment: null };
   }
   const rawJson = text.slice(startIndex + A2UI_TAG_START.length, endIndex).trim();
   let payload: unknown = null;
@@ -216,7 +222,8 @@ export const extractSuggestionPayloadFromText = (text: string) => {
   const before = text.slice(0, startIndex);
   const after = text.slice(endIndex + A2UI_TAG_END.length);
   const cleanedText = `${before}${after}`.trim();
-  return { cleanedText, payload };
+  const payloadFragment = text.slice(startIndex, endIndex + A2UI_TAG_END.length);
+  return { cleanedText, payload, payloadFragment };
 };
 
 export const parseSuggestionResponsePayload = (response: unknown): unknown => {
@@ -259,4 +266,29 @@ export const parseSuggestionResponsePayload = (response: unknown): unknown => {
     }
   }
   return null;
+};
+
+export const stripSuggestionPayloadFromText = (
+  text: string,
+  payload: unknown | null,
+  payloadFragment?: string | null,
+) => {
+  let cleaned = typeof text === "string" ? text : "";
+  if (payloadFragment) {
+    cleaned = cleaned.replace(payloadFragment, "");
+  }
+  if (!payload) {
+    return cleaned.trim();
+  }
+  const serialized = [JSON.stringify(payload, null, 2), JSON.stringify(payload)]
+    .filter(Boolean)
+    .map((value) => value.trim())
+    .filter(Boolean);
+  for (const candidate of serialized) {
+    if (cleaned.includes(candidate)) {
+      cleaned = cleaned.replace(candidate, "");
+      break;
+    }
+  }
+  return cleaned.trim();
 };
