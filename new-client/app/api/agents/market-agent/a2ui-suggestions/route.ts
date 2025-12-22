@@ -4,82 +4,16 @@ import OpenAI from "openai";
 import { listMarketAgentUiEventIds, upsertMarketAgentUiEvent } from "@/lib/data/market-agent";
 import { requireUserIdServer } from "@/lib/supabase/user";
 import { MarketSuggestionEvent } from "@/types/market-suggestion";
+import {
+  MAX_SUGGESTIONS,
+  SUGGESTION_RESPONSE_SCHEMA,
+  SUGGESTION_SYSTEM_PROMPT,
+  extractSuggestionEvents,
+  parseSuggestionResponsePayload,
+} from "@/lib/market-agent/a2ui";
 
 const MODEL_ID = "gpt-5-mini";
-const MAX_SUGGESTIONS = 5;
-const ALLOWED_CADENCES = [60, 120, 300, 600, 1800, 3600] as const;
-const ALLOWED_CADENCE_SET = new Set<number>(ALLOWED_CADENCES);
-const WATCHLIST_LIMIT = 25;
-
-const SYSTEM_PROMPT = [
-  "You generate UI-intent JSON for a suggestion card.",
-  "You do NOT write UI; the application renders fixed templates.",
-  "Only fill cadence interval + reason, optional watchlist tickers + reason (1-3 sentences each).",
-  `Cadence interval must be one of ${ALLOWED_CADENCES.join(", ")} seconds and the reason should be conservative.`,
-  "Watchlist suggestions should only surface when the user message or snapshot shows a missing relevant ticker.",
-  "If the user explicitly asks to change cadence or add tickers, return a matching suggestion instead of returning empty.",
-  "Return {\"events\": []} if no strong suggestion is justified.",
-  "Do not repeat eventIds found in lastUiEventIds.",
-  "Use the eventId format cadence:{intervalSeconds}:{YYYYMMDDHH}, watchlist:{sortedTickersJoinedByDash}:{YYYYMMDDHH}, or cadence-watchlist:{intervalSeconds}:{sortedTickersJoinedByDash}:{YYYYMMDDHH}, rounding the timestamp to the nearest hour.",
-  `Limit watchlist suggestions to ${WATCHLIST_LIMIT} tickers or fewer.`,
-  "Do not add any extra fields beyond the defined schema.",
-].join(" ");
-
-const SUGGESTION_RESPONSE_SCHEMA = {
-  type: "object",
-  properties: {
-    events: {
-      type: "array",
-      items: {
-        anyOf: [
-          {
-            type: "object",
-            properties: {
-              kind: { type: "string", const: "market_suggestion" },
-              eventId: { type: "string" },
-              cadence: {
-                type: "object",
-                properties: {
-                  intervalSeconds: { type: "integer", enum: ALLOWED_CADENCES },
-                  reason: { type: "string", minLength: 1 },
-                },
-                required: ["intervalSeconds", "reason"],
-                additionalProperties: false,
-              },
-            },
-            required: ["kind", "eventId", "cadence"],
-            additionalProperties: false,
-          },
-          {
-            type: "object",
-            properties: {
-              kind: { type: "string", const: "market_suggestion" },
-              eventId: { type: "string" },
-              watchlist: {
-                type: "object",
-                properties: {
-                  tickers: {
-                    type: "array",
-                    items: { type: "string" },
-                    minItems: 1,
-                    maxItems: WATCHLIST_LIMIT,
-                  },
-                  reason: { type: "string", minLength: 1 },
-                },
-                required: ["tickers", "reason"],
-                additionalProperties: false,
-              },
-            },
-            required: ["kind", "eventId", "watchlist"],
-            additionalProperties: false,
-          },
-        ],
-      },
-    },
-  },
-  required: ["events"],
-  additionalProperties: false,
-};
+const SYSTEM_PROMPT = SUGGESTION_SYSTEM_PROMPT;
 
 type AgentStatePayload = {
   status?: "running" | "paused";
@@ -97,55 +31,6 @@ type SuggestionRequestBody = {
   marketSnapshot?: Record<string, unknown> | null;
   lastAnalysisSummary?: string;
   lastUiEventIds?: string[];
-};
-
-const sanitizeCadence = (cadence: any) => {
-  if (!cadence || typeof cadence !== "object") return null;
-  const intervalSeconds =
-    typeof cadence.intervalSeconds === "number" && Number.isFinite(cadence.intervalSeconds)
-      ? Math.round(cadence.intervalSeconds)
-      : NaN;
-  if (!intervalSeconds || !ALLOWED_CADENCE_SET.has(intervalSeconds)) return null;
-  const reason = typeof cadence.reason === "string" ? cadence.reason.trim() : "";
-  if (!reason) return null;
-  return { intervalSeconds, reason };
-};
-
-const tickerPattern = /^[A-Z0-9.\-]{1,6}$/;
-const sanitizeWatchlist = (watchlist: any): { tickers: string[]; reason: string } | null => {
-  if (!watchlist || typeof watchlist !== "object") return null;
-  const rawTickers = Array.isArray(watchlist.tickers) ? (watchlist.tickers as unknown[]) : [];
-  const normalizedTickers = rawTickers
-    .map((ticker) => (typeof ticker === "string" ? ticker.trim().toUpperCase() : ""))
-    .filter((ticker): ticker is string => Boolean(ticker) && tickerPattern.test(ticker));
-  const tickers = Array.from(new Set<string>(normalizedTickers));
-  if (!tickers.length || tickers.length > WATCHLIST_LIMIT) return null;
-  const reason = typeof watchlist.reason === "string" ? watchlist.reason.trim() : "";
-  if (!reason) return null;
-  return { tickers, reason };
-};
-
-const extractSuggestionEvents = (raw: unknown): MarketSuggestionEvent[] => {
-  if (!raw || typeof raw !== "object") return [];
-  const events = Array.isArray((raw as any).events) ? (raw as any).events : null;
-  if (!events) return [];
-  const result: MarketSuggestionEvent[] = [];
-  for (const entry of events) {
-    if (!entry || typeof entry !== "object") continue;
-    if (entry?.kind !== "market_suggestion") continue;
-    const eventId = typeof entry.eventId === "string" ? entry.eventId.trim() : "";
-    if (!eventId) continue;
-    const cadence = sanitizeCadence(entry.cadence);
-    const watchlist = sanitizeWatchlist(entry.watchlist);
-    if (!cadence && !watchlist) continue;
-    result.push({
-      kind: "market_suggestion",
-      eventId,
-      cadence: cadence ?? undefined,
-      watchlist: watchlist ?? undefined,
-    });
-  }
-  return result;
 };
 
 const composeUserMessage = (body: SuggestionRequestBody, dedupeIds: string[]) => {
@@ -233,38 +118,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ events: [] });
     }
 
-    const outputItems = Array.isArray(response.output) ? response.output : [];
-    const textParts: string[] = [];
-    let parsed: unknown = null;
-    for (const item of outputItems) {
-      if (item.type !== "message" || !Array.isArray(item.content)) continue;
-      for (const part of item.content) {
-        const partType = (part as { type?: string })?.type;
-        if (partType === "output_json") {
-          parsed = (part as { json?: unknown }).json ?? null;
-          if (parsed) break;
-        }
-        if (partType === "output_text" && typeof (part as { text?: unknown }).text === "string") {
-          textParts.push((part as { text: string }).text);
-        }
-      }
-      if (parsed) break;
-    }
-
+    const parsed = parseSuggestionResponsePayload(response);
     if (!parsed) {
-      const joined = textParts.join("");
-      if (!joined) {
-        console.warn("[a2ui] No structured output returned from model");
-        return NextResponse.json({ events: [] });
-      }
-      try {
-        parsed = JSON.parse(joined);
-      } catch (error) {
-        console.warn("[a2ui] Failed to parse model output", { error, payload: joined });
-        return NextResponse.json({ events: [] });
-      }
+      console.warn("[a2ui] No structured output returned from model");
+      return NextResponse.json({ events: [] });
     }
-
     const candidates = extractSuggestionEvents(parsed);
     console.log("[a2ui] Parsed candidates", {
       count: candidates.length,

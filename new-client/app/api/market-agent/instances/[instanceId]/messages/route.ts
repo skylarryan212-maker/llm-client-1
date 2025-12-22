@@ -7,11 +7,23 @@ import { estimateTokens } from "@/lib/tokens/estimateTokens";
 import { logUsageRecord } from "@/lib/usage";
 import {
   ensureMarketAgentConversation,
+  getMarketAgentEvents,
   getMarketAgentInstance,
+  getMarketAgentState,
   insertMarketAgentMessage,
   listMarketAgentMessages,
+  listMarketAgentUiEventIds,
+  upsertMarketAgentUiEvent,
   type MarketAgentChatMessage,
 } from "@/lib/data/market-agent";
+import { MarketSuggestionEvent } from "@/types/market-suggestion";
+import {
+  MAX_SUGGESTIONS,
+  SUGGESTION_SYSTEM_PROMPT,
+  buildSuggestionContextMessage,
+  extractSuggestionEvents,
+  parseSuggestionResponsePayload,
+} from "@/lib/market-agent/a2ui";
 import { supabaseServer } from "@/lib/supabase/server";
 import { requireUserIdServer } from "@/lib/supabase/user";
 
@@ -157,13 +169,48 @@ export async function POST(
     const suggestionOutcomeEntries = suggestionOutcomeMessage
       ? [{ role: "system" as const, content: suggestionOutcomeMessage }]
       : [];
+    const [stateRow, latestEvents, recentEventIds] = await Promise.all([
+      getMarketAgentState(instanceId),
+      getMarketAgentEvents({ instanceId, limit: 1 }),
+      listMarketAgentUiEventIds(instanceId, 50),
+    ]);
+    const latestEvent = latestEvents[0] ?? null;
+    const configRecord = typeof instance.config === "object" && instance.config ? instance.config : {};
+    const cadenceMode: "market_hours" | "always_on" =
+      (configRecord as Record<string, unknown>).cadence_mode === "market_hours" ? "market_hours" : "always_on";
+    const agentStatePayload = {
+      status: instance.status === "running" ? "running" : "paused",
+      cadenceSeconds: instance.cadence_seconds ?? null,
+      cadenceMode,
+      watchlistTickers: instance.watchlist,
+      timezone: typeof stateRow?.state?.timezone === "string" ? stateRow.state.timezone : undefined,
+      lastRunAt: latestEvent?.ts ?? latestEvent?.created_at ?? new Date().toISOString(),
+    };
+    const marketSnapshot = {
+      timestamp: latestEvent?.ts ?? latestEvent?.created_at ?? new Date().toISOString(),
+      summary: latestEvent?.summary ?? "",
+      tickers: latestEvent?.tickers ?? [],
+      state: stateRow?.state ?? {},
+    };
+    const suggestionContextMessage = buildSuggestionContextMessage({
+      agentState: agentStatePayload,
+      marketSnapshot,
+      lastAnalysisSummary: latestEvent?.summary ?? "",
+      lastUiEventIds: recentEventIds,
+    });
+    const suggestionSystemMessages = [
+      { role: "system" as const, content: SUGGESTION_SYSTEM_PROMPT },
+      { role: "system" as const, content: suggestionContextMessage },
+    ];
     const chatPrompt = buildChatPrompt(cadenceSeconds);
     const chatMessages = [
       { role: "system" as const, content: chatPrompt },
+      ...suggestionSystemMessages,
       ...suggestionOutcomeEntries,
       ...historyMessages,
     ];
     const contextMessages = chatMessages;
+    const dedupeSet = new Set<string>(recentEventIds);
     const estimatedInputTokens = contextMessages.reduce(
       (acc, msg) => acc + estimateTokens(typeof msg.content === "string" ? msg.content : ""),
       0
@@ -236,6 +283,7 @@ export async function POST(
         let cachedTokens = 0;
         let outputTokens = 0;
         let assistantText = "";
+        let finalResponse: unknown = null;
         let cancelled = false;
 
         const upstreamSignal = request.signal as AbortSignal | undefined;
@@ -297,6 +345,7 @@ export async function POST(
             }
 
             if (eventType === "response.completed") {
+              finalResponse = (event as any)?.response ?? finalResponse;
               if (!assistantText && (event as any)?.response?.output_text) {
                 assistantText = String((event as any).response.output_text);
               }
@@ -336,6 +385,33 @@ export async function POST(
         let assistantContent = (assistantText ?? "").trim() ? assistantText ?? "" : "";
         if (!assistantContent.trim()) {
           assistantContent = "I'm here. Ask me about the markets.";
+        }
+        if (finalResponse) {
+          const suggestionPayload = parseSuggestionResponsePayload(finalResponse);
+          if (suggestionPayload) {
+            const candidates = extractSuggestionEvents(suggestionPayload);
+            const insertedEvents: MarketSuggestionEvent[] = [];
+            for (const candidate of candidates) {
+              if (dedupeSet.has(candidate.eventId)) continue;
+              if (insertedEvents.length >= MAX_SUGGESTIONS) break;
+              try {
+                await upsertMarketAgentUiEvent({
+                  instanceId,
+                  eventId: candidate.eventId,
+                  kind: candidate.kind,
+                  payload: candidate,
+                  status: "proposed",
+                });
+                dedupeSet.add(candidate.eventId);
+                insertedEvents.push(candidate);
+              } catch (eventErr) {
+                console.error("[market-agent] Failed to persist suggestion", eventErr);
+              }
+            }
+            if (insertedEvents.length) {
+              enqueue({ marketSuggestions: insertedEvents });
+            }
+          }
         }
         const agentMetadata = {
           agent: "market-agent",

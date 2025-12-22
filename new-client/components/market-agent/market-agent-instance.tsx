@@ -149,7 +149,6 @@ export function MarketAgentInstanceView({
   const [suggestionError, setSuggestionError] = useState<string | null>(null);
   const lastEventIdsRef = useRef<string[]>(initialSuggestionEventIds ?? []);
   const lastEventIdsSetRef = useRef(new Set(initialSuggestionEventIds ?? []));
-  const suggestionRequestInFlightRef = useRef(false);
   const userTimezone = useMemo(() => {
     if (typeof Intl === "undefined") return "UTC";
     return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
@@ -754,83 +753,11 @@ export function MarketAgentInstanceView({
     }
   }, []);
 
-  const triggerSuggestionRefresh = useCallback(
-    async (userMessage: string) => {
-      if (!instance.id || suggestionRequestInFlightRef.current) return;
-      suggestionRequestInFlightRef.current = true;
-      setIsRefreshingSuggestions(true);
-      setSuggestionError(null);
-      const controller = new AbortController();
-      const timeoutId = window.setTimeout(() => controller.abort(), 25_000);
-      try {
-        const lastEvent = timelineEvents[0];
-        const lastRunAt = lastEvent?.ts ?? lastEvent?.created_at ?? new Date().toISOString();
-        const agentStatePayload = {
-          status: instance.status === "running" ? "running" : "paused",
-          cadenceSeconds: cadenceSecondsState,
-          cadenceMode,
-          watchlistTickers: watchlistState,
-          timezone: userTimezone,
-          lastRunAt,
-        };
-        const marketSnapshot = {
-          timestamp: lastRunAt,
-          summary: lastEvent?.summary ?? "",
-          tickers: lastEvent?.tickers ?? [],
-          state: stateRow?.state ?? {},
-        };
-        const payload = {
-          agentInstanceId: instance.id,
-          userMessage,
-          agentState: agentStatePayload,
-          marketSnapshot,
-          lastAnalysisSummary: lastEvent?.summary ?? "",
-          lastUiEventIds: [...lastEventIdsRef.current],
-        };
-        console.debug("[a2ui] triggerSuggestionRefresh -> POST", payload);
-        const response = await fetch("/api/agents/market-agent/a2ui-suggestions", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-          signal: controller.signal,
-        });
-        if (!response.ok) {
-          const errorBody = await response.json().catch(() => null);
-          throw new Error(errorBody?.error ?? "Failed to refresh suggestions");
-        }
-        const data = (await response.json().catch(() => null)) as { events?: MarketSuggestionEvent[] } | null;
-        const events = Array.isArray(data?.events) ? data.events : [];
-        console.debug("[a2ui] triggerSuggestionRefresh <- response", { count: events.length });
-        appendSuggestionEvents(events);
-      } catch (error) {
-        const aborted = error instanceof DOMException && error.name === "AbortError";
-        setSuggestionError(
-          aborted ? "Suggestion refresh timed out. Please try again." : error instanceof Error ? error.message : "Failed to refresh suggestions"
-        );
-        console.error("[a2ui] triggerSuggestionRefresh error", error);
-      } finally {
-        window.clearTimeout(timeoutId);
-        suggestionRequestInFlightRef.current = false;
-        setIsRefreshingSuggestions(false);
-      }
-    },
-    [
-      cadenceMode,
-      instance.id,
-      instance.status,
-      cadenceSecondsState,
-      watchlistState,
-      timelineEvents,
-      stateRow,
-      userTimezone,
-      appendSuggestionEvents,
-    ],
-  );
-
   const handleSendChat = async (inputContent: string) => {
     const content = inputContent.trim();
     if (!content || isSendingChat || isStreamingAgent) return;
     setIsSendingChat(true);
+    setIsRefreshingSuggestions(true);
     setIndicatorLabel(DEFAULT_INDICATOR_LABEL);
     setChatError(null);
     const tempId = `temp-${Date.now()}`;
@@ -958,6 +885,21 @@ export function MarketAgentInstanceView({
         if (payload.agentMessage) {
           replaceAgentMessage(payload.agentMessage as AgentChatMessage);
         }
+        if (Array.isArray(payload.marketSuggestions)) {
+          const events = payload.marketSuggestions.filter(
+            (event): event is MarketSuggestionEvent =>
+              Boolean(event && typeof event.eventId === "string")
+          );
+          if (events.length) {
+            setSuggestionError(null);
+            appendSuggestionEvents(events);
+            setIsRefreshingSuggestions(false);
+          }
+        }
+        if (typeof payload.suggestionError === "string") {
+          setSuggestionError(payload.suggestionError);
+          setIsRefreshingSuggestions(false);
+        }
         if (payload.error) {
           setChatError(typeof payload.error === "string" ? payload.error : "Request failed");
         }
@@ -997,7 +939,6 @@ export function MarketAgentInstanceView({
             )
           );
       }
-      void triggerSuggestionRefresh(content);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to send message";
       setChatError(message);
@@ -1008,15 +949,16 @@ export function MarketAgentInstanceView({
       }
       setShowThinkingIndicator(false);
       setIndicatorLabel(DEFAULT_INDICATOR_LABEL);
-    } finally {
-      setIsSendingChat(false);
-      setIsStreamingAgent(false);
-      streamingAbortRef.current = null;
-      streamingResponseIdRef.current = null;
-      streamingAgentTempIdRef.current = null;
-      setShowThinkingIndicator(false);
-      setIndicatorLabel(DEFAULT_INDICATOR_LABEL);
-    }
+      } finally {
+        setIsSendingChat(false);
+        setIsStreamingAgent(false);
+        streamingAbortRef.current = null;
+        streamingResponseIdRef.current = null;
+        streamingAgentTempIdRef.current = null;
+        setIsRefreshingSuggestions(false);
+        setShowThinkingIndicator(false);
+        setIndicatorLabel(DEFAULT_INDICATOR_LABEL);
+      }
   };
 
   const handleApplySuggestion = useCallback(
