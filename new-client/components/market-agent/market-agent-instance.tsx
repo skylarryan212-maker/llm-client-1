@@ -82,6 +82,13 @@ type ToolStatusEvent = {
   query?: string;
 };
 
+type SuggestionGroup = {
+  id: string;
+  events: MarketSuggestionEvent[];
+  cadence?: MarketSuggestionEvent["cadence"];
+  watchlist?: MarketSuggestionEvent["watchlist"];
+};
+
 const formatCadenceLabelForHeader = (seconds: number) => {
   if (!Number.isFinite(seconds) || seconds <= 0) {
     return `${seconds}s`;
@@ -94,15 +101,18 @@ const formatCadenceLabelForHeader = (seconds: number) => {
   return `${seconds}s`;
 };
 
-const getSuggestionHeader = (event: MarketSuggestionEvent) => {
+const getSuggestionHeader = (
+  cadence?: MarketSuggestionEvent["cadence"],
+  watchlist?: MarketSuggestionEvent["watchlist"]
+) => {
   const parts: string[] = [];
-  if (event.cadence) {
-    parts.push(`${formatCadenceLabelForHeader(event.cadence.intervalSeconds)} cadence`);
+  if (cadence) {
+    parts.push(`${formatCadenceLabelForHeader(cadence.intervalSeconds)} cadence`);
   }
-  if (event.watchlist) {
-    parts.push("+ watchlist update");
+  if (watchlist) {
+    parts.push("watchlist update");
   }
-  return parts.join(" ").trim() || "Suggestion";
+  return parts.join(" + ").trim() || "Suggestion";
 };
 type AgentChatMessage = MarketAgentChatMessage;
 export function MarketAgentInstanceView({
@@ -188,6 +198,42 @@ export function MarketAgentInstanceView({
     },
     [addEventIdToCache]
   );
+  const suggestionGroups = useMemo<SuggestionGroup[]>(() => {
+    if (!suggestionEvents.length) return [];
+    if (suggestionEvents.length === 2) {
+      const [first, second] = suggestionEvents;
+      const firstCadenceOnly = Boolean(first.cadence) && !first.watchlist;
+      const firstWatchlistOnly = Boolean(first.watchlist) && !first.cadence;
+      const secondCadenceOnly = Boolean(second.cadence) && !second.watchlist;
+      const secondWatchlistOnly = Boolean(second.watchlist) && !second.cadence;
+      if (firstCadenceOnly && secondWatchlistOnly) {
+        return [
+          {
+            id: `${first.eventId}+${second.eventId}`,
+            events: [first, second],
+            cadence: first.cadence,
+            watchlist: second.watchlist,
+          },
+        ];
+      }
+      if (secondCadenceOnly && firstWatchlistOnly) {
+        return [
+          {
+            id: `${second.eventId}+${first.eventId}`,
+            events: [second, first],
+            cadence: second.cadence,
+            watchlist: first.watchlist,
+          },
+        ];
+      }
+    }
+    return suggestionEvents.map((event) => ({
+      id: event.eventId,
+      events: [event],
+      cadence: event.cadence,
+      watchlist: event.watchlist,
+    }));
+  }, [suggestionEvents]);
   const [bottomSpacerPx, setBottomSpacerPx] = useState(baseBottomSpacerPx);
   const [timelineEvents, setTimelineEvents] = useState<MarketAgentFeedEvent[]>(events ?? []);
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
@@ -1068,6 +1114,24 @@ export function MarketAgentInstanceView({
     [addEventIdToCache, instance.id]
   );
 
+  const handleApplySuggestionGroup = useCallback(
+    async (group: SuggestionGroup) => {
+      for (const event of group.events) {
+        await handleApplySuggestion(event);
+      }
+    },
+    [handleApplySuggestion]
+  );
+
+  const handleDismissSuggestionGroup = useCallback(
+    async (group: SuggestionGroup) => {
+      for (const event of group.events) {
+        await handleDismissSuggestion(event.eventId);
+      }
+    },
+    [handleDismissSuggestion]
+  );
+
 
   const handleStopStreaming = () => {
     try {
@@ -1370,10 +1434,10 @@ export function MarketAgentInstanceView({
               isStreaming={isStreamingAgent}
               showThinkingIndicator={showThinkingIndicator}
               indicatorLabel={indicatorLabel}
-              suggestionEvents={suggestionEvents}
+              suggestionGroups={suggestionGroups}
               suggestionActionState={suggestionActionState}
-              onApplySuggestion={handleApplySuggestion}
-              onDismissSuggestion={handleDismissSuggestion}
+              onApplySuggestionGroup={handleApplySuggestionGroup}
+              onDismissSuggestionGroup={handleDismissSuggestionGroup}
               isRefreshingSuggestions={isRefreshingSuggestions}
               suggestionError={suggestionError}
               chatListRef={chatListRef}
@@ -1461,10 +1525,10 @@ type AgentChatSidebarProps = {
   isStreaming: boolean;
   showThinkingIndicator: boolean;
   indicatorLabel: string;
-  suggestionEvents: MarketSuggestionEvent[];
+  suggestionGroups: SuggestionGroup[];
   suggestionActionState: Record<string, { applying?: boolean; dismissing?: boolean }>;
-  onApplySuggestion: (event: MarketSuggestionEvent) => void;
-  onDismissSuggestion: (eventId: string) => void;
+  onApplySuggestionGroup: (group: SuggestionGroup) => void;
+  onDismissSuggestionGroup: (group: SuggestionGroup) => void;
   isRefreshingSuggestions: boolean;
   suggestionError: string | null;
   chatListRef: MutableRefObject<HTMLDivElement | null>;
@@ -1493,10 +1557,10 @@ function AgentChatSidebar({
   isStreaming,
   showThinkingIndicator,
   indicatorLabel,
-  suggestionEvents,
+  suggestionGroups,
   suggestionActionState,
-  onApplySuggestion,
-  onDismissSuggestion,
+  onApplySuggestionGroup,
+  onDismissSuggestionGroup,
   isRefreshingSuggestions,
   suggestionError,
   chatListRef,
@@ -1648,6 +1712,7 @@ function AgentChatSidebar({
             {error && !isLoading ? (
               <p className="text-xs text-rose-300 mb-1">{error}</p>
             ) : null}
+            {suggestionGroups.length ? (
               <div className="space-y-2 rounded-2xl border border-emerald-500/20 bg-white/5 p-4 text-sm text-foreground">
                 <div className="flex items-center justify-between">
                   <div>
@@ -1663,63 +1728,69 @@ function AgentChatSidebar({
                 {suggestionError ? (
                   <p className="text-xs text-rose-300">{suggestionError}</p>
                 ) : null}
-                {suggestionEvents.length ? (
-                  suggestionEvents.map((event) => {
-                    const actionState = suggestionActionState[event.eventId] ?? {};
-                    return (
-                      <div
-                        key={event.eventId}
-                        className="space-y-2 rounded-2xl border border-white/15 bg-black/30 p-3"
-                      >
-                        <div className="flex items-center justify-between gap-2">
-                          <p className="text-sm font-semibold text-white">{getSuggestionHeader(event)}</p>
-                          {actionState.applying ? (
-                            <span className="text-[11px] text-muted-foreground">Applying…</span>
-                          ) : actionState.dismissing ? (
-                            <span className="text-[11px] text-muted-foreground">Dismissing…</span>
-                          ) : null}
-                        </div>
-                        {event.watchlist ? (
-                          <p className="text-xs uppercase text-muted-foreground tracking-[0.2em]">
-                            WATCHLIST: {event.watchlist.tickers.join(", ")}
-                          </p>
+                {suggestionGroups.map((group) => {
+                  const eventIds = group.events.map((event) => event.eventId);
+                  const actionState = eventIds.reduce(
+                    (acc, eventId) => {
+                      const state = suggestionActionState[eventId];
+                      if (state?.applying) acc.applying = true;
+                      if (state?.dismissing) acc.dismissing = true;
+                      return acc;
+                    },
+                    { applying: false, dismissing: false }
+                  );
+                  return (
+                    <div
+                      key={group.id}
+                      className="space-y-2 rounded-2xl border border-white/15 bg-black/30 p-3"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-sm font-semibold text-white">
+                          {getSuggestionHeader(group.cadence, group.watchlist)}
+                        </p>
+                        {actionState.applying ? (
+                          <span className="text-[11px] text-muted-foreground">Applying…</span>
+                        ) : actionState.dismissing ? (
+                          <span className="text-[11px] text-muted-foreground">Dismissing…</span>
                         ) : null}
-                        {event.cadence ? (
-                          <p className="text-[11px] text-muted-foreground">
-                            Cadence reason: {event.cadence.reason}
-                          </p>
-                        ) : null}
-                        {event.watchlist ? (
-                          <p className="text-[11px] text-muted-foreground">
-                            Watchlist reason: {event.watchlist.reason}
-                          </p>
-                        ) : null}
-                        <div className="flex flex-wrap gap-2">
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => onDismissSuggestion(event.eventId)}
-                            disabled={isStreaming || actionState.dismissing}
-                          >
-                            Dismiss
-                          </Button>
-                          <Button
-                            size="sm"
-                            onClick={() => onApplySuggestion(event)}
-                            disabled={isStreaming || actionState.applying}
-                          >
-                            Apply
-                          </Button>
-                        </div>
                       </div>
-                    );
-                  })
-                ) : (
-                  <p className="text-xs text-muted-foreground">
-                    No suggestions right now. Ask the agent or wait for new insights.
-                  </p>
-                )}
+                      {group.watchlist ? (
+                        <p className="text-xs uppercase text-muted-foreground tracking-[0.2em]">
+                          WATCHLIST: {group.watchlist.tickers.join(", ")}
+                        </p>
+                      ) : null}
+                      {group.cadence ? (
+                        <p className="text-[11px] text-muted-foreground">
+                          Cadence reason: {group.cadence.reason}
+                        </p>
+                      ) : null}
+                      {group.watchlist ? (
+                        <p className="text-[11px] text-muted-foreground">
+                          Watchlist reason: {group.watchlist.reason}
+                        </p>
+                      ) : null}
+                      <div className="flex flex-wrap gap-2">
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => onDismissSuggestionGroup(group)}
+                          disabled={isStreaming || actionState.dismissing}
+                        >
+                          Dismiss
+                        </Button>
+                        <Button
+                          size="sm"
+                          onClick={() => onApplySuggestionGroup(group)}
+                          disabled={isStreaming || actionState.applying}
+                        >
+                          Apply
+                        </Button>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
+            ) : null}
             <div className="mx-auto w-full max-w-3xl">
               <ChatComposer
                 onSendMessage={onSendChat}
