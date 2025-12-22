@@ -255,6 +255,7 @@ export function MarketAgentInstanceView({
   const streamingAgentTempIdRef = useRef<string | null>(null);
   const mobileNavInitializedRef = useRef(false);
   const lockedScrollHeightRef = useRef<number | null>(null);
+  const lockScrollAfterStreamRef = useRef(false);
   void _state;
   void _thesis;
 
@@ -515,6 +516,12 @@ export function MarketAgentInstanceView({
     [bottomSpacerPx]
   );
 
+  const getLockedMaxScrollTop = (viewport: HTMLDivElement) => {
+    const lockedHeight = lockedScrollHeightRef.current;
+    if (!lockedHeight) return null;
+    return Math.max(0, lockedHeight - viewport.clientHeight);
+  };
+
   const scrollToBottom = (behavior: ScrollBehavior = "smooth") => {
     const viewport = chatListRef.current;
     if (!viewport) return;
@@ -571,9 +578,15 @@ export function MarketAgentInstanceView({
       pinToPromptRef.current = false;
       pinnedScrollTopRef.current = null;
       setPinSpacerHeight(0);
-      return;
     }
     const { scrollTop, clientHeight } = viewport;
+    const lockedMax = getLockedMaxScrollTop(viewport);
+    if (lockedMax !== null && !isStreamingAgent && scrollTop > lockedMax + 2) {
+      isProgrammaticScrollRef.current = true;
+      viewport.scrollTop = lockedMax;
+      scheduleProgrammaticScrollReset();
+      return;
+    }
     const effectiveBottom = getEffectiveScrollBottom(viewport);
     const distanceFromBottom = effectiveBottom - (scrollTop + clientHeight);
     const tolerance = Math.max(16, bottomSpacerPx / 3);
@@ -695,6 +708,7 @@ export function MarketAgentInstanceView({
   ]);
 
   useEffect(() => {
+    if (lockedScrollHeightRef.current) return;
     if (pinToPromptRef.current) return;
     pinnedScrollTopRef.current = null;
     const pinnedId = pinnedMessageIdRef.current;
@@ -979,24 +993,37 @@ export function MarketAgentInstanceView({
       }
       setShowThinkingIndicator(false);
       setIndicatorLabel(DEFAULT_INDICATOR_LABEL);
-      } finally {
-        setIsSendingChat(false);
-        setIsStreamingAgent(false);
-        streamingAbortRef.current = null;
-        streamingResponseIdRef.current = null;
-        streamingAgentTempIdRef.current = null;
-        setIsRefreshingSuggestions(false);
-        setShowThinkingIndicator(false);
-        setIndicatorLabel(DEFAULT_INDICATOR_LABEL);
-      }
+    } finally {
+      lockScrollAfterStreamRef.current = true;
+      setIsSendingChat(false);
+      setIsStreamingAgent(false);
+      streamingAbortRef.current = null;
+      streamingResponseIdRef.current = null;
+      streamingAgentTempIdRef.current = null;
+      setIsRefreshingSuggestions(false);
+      setShowThinkingIndicator(false);
+      setIndicatorLabel(DEFAULT_INDICATOR_LABEL);
+    }
   };
 
   useEffect(() => {
-    if (isStreamingAgent || !hasStreamedTokenRef.current) return;
+    if (!lockScrollAfterStreamRef.current) return;
+    if (isStreamingAgent) return;
     const viewport = chatListRef.current;
     if (!viewport) return;
-    lockedScrollHeightRef.current = viewport.scrollHeight;
-  }, [isStreamingAgent, chatMessages.length]);
+    const pinnedId = pinnedMessageIdRef.current;
+    const requiredSpacer = pinnedId ? computeRequiredSpacerForMessage(pinnedId) : null;
+    const nextSpacer = Math.max(
+      baseBottomSpacerPx,
+      typeof requiredSpacer === "number" ? Math.round(requiredSpacer) : baseBottomSpacerPx
+    );
+    const contentHeight = viewport.scrollHeight - bottomSpacerPx;
+    lockedScrollHeightRef.current = contentHeight + nextSpacer;
+    if (nextSpacer !== bottomSpacerPx) {
+      setBottomSpacerPx(nextSpacer);
+    }
+    lockScrollAfterStreamRef.current = false;
+  }, [baseBottomSpacerPx, bottomSpacerPx, computeRequiredSpacerForMessage, isStreamingAgent, chatMessages.length]);
 
   const handleApplySuggestion = useCallback(
     async (event: MarketSuggestionEvent) => {
