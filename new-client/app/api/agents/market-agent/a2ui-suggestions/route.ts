@@ -61,7 +61,72 @@ const SUGGESTION_RESPONSE_SCHEMA = {
         },
         required: ["kind", "eventId"],
         additionalProperties: false,
-        anyOf: [{ required: ["cadence"] }, { required: ["watchlist"] }],
+        anyOf: [
+          {
+            type: "object",
+            properties: {
+              kind: { type: "string", const: "market_suggestion" },
+              eventId: { type: "string" },
+              cadence: {
+                type: "object",
+                properties: {
+                  intervalSeconds: { type: "integer", enum: ALLOWED_CADENCES },
+                  reason: { type: "string", minLength: 1 },
+                },
+                required: ["intervalSeconds", "reason"],
+                additionalProperties: false,
+              },
+              watchlist: {
+                type: "object",
+                properties: {
+                  tickers: {
+                    type: "array",
+                    items: { type: "string" },
+                    minItems: 1,
+                    maxItems: WATCHLIST_LIMIT,
+                  },
+                  reason: { type: "string", minLength: 1 },
+                },
+                required: ["tickers", "reason"],
+                additionalProperties: false,
+              },
+            },
+            required: ["kind", "eventId", "cadence"],
+            additionalProperties: false,
+          },
+          {
+            type: "object",
+            properties: {
+              kind: { type: "string", const: "market_suggestion" },
+              eventId: { type: "string" },
+              cadence: {
+                type: "object",
+                properties: {
+                  intervalSeconds: { type: "integer", enum: ALLOWED_CADENCES },
+                  reason: { type: "string", minLength: 1 },
+                },
+                required: ["intervalSeconds", "reason"],
+                additionalProperties: false,
+              },
+              watchlist: {
+                type: "object",
+                properties: {
+                  tickers: {
+                    type: "array",
+                    items: { type: "string" },
+                    minItems: 1,
+                    maxItems: WATCHLIST_LIMIT,
+                  },
+                  reason: { type: "string", minLength: 1 },
+                },
+                required: ["tickers", "reason"],
+                additionalProperties: false,
+              },
+            },
+            required: ["kind", "eventId", "watchlist"],
+            additionalProperties: false,
+          },
+        ],
       },
     },
   },
