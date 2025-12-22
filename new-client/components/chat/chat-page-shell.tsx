@@ -3554,7 +3554,7 @@ export default function ChatPageShell({
   }, [isStreaming, shouldRenderRuntimeIndicatorSlot]);
 
   return (
-    <div className="flex h-[100dvh] max-h-[100dvh] w-full bg-background text-foreground dark overflow-hidden overscroll-y-none">
+    <div className="flex h-[100dvh] max-h-[100dvh] w-full min-w-0 bg-background text-foreground dark overflow-hidden overscroll-y-none">
       {/* Sidebar */}
       {!isGuest && (
         <ChatSidebar
@@ -4025,7 +4025,7 @@ export default function ChatPageShell({
         <div
           ref={chatBodyRef}
           data-chat-body="true"
-          className="flex-1 overflow-hidden flex flex-col min-h-0"
+          className="flex-1 min-w-0 overflow-hidden flex flex-col min-h-0"
         >
           {!selectedChatId || messages.length === 0 ? (
             <div className="flex flex-1 items-center justify-center px-4">
@@ -4037,14 +4037,15 @@ export default function ChatPageShell({
             </div>
           ) : (
             <ScrollArea
-              className="flex-1 min-h-0 overscroll-y-contain"
+              className="flex-1 min-h-0 overscroll-y-contain overflow-x-hidden"
               viewportRef={scrollViewportRef}
-              viewportClassName="chat-scroll-viewport h-full overscroll-y-contain overscroll-contain"
+              viewportClassName="chat-scroll-viewport h-full overscroll-y-contain overscroll-contain overflow-x-hidden"
               onViewportScroll={handleScroll}
+              style={{ minWidth: 0 }}
             >
               <div className="py-4 pb-20">
                 {/* Wide desktop layout with padded container */}
-                <div className="w-full space-y-4">
+                <div className="w-full space-y-1 overflow-x-hidden chat-message-list min-w-0 agent-chat-message-list agent-chat-scroll-area">
                   {messages.map((message, index) => {
                     const metadata = message.metadata as AssistantMessageMetadata | null;
                     const isStreamingMessage = message.id === activeIndicatorMessageId;
@@ -4120,8 +4121,8 @@ export default function ChatPageShell({
                           {message.role === "assistant" && (
                             <div className="flex flex-col gap-2 pb-2 px-4 sm:px-6">
                               <div
-                                className="mx-auto w-full max-w-[min(720px,100%)] px-1.5 sm:px-0"
-                                style={{ minHeight: metadataIndicators ? 'auto' : '0px' }}
+                                className="w-full max-w-[calc(100vw-32px)] mx-auto px-1.5 sm:px-0"
+                                style={{ minHeight: metadataIndicators ? "auto" : "0px" }}
                               >
                                 <div className="flex flex-wrap items-center gap-1.5 pt-1">
                                   {metadataIndicators && (
@@ -4137,7 +4138,7 @@ export default function ChatPageShell({
                             </div>
                           )}
                           <div className="px-4 sm:px-6">
-                            <div className="mx-auto w-full max-w-[min(720px,100%)] px-1.5 sm:px-0">
+                            <div className="w-full max-w-[calc(100vw-32px)] mx-auto px-1.5 sm:px-0">
                               <ChatMessage
                                 {...message}
                                 messageId={message.id}
@@ -4151,6 +4152,8 @@ export default function ChatPageShell({
                                     ? (model) => handleRetryWithModel(model, message.id)
                                     : undefined
                                 }
+                                forceFullWidth
+                                forceStaticBubble
                               />
                             </div>
                           </div>

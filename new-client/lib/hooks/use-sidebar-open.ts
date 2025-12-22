@@ -29,31 +29,29 @@ function computeInitial(defaultValue: boolean): boolean {
 }
 
 export function usePersistentSidebarOpen(defaultValue = true) {
-  const [isOpen, setIsOpen] = useState<boolean>(() =>
-    typeof window === "undefined" ? defaultValue : computeInitial(defaultValue)
-  );
+  const [isOpen, setIsOpen] = useState<boolean>(defaultValue);
 
   useIsomorphicLayoutEffect(() => {
-    setIsOpen(computeInitial(defaultValue));
+    const updateState = () => {
+      setIsOpen(computeInitial(defaultValue));
+    };
+
+    updateState();
 
     if (typeof window === "undefined") return;
     const mediaQuery = window.matchMedia(MOBILE_BREAKPOINT);
 
-    const handleChange = () => {
-      setIsOpen(computeInitial(defaultValue));
-    };
-
     if (mediaQuery.addEventListener) {
-      mediaQuery.addEventListener("change", handleChange);
+      mediaQuery.addEventListener("change", updateState);
     } else {
-      mediaQuery.addListener(handleChange);
+      mediaQuery.addListener(updateState);
     }
 
     return () => {
       if (mediaQuery.removeEventListener) {
-        mediaQuery.removeEventListener("change", handleChange);
+        mediaQuery.removeEventListener("change", updateState);
       } else {
-        mediaQuery.removeListener(handleChange);
+        mediaQuery.removeListener(updateState);
       }
     };
   }, [defaultValue]);

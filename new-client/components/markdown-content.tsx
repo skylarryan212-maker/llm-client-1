@@ -436,7 +436,12 @@ export function MarkdownContent({ content, messageId, generatedFiles }: Markdown
                     )}
                   </Button>
                 </div>
-                <div className="overflow-x-auto rounded-b-lg max-w-full w-full touch-pan-x" role="region" aria-label={`${language} code block`}>
+                <div
+                  className="overflow-x-auto rounded-b-lg max-w-full w-full touch-pan-x min-w-0"
+                  role="region"
+                  aria-label={`${language} code block`}
+                  style={{ maxWidth: "100%", width: "100%" }}
+                >
                   <SyntaxHighlighter
                     language={language}
                     style={vscDarkPlus}
@@ -446,8 +451,9 @@ export function MarkdownContent({ content, messageId, generatedFiles }: Markdown
                       background: '#1e1e1e',
                       fontSize: '0.875rem',
                       minWidth: '100%',
-                      width: 'fit-content',
-                      display: 'inline-block',
+                      width: '100%',
+                      display: 'block',
+                      boxSizing: 'border-box',
                     }}
                   >
                     {codeString}

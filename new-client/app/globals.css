@@ -125,6 +125,8 @@
   }
   body {
     @apply bg-background text-foreground;
+    overflow-x: hidden;
+    max-width: 100vw;
   }
   
   /* Global scrollbar styling to match sidebar ScrollArea */
@@ -177,11 +179,13 @@
   display: inline-flex;
 }
 
+.chat-message-list,
 .agent-chat-message-list {
   width: 100%;
   box-sizing: border-box;
 }
 
+.chat-message-list > *,
 .agent-chat-message-list > * {
   max-width: 100%;
 }
