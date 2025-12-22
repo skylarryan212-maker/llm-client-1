@@ -31,36 +31,6 @@ const SUGGESTION_RESPONSE_SCHEMA = {
     events: {
       type: "array",
       items: {
-        type: "object",
-        properties: {
-          kind: { type: "string", const: "market_suggestion" },
-          eventId: { type: "string" },
-          cadence: {
-            type: "object",
-            properties: {
-              intervalSeconds: { type: "integer", enum: ALLOWED_CADENCES },
-              reason: { type: "string", minLength: 1 },
-            },
-            required: ["intervalSeconds", "reason"],
-            additionalProperties: false,
-          },
-          watchlist: {
-            type: "object",
-            properties: {
-              tickers: {
-                type: "array",
-                items: { type: "string" },
-                minItems: 1,
-                maxItems: WATCHLIST_LIMIT,
-              },
-              reason: { type: "string", minLength: 1 },
-            },
-            required: ["tickers", "reason"],
-            additionalProperties: false,
-          },
-        },
-        required: ["kind", "eventId"],
-        additionalProperties: false,
         anyOf: [
           {
             type: "object",
@@ -76,20 +46,6 @@ const SUGGESTION_RESPONSE_SCHEMA = {
                 required: ["intervalSeconds", "reason"],
                 additionalProperties: false,
               },
-              watchlist: {
-                type: "object",
-                properties: {
-                  tickers: {
-                    type: "array",
-                    items: { type: "string" },
-                    minItems: 1,
-                    maxItems: WATCHLIST_LIMIT,
-                  },
-                  reason: { type: "string", minLength: 1 },
-                },
-                required: ["tickers", "reason"],
-                additionalProperties: false,
-              },
             },
             required: ["kind", "eventId", "cadence"],
             additionalProperties: false,
@@ -99,15 +55,6 @@ const SUGGESTION_RESPONSE_SCHEMA = {
             properties: {
               kind: { type: "string", const: "market_suggestion" },
               eventId: { type: "string" },
-              cadence: {
-                type: "object",
-                properties: {
-                  intervalSeconds: { type: "integer", enum: ALLOWED_CADENCES },
-                  reason: { type: "string", minLength: 1 },
-                },
-                required: ["intervalSeconds", "reason"],
-                additionalProperties: false,
-              },
               watchlist: {
                 type: "object",
                 properties: {
