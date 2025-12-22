@@ -168,12 +168,12 @@ export async function POST(request: NextRequest) {
 
     const client = new OpenAI({ apiKey });
     const systemMessage = {
-      id: "a2ui-system",
+      id: "msg_a2ui_system",
       role: "system" as const,
       content: [{ type: "input_text" as const, text: SYSTEM_PROMPT }],
     };
     const userMessageInput = {
-      id: "a2ui-user",
+      id: "msg_a2ui_user",
       role: "user" as const,
       content: [
         {
