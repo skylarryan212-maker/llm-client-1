@@ -227,12 +227,13 @@ export async function POST(request: NextRequest) {
     for (const item of outputItems) {
       if (item.type !== "message" || !Array.isArray(item.content)) continue;
       for (const part of item.content) {
-        if (part?.type === "output_json") {
+        const partType = (part as { type?: string })?.type;
+        if (partType === "output_json") {
           parsed = (part as { json?: unknown }).json ?? null;
           if (parsed) break;
         }
-        if (part?.type === "output_text" && typeof part.text === "string") {
-          textParts.push(part.text);
+        if (partType === "output_text" && typeof (part as { text?: unknown }).text === "string") {
+          textParts.push((part as { text: string }).text);
         }
       }
       if (parsed) break;
