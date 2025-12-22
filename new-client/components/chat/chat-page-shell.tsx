@@ -4121,7 +4121,7 @@ export default function ChatPageShell({
                           {message.role === "assistant" && (
                             <div className="flex flex-col gap-2 pb-2 px-4 sm:px-6">
                               <div
-                                className="w-full max-w-3xl mx-auto px-1.5 sm:px-0"
+                                className="w-full max-w-[min(48rem,calc(100vw-32px))] min-w-0 mx-auto px-1.5 sm:px-0 overflow-hidden"
                                 style={{ minHeight: metadataIndicators ? "auto" : "0px" }}
                               >
                                 <div className="flex flex-wrap items-center gap-1.5 pt-1">
@@ -4138,7 +4138,7 @@ export default function ChatPageShell({
                             </div>
                           )}
                           <div className="px-4 sm:px-6">
-                            <div className="w-full max-w-3xl mx-auto px-1.5 sm:px-0">
+                            <div className="w-full max-w-[min(48rem,calc(100vw-32px))] min-w-0 mx-auto px-1.5 sm:px-0 overflow-hidden">
                               <ChatMessage
                                 {...message}
                                 messageId={message.id}
