@@ -566,16 +566,13 @@ export function MarketAgentInstanceView({
     const viewport = chatListRef.current;
     if (!viewport) return;
     if (isProgrammaticScrollRef.current) return;
-    const { scrollTop, clientHeight } = viewport;
-    if (pinToPromptRef.current && pinnedScrollTopRef.current !== null) {
-      const maxAllowed = pinnedScrollTopRef.current;
-      if (scrollTop > maxAllowed + 2) {
-        isProgrammaticScrollRef.current = true;
-        viewport.scrollTop = maxAllowed;
-        scheduleProgrammaticScrollReset();
-        return;
-      }
+    if (pinToPromptRef.current) {
+      pinToPromptRef.current = false;
+      pinnedScrollTopRef.current = null;
+      setPinSpacerHeight(0);
+      return;
     }
+    const { scrollTop, clientHeight } = viewport;
     const effectiveBottom = getEffectiveScrollBottom(viewport);
     const maxScrollTop = Math.max(0, effectiveBottom - clientHeight);
     if (scrollTop > maxScrollTop) {
