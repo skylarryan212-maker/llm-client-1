@@ -790,6 +790,7 @@ export function MarketAgentInstanceView({
           lastAnalysisSummary: lastEvent?.summary ?? "",
           lastUiEventIds: [...lastEventIdsRef.current],
         };
+        console.debug("[a2ui] triggerSuggestionRefresh -> POST", payload);
         const response = await fetch("/api/agents/market-agent/a2ui-suggestions", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -802,12 +803,14 @@ export function MarketAgentInstanceView({
         }
         const data = (await response.json().catch(() => null)) as { events?: MarketSuggestionEvent[] } | null;
         const events = Array.isArray(data?.events) ? data.events : [];
+        console.debug("[a2ui] triggerSuggestionRefresh <- response", { count: events.length });
         appendSuggestionEvents(events);
       } catch (error) {
         const aborted = error instanceof DOMException && error.name === "AbortError";
         setSuggestionError(
           aborted ? "Suggestion refresh timed out. Please try again." : error instanceof Error ? error.message : "Failed to refresh suggestions"
         );
+        console.error("[a2ui] triggerSuggestionRefresh error", error);
       } finally {
         window.clearTimeout(timeoutId);
         suggestionRequestInFlightRef.current = false;

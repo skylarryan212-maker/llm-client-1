@@ -156,6 +156,11 @@ const composeUserMessage = (body: SuggestionRequestBody, dedupeIds: string[]) =>
 export async function POST(request: NextRequest) {
   try {
     const body = (await request.json()) as SuggestionRequestBody;
+    console.log("[a2ui] Incoming request", {
+      agentInstanceId: body?.agentInstanceId,
+      hasAgentState: Boolean(body?.agentState),
+      userMessageLength: body?.userMessage?.length ?? 0,
+    });
     if (!body?.agentInstanceId) {
       return NextResponse.json({ events: [] });
     }
