@@ -1,5 +1,6 @@
-import { calculateCost, calculateWhisperCost } from "@/lib/pricing";
+import { calculateCost, calculateGpt4oTranscribeCost } from "@/lib/pricing";
 import { supabaseServerAdmin } from "@/lib/supabase/server";
+import { estimateTokens } from "@/lib/tokens/estimateTokens";
 
 export interface UsageLogParams {
   userId?: string | null;
@@ -57,25 +58,28 @@ export function estimateAudioDurationSeconds(fileSizeBytes: number) {
   return fileSizeBytes / BYTES_PER_SECOND;
 }
 
-export async function logWhisperUsageFromBytes({
+export async function logGpt4oTranscribeUsageFromBytes({
   userId,
   conversationId,
   fileSizeBytes,
+  transcript,
 }: {
   userId?: string | null;
   conversationId?: string | null;
   fileSizeBytes: number;
+  transcript?: string;
 }) {
   if (!userId) return;
   const duration = estimateAudioDurationSeconds(fileSizeBytes);
-  const cost = calculateWhisperCost(duration);
+  const textTokens = transcript ? estimateTokens(transcript) : 0;
+  const cost = calculateGpt4oTranscribeCost(duration, textTokens);
   await logUsageRecord({
     userId,
     conversationId,
-    model: "whisper-1",
+    model: "gpt-4o-transcribe",
     inputTokens: 0,
     cachedTokens: 0,
-    outputTokens: 0,
+    outputTokens: textTokens,
     estimatedCost: cost,
   });
 }

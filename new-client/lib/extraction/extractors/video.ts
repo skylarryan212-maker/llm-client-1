@@ -1,7 +1,7 @@
 import { ENABLE_TRANSCRIPTION, LARGE_FILE_THRESHOLD } from "../config";
 import type { Extractor } from "../types";
 import { truncateUtf8 } from "../utils/text";
-import { logWhisperUsageFromBytes } from "@/lib/usage";
+import { logGpt4oTranscribeUsageFromBytes } from "@/lib/usage";
 
 async function transcribeVideo(
   buffer: Buffer,
@@ -16,7 +16,7 @@ async function transcribeVideo(
   const file = new File([blob], name || "video");
   const res = await openai.audio.transcriptions.create({
     file,
-    model: "whisper-1",
+    model: "gpt-4o-transcribe",
   });
   const text =
     typeof (res as { text?: unknown }).text === "string"
@@ -42,10 +42,11 @@ export const videoExtractor: Extractor = async (buffer, name, mime, ctx) => {
   try {
     const { text } = await transcribeVideo(buffer, name, mime);
     if (ctx.userId) {
-      await logWhisperUsageFromBytes({
+      await logGpt4oTranscribeUsageFromBytes({
         userId: ctx.userId,
         conversationId: ctx.conversationId,
         fileSizeBytes: ctx.size,
+        transcript: text,
       });
     }
     const preview = truncateUtf8(

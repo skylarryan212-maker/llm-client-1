@@ -1,7 +1,7 @@
 import { ENABLE_TRANSCRIPTION } from "../config";
 import type { Extractor } from "../types";
 import { truncateUtf8 } from "../utils/text";
-import { logWhisperUsageFromBytes } from "@/lib/usage";
+import { logGpt4oTranscribeUsageFromBytes } from "@/lib/usage";
 
 async function transcribe(buffer: Buffer, name: string, mime: string | null) {
   const { OpenAI } = await import("openai");
@@ -11,10 +11,10 @@ async function transcribe(buffer: Buffer, name: string, mime: string | null) {
     type: mime || "application/octet-stream",
   });
   const file = new File([blob], name || "audio");
-  const res = await openai.audio.transcriptions.create({
-    file,
-    model: "whisper-1",
-  });
+    const res = await openai.audio.transcriptions.create({
+      file,
+      model: "gpt-4o-transcribe",
+    });
   const text =
     typeof (res as { text?: unknown }).text === "string"
       ? (res as { text: string }).text
@@ -35,10 +35,11 @@ export const audioExtractor: Extractor = async (buffer, name, mime, ctx) => {
   try {
     const { text, language } = await transcribe(buffer, name, mime);
     if (ctx.userId) {
-      await logWhisperUsageFromBytes({
+      await logGpt4oTranscribeUsageFromBytes({
         userId: ctx.userId,
         conversationId: ctx.conversationId,
         fileSizeBytes: ctx.size,
+        transcript: text,
       });
     }
     const preview = truncateUtf8(

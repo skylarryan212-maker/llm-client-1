@@ -2,9 +2,10 @@ export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
-import { calculateWhisperCost } from "@/lib/pricing";
+import { calculateGpt4oTranscribeCost } from "@/lib/pricing";
 import { supabaseServer } from "@/lib/supabase/server";
 import { logUsageRecord, estimateAudioDurationSeconds } from "@/lib/usage";
+import { estimateTokens } from "@/lib/tokens/estimateTokens";
 
 function getOpenAIClient() {
   const apiKey = process.env.OPENAI_API_KEY;
@@ -39,7 +40,7 @@ export async function POST(request: Request) {
     const client = getOpenAIClient();
     const transcription: any = await (client.audio.transcriptions.create as any)({
       file: audioFile,
-      model: "whisper-1",
+      model: "gpt-4o-transcribe",
       temperature: 0,
       response_format: "verbose_json",
     });
@@ -66,22 +67,23 @@ export async function POST(request: Request) {
       if (user) {
         const fileSizeBytes = buffer.length;
         const estimatedDuration = estimateAudioDurationSeconds(fileSizeBytes);
-        const cost = calculateWhisperCost(estimatedDuration);
+        const transcriptTokens = estimateTokens(transcript);
+        const cost = calculateGpt4oTranscribeCost(estimatedDuration, transcriptTokens);
         
-        console.log(`[whisper] Transcribed ${fileSizeBytes} bytes (~${estimatedDuration.toFixed(1)}s), cost: $${cost.toFixed(6)}`);
+        console.log(`[gpt-4o-transcribe] Transcribed ${fileSizeBytes} bytes (~${estimatedDuration.toFixed(1)}s), cost: $${cost.toFixed(6)}`);
         
         await logUsageRecord({
           userId: user.id,
           conversationId: null,
-          model: "whisper-1",
+          model: "gpt-4o-transcribe",
           inputTokens: 0,
           cachedTokens: 0,
-          outputTokens: 0,
+          outputTokens: transcriptTokens,
           estimatedCost: cost,
         });
       }
     } catch (trackingErr) {
-      console.error("[whisper] Cost tracking error:", trackingErr);
+      console.error("[gpt-4o-transcribe] Cost tracking error:", trackingErr);
     }
 
     return NextResponse.json({ transcript: sanitizedTranscript, ...(isLikelyNoSpeech ? { noSpeech: true } : {}) });

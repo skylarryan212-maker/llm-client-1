@@ -48,14 +48,17 @@ export const MODEL_PRICING = {
     cached: 0.06,
     output: 2.4,
   },
+  "gpt-4o-transcribe": {
+    input: 2.5,
+    cached: 0,
+    output: 10,
+  },
 } as const;
 
 // Vector store pricing (per GB per day)
 export const VECTOR_STORE_STORAGE_COST_PER_GB_DAY = 0.10;
 
 // Audio transcription pricing (per minute)
-export const WHISPER_COST_PER_MINUTE = 0.006;
-
 // File operations pricing
 export const FILE_OPERATIONS_PRICING = {
   // Vector store file upload is free, only storage costs apply
@@ -85,6 +88,10 @@ export const GEMINI_IMAGE_PRICING = {
 // Code Interpreter pricing (per session/container lifecycle)
 export const CODE_INTERPRETER_SESSION_COST = 0.03;
 
+const GPT4O_TRANSCRIBE_AUDIO_COST_PER_TOKEN = 6 / 1_000_000;
+const GPT4O_TRANSCRIBE_AUDIO_TOKENS_PER_SECOND = 50;
+const GPT4O_TRANSCRIBE_TEXT_OUTPUT_COST_PER_TOKEN = 10 / 1_000_000;
+
 export function calculateCost(
   model: string,
   inputTokens: number,
@@ -109,9 +116,11 @@ export function calculateVectorStorageCost(sizeInBytes: number, durationInDays: 
   return sizeInGB * durationInDays * VECTOR_STORE_STORAGE_COST_PER_GB_DAY;
 }
 
-export function calculateWhisperCost(durationInSeconds: number): number {
-  const durationInMinutes = durationInSeconds / 60;
-  return durationInMinutes * WHISPER_COST_PER_MINUTE;
+export function calculateGpt4oTranscribeCost(durationInSeconds: number, outputTokens: number): number {
+  const audioTokens = durationInSeconds * GPT4O_TRANSCRIBE_AUDIO_TOKENS_PER_SECOND;
+  const audioCost = audioTokens * GPT4O_TRANSCRIBE_AUDIO_COST_PER_TOKEN;
+  const textCost = Math.max(0, outputTokens) * GPT4O_TRANSCRIBE_TEXT_OUTPUT_COST_PER_TOKEN;
+  return audioCost + textCost;
 }
 
 export function calculateToolCallCost(type: keyof typeof TOOL_CALL_PRICING_PER_1K, callCount: number): number {
