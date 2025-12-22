@@ -19,9 +19,11 @@ import {
 import { MarketSuggestionEvent } from "@/types/market-suggestion";
 import {
   MAX_SUGGESTIONS,
-  SUGGESTION_SYSTEM_PROMPT,
+  A2UI_TAG_START,
+  SUGGESTION_CHAT_PROMPT,
   buildSuggestionContextMessage,
   extractSuggestionEvents,
+  extractSuggestionPayloadFromText,
   parseSuggestionResponsePayload,
 } from "@/lib/market-agent/a2ui";
 import { supabaseServer } from "@/lib/supabase/server";
@@ -206,8 +208,13 @@ export async function POST(
       lastAnalysisSummary: latestEvent?.summary ?? "",
       lastUiEventIds: recentEventIds,
     });
+    console.log("[a2ui] Prepared suggestion context", {
+      instanceId,
+      lastEventId: latestEvent?.id ?? null,
+      dedupeCount: recentEventIds.length,
+    });
     const suggestionSystemMessages = [
-      { role: "system" as const, content: SUGGESTION_SYSTEM_PROMPT },
+      { role: "system" as const, content: SUGGESTION_CHAT_PROMPT },
       { role: "system" as const, content: suggestionContextMessage },
     ];
     const chatPrompt = buildChatPrompt(cadenceSeconds);
@@ -293,6 +300,34 @@ export async function POST(
         let assistantText = "";
         let finalResponse: unknown = null;
         let cancelled = false;
+        let streamSuppressed = false;
+        let pendingTail = "";
+        const tagStart = A2UI_TAG_START;
+        const tagStartLen = tagStart.length;
+        const emitFilteredDelta = (delta: string) => {
+          if (streamSuppressed) return;
+          const combined = pendingTail + delta;
+          const tagIndex = combined.indexOf(tagStart);
+          if (tagIndex === -1) {
+            if (combined.length < tagStartLen) {
+              pendingTail = combined;
+              return;
+            }
+            const safeCut = combined.length - (tagStartLen - 1);
+            const visible = combined.slice(0, safeCut);
+            pendingTail = combined.slice(safeCut);
+            if (visible) {
+              enqueue({ token: visible });
+            }
+            return;
+          }
+          const visible = combined.slice(0, tagIndex);
+          if (visible) {
+            enqueue({ token: visible });
+          }
+          streamSuppressed = true;
+          pendingTail = "";
+        };
 
         const upstreamSignal = request.signal as AbortSignal | undefined;
         const abortController = new AbortController();
@@ -349,7 +384,7 @@ export async function POST(
             if (eventType === "response.output_text.delta" && (event as any)?.delta) {
               const delta = String((event as any).delta);
               assistantText += delta;
-              enqueue({ token: delta });
+              emitFilteredDelta(delta);
             }
 
             if (eventType === "response.completed") {
@@ -390,14 +425,33 @@ export async function POST(
           return;
         }
 
+        if (!streamSuppressed && pendingTail) {
+          enqueue({ token: pendingTail });
+          pendingTail = "";
+        }
         let assistantContent = (assistantText ?? "").trim() ? assistantText ?? "" : "";
+        const taggedSuggestion = extractSuggestionPayloadFromText(assistantContent);
+        assistantContent = taggedSuggestion.cleanedText;
         if (!assistantContent.trim()) {
           assistantContent = "I'm here. Ask me about the markets.";
         }
-        if (finalResponse) {
-          const suggestionPayload = parseSuggestionResponsePayload(finalResponse);
-          if (suggestionPayload) {
-            const candidates = extractSuggestionEvents(suggestionPayload);
+        let suggestionPayload = taggedSuggestion.payload ?? null;
+        if (!suggestionPayload && finalResponse) {
+          suggestionPayload = parseSuggestionResponsePayload(finalResponse);
+        }
+        if (taggedSuggestion.payload === null && assistantText.includes(A2UI_TAG_START)) {
+          console.warn("[a2ui] Failed to parse tagged suggestion payload");
+        }
+        if (suggestionPayload) {
+          const candidates = extractSuggestionEvents(suggestionPayload);
+          console.log("[a2ui] Parsed suggestions", {
+            count: candidates.length,
+            eventIds: candidates.map((c) => c.eventId),
+          });
+          if (!candidates.length) {
+            console.log("[a2ui] No suggestions in payload");
+          }
+          if (candidates.length) {
             const insertedEvents: MarketSuggestionEvent[] = [];
             for (const candidate of candidates) {
               if (dedupeSet.has(candidate.eventId)) continue;

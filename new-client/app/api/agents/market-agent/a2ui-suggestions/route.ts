@@ -7,13 +7,13 @@ import { MarketSuggestionEvent } from "@/types/market-suggestion";
 import {
   MAX_SUGGESTIONS,
   SUGGESTION_RESPONSE_SCHEMA,
-  SUGGESTION_SYSTEM_PROMPT,
+  SUGGESTION_JSON_SYSTEM_PROMPT,
   extractSuggestionEvents,
   parseSuggestionResponsePayload,
 } from "@/lib/market-agent/a2ui";
 
 const MODEL_ID = "gpt-5-mini";
-const SYSTEM_PROMPT = SUGGESTION_SYSTEM_PROMPT;
+const SYSTEM_PROMPT = SUGGESTION_JSON_SYSTEM_PROMPT;
 
 type AgentStatePayload = {
   status?: "running" | "paused";

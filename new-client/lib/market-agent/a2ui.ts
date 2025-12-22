@@ -4,7 +4,7 @@ export const ALLOWED_CADENCES = [60, 120, 300, 600, 1800, 3600] as const;
 export const WATCHLIST_LIMIT = 25;
 export const MAX_SUGGESTIONS = 5;
 
-export const SUGGESTION_SYSTEM_PROMPT = [
+export const SUGGESTION_JSON_SYSTEM_PROMPT = [
   "You generate UI-intent JSON for a suggestion card.",
   "You do NOT write UI; the application renders fixed templates.",
   "Only fill cadence interval + reason, optional watchlist tickers + reason (1-3 sentences each).",
@@ -16,6 +16,23 @@ export const SUGGESTION_SYSTEM_PROMPT = [
   "Use the eventId format cadence:{intervalSeconds}:{YYYYMMDDHH}, watchlist:{sortedTickersJoinedByDash}:{YYYYMMDDHH}, or cadence-watchlist:{intervalSeconds}:{sortedTickersJoinedByDash}:{YYYYMMDDHH}, rounding the timestamp to the nearest hour.",
   `Limit watchlist suggestions to ${WATCHLIST_LIMIT} tickers or fewer.`,
   "Do not add any extra fields beyond the defined schema.",
+].join(" ");
+
+export const A2UI_TAG_START = "<A2UI>";
+export const A2UI_TAG_END = "</A2UI>";
+
+export const SUGGESTION_CHAT_PROMPT = [
+  "You are chatting with the user normally.",
+  "If you have a strong cadence or watchlist suggestion, append it at the very end using the exact tag:",
+  `${A2UI_TAG_START}{"events":[...]}${A2UI_TAG_END}`,
+  "Inside the tag, output JSON matching this shape:",
+  "{\"events\":[{\"kind\":\"market_suggestion\",\"eventId\":\"...\",\"cadence\":{\"intervalSeconds\":1800,\"reason\":\"...\"}}]}",
+  "Each event must include kind + eventId and either cadence or watchlist (or both).",
+  `Cadence interval must be one of ${ALLOWED_CADENCES.join(", ")} seconds.`,
+  `Watchlist tickers must be 1-${WATCHLIST_LIMIT} symbols.`,
+  "Do not mention the tag or JSON in the visible response.",
+  "Do not add any text after the closing tag.",
+  "If there is no strong suggestion, do not include the tag at all.",
 ].join(" ");
 
 export const SUGGESTION_RESPONSE_SCHEMA = {
@@ -173,6 +190,31 @@ export const buildSuggestionContextMessage = (payload: {
     filtered.lastUiEventIds = payload.lastUiEventIds;
   }
   return `Suggestion context:\n${JSON.stringify(filtered, null, 2)}`;
+};
+
+export const extractSuggestionPayloadFromText = (text: string) => {
+  if (!text) return { cleanedText: text, payload: null };
+  const startIndex = text.indexOf(A2UI_TAG_START);
+  if (startIndex === -1) {
+    return { cleanedText: text, payload: null };
+  }
+  const endIndex = text.indexOf(A2UI_TAG_END, startIndex + A2UI_TAG_START.length);
+  if (endIndex === -1) {
+    return { cleanedText: text, payload: null };
+  }
+  const rawJson = text.slice(startIndex + A2UI_TAG_START.length, endIndex).trim();
+  let payload: unknown = null;
+  if (rawJson) {
+    try {
+      payload = JSON.parse(rawJson);
+    } catch {
+      payload = null;
+    }
+  }
+  const before = text.slice(0, startIndex);
+  const after = text.slice(endIndex + A2UI_TAG_END.length);
+  const cleanedText = `${before}${after}`.trim();
+  return { cleanedText, payload };
 };
 
 export const parseSuggestionResponsePayload = (response: unknown): unknown => {
