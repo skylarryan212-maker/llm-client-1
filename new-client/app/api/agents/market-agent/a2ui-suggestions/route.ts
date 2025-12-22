@@ -102,8 +102,8 @@ const sanitizeWatchlist = (watchlist: any) => {
       ? Array.from(
           new Set(
             watchlist.tickers
-              .map((ticker) => (typeof ticker === "string" ? ticker.trim().toUpperCase() : ""))
-              .filter((ticker) => tickerPattern.test(ticker))
+              .map((ticker: unknown) => (typeof ticker === "string" ? ticker.trim().toUpperCase() : ""))
+              .filter((ticker: string) => tickerPattern.test(ticker))
           )
         ).slice(0, 50)
       : [];
