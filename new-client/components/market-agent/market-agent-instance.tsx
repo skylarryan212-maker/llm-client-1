@@ -1629,6 +1629,7 @@ function AgentChatSidebar({
               ref={chatListRef}
               className="h-full min-h-0 overflow-y-auto overflow-x-hidden space-y-1 agent-chat-message-list agent-chat-scroll-area"
               onScroll={onScroll}
+              style={{ overflowAnchor: "none" }}
             >
               {pinSpacerHeight > 0 && (
                 <div aria-hidden className="w-full" style={{ height: pinSpacerHeight }} />
