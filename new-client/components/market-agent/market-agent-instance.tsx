@@ -149,7 +149,6 @@ export function MarketAgentInstanceView({
   const [suggestionError, setSuggestionError] = useState<string | null>(null);
   const lastEventIdsRef = useRef<string[]>(initialSuggestionEventIds ?? []);
   const lastEventIdsSetRef = useRef(new Set(initialSuggestionEventIds ?? []));
-  const suggestionCooldownRef = useRef(0);
   const suggestionRequestInFlightRef = useRef(false);
   const userTimezone = useMemo(() => {
     if (typeof Intl === "undefined") return "UTC";
@@ -758,8 +757,6 @@ export function MarketAgentInstanceView({
   const triggerSuggestionRefresh = useCallback(
     async (userMessage: string) => {
       if (!instance.id || suggestionRequestInFlightRef.current) return;
-      const now = Date.now();
-      if (now - suggestionCooldownRef.current < 90_000) return;
       suggestionRequestInFlightRef.current = true;
       setIsRefreshingSuggestions(true);
       setSuggestionError(null);
@@ -815,7 +812,6 @@ export function MarketAgentInstanceView({
         window.clearTimeout(timeoutId);
         suggestionRequestInFlightRef.current = false;
         setIsRefreshingSuggestions(false);
-        suggestionCooldownRef.current = Date.now();
       }
     },
     [
