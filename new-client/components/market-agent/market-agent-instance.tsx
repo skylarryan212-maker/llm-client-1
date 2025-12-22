@@ -105,7 +105,15 @@ const getSuggestionHeader = (event: MarketSuggestionEvent) => {
   return parts.join(" ").trim() || "Suggestion";
 };
 type AgentChatMessage = MarketAgentChatMessage;
-export function MarketAgentInstanceView({ instance, events, thesis: _thesis, state: _state, initialSelectedEventId }: Props) {
+export function MarketAgentInstanceView({
+  instance,
+  events,
+  thesis: _thesis,
+  state: _state,
+  initialSelectedEventId,
+  initialSuggestionEvents = [],
+  initialSuggestionEventIds = [],
+}: Props) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
