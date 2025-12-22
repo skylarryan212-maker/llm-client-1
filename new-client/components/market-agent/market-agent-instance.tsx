@@ -165,6 +165,7 @@ export function MarketAgentInstanceView({
     }
     return "always_on";
   }, [instance.config]);
+  const stateRow = _state;
   const addEventIdToCache = useCallback((eventId: string) => {
     if (lastEventIdsSetRef.current.has(eventId)) return;
     lastEventIdsSetRef.current.add(eventId);
@@ -764,20 +765,20 @@ export function MarketAgentInstanceView({
       setSuggestionError(null);
       try {
         const lastEvent = timelineEvents[0];
-          const lastRunAt = lastEvent?.ts ?? lastEvent?.created_at ?? new Date().toISOString();
-          const agentStatePayload = {
-            status: instance.status === "running" ? "running" : "paused",
-            cadenceSeconds: cadenceSecondsState,
-            cadenceMode,
-            watchlistTickers: watchlistState,
-            timezone: userTimezone,
-            lastRunAt,
-          };
+        const lastRunAt = lastEvent?.ts ?? lastEvent?.created_at ?? new Date().toISOString();
+        const agentStatePayload = {
+          status: instance.status === "running" ? "running" : "paused",
+          cadenceSeconds: cadenceSecondsState,
+          cadenceMode,
+          watchlistTickers: watchlistState,
+          timezone: userTimezone,
+          lastRunAt,
+        };
         const marketSnapshot = {
           timestamp: lastRunAt,
           summary: lastEvent?.summary ?? "",
           tickers: lastEvent?.tickers ?? [],
-          state: state?.state ?? {},
+          state: stateRow?.state ?? {},
         };
         const payload = {
           agentInstanceId: instance.id,
@@ -814,7 +815,7 @@ export function MarketAgentInstanceView({
       cadenceSecondsState,
       watchlistState,
       timelineEvents,
-      state,
+      stateRow,
       userTimezone,
       appendSuggestionEvents,
     ],
