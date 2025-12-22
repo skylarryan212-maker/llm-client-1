@@ -763,6 +763,8 @@ export function MarketAgentInstanceView({
       suggestionRequestInFlightRef.current = true;
       setIsRefreshingSuggestions(true);
       setSuggestionError(null);
+      const controller = new AbortController();
+      const timeoutId = window.setTimeout(() => controller.abort(), 25_000);
       try {
         const lastEvent = timelineEvents[0];
         const lastRunAt = lastEvent?.ts ?? lastEvent?.created_at ?? new Date().toISOString();
@@ -792,6 +794,7 @@ export function MarketAgentInstanceView({
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
+          signal: controller.signal,
         });
         if (!response.ok) {
           const errorBody = await response.json().catch(() => null);
@@ -801,8 +804,12 @@ export function MarketAgentInstanceView({
         const events = Array.isArray(data?.events) ? data.events : [];
         appendSuggestionEvents(events);
       } catch (error) {
-        setSuggestionError(error instanceof Error ? error.message : "Failed to refresh suggestions");
+        const aborted = error instanceof DOMException && error.name === "AbortError";
+        setSuggestionError(
+          aborted ? "Suggestion refresh timed out. Please try again." : error instanceof Error ? error.message : "Failed to refresh suggestions"
+        );
       } finally {
+        window.clearTimeout(timeoutId);
         suggestionRequestInFlightRef.current = false;
         setIsRefreshingSuggestions(false);
         suggestionCooldownRef.current = Date.now();
