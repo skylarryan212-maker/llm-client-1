@@ -31,6 +31,7 @@ export const SUGGESTION_CHAT_PROMPT = [
   `Cadence interval must be one of ${ALLOWED_CADENCES.join(", ")} seconds.`,
   `Watchlist tickers must be 1-${WATCHLIST_LIMIT} symbols.`,
   "If there is no strong suggestion, use {\"events\":[]} in the tag.",
+  "Always state that the model is merely proposing a suggestion for the human to approve, not executing it itself.",
   "Do not mention the tag or JSON in the visible response.",
   "Never include any JSON, braces, or tags in the visible response.",
   "Do not add any text after the closing tag.",
