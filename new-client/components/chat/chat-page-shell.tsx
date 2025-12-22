@@ -4153,7 +4153,7 @@ export default function ChatPageShell({
                                     : undefined
                                 }
                                 forceFullWidth
-                                forceStaticBubble
+                                forceStaticBubble={message.role === "assistant"}
                               />
                             </div>
                           </div>
