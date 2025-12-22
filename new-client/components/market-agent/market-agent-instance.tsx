@@ -887,8 +887,8 @@ export function MarketAgentInstanceView({
         }
         if (Array.isArray(payload.marketSuggestions)) {
           const events = payload.marketSuggestions.filter(
-            (event): event is MarketSuggestionEvent =>
-              Boolean(event && typeof event.eventId === "string")
+            (event: unknown): event is MarketSuggestionEvent =>
+              Boolean(event && typeof (event as MarketSuggestionEvent).eventId === "string")
           );
           if (events.length) {
             setSuggestionError(null);
