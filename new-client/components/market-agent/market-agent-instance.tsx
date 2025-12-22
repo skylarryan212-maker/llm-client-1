@@ -254,6 +254,7 @@ export function MarketAgentInstanceView({
   const streamingResponseIdRef = useRef<string | null>(null);
   const streamingAgentTempIdRef = useRef<string | null>(null);
   const mobileNavInitializedRef = useRef(false);
+  const lockedScrollHeightRef = useRef<number | null>(null);
   void _state;
   void _thesis;
 
@@ -707,6 +708,20 @@ export function MarketAgentInstanceView({
   }, [chatMessages.length, bottomSpacerPx, baseBottomSpacerPx, computeRequiredSpacerForMessage]);
 
   useEffect(() => {
+    if (isStreamingAgent) return;
+    const lockedHeight = lockedScrollHeightRef.current;
+    if (!lockedHeight) return;
+    const viewport = chatListRef.current;
+    if (!viewport) return;
+    const contentHeight = viewport.scrollHeight - bottomSpacerPx;
+    const desiredSpacer = Math.max(baseBottomSpacerPx, Math.round(lockedHeight - contentHeight));
+    if (!Number.isFinite(desiredSpacer)) return;
+    if (desiredSpacer !== bottomSpacerPx) {
+      setBottomSpacerPx(desiredSpacer);
+    }
+  }, [bottomSpacerPx, baseBottomSpacerPx, chatMessages.length, isStreamingAgent]);
+
+  useEffect(() => {
     const ensureSpacer = () => {
       setBottomSpacerPx((prev) => Math.max(baseBottomSpacerPx, prev));
     };
@@ -774,6 +789,7 @@ export function MarketAgentInstanceView({
     setIsRefreshingSuggestions(true);
     setIndicatorLabel(DEFAULT_INDICATOR_LABEL);
     setChatError(null);
+    lockedScrollHeightRef.current = null;
     const tempId = `temp-${Date.now()}`;
     const optimistic: AgentChatMessage = {
       id: tempId,
@@ -974,6 +990,13 @@ export function MarketAgentInstanceView({
         setIndicatorLabel(DEFAULT_INDICATOR_LABEL);
       }
   };
+
+  useEffect(() => {
+    if (isStreamingAgent || !hasStreamedTokenRef.current) return;
+    const viewport = chatListRef.current;
+    if (!viewport) return;
+    lockedScrollHeightRef.current = viewport.scrollHeight;
+  }, [isStreamingAgent, chatMessages.length]);
 
   const handleApplySuggestion = useCallback(
     async (event: MarketSuggestionEvent) => {
