@@ -238,6 +238,7 @@ export async function POST(request: NextRequest) {
       }
     }
     if (!textParts.length) {
+      console.warn("[a2ui] No output_text returned from model");
       return NextResponse.json({ events: [] });
     }
 
@@ -251,6 +252,10 @@ export async function POST(request: NextRequest) {
     }
 
     const candidates = extractSuggestionEvents(parsed);
+    console.log("[a2ui] Parsed candidates", {
+      count: candidates.length,
+      eventIds: candidates.map((c) => c.eventId),
+    });
     const insertedEvents: MarketSuggestionEvent[] = [];
     for (const candidate of candidates) {
       if (dedupeSet.has(candidate.eventId)) continue;
@@ -266,6 +271,7 @@ export async function POST(request: NextRequest) {
       insertedEvents.push(candidate);
     }
 
+    console.log("[a2ui] Returning events", { count: insertedEvents.length });
     return NextResponse.json({ events: insertedEvents });
   } catch (error) {
     if (error instanceof Error && error.name === "AbortError") {
