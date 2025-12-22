@@ -27,9 +27,11 @@ export const SUGGESTION_CHAT_PROMPT = [
   `${A2UI_TAG_START}{"events":[...]}${A2UI_TAG_END}`,
   "Inside the tag, output JSON matching this shape:",
   "{\"events\":[{\"kind\":\"market_suggestion\",\"eventId\":\"...\",\"cadence\":{\"intervalSeconds\":1800,\"reason\":\"...\"}}]}",
+  "{\"events\":[{\"kind\":\"market_suggestion\",\"eventId\":\"...\",\"watchlist\":{\"tickers\":[\"NVDA\"],\"reason\":\"...\"}}]}",
   "Each event must include kind + eventId and either cadence or watchlist (or both).",
   `Cadence interval must be one of ${ALLOWED_CADENCES.join(", ")} seconds.`,
   `Watchlist tickers must be 1-${WATCHLIST_LIMIT} symbols.`,
+  "Missing kind or eventId will cause the suggestion to be ignored.",
   "If there is no strong suggestion, use {\"events\":[]} in the tag.",
   "Always state that the model is merely proposing a suggestion for the human to approve, not executing it itself.",
   "Do not mention the tag or JSON in the visible response.",
@@ -139,23 +141,49 @@ const sanitizeCadence = (cadence: any) => {
   return { intervalSeconds, reason };
 };
 
-const sanitizeWatchlist = (watchlist: any): { tickers: string[]; reason: string } | null => {
-  if (!watchlist || typeof watchlist !== "object") return null;
+const splitTickers = (value: string) =>
+  value
+    .split(/[,;\n]+/)
+    .map((item: string) => item.trim())
+    .filter((item: string) => Boolean(item));
+
+const sanitizeWatchlist = (
+  watchlist: any,
+  fallbackReason?: string
+): { tickers: string[]; reason: string } | null => {
+  if (!watchlist) return null;
   let rawTickers: unknown[] = [];
-  if (Array.isArray(watchlist.tickers)) {
-    rawTickers = watchlist.tickers as unknown[];
-  } else if (typeof watchlist.tickers === "string") {
-    rawTickers = (watchlist.tickers
-      .split(/[,;\n]+/)
-      .map((item: string) => item.trim())
-      .filter((item: string) => Boolean(item))) as unknown[];
+  if (Array.isArray(watchlist)) {
+    rawTickers = watchlist as unknown[];
+  } else if (typeof watchlist === "string") {
+    rawTickers = splitTickers(watchlist);
+  } else if (typeof watchlist === "object") {
+    const source =
+      (watchlist as any).tickers ??
+      (watchlist as any).symbols ??
+      (watchlist as any).symbol ??
+      (watchlist as any).ticker;
+    if (Array.isArray(source)) {
+      rawTickers = source as unknown[];
+    } else if (typeof source === "string") {
+      rawTickers = splitTickers(source);
+    }
+  } else {
+    return null;
   }
   const normalizedTickers = rawTickers
     .map((ticker) => (typeof ticker === "string" ? ticker.trim().toUpperCase() : ""))
     .filter((ticker): ticker is string => Boolean(ticker) && tickerPattern.test(ticker));
   const tickers = Array.from(new Set<string>(normalizedTickers));
   if (!tickers.length || tickers.length > WATCHLIST_LIMIT) return null;
-  let reason = typeof watchlist.reason === "string" ? watchlist.reason.trim() : "";
+  const watchlistReason =
+    typeof watchlist === "object" && !Array.isArray(watchlist)
+      ? (watchlist as any).reason
+      : undefined;
+  let reason = typeof watchlistReason === "string" ? watchlistReason.trim() : "";
+  if (!reason && typeof fallbackReason === "string") {
+    reason = fallbackReason.trim();
+  }
   if (!reason) {
     reason = `Update watchlist with ${tickers.join(", ")}`;
   }
@@ -169,11 +197,24 @@ export const extractSuggestionEvents = (raw: unknown): MarketSuggestionEvent[] =
   const result: MarketSuggestionEvent[] = [];
   for (const entry of events) {
     if (!entry || typeof entry !== "object") continue;
-    if (entry?.kind !== "market_suggestion") continue;
-    const eventId = typeof entry.eventId === "string" ? entry.eventId.trim() : "";
+    const rawKind = typeof entry.kind === "string" ? entry.kind.trim() : "";
+    if (rawKind && rawKind !== "market_suggestion") continue;
+    const eventIdCandidate =
+      (entry as any).eventId ??
+      (entry as any).event_id ??
+      (entry as any).eventID ??
+      (entry as any).id;
+    const eventId = typeof eventIdCandidate === "string" ? eventIdCandidate.trim() : "";
     if (!eventId) continue;
-    const cadence = sanitizeCadence(entry.cadence);
-    const watchlist = sanitizeWatchlist(entry.watchlist);
+    const cadence = sanitizeCadence((entry as any).cadence);
+    const watchlistInput =
+      (entry as any).watchlist ??
+      (entry as any).watchlistTickers ??
+      (entry as any).watchlistSymbols ??
+      (entry as any).watchlist_tickers ??
+      (entry as any).watchlist_symbols;
+    const fallbackReason = typeof (entry as any).reason === "string" ? (entry as any).reason : "";
+    const watchlist = sanitizeWatchlist(watchlistInput, fallbackReason);
     if (!cadence && !watchlist) continue;
     result.push({
       kind: "market_suggestion",

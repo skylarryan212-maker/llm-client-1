@@ -466,6 +466,17 @@ export async function POST(
           });
           if (!candidates.length) {
             console.log("[a2ui] No suggestions in payload");
+            const rawEvents = Array.isArray((suggestionPayload as any)?.events)
+              ? (suggestionPayload as any).events
+              : [];
+            if (rawEvents.length) {
+              console.log("[a2ui] Payload event keys", {
+                payloadKeys: Object.keys(suggestionPayload as Record<string, unknown>),
+                eventKeys: rawEvents.slice(0, 3).map((evt: unknown) =>
+                  evt && typeof evt === "object" ? Object.keys(evt as Record<string, unknown>) : []
+                ),
+              });
+            }
           }
           if (candidates.length) {
             const insertedEvents: MarketSuggestionEvent[] = [];
