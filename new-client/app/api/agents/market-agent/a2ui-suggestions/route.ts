@@ -14,6 +14,7 @@ const SYSTEM_PROMPT = [
   "Only fill cadence interval + reason, optional watchlist tickers + reason (1-3 sentences each).",
   "Cadence interval must be 30..3600 seconds and the reason should be conservative.",
   "Watchlist suggestions should only surface when the user message or snapshot shows a missing relevant ticker.",
+  "If the user explicitly asks to change cadence or add tickers, return a matching suggestion instead of returning empty.",
   "Return {\"events\": []} if no strong suggestion is justified.",
   "Do not repeat eventIds found in lastUiEventIds.",
   "Use the eventId format cadence:{intervalSeconds}:{YYYYMMDDHH}, watchlist:{sortedTickersJoinedByDash}:{YYYYMMDDHH}, or cadence-watchlist:{intervalSeconds}:{sortedTickersJoinedByDash}:{YYYYMMDDHH}, rounding the timestamp to the nearest hour.",
@@ -153,63 +154,6 @@ const composeUserMessage = (body: SuggestionRequestBody, dedupeIds: string[]) =>
   return `User message:\n${body.userMessage ?? ""}\n\nAgent state + snapshot:\n${JSON.stringify(payload, null, 2)}`;
 };
 
-const clampInterval = (seconds: number) => {
-  if (!Number.isFinite(seconds)) return null;
-  const rounded = Math.round(seconds);
-  if (rounded < 30 || rounded > 3600) return null;
-  return rounded;
-};
-
-const parseCadenceFromMessage = (text?: string | null): number | null => {
-  if (!text) return null;
-  const match = text.match(/(\d+)\s*(s|sec|secs|second|seconds|m|min|mins|minute|minutes)?/i);
-  if (!match) return null;
-  const value = Number(match[1]);
-  if (!Number.isFinite(value) || value <= 0) return null;
-  const unit = (match[2] ?? "").toLowerCase();
-  let seconds = value;
-  if (!unit || unit.startsWith("m")) {
-    seconds = value * 60;
-  }
-  return clampInterval(seconds);
-};
-
-const formatEventHourStamp = () => {
-  const now = new Date();
-  if (now.getMinutes() >= 30) {
-    now.setHours(now.getHours() + 1);
-  }
-  now.setMinutes(0, 0, 0);
-  const y = now.getFullYear();
-  const m = `${now.getMonth() + 1}`.padStart(2, "0");
-  const d = `${now.getDate()}`.padStart(2, "0");
-  const h = `${now.getHours()}`.padStart(2, "0");
-  return `${y}${m}${d}${h}`;
-};
-
-const buildFallbackSuggestions = (
-  body: SuggestionRequestBody,
-  dedupeSet: Set<string>
-): MarketSuggestionEvent[] => {
-  const results: MarketSuggestionEvent[] = [];
-  const interval = parseCadenceFromMessage(body.userMessage);
-  if (interval) {
-    const ts = formatEventHourStamp();
-    const eventId = `cadence:${interval}:${ts}`;
-    if (!dedupeSet.has(eventId)) {
-      results.push({
-        kind: "market_suggestion",
-        eventId,
-        cadence: {
-          intervalSeconds: interval,
-          reason: "User explicitly requested this cadence.",
-        },
-      });
-    }
-  }
-  return results;
-};
-
 export async function POST(request: NextRequest) {
   try {
     const body = (await request.json()) as SuggestionRequestBody;
@@ -308,12 +252,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ events: [] });
     }
 
-    let candidates = extractSuggestionEvents(parsed);
-    if (!candidates.length) {
-      console.log("[a2ui] No model suggestions; applying fallback parsing from user message");
-      const fallback = buildFallbackSuggestions(body, dedupeSet);
-      candidates = fallback;
-    }
+    const candidates = extractSuggestionEvents(parsed);
     console.log("[a2ui] Parsed candidates", {
       count: candidates.length,
       eventIds: candidates.map((c) => c.eventId),
