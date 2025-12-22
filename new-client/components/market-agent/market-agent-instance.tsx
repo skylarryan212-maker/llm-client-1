@@ -741,15 +741,6 @@ export function MarketAgentInstanceView({
   }, [chatMessages.length, bottomSpacerPx, baseBottomSpacerPx, computeRequiredSpacerForMessage]);
 
   useEffect(() => {
-    if (!pinToPromptRef.current) return;
-    if (isStreamingAgent) return;
-    const timer = window.setTimeout(() => {
-      releasePinning();
-    }, 200);
-    return () => window.clearTimeout(timer);
-  }, [isStreamingAgent]);
-
-  useEffect(() => {
     const ensureSpacer = () => {
       setBottomSpacerPx((prev) => Math.max(baseBottomSpacerPx, prev));
     };
