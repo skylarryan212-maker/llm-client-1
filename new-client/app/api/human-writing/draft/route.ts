@@ -231,6 +231,7 @@ export async function POST(request: NextRequest) {
       store: true,
       instructions: SYSTEM_PROMPT,
       input: requestInput as any,
+      reasoning: { effort: "minimal" },
     });
 
     const { readable, writable } = new TransformStream();
@@ -298,7 +299,26 @@ export async function POST(request: NextRequest) {
         }
 
         const taggedPayload = extractSuggestionPayloadFromText(rawText);
+        const hadTag = rawText.includes(A2UI_TAG_START);
+        console.info("[human-writing][a2ui] Tag scan", {
+          taskId,
+          hadTag,
+          payloadFound: Boolean(taggedPayload.payload),
+          outputLength: rawText.length,
+        });
+        if (hadTag && !taggedPayload.payload) {
+          console.warn("[human-writing][a2ui] Failed to parse tagged payload", { taskId });
+        }
         const decision = parseCtaDecision(taggedPayload.payload ?? null);
+        if (!decision && taggedPayload.payload) {
+          console.warn("[human-writing][a2ui] Payload missing CTA decision", {
+            taskId,
+            payloadKeys:
+              typeof taggedPayload.payload === "object" && taggedPayload.payload
+                ? Object.keys(taggedPayload.payload as Record<string, unknown>)
+                : [],
+          });
+        }
         const cleanedDraft = stripSuggestionPayloadFromText(
           taggedPayload.cleanedText,
           taggedPayload.payload,
@@ -307,6 +327,11 @@ export async function POST(request: NextRequest) {
         const finalDraft = cleanedDraft.trim() ? cleanedDraft : draftText;
         const shouldShowCta = decision?.show ?? false;
         const decisionReason = decision?.reason;
+        console.info("[human-writing][a2ui] CTA decision", {
+          taskId,
+          show: shouldShowCta,
+          reason: decisionReason ?? null,
+        });
 
         if (finalDraft.trim()) {
           const { error: insertAssistantError } = await supabase.from("messages").insert([
