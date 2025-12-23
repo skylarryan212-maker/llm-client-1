@@ -152,7 +152,7 @@ function ChatInner({ params }: PageProps) {
 
     setIsDrafting(true);
     let draft = "";
-    let shouldShowCTA = true;
+    let shouldShowCTA = false;
     let debugInfo: any = null;
     let decisionReason: string | undefined;
     try {
@@ -200,6 +200,9 @@ function ChatInner({ params }: PageProps) {
               if (obj.decision && typeof obj.decision.show === "boolean") {
                 shouldShowCTA = obj.decision.show;
               }
+              if (obj.decision && typeof obj.decision.reason === "string") {
+                decisionReason = obj.decision.reason;
+              }
               if (obj.done) {
                 done = true;
               }
@@ -220,6 +223,9 @@ function ChatInner({ params }: PageProps) {
             if (obj.decision && typeof obj.decision.show === "boolean") {
               shouldShowCTA = obj.decision.show;
             }
+            if (obj.decision && typeof obj.decision.reason === "string") {
+              decisionReason = obj.decision.reason;
+            }
           } catch {
             console.warn("[draft-stream] failed to parse trailing buffer", leftover);
           }
@@ -228,7 +234,8 @@ function ChatInner({ params }: PageProps) {
         const data = await response.json().catch(() => null);
         draft = data?.draft || "";
         debugInfo = data?.debug ?? null;
-        shouldShowCTA = typeof data?.decision?.show === "boolean" ? data.decision.show : true;
+        shouldShowCTA = typeof data?.decision?.show === "boolean" ? data.decision.show : false;
+        decisionReason = typeof data?.decision?.reason === "string" ? data.decision.reason : decisionReason;
       }
 
       if (!draft.trim()) {
@@ -236,13 +243,12 @@ function ChatInner({ params }: PageProps) {
         throw new Error(`draft_empty${suffix}`);
       }
 
-      const ctaCreatedAt = new Date().toISOString();
       setMessages((prev) => {
         const updated = prev.map((msg) =>
           msg.id === draftMsgId ? { ...msg, content: draft, kind: undefined } : msg
         );
         const next =
-          true && !updated.some((m) => m.kind === "cta")
+          shouldShowCTA && !updated.some((m) => m.kind === "cta")
             ? [
                 ...updated,
                 {
@@ -261,6 +267,7 @@ function ChatInner({ params }: PageProps) {
 
       // Persist CTA state if shown
       if (shouldShowCTA) {
+        const ctaCreatedAt = new Date().toISOString();
         try {
           await fetch("/api/human-writing/cta", {
             method: "POST",

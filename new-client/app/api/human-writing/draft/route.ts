@@ -5,6 +5,7 @@ import OpenAI from "openai";
 import { supabaseServer } from "@/lib/supabase/server";
 import { requireUserIdServer } from "@/lib/supabase/user";
 import { encodingForModel } from "js-tiktoken";
+import { A2UI_TAG_END, A2UI_TAG_START, extractSuggestionPayloadFromText, stripSuggestionPayloadFromText } from "@/lib/market-agent/a2ui";
 
 type DraftRequestBody = {
   prompt?: string;
@@ -16,7 +17,34 @@ const SYSTEM_PROMPT = [
   "Write directly to the user's request with clear, natural language.",
   "Do not talk about being an AI. Do not add meta comments.",
   "Keep it focused, readable, and practical.",
+  "After the draft, append a UI-control payload wrapped in tags.",
+  `Use ${A2UI_TAG_START}{"cta":{"show":true,"reason":"..."}}${A2UI_TAG_END} at the very end.`,
+  "Set show=true only when the draft is full, paragraph-style prose that should be humanized now.",
+  "Set show=false for outlines, bullet lists, short fragments, greetings, or meta replies.",
+  "The tag controls UI only; you are not running the humanizer yourself.",
+  "Do not mention the tag or JSON in the visible response.",
+  "Do not add any text after the closing tag.",
 ].join(" ");
+
+type HumanizerCtaDecision = {
+  show: boolean;
+  reason?: string;
+};
+
+const parseCtaDecision = (payload: unknown): HumanizerCtaDecision | null => {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return null;
+  const record = payload as Record<string, unknown>;
+  const candidate =
+    (record.cta as Record<string, unknown> | undefined) ??
+    (record.decision as Record<string, unknown> | undefined) ??
+    record;
+  if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) return null;
+  const show = (candidate as Record<string, unknown>).show;
+  if (typeof show !== "boolean") return null;
+  const reasonValue = (candidate as Record<string, unknown>).reason;
+  const reason = typeof reasonValue === "string" ? reasonValue.trim() : undefined;
+  return { show, reason: reason || undefined };
+};
 
 export async function POST(request: NextRequest) {
   try {
@@ -209,8 +237,39 @@ export async function POST(request: NextRequest) {
     const writer = writable.getWriter();
     const textEncoder = new TextEncoder();
     let draftText = "";
+    let rawText = "";
     let deltaCount = 0;
     let firstDeltaAt: number | null = null;
+    let streamSuppressed = false;
+    let pendingTail = "";
+    const tagStart = A2UI_TAG_START;
+    const tagStartLen = tagStart.length;
+
+    const emitFilteredDelta = async (delta: string) => {
+      if (streamSuppressed) return "";
+      const combined = pendingTail + delta;
+      const tagIndex = combined.indexOf(tagStart);
+      if (tagIndex === -1) {
+        if (combined.length < tagStartLen) {
+          pendingTail = combined;
+          return "";
+        }
+        const safeCut = combined.length - (tagStartLen - 1);
+        const visible = combined.slice(0, safeCut);
+        pendingTail = combined.slice(safeCut);
+        if (visible) {
+          await writer.write(textEncoder.encode(JSON.stringify({ token: visible }) + "\n"));
+        }
+        return visible;
+      }
+      const visible = combined.slice(0, tagIndex);
+      if (visible) {
+        await writer.write(textEncoder.encode(JSON.stringify({ token: visible }) + "\n"));
+      }
+      streamSuppressed = true;
+      pendingTail = "";
+      return visible;
+    };
 
     (async () => {
       try {
@@ -219,23 +278,43 @@ export async function POST(request: NextRequest) {
             const delta = event.delta || "";
             if (delta) {
               deltaCount += 1;
-              draftText += delta;
+              rawText += delta;
               if (!firstDeltaAt) {
                 firstDeltaAt = Date.now();
                 console.info("[human-writing][draft] first delta received", { ts: firstDeltaAt });
               }
-              await writer.write(textEncoder.encode(JSON.stringify({ token: delta }) + "\n"));
+              const visible = await emitFilteredDelta(delta);
+              if (visible) {
+                draftText += visible;
+              }
             }
           }
         }
 
-        if (draftText.trim()) {
+        if (!streamSuppressed && pendingTail) {
+          await writer.write(textEncoder.encode(JSON.stringify({ token: pendingTail }) + "\n"));
+          draftText += pendingTail;
+          pendingTail = "";
+        }
+
+        const taggedPayload = extractSuggestionPayloadFromText(rawText);
+        const decision = parseCtaDecision(taggedPayload.payload ?? null);
+        const cleanedDraft = stripSuggestionPayloadFromText(
+          taggedPayload.cleanedText,
+          taggedPayload.payload,
+          taggedPayload.payloadFragment
+        );
+        const finalDraft = cleanedDraft.trim() ? cleanedDraft : draftText;
+        const shouldShowCta = decision?.show ?? false;
+        const decisionReason = decision?.reason;
+
+        if (finalDraft.trim()) {
           const { error: insertAssistantError } = await supabase.from("messages").insert([
             {
               user_id: userId,
               conversation_id: conversationId,
               role: "assistant",
-              content: draftText,
+              content: finalDraft,
               metadata: { agent: "human-writing", kind: "draft" },
             },
           ]);
@@ -246,27 +325,30 @@ export async function POST(request: NextRequest) {
             );
           } else {
             console.info("[human-writing][draft] draft message saved", { conversationId });
-            const ctaCreatedAt = new Date().toISOString();
-            const { error: ctaError } = await supabase.from("messages").insert([
-              {
-                user_id: userId,
-                conversation_id: conversationId,
-                role: "assistant",
-                content: "Draft ready. Want me to humanize it now? (no detector or loop yet)",
-                metadata: {
-                  agent: "human-writing",
-                  kind: "cta",
-                  draftText,
-                  status: "pending",
-                  order_ts: ctaCreatedAt,
+            if (shouldShowCta) {
+              const ctaCreatedAt = new Date().toISOString();
+              const { error: ctaError } = await supabase.from("messages").insert([
+                {
+                  user_id: userId,
+                  conversation_id: conversationId,
+                  role: "assistant",
+                  content: "Draft ready. Want me to humanize it now? (no detector or loop yet)",
+                  metadata: {
+                    agent: "human-writing",
+                    kind: "cta",
+                    draftText: finalDraft,
+                    reason: decisionReason,
+                    status: "pending",
+                    order_ts: ctaCreatedAt,
+                  },
+                  created_at: ctaCreatedAt,
                 },
-                created_at: ctaCreatedAt,
-              },
-            ]);
-            if (ctaError) {
-              console.warn("[human-writing][draft] failed to insert CTA message", ctaError);
-            } else {
-              console.info("[human-writing][draft] CTA message saved", { conversationId });
+              ]);
+              if (ctaError) {
+                console.warn("[human-writing][draft] failed to insert CTA message", ctaError);
+              } else {
+                console.info("[human-writing][draft] CTA message saved", { conversationId });
+              }
             }
           }
         } else {
@@ -274,7 +356,15 @@ export async function POST(request: NextRequest) {
         }
 
         await writer.write(
-          textEncoder.encode(JSON.stringify({ done: true, decision: { show: false } }) + "\n")
+          textEncoder.encode(
+            JSON.stringify({
+              done: true,
+              decision: {
+                show: shouldShowCta,
+                reason: decisionReason,
+              },
+            }) + "\n"
+          )
         );
       } catch (err: any) {
         console.error("[human-writing][draft] stream error", err);
