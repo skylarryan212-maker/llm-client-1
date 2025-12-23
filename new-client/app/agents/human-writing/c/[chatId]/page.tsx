@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { ArrowDown, ArrowLeft, Loader2, X } from "lucide-react";
 
@@ -22,6 +22,8 @@ interface Message {
   status?: "pending" | "done";
   draftText?: string;
 }
+
+const baseBottomSpacerPx = 28;
 
 function ChatInner({ params }: PageProps) {
   const router = useRouter();
@@ -45,7 +47,20 @@ function ChatInner({ params }: PageProps) {
   const hasStartedRef = useRef(false);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const [isAutoScroll, setIsAutoScroll] = useState(true);
+  const [bottomSpacerPx, setBottomSpacerPx] = useState(baseBottomSpacerPx);
+  const [pinSpacerHeight, setPinSpacerHeight] = useState(0);
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const [alignTrigger, setAlignTrigger] = useState(0);
+  const pinnedMessageIdRef = useRef<string | null>(null);
+  const initialScrollDoneRef = useRef(false);
+  const pinToPromptRef = useRef(false);
+  const pinnedScrollTopRef = useRef<number | null>(null);
+  const alignNextUserMessageToTopRef = useRef<string | null>(null);
+  const isProgrammaticScrollRef = useRef(false);
+  const programmaticScrollTimeoutRef = useRef<number | null>(null);
+  const hasStreamedTokenRef = useRef(false);
+  const lockedScrollHeightRef = useRef<number | null>(null);
+  const lockScrollAfterStreamRef = useRef(false);
   const messagesRef = useRef<Message[]>([]);
   const initialPromptRef = useRef<string | null>(null);
 
@@ -121,18 +136,303 @@ function ChatInner({ params }: PageProps) {
     messagesRef.current = messages;
   }, [messages]);
 
+  useEffect(() => {
+    initialScrollDoneRef.current = false;
+  }, [taskId]);
+
+  const scheduleProgrammaticScrollReset = () => {
+    if (typeof window === "undefined") return;
+    if (programmaticScrollTimeoutRef.current) {
+      window.clearTimeout(programmaticScrollTimeoutRef.current);
+    }
+    programmaticScrollTimeoutRef.current = window.setTimeout(() => {
+      isProgrammaticScrollRef.current = false;
+      programmaticScrollTimeoutRef.current = null;
+    }, 160);
+  };
+
+  const getEffectiveScrollBottom = useCallback(
+    (viewport: HTMLDivElement) => {
+      const extraSpacer = Math.max(0, bottomSpacerPx - baseBottomSpacerPx);
+      return Math.max(0, viewport.scrollHeight - extraSpacer);
+    },
+    [bottomSpacerPx]
+  );
+
+  const getLockedMaxScrollTop = (viewport: HTMLDivElement) => {
+    const lockedHeight = lockedScrollHeightRef.current;
+    if (!lockedHeight) return null;
+    return Math.max(0, lockedHeight - viewport.clientHeight);
+  };
+
+  const scrollToBottom = (behavior: ScrollBehavior = "smooth") => {
+    const viewport = scrollRef.current;
+    if (!viewport) return;
+    const bottom = getEffectiveScrollBottom(viewport);
+    const targetTop = Math.max(0, bottom - viewport.clientHeight);
+    isProgrammaticScrollRef.current = true;
+    viewport.scrollTo({ top: targetTop, behavior });
+    scheduleProgrammaticScrollReset();
+  };
+
+  const releasePinning = () => {
+    pinToPromptRef.current = false;
+    pinnedScrollTopRef.current = null;
+    setPinSpacerHeight(0);
+  };
+
+  const computeRequiredSpacerForMessage = useCallback(
+    (messageId: string) => {
+      const viewport = scrollRef.current;
+      if (!viewport) return null;
+      const messageEl = viewport.querySelector(`[data-agent-message-id="${messageId}"]`) as HTMLElement | null;
+      if (!messageEl) return null;
+      const viewportRect = viewport.getBoundingClientRect();
+      const elRect = messageEl.getBoundingClientRect();
+      const desiredPadding = 14;
+      const elContentTop = viewport.scrollTop + (elRect.top - viewportRect.top);
+      const requiredScrollTop = Math.max(0, Math.round(elContentTop - desiredPadding));
+      const contentWithoutSpacer = viewport.scrollHeight - bottomSpacerPx;
+      const maxScrollTopWithBase = Math.max(
+        0,
+        contentWithoutSpacer + baseBottomSpacerPx - viewport.clientHeight
+      );
+      const extraNeeded = Math.max(0, requiredScrollTop - maxScrollTopWithBase);
+      return baseBottomSpacerPx + extraNeeded;
+    },
+    [baseBottomSpacerPx, bottomSpacerPx]
+  );
+
+  const handleChatScroll = () => {
+    const viewport = scrollRef.current;
+    if (!viewport) return;
+    if (isProgrammaticScrollRef.current) return;
+    if (pinToPromptRef.current) {
+      pinToPromptRef.current = false;
+      pinnedScrollTopRef.current = null;
+      setPinSpacerHeight(0);
+    }
+    const { scrollTop, clientHeight } = viewport;
+    const lockedMax = getLockedMaxScrollTop(viewport);
+    if (lockedMax !== null && !isDrafting && scrollTop > lockedMax + 2) {
+      isProgrammaticScrollRef.current = true;
+      viewport.scrollTop = lockedMax;
+      scheduleProgrammaticScrollReset();
+      return;
+    }
+    const effectiveBottom = getEffectiveScrollBottom(viewport);
+    const distanceFromBottom = effectiveBottom - (scrollTop + clientHeight);
+    const tolerance = Math.max(16, bottomSpacerPx / 3);
+    const atBottom = distanceFromBottom <= tolerance;
+    setShowScrollToBottom(!atBottom);
+    if (!pinToPromptRef.current) {
+      setIsAutoScroll(atBottom);
+    }
+  };
+
+  const recomputeScrollFlags = useCallback(() => {
+    const viewport = scrollRef.current;
+    if (!viewport) return;
+    const { scrollTop, clientHeight } = viewport;
+    const effectiveBottom = getEffectiveScrollBottom(viewport);
+    const distanceFromBottom = effectiveBottom - (scrollTop + clientHeight);
+    const tolerance = Math.max(16, bottomSpacerPx / 3);
+    const atBottom = distanceFromBottom <= tolerance;
+    setShowScrollToBottom(!atBottom);
+  }, [bottomSpacerPx, getEffectiveScrollBottom]);
+
+  useEffect(() => {
+    if (isAutoScroll) {
+      setShowScrollToBottom(false);
+    } else {
+      recomputeScrollFlags();
+    }
+  }, [isAutoScroll, recomputeScrollFlags, messages.length]);
+
+  useEffect(() => {
+    const targetMessageId = alignNextUserMessageToTopRef.current;
+    if (!targetMessageId) return;
+    pinnedMessageIdRef.current = targetMessageId;
+
+    let cancelled = false;
+    let retryRaf: number | null = null;
+    let scrollTimer: number | null = null;
+    const startMs = typeof performance !== "undefined" ? performance.now() : Date.now();
+    const deadlineMs = startMs + 2500;
+
+    const doScroll = () => {
+      if (cancelled) return;
+      const nowMs = typeof performance !== "undefined" ? performance.now() : Date.now();
+      if (nowMs > deadlineMs) return;
+
+      const viewport = scrollRef.current;
+      if (!viewport) return;
+
+      const el = viewport.querySelector(
+        `[data-agent-message-id="${targetMessageId}"]`
+      ) as HTMLElement | null;
+      if (!el) {
+        if (typeof requestAnimationFrame !== "undefined") {
+          retryRaf = requestAnimationFrame(doScroll);
+        }
+        return;
+      }
+
+      const viewportRect = viewport.getBoundingClientRect();
+      const elRect = el.getBoundingClientRect();
+      const desiredPadding = 14;
+      const nextTop = viewport.scrollTop + (elRect.top - viewportRect.top) - desiredPadding;
+      const targetTop = Math.max(0, Math.round(nextTop));
+      const maxScrollTop = Math.max(0, viewport.scrollHeight - viewport.clientHeight);
+      if (targetTop > maxScrollTop) {
+        const desiredSpacer = computeRequiredSpacerForMessage(targetMessageId);
+        if (typeof desiredSpacer === "number") {
+          setBottomSpacerPx((prev) => Math.max(prev, desiredSpacer));
+        }
+        if (typeof requestAnimationFrame !== "undefined") {
+          retryRaf = requestAnimationFrame(doScroll);
+        }
+        return;
+      }
+
+      isProgrammaticScrollRef.current = true;
+      pinnedScrollTopRef.current = targetTop;
+      setIsAutoScroll(false);
+      const effectiveBottom = getEffectiveScrollBottom(viewport);
+      const distanceFromBottom = effectiveBottom - (targetTop + viewport.clientHeight);
+      const tolerance = Math.max(12, bottomSpacerPx / 3);
+      setShowScrollToBottom(!(distanceFromBottom <= tolerance));
+      alignNextUserMessageToTopRef.current = null;
+
+      scrollTimer = window.setTimeout(() => {
+        viewport.scrollTo({ top: targetTop, behavior: "smooth" });
+      }, 80);
+
+    };
+
+    if (typeof requestAnimationFrame !== "undefined") {
+      requestAnimationFrame(() => requestAnimationFrame(doScroll));
+    } else {
+      doScroll();
+    }
+
+    return () => {
+      cancelled = true;
+      if (retryRaf && typeof cancelAnimationFrame !== "undefined") {
+        cancelAnimationFrame(retryRaf);
+      }
+      if (scrollTimer) clearTimeout(scrollTimer);
+      isProgrammaticScrollRef.current = false;
+    };
+  }, [
+    alignTrigger,
+    baseBottomSpacerPx,
+    messages.length,
+    bottomSpacerPx,
+    computeRequiredSpacerForMessage,
+    getEffectiveScrollBottom,
+  ]);
+
+  useEffect(() => {
+    if (lockedScrollHeightRef.current) return;
+    if (pinToPromptRef.current) return;
+    pinnedScrollTopRef.current = null;
+    const pinnedId = pinnedMessageIdRef.current;
+    if (!pinnedId) return;
+    const desiredSpacer = computeRequiredSpacerForMessage(pinnedId);
+    if (typeof desiredSpacer !== "number") return;
+    const nextSpacer = Math.max(baseBottomSpacerPx, desiredSpacer);
+    if (nextSpacer > bottomSpacerPx) {
+      setBottomSpacerPx(nextSpacer);
+    }
+  }, [messages.length, bottomSpacerPx, baseBottomSpacerPx, computeRequiredSpacerForMessage]);
+
+  useEffect(() => {
+    if (!lockScrollAfterStreamRef.current) return;
+    if (isDrafting) return;
+    const viewport = scrollRef.current;
+    if (!viewport) return;
+    const pinnedId = pinnedMessageIdRef.current;
+    const requiredSpacer = pinnedId ? computeRequiredSpacerForMessage(pinnedId) : null;
+    const nextSpacer = Math.max(
+      baseBottomSpacerPx,
+      typeof requiredSpacer === "number" ? Math.round(requiredSpacer) : baseBottomSpacerPx
+    );
+    const contentHeight = viewport.scrollHeight - bottomSpacerPx;
+    lockedScrollHeightRef.current = contentHeight + nextSpacer;
+    if (nextSpacer !== bottomSpacerPx) {
+      setBottomSpacerPx(nextSpacer);
+    }
+    lockScrollAfterStreamRef.current = false;
+  }, [baseBottomSpacerPx, bottomSpacerPx, computeRequiredSpacerForMessage, isDrafting, messages.length]);
+
+  useEffect(() => {
+    if (isDrafting) return;
+    const lockedHeight = lockedScrollHeightRef.current;
+    if (!lockedHeight) return;
+    const viewport = scrollRef.current;
+    if (!viewport) return;
+    const contentHeight = viewport.scrollHeight - bottomSpacerPx;
+    const desiredSpacer = Math.max(baseBottomSpacerPx, Math.round(lockedHeight - contentHeight));
+    if (!Number.isFinite(desiredSpacer)) return;
+    if (desiredSpacer !== bottomSpacerPx) {
+      setBottomSpacerPx(desiredSpacer);
+    }
+  }, [bottomSpacerPx, baseBottomSpacerPx, messages.length, isDrafting]);
+
+  useEffect(() => {
+    const ensureSpacer = () => {
+      setBottomSpacerPx((prev) => Math.max(baseBottomSpacerPx, prev));
+    };
+    ensureSpacer();
+    if (typeof window === "undefined") return;
+    window.addEventListener("resize", ensureSpacer);
+    return () => {
+      window.removeEventListener("resize", ensureSpacer);
+    };
+  }, [baseBottomSpacerPx, messages.length]);
+
+  useEffect(() => {
+    if (initialScrollDoneRef.current) return;
+    if (alignNextUserMessageToTopRef.current || pinToPromptRef.current) {
+      initialScrollDoneRef.current = true;
+      return;
+    }
+    scrollToBottom("auto");
+    setShowScrollToBottom(false);
+    initialScrollDoneRef.current = true;
+  }, [messages.length]);
+
+  const handleScrollToBottomClick = () => {
+    releasePinning();
+    setIsAutoScroll(true);
+    setShowScrollToBottom(false);
+    scrollToBottom("smooth");
+  };
+
+  useEffect(() => {
+    return () => {
+      if (programmaticScrollTimeoutRef.current) {
+        window.clearTimeout(programmaticScrollTimeoutRef.current);
+      }
+    };
+  }, []);
+
   const handleSubmit = (content: string) => {
     const trimmed = content.trim();
     if (!trimmed || isDrafting || isHumanizing) return;
     setHasStarted(true);
     hasStartedRef.current = true;
-    setIsAutoScroll(true);
+    setIsAutoScroll(false);
     void startDraftFlow(trimmed);
   };
 
   const startDraftFlow = async (userText: string) => {
     const userId = `u-${Date.now()}`;
     const draftMsgId = `draft-${Date.now()}`;
+
+    lockedScrollHeightRef.current = null;
+    hasStreamedTokenRef.current = false;
 
     setMessages((prev) => {
       const withoutCTA = prev.filter((m) => m.kind !== "cta");
@@ -149,6 +449,15 @@ function ChatInner({ params }: PageProps) {
       messagesRef.current = next;
       return next;
     });
+
+    pinToPromptRef.current = true;
+    pinnedMessageIdRef.current = userId;
+    pinnedScrollTopRef.current = null;
+    setPinSpacerHeight(0);
+    alignNextUserMessageToTopRef.current = userId;
+    setAlignTrigger((prev) => prev + 1);
+    setShowScrollToBottom(true);
+    setIsAutoScroll(false);
 
     setIsDrafting(true);
     let draft = "";
@@ -196,6 +505,9 @@ function ChatInner({ params }: PageProps) {
                     msg.id === draftMsgId ? { ...msg, content: currentDraft, kind: undefined } : msg
                   )
                 );
+                if (!hasStreamedTokenRef.current) {
+                  hasStreamedTokenRef.current = true;
+                }
               }
               if (obj.decision && typeof obj.decision.show === "boolean") {
                 shouldShowCTA = obj.decision.show;
@@ -295,6 +607,7 @@ function ChatInner({ params }: PageProps) {
         )
       );
     } finally {
+      lockScrollAfterStreamRef.current = true;
       setIsDrafting(false);
     }
   };
@@ -378,29 +691,6 @@ function ChatInner({ params }: PageProps) {
     }
   };
 
-  const scrollToBottom = (behavior: ScrollBehavior = "smooth") => {
-    const viewport = scrollRef.current;
-    if (!viewport) return;
-    viewport.scrollTo({ top: viewport.scrollHeight, behavior });
-  };
-
-  const handleScroll = () => {
-    const viewport = scrollRef.current;
-    if (!viewport) return;
-    const { scrollTop, scrollHeight, clientHeight } = viewport;
-    const distance = scrollHeight - (scrollTop + clientHeight);
-    const atBottom = distance <= 40;
-    setShowScrollToBottom(!atBottom);
-    if (!atBottom) {
-      setIsAutoScroll(false);
-    }
-  };
-
-  useEffect(() => {
-    if (!isAutoScroll) return;
-    scrollToBottom("auto");
-  }, [messages, isAutoScroll]);
-
   useEffect(() => {
     if (isSidebarOpen) return;
     const hasCompletedCTA = messages.some((m) => m.kind === "cta" && m.status === "done");
@@ -432,8 +722,12 @@ function ChatInner({ params }: PageProps) {
             <div
               ref={scrollRef}
               className="flex-1 min-h-0 overflow-y-auto"
-              onScroll={handleScroll}
+              onScroll={handleChatScroll}
+              style={{ overflowAnchor: "none" }}
             >
+              {pinSpacerHeight > 0 && (
+                <div aria-hidden className="w-full" style={{ height: pinSpacerHeight }} />
+              )}
               <div className="py-4">
                 <div className="w-full px-4 sm:px-6 lg:px-12">
                   <div className="mx-auto flex w-full max-w-3xl flex-col gap-4">
@@ -458,6 +752,7 @@ function ChatInner({ params }: PageProps) {
                       return (
                         <ChatMessage
                           key={msg.id}
+                          messageId={msg.id}
                           role={msg.role}
                           content={msg.content}
                           showInsightChips={false}
@@ -467,7 +762,7 @@ function ChatInner({ params }: PageProps) {
                         />
                       );
                     })}
-                    <div className="h-24" aria-hidden="true" />
+                    <div aria-hidden className="w-full" style={{ height: bottomSpacerPx }} />
                   </div>
                 </div>
               </div>
@@ -478,11 +773,7 @@ function ChatInner({ params }: PageProps) {
                       type="button"
                       size="icon"
                       className="pointer-events-auto h-10 w-10 rounded-full border border-white/15 bg-black/60 text-white shadow-md backdrop-blur hover:bg-black/80"
-                      onClick={() => {
-                        setIsAutoScroll(true);
-                        setShowScrollToBottom(false);
-                        scrollToBottom("smooth");
-                      }}
+                      onClick={handleScrollToBottomClick}
                     >
                       <ArrowDown className="h-4 w-4" />
                     </Button>
