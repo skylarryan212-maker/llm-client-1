@@ -3449,10 +3449,7 @@ export async function POST(request: NextRequest) {
         streamOptions.tool_choice = toolChoice;
       }
       if (modelConfig.reasoning) {
-        // Keep "minimal" as an internal effort level; map to "low" for the OpenAI API.
-        const effort =
-          modelConfig.reasoning.effort === "minimal" ? "low" : modelConfig.reasoning.effort;
-        streamOptions.reasoning = { effort };
+        streamOptions.reasoning = { effort: modelConfig.reasoning.effort };
       }
       if (typeof useFlex !== 'undefined' && useFlex) {
         streamOptions.service_tier = "flex";

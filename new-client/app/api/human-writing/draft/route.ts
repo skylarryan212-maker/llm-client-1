@@ -231,7 +231,7 @@ export async function POST(request: NextRequest) {
       store: true,
       instructions: SYSTEM_PROMPT,
       input: requestInput as any,
-      reasoning: { effort: "low" },
+      reasoning: { effort: "minimal" },
     });
 
     const { readable, writable } = new TransformStream();

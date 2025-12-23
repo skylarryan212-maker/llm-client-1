@@ -34,7 +34,7 @@
     "music-metadata": "^11.10.3",
     "next": "16.0.7",
     "next-themes": "^0.4.6",
-    "openai": "^4.80.0",
+    "openai": "^6.15.0",
     "pako": "^2.1.0",
     "pdfjs-dist": "^5.4.394",
     "react": "19.2.1",
