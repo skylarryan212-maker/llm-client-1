@@ -1,3 +1,4 @@
+import JSON5 from "json5";
 import { MarketSuggestionEvent } from "@/types/market-suggestion";
 
 export const ALLOWED_CADENCES = [60, 120, 300, 600, 1800, 3600] as const;
@@ -251,6 +252,20 @@ export type SuggestionExtractionResult = {
   payloadFragment: string | null;
 };
 
+const tryParseJson = (value: string): unknown | null => {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    try {
+      return JSON5.parse(trimmed);
+    } catch {
+      return null;
+    }
+  }
+};
+
 export const extractSuggestionPayloadFromText = (text: string): SuggestionExtractionResult => {
   if (!text) return { cleanedText: text, payload: null, payloadFragment: null };
   const startIndex = text.indexOf(A2UI_TAG_START);
@@ -262,14 +277,7 @@ export const extractSuggestionPayloadFromText = (text: string): SuggestionExtrac
     return { cleanedText: text, payload: null, payloadFragment: null };
   }
   const rawJson = text.slice(startIndex + A2UI_TAG_START.length, endIndex).trim();
-  let payload: unknown = null;
-  if (rawJson) {
-    try {
-      payload = JSON.parse(rawJson);
-    } catch {
-      payload = null;
-    }
-  }
+  const payload = rawJson ? tryParseJson(rawJson) : null;
   const before = text.slice(0, startIndex);
   const after = text.slice(endIndex + A2UI_TAG_END.length);
   const cleanedText = `${before}${after}`.trim();
