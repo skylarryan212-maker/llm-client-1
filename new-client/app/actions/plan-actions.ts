@@ -376,7 +376,7 @@ export async function getUserPlanDetails(): Promise<{
       renewalDate: currentPeriodEnd ? currentPeriodEnd.split("T")[0] : null,
       cancelAt,
       cancelAtPeriodEnd,
-      isActive: data.is_active,
+      isActive: Boolean((data as any).is_active),
     };
   } catch (error) {
     console.error("Error fetching user plan details:", error);

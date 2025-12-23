@@ -182,7 +182,8 @@ async function loadRouterContextPayload(
       .from("conversation_topics")
       .select("*")
       .eq("conversation_id", conversationId)
-      .order("created_at", { ascending: true }),
+      .order("created_at", { ascending: true })
+      .returns<ConversationTopic[]>(),
     supabase
       .from("messages")
       .select("id, role, content, created_at, topic_id")
@@ -254,7 +255,8 @@ async function loadCrossConversationTopics(
     .in("conversation_id", conversationIds)
     .lte("token_estimate", CROSS_CHAT_TOKEN_LIMIT)
     .order("updated_at", { ascending: false })
-    .limit(MAX_FOREIGN_TOPICS);
+    .limit(MAX_FOREIGN_TOPICS)
+    .returns<ConversationTopic[]>();
 
   if (!Array.isArray(topicRows)) {
     return [];
@@ -301,8 +303,8 @@ async function loadCandidateArtifacts(
     }
   }
 
-  const { data } = await query;
-  const artifacts = Array.isArray(data) ? (data as Artifact[]) : [];
+  const { data } = await query.returns<Artifact[]>();
+  const artifacts = Array.isArray(data) ? data : [];
   if (!artifacts.length) {
     return [];
   }

@@ -1,9 +1,12 @@
 "use server";
 
 import { NextRequest, NextResponse } from "next/server";
-import OpenAI from "openai";
+import { createOpenAIClient, getOpenAIRequestId } from "@/lib/openai/client";
+import type { ResponseStreamEvent } from "openai/resources/responses/responses";
+import type { ResponseInputItem } from "openai/resources/responses/responses";
 import { supabaseServer } from "@/lib/supabase/server";
 import { requireUserIdServer } from "@/lib/supabase/user";
+import type { Json } from "@/lib/supabase/types";
 import { encodingForModel } from "js-tiktoken";
 import { A2UI_TAG_END, A2UI_TAG_START, extractSuggestionPayloadFromText, stripSuggestionPayloadFromText } from "@/lib/market-agent/a2ui";
 
@@ -139,7 +142,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Build input list and trim/compact from the front if oversized (real token counting)
-    const historyItems =
+    const historyItems: ResponseInputItem[] =
       (messageRows ?? []).map((m) => ({
         role: m.role === "assistant" ? "assistant" : "user",
         content: m.content ?? "",
@@ -153,17 +156,21 @@ export async function POST(request: NextRequest) {
       historyItems: historyItems.length,
     });
 
-    let inputItems: Array<{ role: string; content: any }> = historyItems;
+    let inputItems: ResponseInputItem[] = historyItems;
 
-    const client = new OpenAI({ apiKey });
+    const client = createOpenAIClient({ apiKey });
 
     const MAX_TOKENS = 400_000;
     const tokenEncoder = encodingForModel("gpt-4o-mini"); // closest available for GPT-5 Nano tokenization
-    const countTokens = (items: Array<{ role: string; content: any }>) => {
+    const countTokens = (items: ResponseInputItem[]) => {
       const tokens = items.reduce((sum, item) => {
-        const text = typeof item.content === "string" ? item.content : "";
-        const rolePrefix = item.role === "assistant" ? "assistant: " : "user: ";
-        const encoded = tokenEncoder.encode(rolePrefix + text);
+        if (!item || typeof item !== "object") return sum;
+        const role = (item as { role?: unknown }).role;
+        const content = (item as { content?: unknown }).content;
+        if (typeof role !== "string" || typeof content !== "string") return sum;
+        const rolePrefix =
+          role === "assistant" ? "assistant: " : role === "system" ? "system: " : "user: ";
+        const encoded = tokenEncoder.encode(rolePrefix + content);
         return sum + encoded.length;
       }, 0);
       return tokens;
@@ -177,30 +184,24 @@ export async function POST(request: NextRequest) {
       tokensBeforeTrim = countTokens(inputItems);
 
       if (tokensBeforeTrim > MAX_TOKENS) {
-        // Attempt compaction via raw fetch (SDK typing doesn't expose compact)
+        // Attempt compaction via SDK
         try {
-          const compactRes = await fetch("https://api.openai.com/v1/responses/compact", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${apiKey}`,
-            },
-            body: JSON.stringify({
+          const { data: compacted, response: rawResponse } = await client.responses
+            .compact({
               model: "gpt-5-nano",
-              input: inputItems.map((i) => ({ role: i.role, content: i.content })),
+              input: inputItems,
               instructions: SYSTEM_PROMPT,
-            }),
-          });
-          if (compactRes.ok) {
-              const compactJson = await compactRes.json();
-              if (Array.isArray(compactJson?.output) && compactJson.output.length) {
-                inputItems = compactJson.output as any;
-              }
-          } else {
-            console.warn("[human-writing][compact] non-200", await compactRes.text());
+            })
+            .withResponse();
+          const requestId = getOpenAIRequestId(compacted, rawResponse);
+          if (requestId) {
+            console.info("[human-writing][compact] OpenAI request id", { requestId });
+          }
+          if (Array.isArray(compacted?.output) && compacted.output.length) {
+            inputItems = compacted.output as any;
           }
         } catch (err) {
-          console.warn("[human-writing][compact] fetch failed", err);
+          console.warn("[human-writing][compact] failed", err);
         }
       }
 
@@ -225,9 +226,8 @@ export async function POST(request: NextRequest) {
       trimAttempts,
     });
 
-    const stream = await client.responses.create({
+    const stream = client.responses.stream({
       model: "gpt-5-nano",
-      stream: true,
       store: true,
       instructions: SYSTEM_PROMPT,
       input: requestInput as any,
@@ -275,8 +275,9 @@ export async function POST(request: NextRequest) {
     (async () => {
       try {
         for await (const event of stream) {
-          if (event.type === "response.output_text.delta") {
-            const delta = event.delta || "";
+          const typedEvent = event as ResponseStreamEvent;
+          if (typedEvent.type === "response.output_text.delta") {
+            const delta = typedEvent.delta || "";
             if (delta) {
               deltaCount += 1;
               rawText += delta;
@@ -340,7 +341,7 @@ export async function POST(request: NextRequest) {
               conversation_id: conversationId,
               role: "assistant",
               content: finalDraft,
-              metadata: { agent: "human-writing", kind: "draft" },
+              metadata: { agent: "human-writing", kind: "draft" } as Json,
             },
           ]);
           if (insertAssistantError) {
@@ -365,7 +366,7 @@ export async function POST(request: NextRequest) {
                     reason: decisionReason,
                     status: "pending",
                     order_ts: ctaCreatedAt,
-                  },
+                  } as Json,
                   created_at: ctaCreatedAt,
                 },
               ]);

@@ -1,7 +1,7 @@
 "use server";
 
 import { NextRequest, NextResponse } from "next/server";
-import OpenAI from "openai";
+import { createOpenAIClient } from "@/lib/openai/client";
 import { supabaseServerAdmin } from "@/lib/supabase/server";
 import {
   ensureGuestSession,
@@ -12,7 +12,7 @@ import {
   addGuestUsage,
 } from "@/lib/guest-session";
 import { calculateCost } from "@/lib/pricing";
-import type { Tool } from "openai/resources/responses/responses";
+import type { ResponseStreamEvent, Tool } from "openai/resources/responses/responses";
 
 export async function POST(request: NextRequest) {
   type GuestChatRequest = {
@@ -64,7 +64,7 @@ export async function POST(request: NextRequest) {
     }
 
     console.log("[guest-chat] Creating OpenAI stream");
-    const client = new OpenAI({ apiKey });
+    const client = createOpenAIClient({ apiKey });
     const historyInput =
       Array.isArray(body.history) && body.history.length
         ? body.history.filter(
@@ -79,9 +79,8 @@ export async function POST(request: NextRequest) {
     // Allow built-in tools. File search requires a vector store id; guests don't create one here, so keep web search only.
     const tools: Tool[] = [{ type: "web_search" as any }];
 
-    const stream = (await client.responses.create({
+    const stream = client.responses.stream({
       model,
-      stream: true,
       store: true,
       previous_response_id: previousResponseId,
       reasoning: { effort: "low" },
@@ -93,7 +92,7 @@ export async function POST(request: NextRequest) {
       ],
       tools,
       tool_choice: "auto",
-    } as any)) as any;
+    });
 
     const encoder = new TextEncoder();
     const readable = new ReadableStream({
@@ -107,18 +106,17 @@ export async function POST(request: NextRequest) {
       let inputTokens = 0;
       let cachedTokens = 0;
       let outputTokens = 0;
-      // Responses SDK stream supports async iteration at runtime; cast to keep TS happy.
-      const asyncStream = stream as unknown as AsyncIterable<any>;
-      for await (const event of asyncStream) {
+      for await (const event of stream) {
+        const typedEvent = event as ResponseStreamEvent;
         // Capture response id for chaining
-        const maybeId = (event as any)?.response?.id ?? (event as any)?.id;
+        const maybeId = (typedEvent as any)?.response?.id ?? (typedEvent as any)?.id;
         if (maybeId && !responseId) {
           responseId = maybeId as string;
           enqueue({ response_id: responseId });
         }
 
         // Capture usage if available
-        const usage = (event as any)?.response?.usage;
+        const usage = (typedEvent as any)?.response?.usage;
         if (usage) {
           inputTokens =
             usage.input_tokens ??
@@ -134,22 +132,22 @@ export async function POST(request: NextRequest) {
         }
 
         // Stream text deltas
-        if ((event as any)?.type === "response.output_text.delta" && (event as any)?.delta) {
+        if (typedEvent.type === "response.output_text.delta" && typedEvent.delta) {
           emittedToken = true;
-          enqueue({ token: (event as any).delta });
+          enqueue({ token: typedEvent.delta });
         }
 
         // Fallback: if completed and we never emitted tokens, send the full text
         if (
-          (event as any)?.type === "response.completed" &&
+          typedEvent.type === "response.completed" &&
           !emittedToken &&
-          (event as any)?.response?.output_text
+          (typedEvent as any)?.response?.output_text
         ) {
           emittedToken = true;
-          enqueue({ token: (event as any).response.output_text });
+          enqueue({ token: (typedEvent as any).response.output_text });
         }
 
-        if ((event as any)?.type === "response.completed") {
+        if (typedEvent.type === "response.completed") {
           try {
             const estimatedCost = calculateCost(model, inputTokens, cachedTokens, outputTokens);
             const totalTokens = (inputTokens || 0) + (cachedTokens || 0) + (outputTokens || 0);
@@ -169,8 +167,8 @@ export async function POST(request: NextRequest) {
           return;
         }
 
-            if ((event as any)?.type === "response.error" && (event as any)?.error?.message) {
-              enqueue({ error: (event as any).error.message });
+            if (typedEvent.type === "error" && typedEvent.message) {
+              enqueue({ error: typedEvent.message });
             }
           }
           enqueue({ done: true });

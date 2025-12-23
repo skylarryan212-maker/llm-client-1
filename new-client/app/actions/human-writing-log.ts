@@ -2,6 +2,7 @@
 
 import { supabaseServer } from "@/lib/supabase/server";
 import { requireUserIdServer } from "@/lib/supabase/user";
+import type { Json, MessageInsert } from "@/lib/supabase/types";
 
 type MessageInput = {
   role: "user" | "assistant";
@@ -22,7 +23,8 @@ async function ensureHumanWritingConversation(taskId: string, title?: string | n
     .eq("metadata->>task_id", taskId)
     .eq("metadata->>agent", "human-writing")
     .order("created_at", { ascending: false })
-    .limit(1);
+    .limit(1)
+    .returns<{ id: string }[]>();
 
   if (findError) {
     throw new Error(`Failed to find conversation: ${findError.message}`);
@@ -70,13 +72,13 @@ export async function logHumanWritingMessages(params: {
     return { conversationId, messages: [] };
   }
 
-  const rows = params.messages.map((msg) => ({
+  const rows: MessageInsert[] = params.messages.map((msg) => ({
     user_id: userId,
     conversation_id: conversationId,
     role: msg.role,
     content: msg.content,
     openai_response_id: msg.openaiResponseId ?? null,
-    metadata: msg.metadata ?? {},
+    metadata: (msg.metadata ?? null) as Json | null,
   }));
 
   const { data, error } = await supabase.from("messages").insert(rows).select("id");

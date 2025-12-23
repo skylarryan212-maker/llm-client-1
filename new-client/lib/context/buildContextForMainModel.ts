@@ -74,7 +74,8 @@ export async function buildContextForMainModel({
     const { data: topics, error: topicError } = await supabase
       .from("conversation_topics")
       .select("*")
-      .in("id", requestedTopicIds);
+      .in("id", requestedTopicIds)
+      .returns<TopicRow[]>();
 
     if (!topicError && Array.isArray(topics)) {
       topicRows = topics;
@@ -92,7 +93,8 @@ export async function buildContextForMainModel({
       .from("conversation_topics")
       .select("*")
       .eq("id", primaryTopicId)
-      .maybeSingle();
+      .maybeSingle()
+      .returns<TopicRow>();
     if (fallbackTopic) {
       primaryTopic = fallbackTopic as TopicRow;
       topicRows.push(primaryTopic);
@@ -336,7 +338,11 @@ async function loadConversationMetadata(
     : [];
 
   const projectIds = Array.from(
-    new Set(conversationRows.map((c) => c.project_id).filter(Boolean))
+    new Set(
+      conversationRows
+        .map((c) => c.project_id)
+        .filter((id): id is string => typeof id === "string" && id.length > 0)
+    )
   );
   const projectNameMap = new Map<string, string | null>();
   if (projectIds.length) {
@@ -403,7 +409,7 @@ async function loadTopicMessages(
 ): Promise<MessageRow[]> {
   const { data } = await supabase
     .from("messages")
-    .select("id, role, content, metadata, topic_id, created_at")
+    .select("id, conversation_id, role, content, openai_response_id, metadata, topic_id, created_at, preamble")
     .eq("conversation_id", topicConversationId)
     .eq("topic_id", topicId)
     .order("created_at", { ascending: true });
@@ -422,7 +428,7 @@ async function buildSecondaryTailSnippets(
   for (const topic of topics) {
     const { data } = await supabase
       .from("messages")
-      .select("role, content, metadata, topic_id, created_at")
+      .select("id, conversation_id, role, content, openai_response_id, metadata, topic_id, created_at, preamble")
       .eq("conversation_id", topic.conversationId)
       .eq("topic_id", topic.topicId)
       .order("created_at", { ascending: true });
@@ -457,8 +463,12 @@ async function loadArtifactsByIds(
   if (!ids.length || tokenBudget <= 0) {
     return [];
   }
-  const { data } = await supabase.from("artifacts").select("*").in("id", ids);
-  const artifacts = Array.isArray(data) ? (data as ArtifactRow[]) : [];
+  const { data } = await supabase
+    .from("artifacts")
+    .select("*")
+    .in("id", ids)
+    .returns<ArtifactRow[]>();
+  const artifacts = Array.isArray(data) ? data : [];
   if (!artifacts.length) {
     return [];
   }

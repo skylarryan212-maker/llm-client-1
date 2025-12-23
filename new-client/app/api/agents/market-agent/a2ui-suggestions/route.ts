@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import OpenAI from "openai";
+import { createOpenAIClient, getOpenAIRequestId } from "@/lib/openai/client";
 
 import { listMarketAgentUiEventIds, upsertMarketAgentUiEvent } from "@/lib/data/market-agent";
 import { requireUserIdServer } from "@/lib/supabase/user";
@@ -73,11 +73,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ events: [] }, { status: 500 });
     }
 
-    const client = new OpenAI({ apiKey });
+    const client = createOpenAIClient({ apiKey });
     const startedAt = Date.now();
     console.log("[a2ui] Calling OpenAI responses", { model: MODEL_ID });
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 20000);
     const systemMessage = {
       id: "msg_a2ui_system",
       role: "system" as const,
@@ -94,24 +92,28 @@ export async function POST(request: NextRequest) {
       ],
     };
 
-    let response;
-    try {
-      response = await client.responses.create({
-        model: MODEL_ID,
-        input: [systemMessage, userMessageInput],
-        text: {
-          format: {
-            type: "json_schema",
-            name: "MarketSuggestionResponse",
-            schema: SUGGESTION_RESPONSE_SCHEMA,
+    const { data: response, response: rawResponse } = await client.responses
+      .create(
+        {
+          model: MODEL_ID,
+          input: [systemMessage, userMessageInput],
+          text: {
+            format: {
+              type: "json_schema",
+              name: "MarketSuggestionResponse",
+              schema: SUGGESTION_RESPONSE_SCHEMA,
+            },
           },
+          store: false,
         },
-        store: false,
-      });
-    } finally {
-      clearTimeout(timeoutId);
-    }
+        { timeout: 20000 }
+      )
+      .withResponse();
     console.log("[a2ui] OpenAI responses completed", { ms: Date.now() - startedAt });
+    const requestId = getOpenAIRequestId(response, rawResponse);
+    if (requestId) {
+      console.log("[a2ui] OpenAI request id", { requestId });
+    }
 
     if (response.error) {
       console.error("[a2ui] OpenAI response error", response.error);
@@ -146,7 +148,10 @@ export async function POST(request: NextRequest) {
     console.log("[a2ui] Returning events", { count: insertedEvents.length });
     return NextResponse.json({ events: insertedEvents });
   } catch (error) {
-    if (error instanceof Error && error.name === "AbortError") {
+    if (
+      error instanceof Error &&
+      (error.name === "AbortError" || error.name === "APIConnectionTimeoutError")
+    ) {
       console.warn("[a2ui] OpenAI call timed out");
       return NextResponse.json({ events: [] }, { status: 504 });
     }

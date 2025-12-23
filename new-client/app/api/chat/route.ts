@@ -39,7 +39,8 @@ import { callDeepInfraLlama } from "@/lib/deepInfraLlama";
 import type { RouterDecision } from "@/lib/router/types";
 import { buildContextForMainModel } from "@/lib/context/buildContextForMainModel";
 import { updateTopicSnapshot } from "@/lib/topics/updateTopicSnapshot";
-import { toFile } from "openai/uploads";
+import { toFile } from "openai";
+import { buildOpenAIClientOptions } from "@/lib/openai/client";
 import { runDecisionRouter } from "@/lib/router/decision-router";
 import { runWriterRouter } from "@/lib/router/write-router";
 import { estimateTokens } from "@/lib/tokens/estimateTokens";
@@ -2969,9 +2970,11 @@ export async function POST(request: NextRequest) {
               // Upload to OpenAI vector store directly (like legacy)
               if (!vectorStoreOpenAI) {
                 const OpenAIConstructor = await getOpenAIConstructor();
-                vectorStoreOpenAI = new OpenAIConstructor({
-                  apiKey: process.env.OPENAI_API_KEY,
-                });
+                vectorStoreOpenAI = new OpenAIConstructor(
+                  buildOpenAIClientOptions({
+                    apiKey: process.env.OPENAI_API_KEY,
+                  })
+                );
               }
               // Ensure vector store
               if (!vectorStoreId) {
@@ -3006,9 +3009,11 @@ export async function POST(request: NextRequest) {
           try {
             if (!vectorStoreOpenAI) {
               const OpenAIConstructor = await getOpenAIConstructor();
-              vectorStoreOpenAI = new OpenAIConstructor({
-                apiKey: process.env.OPENAI_API_KEY,
-              });
+              vectorStoreOpenAI = new OpenAIConstructor(
+                buildOpenAIClientOptions({
+                  apiKey: process.env.OPENAI_API_KEY,
+                })
+              );
             }
             const uploadable = await toFile(buffer, att.name || "file", {
               type: att.mime || "application/octet-stream",
@@ -3236,9 +3241,11 @@ export async function POST(request: NextRequest) {
     }
     try {
       const OpenAIClass = await getOpenAIConstructor();
-      openai = new OpenAIClass({
-        apiKey: process.env.OPENAI_API_KEY,
-      });
+      openai = new OpenAIClass(
+        buildOpenAIClientOptions({
+          apiKey: process.env.OPENAI_API_KEY,
+        })
+      );
       console.log("OpenAI client initialized successfully");
     } catch (importError) {
       console.error(

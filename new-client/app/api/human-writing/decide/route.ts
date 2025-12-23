@@ -1,7 +1,7 @@
 "use server";
 
 import { NextRequest, NextResponse } from "next/server";
-import OpenAI from "openai";
+import { createOpenAIClient, getOpenAIRequestId } from "@/lib/openai/client";
 
 type DecideRequest = {
   draft?: string;
@@ -21,7 +21,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ show: false, reason: "missing_openai_api_key_default_false" });
     }
 
-    const client = new OpenAI({ apiKey });
+    const client = createOpenAIClient({ apiKey });
 
     const tools = [
       {
@@ -42,25 +42,31 @@ export async function POST(request: NextRequest) {
       },
     ];
 
-    const response = await client.responses.create({
-      model: "gpt-5-nano",
-      input: [
-        {
-          role: "system",
-          content:
-            [
-              "You gate the 'Run humanizer' CTA.",
-              "Set show=true only when the text is an essay: multi-sentence, paragraph-form, task-focused writing that answers the user's ask.",
-              "Always set show=false for greetings, meta/status replies, placeholders, instructions to the model, outlines, bullet lists, fragments, or anything that is not essay-style prose.",
-              "If it clearly is an essay, respond with show=true; otherwise show=false.",
-            ].join(" "),
-        },
-        { role: "user", content: draft },
-      ],
-      tools,
-      tool_choice: { type: "function", name: "set_humanizer_visibility" },
-      store: false,
-    });
+    const { data: response, response: rawResponse } = await client.responses
+      .create({
+        model: "gpt-5-nano",
+        input: [
+          {
+            role: "system",
+            content:
+              [
+                "You gate the 'Run humanizer' CTA.",
+                "Set show=true only when the text is an essay: multi-sentence, paragraph-form, task-focused writing that answers the user's ask.",
+                "Always set show=false for greetings, meta/status replies, placeholders, instructions to the model, outlines, bullet lists, fragments, or anything that is not essay-style prose.",
+                "If it clearly is an essay, respond with show=true; otherwise show=false.",
+              ].join(" "),
+          },
+          { role: "user", content: draft },
+        ],
+        tools,
+        tool_choice: { type: "function", name: "set_humanizer_visibility" },
+        store: false,
+      })
+      .withResponse();
+    const requestId = getOpenAIRequestId(response, rawResponse);
+    if (requestId) {
+      console.log("[human-writing][decide] OpenAI request id", { requestId });
+    }
 
     let show = false;
     let reason: string | undefined;

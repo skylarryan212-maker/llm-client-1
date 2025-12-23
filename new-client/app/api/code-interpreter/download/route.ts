@@ -2,6 +2,7 @@ export const runtime = "nodejs";
 export const maxDuration = 30;
 
 import { NextRequest, NextResponse } from "next/server";
+import { createOpenAIClient, getOpenAIRequestId } from "@/lib/openai/client";
 import { supabaseServer } from "@/lib/supabase/server";
 import { getCurrentUserIdServer } from "@/lib/supabase/user";
 
@@ -71,14 +72,21 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "OpenAI API key not configured" }, { status: 500 });
   }
 
-  const upstream = await fetch(
-    `https://api.openai.com/v1/containers/${encodeURIComponent(containerId)}/files/${encodeURIComponent(fileId)}/content`,
-    {
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-      },
-    }
-  );
+  const client = createOpenAIClient({ apiKey });
+  let upstream: Response;
+  try {
+    upstream = await client.containers.files.content.retrieve(fileId, { container_id: containerId });
+  } catch (error: any) {
+    return NextResponse.json(
+      { error: "Failed to retrieve file", status: error?.status ?? 502, details: error?.message ?? "" },
+      { status: 502 }
+    );
+  }
+
+  const requestId = getOpenAIRequestId(undefined, upstream);
+  if (requestId) {
+    console.log("[code-interpreter] OpenAI request id", { requestId });
+  }
 
   if (!upstream.ok) {
     const details = await upstream.text().catch(() => "");
@@ -99,4 +107,3 @@ export async function GET(req: NextRequest) {
     },
   });
 }
-

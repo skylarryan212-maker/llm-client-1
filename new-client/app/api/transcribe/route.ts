@@ -1,7 +1,7 @@
 export const runtime = "nodejs";
 
 import { NextResponse } from "next/server";
-import OpenAI from "openai";
+import { createOpenAIClient, getOpenAIRequestId } from "@/lib/openai/client";
 import { supabaseServer } from "@/lib/supabase/server";
 import { logUsageRecord } from "@/lib/usage";
 import { estimateTokens } from "@/lib/tokens/estimateTokens";
@@ -13,7 +13,7 @@ function getOpenAIClient() {
   if (!apiKey) {
     throw new Error("Missing OPENAI_API_KEY environment variable");
   }
-  return new OpenAI({ apiKey });
+  return createOpenAIClient({ apiKey });
 }
 
 function average(values: number[]) {
@@ -39,12 +39,18 @@ export async function POST(request: Request) {
     const audioFile = new File([new Uint8Array(buffer)], fileName, { type: mimeType });
 
     const client = getOpenAIClient();
-    const transcription: any = await (client.audio.transcriptions.create as any)({
+    const { data: transcription, response: rawResponse } = await (
+      client.audio.transcriptions.create as any
+    )({
       file: audioFile,
       model: "gpt-4o-transcribe",
       temperature: 0,
       response_format: "json",
-    });
+    }).withResponse();
+    const requestId = getOpenAIRequestId(transcription, rawResponse);
+    if (requestId) {
+      console.log("[gpt-4o-transcribe] OpenAI request id", { requestId });
+    }
 
     const transcript = (typeof transcription?.text === "string" ? transcription.text : "").trim();
     const segments = Array.isArray(transcription?.segments) ? transcription.segments : [];

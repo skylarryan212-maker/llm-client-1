@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import OpenAI from "openai";
-import type { Tool } from "openai/resources/responses/responses";
+import { createOpenAIClient } from "@/lib/openai/client";
+import type { ResponseStreamEvent, Tool } from "openai/resources/responses/responses";
 
 import { calculateCost } from "@/lib/pricing";
 import { estimateTokens } from "@/lib/tokens/estimateTokens";
@@ -253,7 +253,7 @@ export async function POST(
       return NextResponse.json({ message: userMessage, error: "missing_openai_api_key" }, { status: 500 });
     }
 
-    const client = new OpenAI({ apiKey });
+    const client = createOpenAIClient({ apiKey });
     const supabase = await supabaseServer();
     const supabaseAny = supabase as any;
     const encoder = new TextEncoder();
@@ -340,31 +340,34 @@ export async function POST(
         }
 
         try {
-          const stream = await client.responses.create({
-            model: MODEL_ID,
-            input: chatMessages,
-            stream: true,
-            store: false,
-            tools: [WEB_SEARCH_TOOL],
-            tool_choice: "auto",
-            reasoning: { effort: "low" },
-          });
+          const stream = client.responses.stream(
+            {
+              model: MODEL_ID,
+              input: chatMessages,
+              store: false,
+              tools: [WEB_SEARCH_TOOL],
+              tool_choice: "auto",
+              reasoning: { effort: "low" },
+            },
+            { signal: abortController.signal }
+          );
           console.log("[market-agent] OpenAI stream started", {
             model: MODEL_ID,
             tools: ["web_search_preview"],
           });
 
-          for await (const event of stream as any) {
+          for await (const event of stream) {
             if (cancelled) break;
+            const typedEvent = event as ResponseStreamEvent;
 
-            const maybeId = (event as any)?.response?.id ?? (event as any)?.id;
+            const maybeId = (typedEvent as any)?.response?.id ?? (typedEvent as any)?.id;
             if (maybeId && !responseId) {
               responseId = String(maybeId);
               enqueue({ response_id: responseId });
               console.log("[market-agent] Response id assigned", { responseId });
             }
 
-            const usage = (event as any)?.response?.usage;
+            const usage = (typedEvent as any)?.response?.usage;
             if (usage) {
               inputTokens =
                 usage.input_tokens ??
@@ -381,17 +384,17 @@ export async function POST(
                 outputTokens;
             }
 
-            const eventType = (event as any)?.type;
-            if (eventType === "response.output_text.delta" && (event as any)?.delta) {
-              const delta = String((event as any).delta);
+            const eventType = typedEvent.type;
+            if (eventType === "response.output_text.delta" && (typedEvent as any)?.delta) {
+              const delta = String((typedEvent as any).delta);
               assistantText += delta;
               emitFilteredDelta(delta);
             }
 
             if (eventType === "response.completed") {
-              finalResponse = (event as any)?.response ?? finalResponse;
-              if (!assistantText && (event as any)?.response?.output_text) {
-                assistantText = String((event as any).response.output_text);
+              finalResponse = (typedEvent as any)?.response ?? finalResponse;
+              if (!assistantText && (typedEvent as any)?.response?.output_text) {
+                assistantText = String((typedEvent as any).response.output_text);
               }
             }
 
@@ -399,9 +402,9 @@ export async function POST(
               eventType === "response.web_search_call.in_progress" ||
               eventType === "response.web_search_call.searching"
             ) {
-              emitSearchStatus("search-start", (event as any)?.query);
+              emitSearchStatus("search-start", (typedEvent as any)?.query);
             } else if (eventType === "response.web_search_call.completed") {
-              emitSearchStatus("search-complete", (event as any)?.query);
+              emitSearchStatus("search-complete", (typedEvent as any)?.query);
             }
           }
 
@@ -409,7 +412,7 @@ export async function POST(
             emitSearchStatus("search-complete");
           }
         } catch (err: any) {
-          if (err?.name === "AbortError" || cancelled) {
+          if (err?.name === "AbortError" || err?.name === "APIUserAbortError" || cancelled) {
             if (responseId) {
               try {
                 await client.responses.cancel(responseId);

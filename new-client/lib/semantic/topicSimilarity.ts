@@ -1,4 +1,5 @@
-import OpenAI from "openai";
+import type OpenAI from "openai";
+import { createOpenAIClient, getOpenAIRequestId } from "@/lib/openai/client";
 
 const EMBEDDING_MODEL = "text-embedding-3-small";
 const MAX_TOPIC_TEXT_LENGTH = 1200;
@@ -12,7 +13,7 @@ function getOpenAIClient(): OpenAI | null {
     console.warn("[semantic] OPENAI_API_KEY not set; skipping semantic similarity.");
     return null;
   }
-  cachedOpenAIClient = new OpenAI({ apiKey });
+  cachedOpenAIClient = createOpenAIClient({ apiKey });
   return cachedOpenAIClient;
 }
 
@@ -84,10 +85,16 @@ export async function computeTopicSemantics(
   const inputs = [normalizeText(userMessage, 1600), ...topicPayloads.map((topic) => topic.text)];
 
   try {
-    const response = await client.embeddings.create({
-      model: EMBEDDING_MODEL,
-      input: inputs,
-    });
+    const { data: response, response: rawResponse } = await client.embeddings
+      .create({
+        model: EMBEDDING_MODEL,
+        input: inputs,
+      })
+      .withResponse();
+    const requestId = getOpenAIRequestId(response, rawResponse);
+    if (requestId) {
+      console.log("[semantic] OpenAI request id", { requestId });
+    }
 
     const data = response.data || [];
     if (data.length !== inputs.length) {

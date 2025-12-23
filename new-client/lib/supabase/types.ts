@@ -457,9 +457,7 @@ export interface MarketAgentThesisUpdate {
   created_at?: string | null;
 }
 
-export interface Database {
-  public: {
-    Tables: {
+type PublicTables = {
       conversations: {
         Row: Conversation;
         Insert: ConversationInsert;
@@ -540,6 +538,47 @@ export interface Database {
         Insert: MarketAgentThesisInsert;
         Update: MarketAgentThesisUpdate;
       };
+};
+
+type TablesWithRelationships<
+  T extends Record<string, { Row: unknown; Insert: unknown; Update: unknown }>,
+> = {
+  [K in keyof T]: T[K] & { Relationships: [] };
+} & Record<
+  string,
+  {
+    Row: Record<string, unknown>;
+    Insert: Record<string, unknown>;
+    Update: Record<string, unknown>;
+    Relationships: [];
+  }
+>;
+
+type PublicFunctions = {
+  insert_market_agent_event: {
+    Args: {
+      _instance_id: string;
+      _event_type: string;
+      _severity: string;
+      _summary: string;
+      _payload: Json;
+      _model_used: string | null;
+      _ts: string | null;
     };
+    Returns: MarketAgentEvent;
+  };
+};
+
+type FunctionsWithArgs<T extends Record<string, { Args: unknown; Returns: unknown }>> = {
+  [K in keyof T]: T[K];
+} & Record<string, { Args: Record<string, unknown> | never; Returns: unknown }>;
+
+export interface Database {
+  public: {
+    Tables: TablesWithRelationships<PublicTables>;
+    Views: Record<string, never>;
+    Functions: FunctionsWithArgs<PublicFunctions>;
+    Enums: Record<string, never>;
+    CompositeTypes: Record<string, never>;
   };
 }

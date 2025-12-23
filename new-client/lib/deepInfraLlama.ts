@@ -1,5 +1,6 @@
-import OpenAI from "openai";
+import type OpenAI from "openai";
 import type { ChatCompletionMessageParam } from "openai/resources/chat/completions";
+import { createOpenAIClient, getOpenAIRequestId } from "@/lib/openai/client";
 
 let cachedClient: OpenAI | null = null;
 
@@ -9,7 +10,7 @@ function getClient() {
   if (!apiKey) {
     throw new Error("DEEPINFRA_API_KEY is not set");
   }
-  cachedClient = new OpenAI({
+  cachedClient = createOpenAIClient({
     apiKey,
     baseURL: "https://api.deepinfra.com/v1/openai",
   });
@@ -44,13 +45,19 @@ export async function callDeepInfraLlama({
     ? [{ role: "system", content: schemaNudge }, ...messages]
     : messages;
 
-  const completion = await client.chat.completions.create({
-    model,
-    messages: finalMessages,
-    temperature,
-    max_tokens: maxTokens,
-    response_format: enforceJson ? { type: "json_object" } : undefined,
-  });
+  const { data: completion, response: rawResponse } = await client.chat.completions
+    .create({
+      model,
+      messages: finalMessages,
+      temperature,
+      max_tokens: maxTokens,
+      response_format: enforceJson ? { type: "json_object" } : undefined,
+    })
+    .withResponse();
+  const requestId = getOpenAIRequestId(completion, rawResponse);
+  if (requestId) {
+    console.log("[deepinfra] OpenAI request id", { requestId });
+  }
 
   const text = completion.choices?.[0]?.message?.content?.trim() ?? "";
   const usage: any = completion.usage || {};

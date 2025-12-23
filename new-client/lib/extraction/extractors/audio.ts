@@ -2,19 +2,25 @@ import { ENABLE_TRANSCRIPTION } from "../config";
 import type { Extractor } from "../types";
 import { truncateUtf8 } from "../utils/text";
 import { logGpt4oTranscribeUsageFromBytes } from "@/lib/usage";
+import { createOpenAIClient, getOpenAIRequestId } from "@/lib/openai/client";
 
 async function transcribe(buffer: Buffer, name: string, mime: string | null) {
-  const { OpenAI } = await import("openai");
-  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  const openai = createOpenAIClient({ apiKey: process.env.OPENAI_API_KEY });
   // Create a Blob from a Uint8Array view to satisfy TS and browser BlobPart types
   const blob = new Blob([new Uint8Array(buffer)], {
     type: mime || "application/octet-stream",
   });
   const file = new File([blob], name || "audio");
-    const res = await openai.audio.transcriptions.create({
+  const { data: res, response: rawResponse } = await openai.audio.transcriptions
+    .create({
       file,
       model: "gpt-4o-transcribe",
-    });
+    })
+    .withResponse();
+  const requestId = getOpenAIRequestId(res, rawResponse);
+  if (requestId) {
+    console.log("[extraction][audio] OpenAI request id", { requestId });
+  }
   const text =
     typeof (res as { text?: unknown }).text === "string"
       ? (res as { text: string }).text

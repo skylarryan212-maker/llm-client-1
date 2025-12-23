@@ -3,6 +3,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { supabaseServer } from "@/lib/supabase/server";
 import { requireUserIdServer } from "@/lib/supabase/user";
+import type { Json } from "@/lib/supabase/types";
 
 type CTARequest = {
   taskId?: string;
@@ -72,7 +73,14 @@ export async function POST(request: NextRequest) {
         .from("messages")
         .update({
           content,
-          metadata: { agent: "human-writing", kind: "cta", draftText, reason, status, order_ts: existingOrderTs },
+          metadata: {
+            agent: "human-writing",
+            kind: "cta",
+            draftText,
+            reason,
+            status,
+            order_ts: existingOrderTs,
+          } as Json,
         })
         .eq("id", existingCtaId);
 
@@ -99,7 +107,7 @@ export async function POST(request: NextRequest) {
             reason,
             status,
             order_ts: new Date().toISOString(),
-          },
+          } as Json,
           created_at: createdAt,
         },
       ])
