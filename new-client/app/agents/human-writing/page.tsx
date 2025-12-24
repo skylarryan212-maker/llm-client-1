@@ -4,7 +4,7 @@ import { useMemo, useState, type ReactNode, type CSSProperties } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Literata, Manrope } from "next/font/google";
-import { ArrowLeft, ArrowUp, BookOpen, PenLine, Repeat, ShieldCheck, Sparkles } from "lucide-react";
+import { ArrowLeft, ArrowUp, PenLine, Sparkles, Wand2 } from "lucide-react";
 import useSWR from "swr";
 
 import { Button } from "@/components/ui/button";
@@ -13,17 +13,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 
 type ModelChoice = "undetectable" | "seo" | "custom";
-type DetectorMode = "overall" | "depth";
 
 type QuickStart = {
   title: string;
-  assignmentType: string;
-  audience: string;
-  purpose: string;
-  wordTarget: string;
-  citationStyle: string;
-  checklist: Array<"thesis" | "sources" | "outline">;
+  modelChoice: ModelChoice;
+  language: string;
   brief: string;
+  note: string;
 };
 
 const literata = Literata({
@@ -36,81 +32,30 @@ const manrope = Manrope({
   weight: ["400", "500", "600", "700"],
 });
 
-const assignmentTypes = [
-  { value: "argument", label: "Argument essay" },
-  { value: "analysis", label: "Literary analysis" },
-  { value: "lab", label: "Lab report" },
-  { value: "summary", label: "Research summary" },
-  { value: "scholarship", label: "Scholarship essay" },
-  { value: "discussion", label: "Discussion post" },
-];
-
-const audienceLevels = [
-  { value: "middle-school", label: "Middle school" },
-  { value: "high-school", label: "High school" },
-  { value: "college", label: "College" },
-  { value: "graduate", label: "Graduate" },
-  { value: "general", label: "General" },
-];
-
-const purposes = [
-  { value: "explain", label: "Explain" },
-  { value: "analyze", label: "Analyze" },
-  { value: "persuade", label: "Persuade" },
-  { value: "reflect", label: "Reflect" },
-  { value: "summarize", label: "Summarize" },
-];
-
-const citationStyles = [
-  { value: "none", label: "None" },
-  { value: "mla", label: "MLA" },
-  { value: "apa", label: "APA" },
-  { value: "chicago", label: "Chicago" },
-];
-
 const quickStarts: QuickStart[] = [
   {
-    title: "Argument essay",
-    assignmentType: "argument",
-    audience: "high-school",
-    purpose: "persuade",
-    wordTarget: "900",
-    citationStyle: "mla",
-    checklist: ["thesis", "sources"],
+    title: "Student-friendly polish",
+    modelChoice: "undetectable",
+    language: "English",
+    note: "Clean rewrite with a natural academic voice.",
     brief:
-      "Argue whether social media should be limited for students. Use two sources and include a clear thesis in the first paragraph.",
+      "Paste a draft paragraph and make it sound more human while keeping the same meaning and citations intact.",
   },
   {
-    title: "Lab report",
-    assignmentType: "lab",
-    audience: "college",
-    purpose: "explain",
-    wordTarget: "700",
-    citationStyle: "apa",
-    checklist: ["sources"],
+    title: "Professional clarity",
+    modelChoice: "seo",
+    language: "English",
+    note: "Sharper structure and smoother transitions.",
     brief:
-      "Write a lab report on photosynthesis that includes hypothesis, method, results, and a short discussion.",
+      "Rewrite this update as a concise professional memo. Keep tone neutral and remove repetitive phrasing.",
   },
   {
-    title: "Scholarship essay",
-    assignmentType: "scholarship",
-    audience: "high-school",
-    purpose: "reflect",
-    wordTarget: "550",
-    citationStyle: "none",
-    checklist: ["outline"],
+    title: "Personal voice",
+    modelChoice: "undetectable",
+    language: "English",
+    note: "Warmer tone, less formal.",
     brief:
-      "Describe a challenge you faced in school and what you learned. Keep the tone honest and personal.",
-  },
-  {
-    title: "Literary analysis",
-    assignmentType: "analysis",
-    audience: "college",
-    purpose: "analyze",
-    wordTarget: "1000",
-    citationStyle: "mla",
-    checklist: ["thesis", "sources"],
-    brief: "Analyze how symbolism is used in The Great Gatsby. Reference at least two quotes.",
+      "Rephrase this short reflection so it sounds genuine and conversational without changing the core points.",
   },
 ];
 
@@ -126,18 +71,7 @@ export default function HumanWritingAgentPage() {
   const [modelChoice, setModelChoice] = useState<ModelChoice>("undetectable");
   const [language, setLanguage] = useState<string>("auto");
   const [customStyleId, setCustomStyleId] = useState<string>("");
-  const [wordsPricing, setWordsPricing] = useState<boolean>(false);
-  const [returnCosts, setReturnCosts] = useState<boolean>(false);
-  const [detectorMode, setDetectorMode] = useState<DetectorMode>("overall");
   const [composerText, setComposerText] = useState<string>("");
-  const [assignmentType, setAssignmentType] = useState<string>("argument");
-  const [audienceLevel, setAudienceLevel] = useState<string>("high-school");
-  const [purpose, setPurpose] = useState<string>("explain");
-  const [citationStyle, setCitationStyle] = useState<string>("none");
-  const [wordTarget, setWordTarget] = useState<string>("");
-  const [includeThesis, setIncludeThesis] = useState<boolean>(true);
-  const [requireSources, setRequireSources] = useState<boolean>(false);
-  const [includeOutline, setIncludeOutline] = useState<boolean>(false);
 
   const tasks = useMemo(() => {
     const items =
@@ -156,56 +90,38 @@ export default function HumanWritingAgentPage() {
   }, [tasksResponse]);
 
   const hasText = composerText.trim().length > 0;
+  const hasCustomStyle = modelChoice !== "custom" || customStyleId.trim().length > 0;
+  const canSend = hasText && hasCustomStyle;
   const wordCount = useMemo(() => {
     if (!hasText) return 0;
     return composerText.trim().split(/\s+/).filter(Boolean).length;
   }, [composerText, hasText]);
 
   const applyTemplate = (template: QuickStart) => {
-    setAssignmentType(template.assignmentType);
-    setAudienceLevel(template.audience);
-    setPurpose(template.purpose);
-    setWordTarget(template.wordTarget);
-    setCitationStyle(template.citationStyle);
-    setIncludeThesis(template.checklist.includes("thesis"));
-    setRequireSources(template.checklist.includes("sources"));
-    setIncludeOutline(template.checklist.includes("outline"));
+    setModelChoice(template.modelChoice);
+    setLanguage(template.language);
     setComposerText(template.brief);
   };
 
   const buildBriefPayload = () => {
-    const lines: string[] = [];
-    const assignmentLabel = assignmentTypes.find((item) => item.value === assignmentType)?.label;
-    const audienceLabel = audienceLevels.find((item) => item.value === audienceLevel)?.label;
-    const purposeLabel = purposes.find((item) => item.value === purpose)?.label;
-    const citationLabel = citationStyles.find((item) => item.value === citationStyle)?.label;
-
-    if (assignmentLabel) lines.push(`Assignment type: ${assignmentLabel}`);
-    if (audienceLabel) lines.push(`Audience level: ${audienceLabel}`);
-    if (purposeLabel) lines.push(`Goal: ${purposeLabel}`);
-    if (wordTarget.trim()) lines.push(`Target length: ${wordTarget.trim()} words`);
-    if (citationLabel && citationLabel !== "None") lines.push(`Citation style: ${citationLabel}`);
-
-    const checklist: string[] = [];
-    if (includeThesis) checklist.push("Include thesis");
-    if (requireSources) checklist.push("Use sources");
-    if (includeOutline) checklist.push("Provide outline");
-    if (checklist.length) lines.push(`Checklist: ${checklist.join(", ")}`);
-
-    if (composerText.trim()) {
-      lines.push("", "Brief:", composerText.trim());
-    }
-
-    return lines.join("\n");
+    return composerText.trim();
   };
 
   const handleSend = () => {
-    if (!hasText) return;
+    if (!canSend) return;
     const payload = buildBriefPayload();
     const id = `hw-${Date.now()}`;
     if (typeof window !== "undefined") {
       try {
         sessionStorage.setItem(`hw-init-${id}`, payload);
+        sessionStorage.setItem(
+          `hw-settings-${id}`,
+          JSON.stringify({
+            model: modelChoice,
+            language,
+            customStyleId: customStyleId.trim(),
+          })
+        );
       } catch {
         // ignore storage failures
       }
@@ -253,14 +169,13 @@ export default function HumanWritingAgentPage() {
                   Human Writing Studio
                 </h1>
                 <p className="max-w-2xl text-base text-[color:var(--hw-muted)] sm:text-lg">
-                  Build a clean, student-friendly brief first, then draft, humanize, and verify in one flow.
+                  Launch a humanization task, keep your Rephrasy settings ready, and revisit every draft in one place.
                 </p>
               </div>
             </div>
             <div className="flex flex-wrap gap-2">
-              <BadgePill icon={<BookOpen className="h-4 w-4" />}>Student ready</BadgePill>
-              <BadgePill icon={<ShieldCheck className="h-4 w-4" />}>Detector check</BadgePill>
-              <BadgePill icon={<Repeat className="h-4 w-4" />}>Iterative loop</BadgePill>
+              <BadgePill icon={<Wand2 className="h-4 w-4" />}>Rephrasy settings</BadgePill>
+              <BadgePill icon={<Sparkles className="h-4 w-4" />}>Quick launch</BadgePill>
             </div>
           </div>
         </div>
@@ -270,8 +185,11 @@ export default function HumanWritingAgentPage() {
             <div className="rounded-2xl border border-[var(--hw-line)] bg-[color:var(--hw-surface)] p-6 shadow-lg shadow-black/30">
               <div className="flex items-center justify-between gap-3">
                 <div>
-                  <h2 className="text-lg font-semibold text-white">Assignment brief</h2>
-                  <p className="text-sm text-[color:var(--hw-muted)]">Not a chat. Think worksheet.</p>
+                  <h2 className="text-lg font-semibold text-white">Start a task</h2>
+                  <p className="text-sm text-[color:var(--hw-muted)]">
+                    Paste text to humanize or describe the draft you want. Settings below apply to the Rephrasy
+                    humanizer.
+                  </p>
                 </div>
                 <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-white/70">
                   Ready in minutes
@@ -280,144 +198,7 @@ export default function HumanWritingAgentPage() {
 
               <div className="mt-4 grid gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
-                  <label className="text-xs font-semibold text-white/70">Assignment type</label>
-                  <Select value={assignmentType} onValueChange={setAssignmentType}>
-                    <SelectTrigger className="w-full border border-white/10 bg-black/20 text-white">
-                      <SelectValue placeholder="Choose type" />
-                    </SelectTrigger>
-                    <SelectContent className="border border-white/10 bg-[#0f0d12] text-white">
-                      {assignmentTypes.map((item) => (
-                        <SelectItem key={item.value} value={item.value}>
-                          {item.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="space-y-2">
-                  <label className="text-xs font-semibold text-white/70">Audience</label>
-                  <Select value={audienceLevel} onValueChange={setAudienceLevel}>
-                    <SelectTrigger className="w-full border border-white/10 bg-black/20 text-white">
-                      <SelectValue placeholder="Choose level" />
-                    </SelectTrigger>
-                    <SelectContent className="border border-white/10 bg-[#0f0d12] text-white">
-                      {audienceLevels.map((item) => (
-                        <SelectItem key={item.value} value={item.value}>
-                          {item.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="space-y-2">
-                  <label className="text-xs font-semibold text-white/70">Goal</label>
-                  <Select value={purpose} onValueChange={setPurpose}>
-                    <SelectTrigger className="w-full border border-white/10 bg-black/20 text-white">
-                      <SelectValue placeholder="Pick a goal" />
-                    </SelectTrigger>
-                    <SelectContent className="border border-white/10 bg-[#0f0d12] text-white">
-                      {purposes.map((item) => (
-                        <SelectItem key={item.value} value={item.value}>
-                          {item.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="space-y-2">
-                  <label className="text-xs font-semibold text-white/70">Target length</label>
-                  <Input
-                    value={wordTarget}
-                    onChange={(event) => setWordTarget(event.target.value)}
-                    placeholder="e.g. 800"
-                    type="number"
-                    className="border border-white/10 bg-black/20 text-white placeholder:text-white/40"
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <label className="text-xs font-semibold text-white/70">Citation style</label>
-                  <Select value={citationStyle} onValueChange={setCitationStyle}>
-                    <SelectTrigger className="w-full border border-white/10 bg-black/20 text-white">
-                      <SelectValue placeholder="Select style" />
-                    </SelectTrigger>
-                    <SelectContent className="border border-white/10 bg-[#0f0d12] text-white">
-                      {citationStyles.map((item) => (
-                        <SelectItem key={item.value} value={item.value}>
-                          {item.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-
-              <div className="mt-4">
-                <label className="text-xs font-semibold text-white/70">Brief</label>
-                <Textarea
-                  value={composerText}
-                  onChange={(event) => setComposerText(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter" && !event.shiftKey) {
-                      event.preventDefault();
-                      handleSend();
-                    }
-                  }}
-                  placeholder="Describe the assignment, constraints, and any must-have details..."
-                  className="mt-2 min-h-[160px] resize-none rounded-xl border border-white/10 bg-black/20 text-white placeholder:text-white/40"
-                />
-                <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs text-white/50">
-                  <button
-                    type="button"
-                    className="inline-flex items-center gap-2 text-white/70 transition hover:text-white"
-                    onClick={() =>
-                      setComposerText(
-                        "Write an essay about the importance of healthy sleep for teens. Include one statistic and end with a short conclusion."
-                      )
-                    }
-                  >
-                    <Sparkles className="h-3.5 w-3.5" />
-                    Insert example brief
-                  </button>
-                  <span>{wordCount} words</span>
-                </div>
-              </div>
-
-              <div className="mt-4 rounded-xl border border-white/10 bg-black/20 p-4">
-                <p className="text-xs uppercase tracking-[0.2em] text-white/50">Checklist</p>
-                <div className="mt-3 grid gap-3 sm:grid-cols-3">
-                  <ChecklistItem label="Include thesis" checked={includeThesis} onChange={setIncludeThesis} />
-                  <ChecklistItem label="Use sources" checked={requireSources} onChange={setRequireSources} />
-                  <ChecklistItem label="Provide outline" checked={includeOutline} onChange={setIncludeOutline} />
-                </div>
-              </div>
-
-              <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center">
-                <Button
-                  type="button"
-                  onClick={handleSend}
-                  disabled={!hasText}
-                  className={`h-12 w-full gap-2 sm:w-auto ${
-                    hasText
-                      ? "bg-gradient-to-r from-amber-500 via-orange-500 to-rose-500 text-white shadow-lg shadow-amber-500/30"
-                      : "bg-white/10 text-white/50"
-                  }`}
-                >
-                  <ArrowUp className="h-4 w-4" />
-                  Start draft
-                </Button>
-                <span className="text-xs text-white/50">Press Enter to send, Shift + Enter for new line.</span>
-              </div>
-            </div>
-
-            <details className="rounded-2xl border border-[var(--hw-line)] bg-[color:var(--hw-surface)] p-5">
-              <summary className="cursor-pointer text-sm font-semibold text-white">Quality + Safety</summary>
-              <div className="mt-4 grid gap-4 sm:grid-cols-2">
-                <div className="space-y-2">
-                  <p className="text-xs uppercase tracking-[0.2em] text-white/50">Humanizer model</p>
+                  <label className="text-xs font-semibold text-white/70">Humanizer model</label>
                   <Select value={modelChoice} onValueChange={(value) => setModelChoice(value as ModelChoice)}>
                     <SelectTrigger className="w-full border border-white/10 bg-black/20 text-white">
                       <SelectValue placeholder="Choose model" />
@@ -431,7 +212,7 @@ export default function HumanWritingAgentPage() {
                 </div>
 
                 <div className="space-y-2">
-                  <p className="text-xs uppercase tracking-[0.2em] text-white/50">Language</p>
+                  <label className="text-xs font-semibold text-white/70">Language</label>
                   <Select value={language} onValueChange={(value) => setLanguage(value)}>
                     <SelectTrigger className="w-full border border-white/10 bg-black/20 text-white">
                       <SelectValue placeholder="Auto-detect" />
@@ -450,59 +231,78 @@ export default function HumanWritingAgentPage() {
                     </SelectContent>
                   </Select>
                 </div>
+              </div>
 
-                {modelChoice === "custom" && (
+              {modelChoice === "custom" && (
+                <div className="mt-4">
+                  <label className="text-xs font-semibold text-white/70">Custom Writing Style ID</label>
                   <Input
                     value={customStyleId}
                     onChange={(event) => setCustomStyleId(event.target.value)}
-                    placeholder="Writing Style ID"
-                    className="border border-white/10 bg-black/20 text-white placeholder:text-white/40 sm:col-span-2"
+                    placeholder="Style ID from Rephrasy"
+                    className="mt-2 border border-white/10 bg-black/20 text-white placeholder:text-white/40"
                   />
-                )}
-
-                <div className="space-y-2 sm:col-span-2">
-                  <p className="text-xs uppercase tracking-[0.2em] text-white/50">Detector mode</p>
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <OptionCard
-                      selected={detectorMode === "overall"}
-                      label="Overall score"
-                      helper="Fast summary score for student drafts."
-                      onClick={() => setDetectorMode("overall")}
-                    />
-                    <OptionCard
-                      selected={detectorMode === "depth"}
-                      label="Depth analysis"
-                      helper="More detailed breakdown and signals."
-                      onClick={() => setDetectorMode("depth")}
-                    />
-                  </div>
+                  {!hasCustomStyle && (
+                    <p className="mt-2 text-xs text-amber-200/80">Enter a style ID to use the custom model.</p>
+                  )}
                 </div>
+              )}
 
-                <div className="space-y-2 sm:col-span-2">
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <ToggleRow
-                      label="Return costs"
-                      helper="Adds costs: true to the request"
-                      checked={returnCosts}
-                      onChange={setReturnCosts}
-                    />
-                    <ToggleRow
-                      label="Word-based pricing"
-                      helper="words: true (flat + per-100-word pricing)"
-                      checked={wordsPricing}
-                      onChange={setWordsPricing}
-                    />
-                  </div>
+              <div className="mt-4">
+                <label className="text-xs font-semibold text-white/70">Source or brief</label>
+                <Textarea
+                  value={composerText}
+                  onChange={(event) => setComposerText(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" && !event.shiftKey) {
+                      event.preventDefault();
+                      handleSend();
+                    }
+                  }}
+                  placeholder="Paste the text you want humanized, or describe the draft you want started..."
+                  className="mt-2 min-h-[160px] resize-none rounded-xl border border-white/10 bg-black/20 text-white placeholder:text-white/40"
+                />
+                <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs text-white/50">
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-2 text-white/70 transition hover:text-white"
+                    onClick={() =>
+                      setComposerText(
+                        "Please humanize this paragraph while keeping the meaning and citations intact. Keep the tone academic but natural."
+                      )
+                    }
+                  >
+                    <Sparkles className="h-3.5 w-3.5" />
+                    Insert example text
+                  </button>
+                  <span>{wordCount} words</span>
                 </div>
               </div>
-            </details>
+
+              <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center">
+                <Button
+                  type="button"
+                  onClick={handleSend}
+                  disabled={!canSend}
+                  className={`h-12 w-full gap-2 sm:w-auto ${
+                    canSend
+                      ? "bg-gradient-to-r from-amber-500 via-orange-500 to-rose-500 text-white shadow-lg shadow-amber-500/30"
+                      : "bg-white/10 text-white/50"
+                  }`}
+                >
+                  <ArrowUp className="h-4 w-4" />
+                  Create task
+                </Button>
+                <span className="text-xs text-white/50">Press Enter to send, Shift + Enter for new line.</span>
+              </div>
+            </div>
           </div>
 
           <div className="space-y-6">
             <div className="rounded-2xl border border-[var(--hw-line)] bg-[color:var(--hw-surface)] p-5">
               <div className="flex items-center justify-between">
-                <h3 className="text-sm font-semibold text-white">Quick starts</h3>
-                <span className="text-xs text-white/50">Tap to load</span>
+                <h3 className="text-sm font-semibold text-white">Presets</h3>
+                <span className="text-xs text-white/50">One tap to load</span>
               </div>
               <div className="mt-3 flex flex-wrap gap-2">
                 {quickStarts.map((template) => (
@@ -514,6 +314,16 @@ export default function HumanWritingAgentPage() {
                   >
                     {template.title}
                   </button>
+                ))}
+              </div>
+              <div className="mt-4 space-y-2 text-xs text-[color:var(--hw-muted)]">
+                {quickStarts.map((template) => (
+                  <div key={`${template.title}-note`} className="flex items-start gap-2">
+                    <span className="mt-1 h-1.5 w-1.5 rounded-full bg-amber-400/80" />
+                    <div>
+                      <span className="font-semibold text-white/80">{template.title}:</span> {template.note}
+                    </div>
+                  </div>
                 ))}
               </div>
             </div>
@@ -546,11 +356,11 @@ export default function HumanWritingAgentPage() {
             </div>
 
             <div className="rounded-2xl border border-[var(--hw-line)] bg-[color:var(--hw-surface)] p-5">
-              <h3 className="text-sm font-semibold text-white">Student tips</h3>
+              <h3 className="text-sm font-semibold text-white">How it works</h3>
               <div className="mt-3 space-y-2 text-sm text-[color:var(--hw-muted)]">
-                <p>Start with a clear goal and the required format.</p>
-                <p>List sources or quotes you must include.</p>
-                <p>Keep the brief short; the agent will ask follow-ups if needed.</p>
+                <p>Start with a short prompt or paste your text.</p>
+                <p>We draft first, then you can run the Rephrasy humanizer.</p>
+                <p>Every task keeps its settings and history in one place.</p>
               </div>
             </div>
           </div>
@@ -569,54 +379,7 @@ function BadgePill({ icon, children }: { icon: ReactNode; children: ReactNode })
   );
 }
 
-function ChecklistItem({
-  label,
-  checked,
-  onChange,
-}: {
-  label: string;
-  checked: boolean;
-  onChange: (value: boolean) => void;
-}) {
-  return (
-    <label className="flex items-center gap-2 rounded-lg border border-white/10 bg-black/10 px-3 py-2 text-sm text-white/80 transition hover:border-white/30">
-      <input
-        type="checkbox"
-        checked={checked}
-        onChange={(event) => onChange(event.target.checked)}
-        className="h-4 w-4 cursor-pointer accent-amber-400"
-      />
-      <span>{label}</span>
-    </label>
-  );
-}
-
-function OptionCard({
-  selected,
-  label,
-  helper,
-  onClick,
-}: {
-  selected: boolean;
-  label: string;
-  helper: string;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`rounded-xl border px-3 py-3 text-left text-sm transition ${
-        selected
-          ? "border-amber-400/40 bg-amber-500/10 text-white"
-          : "border-white/10 bg-black/15 text-white/70 hover:border-white/30"
-      }`}
-    >
-      <div className="font-semibold">{label}</div>
-      <div className="mt-1 text-xs text-white/50">{helper}</div>
-    </button>
-  );
-}
+// Intentionally left without extra option helpers for the landing page.
 
 function ToggleRow({
   label,

@@ -23,6 +23,14 @@ interface Message {
   draftText?: string;
 }
 
+type HumanizerModel = "undetectable" | "seo" | "custom";
+
+type HumanizerSettings = {
+  model: HumanizerModel;
+  language: string;
+  customStyleId?: string;
+};
+
 const baseBottomSpacerPx = 28;
 
 function ChatInner({ params }: PageProps) {
@@ -41,6 +49,11 @@ function ChatInner({ params }: PageProps) {
   const [activeActionId, setActiveActionId] = useState<string | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const sidebarDismissedRef = useRef(false);
+  const [humanizerSettings, setHumanizerSettings] = useState<HumanizerSettings>({
+    model: "undetectable",
+    language: "auto",
+    customStyleId: "",
+  });
   const [initialized, setInitialized] = useState(false);
   const startInitializedRef = useRef(false);
   const [hasStarted, setHasStarted] = useState(false);
@@ -77,6 +90,24 @@ function ChatInner({ params }: PageProps) {
             sessionStorage.removeItem(`hw-init-${taskId}`);
           } catch {
             // ignore
+          }
+        }
+        const settings = sessionStorage.getItem(`hw-settings-${taskId}`);
+        if (settings) {
+          try {
+            const parsed = JSON.parse(settings) as Partial<HumanizerSettings>;
+            setHumanizerSettings((prev) => ({
+              model: (parsed.model as HumanizerModel) || prev.model,
+              language: parsed.language || prev.language,
+              customStyleId: parsed.customStyleId || prev.customStyleId,
+            }));
+            try {
+              sessionStorage.removeItem(`hw-settings-${taskId}`);
+            } catch {
+              // ignore
+            }
+          } catch {
+            // ignore invalid settings
           }
         }
       }
@@ -625,14 +656,18 @@ function ChatInner({ params }: PageProps) {
     ]);
 
     try {
+      const resolvedModel =
+        humanizerSettings.model === "custom" && humanizerSettings.customStyleId?.trim()
+          ? humanizerSettings.customStyleId.trim()
+          : humanizerSettings.model;
       const response = await fetch("/api/human-writing/humanize", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           taskId,
           text: draftText,
-          model: "undetectable",
-          language: "auto",
+          model: resolvedModel || "undetectable",
+          language: humanizerSettings.language || "auto",
         }),
       });
 
