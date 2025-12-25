@@ -284,10 +284,12 @@ export function SgaConsole({ instance, events, worldState }: SgaConsoleProps) {
     const query = window.matchMedia("(min-width: 1024px)");
     const sync = () => setIsInteractionOpen(query.matches);
     sync();
-    if ("addEventListener" in query) {
+
+    if (typeof query.addEventListener === "function") {
       query.addEventListener("change", sync);
       return () => query.removeEventListener("change", sync);
     }
+
     query.addListener(sync);
     return () => query.removeListener(sync);
   }, []);
