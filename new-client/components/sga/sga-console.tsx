@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { ReactNode } from "react";
+import type { ReactNode, RefObject } from "react";
 import Link from "next/link";
 import {
   Activity,
@@ -17,6 +17,7 @@ import {
   ShieldCheck,
   Target,
   Timer,
+  X,
 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -265,7 +266,7 @@ export function SgaConsole({ instance, events, worldState }: SgaConsoleProps) {
     },
   ]);
   const [error, setError] = useState<string | null>(null);
-  const [isInteractionOpen, setIsInteractionOpen] = useState(false);
+  const [isChatSidebarOpen, setIsChatSidebarOpen] = useState(false);
   const [openSections, setOpenSections] = useState({
     objective: false,
     constraints: false,
@@ -282,7 +283,7 @@ export function SgaConsole({ instance, events, worldState }: SgaConsoleProps) {
   useEffect(() => {
     if (typeof window === "undefined") return;
     const query = window.matchMedia("(min-width: 1024px)");
-    const sync = () => setIsInteractionOpen(query.matches);
+    const sync = () => setIsChatSidebarOpen(query.matches);
     sync();
 
     if (typeof query.addEventListener === "function") {
@@ -472,10 +473,10 @@ export function SgaConsole({ instance, events, worldState }: SgaConsoleProps) {
               variant="outline"
               size="sm"
               className="gap-2 lg:hidden"
-              onClick={() => setIsInteractionOpen((prev) => !prev)}
+              onClick={() => setIsChatSidebarOpen((prev) => !prev)}
             >
               <MessageCircle className="h-4 w-4" />
-              Interact
+              Chat
             </Button>
           </div>
         </header>
@@ -507,7 +508,7 @@ export function SgaConsole({ instance, events, worldState }: SgaConsoleProps) {
 
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1.6fr,0.8fr]">
           <section className="space-y-4">
-            <div className="rounded-2xl border border-border/70 bg-gradient-to-b from-white/5 via-transparent to-transparent p-5 shadow-lg shadow-black/30 backdrop-blur lg:sticky lg:top-6">
+            <div className="rounded-2xl border border-border/70 bg-gradient-to-b from-white/5 via-transparent to-transparent p-5 shadow-lg shadow-black/30 backdrop-blur">
               <div className="flex flex-wrap items-start justify-between gap-4">
                 <div className="space-y-2">
                   <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-slate-200">
@@ -791,7 +792,7 @@ export function SgaConsole({ instance, events, worldState }: SgaConsoleProps) {
             </CollapsibleCard>
           </section>
 
-          <aside className={cn("space-y-4", isInteractionOpen ? "block" : "hidden", "lg:block")}>
+          <aside className="space-y-4 hidden lg:block">
             <div className="rounded-2xl border border-border/70 bg-card/50 p-4 shadow-lg shadow-black/20 backdrop-blur">
               <div className="flex items-center justify-between">
                 <div>
@@ -852,50 +853,6 @@ export function SgaConsole({ instance, events, worldState }: SgaConsoleProps) {
             <div className="rounded-2xl border border-border/70 bg-card/50 p-4 shadow-lg shadow-black/20 backdrop-blur">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Conversation</p>
-                  <p className="text-sm font-semibold text-white">Talk to SGA</p>
-                </div>
-                <MessageCircle className="h-4 w-4 text-slate-300" />
-              </div>
-              <div className="mt-3 space-y-3">
-                <Textarea
-                  value={messageText}
-                  onChange={(event) => setMessageText(event.target.value)}
-                  placeholder="Send a directive or ask for a status update..."
-                  className="min-h-[90px] bg-background/60"
-                />
-                <Button onClick={handleSend} className="w-full gap-2">
-                  <MessageCircle className="h-4 w-4" />
-                  Send
-                </Button>
-                <ScrollArea className="h-64">
-                  <div className="space-y-3 pr-3">
-                    {messages.map((message) => (
-                      <div
-                        key={message.id}
-                        className={cn(
-                          "rounded-xl border p-3",
-                          message.role === "user"
-                            ? "border-sky-400/30 bg-sky-500/10"
-                            : "border-white/10 bg-white/5"
-                        )}
-                      >
-                        <div className="flex items-center justify-between text-xs text-muted-foreground">
-                          <span>{message.role === "user" ? "You" : "SGA"}</span>
-                          <span>{formatTime(message.createdAt)}</span>
-                        </div>
-                        <p className="mt-1 text-sm text-slate-100">{message.content}</p>
-                      </div>
-                    ))}
-                    <div ref={messageEndRef} />
-                  </div>
-                </ScrollArea>
-              </div>
-            </div>
-
-            <div className="rounded-2xl border border-border/70 bg-card/50 p-4 shadow-lg shadow-black/20 backdrop-blur">
-              <div className="flex items-center justify-between">
-                <div>
                   <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Quick actions</p>
                   <p className="text-sm font-semibold text-white">Interventions</p>
                 </div>
@@ -916,6 +873,98 @@ export function SgaConsole({ instance, events, worldState }: SgaConsoleProps) {
               </div>
             </div>
           </aside>
+        </div>
+      </div>
+      <SgaChatSidebar
+        open={isChatSidebarOpen}
+        onClose={() => setIsChatSidebarOpen(false)}
+        messages={messages}
+        messageText={messageText}
+        onMessageTextChange={(value) => setMessageText(value)}
+        onSend={handleSend}
+        messageEndRef={messageEndRef}
+      />
+    </div>
+  );
+}
+
+type SgaChatSidebarProps = {
+  open: boolean;
+  onClose: () => void;
+  messages: SgaMessage[];
+  messageText: string;
+  onMessageTextChange: (value: string) => void;
+  onSend: () => void;
+  messageEndRef: RefObject<HTMLDivElement | null>;
+};
+
+function SgaChatSidebar({
+  open,
+  onClose,
+  messages,
+  messageText,
+  onMessageTextChange,
+  onSend,
+  messageEndRef,
+}: SgaChatSidebarProps) {
+  const sidebarShellClass = cn(
+    "flex-shrink-0 min-h-0 overflow-hidden transition-[width] duration-300",
+    open
+      ? "fixed inset-0 z-50 h-full w-full md:relative md:z-auto md:h-full md:max-w-[420px]"
+      : "hidden md:block md:w-0"
+  );
+
+  const panelClass = cn(
+    "flex h-full min-h-0 flex-col border-l border-white/10 bg-[#050505] text-foreground shadow-2xl transition-opacity duration-300",
+    open ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
+  );
+
+  return (
+    <div className={sidebarShellClass} aria-hidden={!open}>
+      <div className={panelClass}>
+        <div className="flex items-start justify-between border-b border-white/10 px-6 py-4">
+          <div className="space-y-1">
+            <p className="text-xs uppercase tracking-[0.3em] text-white/60">Conversation</p>
+            <p className="text-lg font-semibold text-white">Talk to SGA</p>
+            <p className="text-[11px] text-muted-foreground">Send directives or request a status update.</p>
+          </div>
+          <Button variant="ghost" size="icon" onClick={onClose}>
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
+        <div className="flex-1 min-h-0 px-6 py-4">
+          <ScrollArea className="h-full min-h-0">
+            <div className="space-y-3 pr-3">
+              {messages.map((message) => (
+                <div
+                  key={message.id}
+                  className={cn(
+                    "rounded-xl border p-3 transition",
+                    message.role === "user" ? "border-sky-400/30 bg-sky-500/10" : "border-white/10 bg-white/5"
+                  )}
+                >
+                  <div className="flex items-center justify-between text-xs text-muted-foreground">
+                    <span>{message.role === "user" ? "You" : "SGA"}</span>
+                    <span>{formatTime(message.createdAt)}</span>
+                  </div>
+                  <p className="mt-1 text-sm text-slate-100">{message.content}</p>
+                </div>
+              ))}
+              <div ref={messageEndRef} />
+            </div>
+          </ScrollArea>
+        </div>
+        <div className="border-t border-white/10 px-6 py-4">
+          <Textarea
+            value={messageText}
+            onChange={(event) => onMessageTextChange(event.target.value)}
+            placeholder="Send a directive or ask for a status update..."
+            className="min-h-[90px] bg-background/60"
+          />
+          <Button onClick={onSend} className="mt-3 w-full gap-2">
+            <MessageCircle className="h-4 w-4" />
+            Send
+          </Button>
         </div>
       </div>
     </div>
