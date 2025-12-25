@@ -472,7 +472,7 @@ export function SgaConsole({ instance, events, worldState }: SgaConsoleProps) {
             <Button
               variant="outline"
               size="sm"
-              className="gap-2 lg:hidden"
+              className="gap-2"
               onClick={() => setIsChatSidebarOpen((prev) => !prev)}
             >
               <MessageCircle className="h-4 w-4" />
@@ -908,10 +908,8 @@ function SgaChatSidebar({
   messageEndRef,
 }: SgaChatSidebarProps) {
   const sidebarShellClass = cn(
-    "flex-shrink-0 min-h-0 overflow-hidden transition-[width] duration-300",
-    open
-      ? "fixed inset-0 z-50 h-full w-full md:relative md:z-auto md:h-full md:max-w-[420px]"
-      : "hidden md:block md:w-0"
+    "fixed inset-y-0 right-0 z-50 flex w-full max-w-[420px] transition-transform duration-300",
+    open ? "translate-x-0" : "translate-x-full"
   );
 
   const panelClass = cn(
