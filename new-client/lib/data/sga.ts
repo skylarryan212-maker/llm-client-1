@@ -102,6 +102,13 @@ function parseJsonRecord(value: unknown): RowRecord | null {
   return null;
 }
 
+function normalizeRiskLevel(value: unknown): "low" | "medium" | "high" {
+  if (value === "low" || value === "medium" || value === "high") {
+    return value;
+  }
+  return "low";
+}
+
 function isMissingTableError(error: unknown) {
   if (!error) return false;
   const code = isRecord(error) ? error.code : null;
@@ -231,7 +238,7 @@ function mapWorldState(row: RowRecord, instanceId: string): SgaWorldState {
   const constraints = parseStringArray(payload.constraints ?? payload.constraint_list);
   const risks = parseRecordArray(payload.riskRegister ?? payload.risk_register).map((item, index) => {
     const levelRaw = pickString(item, ["level", "risk_level"]) ?? "low";
-    const level = levelRaw === "low" || levelRaw === "medium" || levelRaw === "high" ? levelRaw : "low";
+    const level = normalizeRiskLevel(levelRaw);
     return {
       id: pickString(item, ["id"]) ?? `risk-${index + 1}`,
       label: pickString(item, ["label", "title"]) ?? "Unlabeled risk",
@@ -246,7 +253,7 @@ function mapWorldState(row: RowRecord, instanceId: string): SgaWorldState {
         ? kindRaw
         : "monitor";
     const riskRaw = pickString(item, ["riskLevel", "risk_level"]) ?? "low";
-    const riskLevel = riskRaw === "low" || riskRaw === "medium" || riskRaw === "high" ? riskRaw : "low";
+    const riskLevel = normalizeRiskLevel(riskRaw);
     return {
       id: pickString(item, ["id"]) ?? `cap-${index + 1}`,
       displayName: pickString(item, ["displayName", "name", "label"]) ?? "Unnamed capability",
