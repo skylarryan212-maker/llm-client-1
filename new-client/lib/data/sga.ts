@@ -464,7 +464,7 @@ export async function loadSgaInstances(): Promise<SgaInstance[]> {
       throw error;
     }
 
-    return (data ?? []).map((row) => mapInstanceRow(row as RowRecord));
+    return (data ?? []).map((row: RowRecord) => mapInstanceRow(row));
   } catch (error) {
     if (isMissingTableError(error)) {
       // TODO: Replace mock instances with Supabase-backed data when governor_instances is ready.
