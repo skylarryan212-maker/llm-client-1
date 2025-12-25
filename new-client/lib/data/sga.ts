@@ -537,7 +537,7 @@ export async function loadSgaEvents(instanceId: string, limit = 50): Promise<Sga
       throw error;
     }
 
-    return (data ?? []).map((row) => mapGovernorLogRow(row as RowRecord, instanceId));
+    return (data ?? []).map((row: RowRecord) => mapGovernorLogRow(row, instanceId));
   } catch (error) {
     if (isMissingTableError(error)) {
       // TODO: Replace mock events with Supabase-backed data when governor_logs is ready.
