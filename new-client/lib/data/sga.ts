@@ -109,6 +109,18 @@ function normalizeRiskLevel(value: unknown): "low" | "medium" | "high" {
   return "low";
 }
 
+function normalizeCapabilityKind(value: unknown): "data_source" | "action" | "agent" | "monitor" {
+  if (
+    value === "data_source" ||
+    value === "action" ||
+    value === "agent" ||
+    value === "monitor"
+  ) {
+    return value;
+  }
+  return "monitor";
+}
+
 function isMissingTableError(error: unknown) {
   if (!error) return false;
   const code = isRecord(error) ? error.code : null;
@@ -248,10 +260,7 @@ function mapWorldState(row: RowRecord, instanceId: string): SgaWorldState {
   });
   const capabilities = parseRecordArray(payload.capabilitiesSummary ?? payload.capabilities).map((item, index) => {
     const kindRaw = pickString(item, ["kind", "type"]) ?? "monitor";
-    const kind =
-      kindRaw === "data_source" || kindRaw === "action" || kindRaw === "agent" || kindRaw === "monitor"
-        ? kindRaw
-        : "monitor";
+    const kind = normalizeCapabilityKind(kindRaw);
     const riskRaw = pickString(item, ["riskLevel", "risk_level"]) ?? "low";
     const riskLevel = normalizeRiskLevel(riskRaw);
     return {
