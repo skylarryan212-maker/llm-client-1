@@ -3,7 +3,7 @@
 import { KeyboardEvent, useEffect, useMemo, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { Plus, Sparkles, ChevronDown, ChevronRight, FolderPlus, X } from 'lucide-react'
+import { Plus, Sparkles, ChevronDown, ChevronRight, FolderPlus, ShieldCheck, X } from 'lucide-react'
 import Link from 'next/link'
 import { UserProfileMenu } from '@/components/user-profile-menu'
 import { usePathname, useRouter } from 'next/navigation'
@@ -77,6 +77,7 @@ export function ChatSidebar({
   const router = useRouter()
   const pathname = usePathname()
   const isAgentsPage = pathname === '/agents'
+  const isSgaPage = pathname?.startsWith('/sga')
   const [projectsCollapsed, setProjectsCollapsed] = useState(false)
   const [chatsCollapsed, setChatsCollapsed] = useState(false)
   const [showMoreProjects, setShowMoreProjects] = useState(false)
@@ -317,13 +318,32 @@ export function ChatSidebar({
                 closeSidebarIfMobile()
               }}
             >
-              <Button 
-                variant="ghost" 
+              <Button
+                variant="ghost"
                 className={`${primaryButtonClass} ${isAgentsPage ? 'bg-zinc-800 text-white hover:bg-zinc-800/90' : ''}`}
                 title={!isOpen ? "Agents" : undefined}
               >
                 <Sparkles className="h-4 w-4 flex-shrink-0" />
                 {isOpen && "Agents"}
+              </Button>
+            </Link>
+
+            <Link
+              href="/sga"
+              className="block"
+              onClick={(event) => {
+                event.preventDefault()
+                void navigateWithMainPanelFade(router, "/sga")
+                closeSidebarIfMobile()
+              }}
+            >
+              <Button
+                variant="ghost"
+                className={`${primaryButtonClass} ${isSgaPage ? 'bg-zinc-800 text-white hover:bg-zinc-800/90' : ''}`}
+                title={!isOpen ? "Self-Governing Agents" : undefined}
+              >
+                <ShieldCheck className="h-4 w-4 flex-shrink-0" />
+                {isOpen && "Self-Governing Agents"}
               </Button>
             </Link>
           </div>

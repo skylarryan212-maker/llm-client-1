@@ -1,5 +1,5 @@
 import type { LucideIcon } from "lucide-react";
-import { Code2, Database, PenLine, TrendingUp, Workflow } from "lucide-react";
+import { Code2, Database, PenLine, ShieldCheck, TrendingUp, Workflow } from "lucide-react";
 
 export type AgentCatalogItem = {
   id: string;
@@ -14,6 +14,16 @@ export type AgentCatalogItem = {
 // This is the canonical agent list for the `/agents` experience.
 // "Available" agents should have an `href` that points to an actual route.
 export const AGENT_CATALOG: AgentCatalogItem[] = [
+  {
+    id: "sga",
+    slug: "sga",
+    icon: ShieldCheck,
+    title: "Self-Governing Agent",
+    description:
+      "Observes objectives, orchestrates sub-tasks, and enforces guardrails without prompts. Keeps state, governance, and recovery flows aligned from day one.",
+    href: "/sga",
+    gradient: "bg-gradient-to-br from-sky-500 via-indigo-600 to-purple-700",
+  },
   {
     id: "LHSA",
     slug: "LHSA",
