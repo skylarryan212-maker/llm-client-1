@@ -121,6 +121,13 @@ function normalizeCapabilityKind(value: unknown): "data_source" | "action" | "ag
   return "monitor";
 }
 
+function normalizeTaskStatus(value: unknown): "planned" | "in_progress" | "blocked" | "done" {
+  if (value === "planned" || value === "in_progress" || value === "blocked" || value === "done") {
+    return value;
+  }
+  return "planned";
+}
+
 function isMissingTableError(error: unknown) {
   if (!error) return false;
   const code = isRecord(error) ? error.code : null;
@@ -273,10 +280,7 @@ function mapWorldState(row: RowRecord, instanceId: string): SgaWorldState {
   });
   const openTasks = parseRecordArray(payload.openTasks ?? payload.open_tasks).map((item, index) => {
     const statusRaw = pickString(item, ["status"]) ?? "planned";
-    const status =
-      statusRaw === "planned" || statusRaw === "in_progress" || statusRaw === "blocked" || statusRaw === "done"
-        ? statusRaw
-        : "planned";
+    const status = normalizeTaskStatus(statusRaw);
     return {
       id: pickString(item, ["id"]) ?? `task-${index + 1}`,
       label: pickString(item, ["label", "title"]) ?? "Untitled task",
