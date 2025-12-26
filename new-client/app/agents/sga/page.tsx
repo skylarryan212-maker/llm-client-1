@@ -48,13 +48,14 @@ export default function SelfGoverningAgentPage() {
       </div>
 
       <div className="relative z-10 mx-auto flex w-full max-w-6xl flex-col gap-12 px-4 py-9 sm:px-6 lg:px-8">
-        <div className="flex items-center gap-3">
-          <Button asChild variant="ghost" size="sm" className="gap-2">
-            <Link href="/agents" className="inline-flex items-center gap-2 text-sm text-slate-300 transition hover:text-white">
-              <ArrowLeft className="h-4 w-4" />
-              Back to agents
-            </Link>
-          </Button>
+        <div className="mb-6">
+          <Link
+            href="/agents"
+            className="inline-flex items-center gap-2 text-sm text-slate-300 transition hover:text-white"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            Back to agents
+          </Link>
         </div>
 
         <section className="rounded-3xl border border-white/10 bg-slate-900/50 p-8 shadow-[0_25px_80px_rgba(15,23,42,0.8)] backdrop-blur">
