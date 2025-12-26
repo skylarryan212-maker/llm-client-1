@@ -281,21 +281,6 @@ export function SgaConsole({ instance, events, worldState }: SgaConsoleProps) {
   const timelineEndRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    const query = window.matchMedia("(min-width: 1024px)");
-    const sync = () => setIsChatSidebarOpen(query.matches);
-    sync();
-
-    if (typeof query.addEventListener === "function") {
-      query.addEventListener("change", sync);
-      return () => query.removeEventListener("change", sync);
-    }
-
-    query.addListener(sync);
-    return () => query.removeListener(sync);
-  }, []);
-
-  useEffect(() => {
     messageEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [messages]);
 
