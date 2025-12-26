@@ -508,57 +508,57 @@ export function SgaConsole({ instance, events, worldState }: SgaConsoleProps) {
               </div>
             </div>
 
-            <div className="space-y-4">
+            <section className="space-y-4">
               <div className="rounded-2xl border border-border/70 bg-gradient-to-b from-white/5 via-transparent to-transparent p-5 shadow-lg shadow-black/30 backdrop-blur">
-              <div className="flex flex-wrap items-start justify-between gap-4">
-                <div className="space-y-2">
-                  <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-slate-200">
-                    <Target className="h-3.5 w-3.5" />
-                    Now
+                <div className="flex flex-wrap items-start justify-between gap-4">
+                  <div className="space-y-2">
+                    <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-slate-200">
+                      <Target className="h-3.5 w-3.5" />
+                      Now
+                    </div>
+                    <h2 className="text-2xl font-semibold text-white">{latestAction}</h2>
+                    <p className="text-sm text-muted-foreground">{reasoningSnapshot}</p>
                   </div>
-                  <h2 className="text-2xl font-semibold text-white">{latestAction}</h2>
-                  <p className="text-sm text-muted-foreground">{reasoningSnapshot}</p>
-                </div>
-                <div className="flex flex-col items-end gap-2">
-                  <Badge variant="outline" className={cn("border px-2 py-0.5 text-xs", getStatusTone(status))}>
-                    {STATUS_LABELS[status]}
-                  </Badge>
-                  {highestRisk ? (
-                    <Badge variant="outline" className={cn("border px-2 py-0.5 text-xs", getRiskTone(highestRisk.level))}>
-                      {highestRisk.level} risk
+                  <div className="flex flex-col items-end gap-2">
+                    <Badge variant="outline" className={cn("border px-2 py-0.5 text-xs", getStatusTone(status))}>
+                      {STATUS_LABELS[status]}
                     </Badge>
-                  ) : (
-                    <Badge variant="outline" className="border-emerald-400/40 bg-emerald-500/10 text-emerald-100">
-                      Low risk
-                    </Badge>
-                  )}
+                    {highestRisk ? (
+                      <Badge variant="outline" className={cn("border px-2 py-0.5 text-xs", getRiskTone(highestRisk.level))}>
+                        {highestRisk.level} risk
+                      </Badge>
+                    ) : (
+                      <Badge variant="outline" className="border-emerald-400/40 bg-emerald-500/10 text-emerald-100">
+                        Low risk
+                      </Badge>
+                    )}
+                  </div>
+                </div>
+                <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+                  <div className="rounded-xl border border-border/70 bg-background/70 p-3">
+                    <p className="text-xs text-muted-foreground">Mode</p>
+                    <p className="text-sm font-semibold text-white">{modeLabel}</p>
+                  </div>
+                  <div className="rounded-xl border border-border/70 bg-background/70 p-3">
+                    <p className="text-xs text-muted-foreground">Current task</p>
+                    <p className="text-sm font-semibold text-white">{currentTask?.label ?? "No active task"}</p>
+                  </div>
+                  <div className="rounded-xl border border-border/70 bg-background/70 p-3">
+                    <p className="text-xs text-muted-foreground">Confidence</p>
+                    <p className="text-sm font-semibold text-white">{confidenceScore}%</p>
+                  </div>
+                  <div className="rounded-xl border border-border/70 bg-background/70 p-3">
+                    <p className="text-xs text-muted-foreground">Time remaining</p>
+                    <p className="text-sm font-semibold text-white">{formatRemaining(timeRemainingMinutes)}</p>
+                  </div>
+                </div>
+                <div className="mt-4 rounded-xl border border-white/10 bg-white/5 p-4">
+                  <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">Primary objective</p>
+                  <p className="mt-2 text-sm text-slate-100">
+                    {worldState.currentObjective || instance.primaryObjective}
+                  </p>
                 </div>
               </div>
-              <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
-                <div className="rounded-xl border border-border/70 bg-background/70 p-3">
-                  <p className="text-xs text-muted-foreground">Mode</p>
-                  <p className="text-sm font-semibold text-white">{modeLabel}</p>
-                </div>
-                <div className="rounded-xl border border-border/70 bg-background/70 p-3">
-                  <p className="text-xs text-muted-foreground">Current task</p>
-                  <p className="text-sm font-semibold text-white">{currentTask?.label ?? "No active task"}</p>
-                </div>
-                <div className="rounded-xl border border-border/70 bg-background/70 p-3">
-                  <p className="text-xs text-muted-foreground">Confidence</p>
-                  <p className="text-sm font-semibold text-white">{confidenceScore}%</p>
-                </div>
-                <div className="rounded-xl border border-border/70 bg-background/70 p-3">
-                  <p className="text-xs text-muted-foreground">Time remaining</p>
-                  <p className="text-sm font-semibold text-white">{formatRemaining(timeRemainingMinutes)}</p>
-                </div>
-              </div>
-              <div className="mt-4 rounded-xl border border-white/10 bg-white/5 p-4">
-                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">Primary objective</p>
-                <p className="mt-2 text-sm text-slate-100">
-                  {worldState.currentObjective || instance.primaryObjective}
-                </p>
-              </div>
-            </div>
 
             <CollapsibleCard
               title="Objective"
