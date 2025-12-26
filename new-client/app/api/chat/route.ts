@@ -60,6 +60,9 @@ const ALLOWED_ASSISTANT_IMAGE_MIME_TYPES = new Set([
   "image/webp",
   "image/gif",
 ]);
+const CROSS_CHAT_TOPIC_TOKEN_LIMIT = 200_000;
+const MAX_FOREIGN_CONVERSATIONS = 12;
+const MAX_FOREIGN_TOPICS = 50;
 
 function isPrivateIpAddress(ip: string): boolean {
   // IPv4
@@ -1087,6 +1090,79 @@ function stringifyPayloadSafe(value: unknown, max = 900): string {
   }
 }
 
+async function loadCrossConversationTopicsForDecisionRouter(params: {
+  supabase: any;
+  conversationId: string;
+  projectId?: string | null;
+  userId?: string;
+}): Promise<
+  Array<{
+    id: string;
+    conversation_id: string;
+    label: string;
+    summary: string | null;
+    description: string | null;
+    parent_topic_id: string | null;
+    conversation_title?: string | null;
+    project_id?: string | null;
+    is_cross_conversation?: boolean;
+  }>
+> {
+  const { supabase, conversationId, projectId, userId } = params;
+  const conversationQuery = supabase
+    .from("conversations")
+    .select("id, title, project_id")
+    .neq("id", conversationId)
+    .order("created_at", { ascending: false })
+    .limit(MAX_FOREIGN_CONVERSATIONS);
+
+  if (projectId) {
+    conversationQuery.eq("project_id", projectId);
+  }
+  if (userId) {
+    conversationQuery.eq("user_id", userId);
+  }
+
+  const { data: otherConversations } = await conversationQuery;
+  const conversationRows = Array.isArray(otherConversations) ? otherConversations : [];
+  if (!conversationRows.length) {
+    return [];
+  }
+
+  const conversationMap = new Map(
+    conversationRows.map((row: any) => [
+      row.id,
+      { title: row.title ?? null, project_id: row.project_id ?? null },
+    ])
+  );
+  const conversationIds = Array.from(conversationMap.keys());
+
+  const { data: topicRows } = await supabase
+    .from("conversation_topics")
+    .select("id, conversation_id, label, summary, description, parent_topic_id, token_estimate, updated_at")
+    .in("conversation_id", conversationIds)
+    .lte("token_estimate", CROSS_CHAT_TOPIC_TOKEN_LIMIT)
+    .order("updated_at", { ascending: false })
+    .limit(MAX_FOREIGN_TOPICS);
+
+  if (!Array.isArray(topicRows)) {
+    return [];
+  }
+
+  return topicRows.map((topic: any) => ({
+    id: topic.id,
+    conversation_id: topic.conversation_id,
+    label: topic.label,
+    summary: topic.summary,
+    description: topic.description,
+    parent_topic_id: topic.parent_topic_id,
+    conversation_title: conversationMap.get(topic.conversation_id)?.title ?? null,
+    project_id: conversationMap.get(topic.conversation_id)?.project_id ?? null,
+    is_cross_conversation: true,
+  }));
+}
+}
+
 function summarizeMarketState(state: any): string | null {
   if (!state || typeof state !== "object") return null;
   const parts: string[] = [];
@@ -2112,16 +2188,26 @@ export async function POST(request: NextRequest) {
       .eq("conversation_id", conversationId)
       .order("created_at", { ascending: true })
       .limit(50);
-    const topicsForRouter =
-      Array.isArray(topicRows) &&
-      topicRows.map((t: any) => ({
-        id: t.id,
-        conversation_id: t.conversation_id,
-        label: t.label,
-        summary: t.summary,
-        description: t.description,
-        parent_topic_id: t.parent_topic_id,
-      }));
+    const baseTopicsForRouter = Array.isArray(topicRows)
+      ? topicRows.map((t: any) => ({
+          id: t.id,
+          conversation_id: t.conversation_id,
+          label: t.label,
+          summary: t.summary,
+          description: t.description,
+          parent_topic_id: t.parent_topic_id,
+          conversation_title: conversation.title ?? null,
+          project_id: conversation.project_id ?? null,
+          is_cross_conversation: false,
+        }))
+      : [];
+    const crossChatTopicsForRouter = await loadCrossConversationTopicsForDecisionRouter({
+      supabase: supabaseAny,
+      conversationId,
+      projectId: conversation.project_id ?? null,
+      userId,
+    });
+    const topicsForRouter = [...baseTopicsForRouter, ...crossChatTopicsForRouter];
 
     // Load artifacts for this conversation (used by decision router)
     const { data: artifactRows } = await supabaseAny

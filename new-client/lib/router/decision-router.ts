@@ -23,6 +23,9 @@ export type DecisionRouterInput = {
     summary: string | null;
     description: string | null;
     parent_topic_id: string | null;
+    conversation_title?: string | null;
+    project_id?: string | null;
+    is_cross_conversation?: boolean;
   }>;
   artifacts: Array<{
     id: string;
@@ -117,6 +120,9 @@ Rules:
   * reopen_existing: when the user intent best matches a past topic in the provided topics/artifacts (same subject/entity/task), but the active topic is different or stale. Pick the best-matching previous topic as primaryTopicId.
   * new: when the request starts a new subject/task not covered by the active topic or any prior topic (no strong match).
 - Use topic summaries/labels/descriptions plus artifacts to judge matching intent; prefer reuse when the fit is strong, otherwise start new.
+- Topics may include cross-chat items marked is_cross_conversation=true and conversation_title set.
+  * Prefer current-chat topics unless the user clearly refers to another chat or asks about prior messages outside this conversation.
+  * If you select a cross-chat topic, use topicAction="reopen_existing" with that topic id.
 - Use the "Semantic similarity to prior topics" section (below) to weigh reopen_existing decisions: if a non-active topic shows the strongest similarity to the new message, strongly consider reusing that topic id.
 - secondaryTopicIds: subset of provided topic ids, exclude primary; may be empty.
 - newParentTopicId: null or a provided topic id.
