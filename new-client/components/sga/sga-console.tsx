@@ -434,40 +434,30 @@ export function SgaConsole({ instance, events, worldState }: SgaConsoleProps) {
         <div className="flex-1">
           <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
             <main className="space-y-6">
-            <header className="flex flex-wrap items-center justify-between gap-4">
-              <div className="flex flex-wrap items-center gap-4">
-                <Button asChild variant="ghost" size="sm" className="gap-2">
-                  <Link href="/sga">
-                    <ArrowLeft className="h-4 w-4" />
-                    Back to fleet
-                  </Link>
-                </Button>
-                <div>
-                  <div className="flex flex-wrap items-center gap-3">
-                    <h1 className="text-2xl font-semibold text-white">{instance.name}</h1>
-                    <Badge variant="outline" className={cn("border px-2 py-0.5 text-xs", getStatusTone(status))}>
-                      {STATUS_LABELS[status]}
-                    </Badge>
-                    <Badge variant="outline" className="border-white/20 bg-white/5 text-white/80">
-                      Assurance {assuranceLevel} - {ASSURANCE_LABELS[assuranceLevel]}
-                    </Badge>
-                  </div>
-                  <p className="text-sm text-muted-foreground">{instance.environmentLabel}</p>
+              <header className="flex items-center justify-between gap-3 rounded-2xl border border-border/70 bg-background/60 px-5 py-4">
+                <div className="flex items-center gap-3">
+                  <Button asChild variant="ghost" size="icon" className="h-10 w-10 !p-2 text-white/80 hover:text-white">
+                    <Link href="/sga">
+                      <ArrowLeft className="h-4 w-4" />
+                    </Link>
+                  </Button>
+                  <h1 className="text-lg font-semibold text-white">Self-Governing Agent</h1>
                 </div>
-              </div>
-              <div className="flex flex-wrap items-center gap-3">
-                <div className="text-xs text-muted-foreground">Today active: {loopClockLabel}</div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="gap-2"
-                  onClick={() => setIsChatSidebarOpen((prev) => !prev)}
-                >
-                  <MessageCircle className="h-4 w-4" />
-                  {isChatSidebarOpen ? "Hide chat" : "Chat"}
-                </Button>
-              </div>
-            </header>
+                <div className="flex items-center gap-3">
+                  <Badge variant="outline" className="border px-2 py-0.5 text-xs uppercase tracking-[0.2em]">
+                    Coordinating
+                  </Badge>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-2"
+                    onClick={() => setIsChatSidebarOpen((prev) => !prev)}
+                  >
+                    <MessageCircle className="h-4 w-4" />
+                    {isChatSidebarOpen ? "Hide chat" : "Chat"}
+                  </Button>
+                </div>
+              </header>
 
             <div className="rounded-2xl border border-border/70 bg-background/60 px-4 py-2 text-xs text-muted-foreground">
               <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
