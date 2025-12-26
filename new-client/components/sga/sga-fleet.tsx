@@ -1,8 +1,9 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Pause, Play, Plus, ShieldCheck } from "lucide-react";
+import { ArrowLeft, Pause, Play, Plus, ShieldCheck } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -177,6 +178,15 @@ export function SgaFleet({ initialInstances }: SgaFleetProps) {
   return (
     <div className="min-h-screen bg-gradient-to-b from-[#05070b] via-[#050607] to-black text-foreground">
       <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6 sm:py-12 lg:px-8 space-y-8">
+        <div className="flex items-center">
+          <Link
+            href="/agents"
+            className="inline-flex items-center gap-2 text-sm text-slate-300 transition hover:text-white"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            Back to agents
+          </Link>
+        </div>
         <header className="flex flex-wrap items-start justify-between gap-6">
           <div className="space-y-3">
             <div className="inline-flex items-center gap-2 rounded-full border border-sky-500/30 bg-sky-500/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-sky-100">
