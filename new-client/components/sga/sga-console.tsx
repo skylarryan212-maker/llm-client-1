@@ -806,7 +806,8 @@ export function SgaConsole({ instance, events, worldState }: SgaConsoleProps) {
         </div>
       </div>
     </div>
-  );
+  </div>
+);
 }
 
 type SgaChatSidebarProps = {
