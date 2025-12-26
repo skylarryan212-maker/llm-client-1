@@ -447,9 +447,9 @@ export function SgaConsole({ instance, events, worldState }: SgaConsoleProps) {
     <div className="min-h-screen bg-gradient-to-b from-[#05070b] via-[#050607] to-black text-foreground">
       <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
         <div className="flex gap-6">
-          <main className="flex-1 space-y-6">
+          <div className="flex-1 space-y-6">
             <header className="flex flex-wrap items-center justify-between gap-4">
-              <div className="flex flex-wrap items-center gap-4">
+              <div className="flex flex-wrap items-center gap-3">
                 <Button asChild variant="ghost" size="sm" className="gap-2">
                   <Link href="/sga">
                     <ArrowLeft className="h-4 w-4" />
@@ -508,57 +508,58 @@ export function SgaConsole({ instance, events, worldState }: SgaConsoleProps) {
               </div>
             </div>
 
-            <section className="space-y-4">
-              <div className="rounded-2xl border border-border/70 bg-gradient-to-b from-white/5 via-transparent to-transparent p-5 shadow-lg shadow-black/30 backdrop-blur">
-                <div className="flex flex-wrap items-start justify-between gap-4">
-                  <div className="space-y-2">
-                    <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-slate-200">
-                      <Target className="h-3.5 w-3.5" />
-                      Now
-                    </div>
-                    <h2 className="text-2xl font-semibold text-white">{latestAction}</h2>
-                    <p className="text-sm text-muted-foreground">{reasoningSnapshot}</p>
+            <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1.6fr,0.8fr]">
+              <section className="space-y-4">
+            <div className="rounded-2xl border border-border/70 bg-gradient-to-b from-white/5 via-transparent to-transparent p-5 shadow-lg shadow-black/30 backdrop-blur">
+              <div className="flex flex-wrap items-start justify-between gap-4">
+                <div className="space-y-2">
+                  <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-slate-200">
+                    <Target className="h-3.5 w-3.5" />
+                    Now
                   </div>
-                  <div className="flex flex-col items-end gap-2">
-                    <Badge variant="outline" className={cn("border px-2 py-0.5 text-xs", getStatusTone(status))}>
-                      {STATUS_LABELS[status]}
+                  <h2 className="text-2xl font-semibold text-white">{latestAction}</h2>
+                  <p className="text-sm text-muted-foreground">{reasoningSnapshot}</p>
+                </div>
+                <div className="flex flex-col items-end gap-2">
+                  <Badge variant="outline" className={cn("border px-2 py-0.5 text-xs", getStatusTone(status))}>
+                    {STATUS_LABELS[status]}
+                  </Badge>
+                  {highestRisk ? (
+                    <Badge variant="outline" className={cn("border px-2 py-0.5 text-xs", getRiskTone(highestRisk.level))}>
+                      {highestRisk.level} risk
                     </Badge>
-                    {highestRisk ? (
-                      <Badge variant="outline" className={cn("border px-2 py-0.5 text-xs", getRiskTone(highestRisk.level))}>
-                        {highestRisk.level} risk
-                      </Badge>
-                    ) : (
-                      <Badge variant="outline" className="border-emerald-400/40 bg-emerald-500/10 text-emerald-100">
-                        Low risk
-                      </Badge>
-                    )}
-                  </div>
-                </div>
-                <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
-                  <div className="rounded-xl border border-border/70 bg-background/70 p-3">
-                    <p className="text-xs text-muted-foreground">Mode</p>
-                    <p className="text-sm font-semibold text-white">{modeLabel}</p>
-                  </div>
-                  <div className="rounded-xl border border-border/70 bg-background/70 p-3">
-                    <p className="text-xs text-muted-foreground">Current task</p>
-                    <p className="text-sm font-semibold text-white">{currentTask?.label ?? "No active task"}</p>
-                  </div>
-                  <div className="rounded-xl border border-border/70 bg-background/70 p-3">
-                    <p className="text-xs text-muted-foreground">Confidence</p>
-                    <p className="text-sm font-semibold text-white">{confidenceScore}%</p>
-                  </div>
-                  <div className="rounded-xl border border-border/70 bg-background/70 p-3">
-                    <p className="text-xs text-muted-foreground">Time remaining</p>
-                    <p className="text-sm font-semibold text-white">{formatRemaining(timeRemainingMinutes)}</p>
-                  </div>
-                </div>
-                <div className="mt-4 rounded-xl border border-white/10 bg-white/5 p-4">
-                  <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">Primary objective</p>
-                  <p className="mt-2 text-sm text-slate-100">
-                    {worldState.currentObjective || instance.primaryObjective}
-                  </p>
+                  ) : (
+                    <Badge variant="outline" className="border-emerald-400/40 bg-emerald-500/10 text-emerald-100">
+                      Low risk
+                    </Badge>
+                  )}
                 </div>
               </div>
+              <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+                <div className="rounded-xl border border-border/70 bg-background/70 p-3">
+                  <p className="text-xs text-muted-foreground">Mode</p>
+                  <p className="text-sm font-semibold text-white">{modeLabel}</p>
+                </div>
+                <div className="rounded-xl border border-border/70 bg-background/70 p-3">
+                  <p className="text-xs text-muted-foreground">Current task</p>
+                  <p className="text-sm font-semibold text-white">{currentTask?.label ?? "No active task"}</p>
+                </div>
+                <div className="rounded-xl border border-border/70 bg-background/70 p-3">
+                  <p className="text-xs text-muted-foreground">Confidence</p>
+                  <p className="text-sm font-semibold text-white">{confidenceScore}%</p>
+                </div>
+                <div className="rounded-xl border border-border/70 bg-background/70 p-3">
+                  <p className="text-xs text-muted-foreground">Time remaining</p>
+                  <p className="text-sm font-semibold text-white">{formatRemaining(timeRemainingMinutes)}</p>
+                </div>
+              </div>
+              <div className="mt-4 rounded-xl border border-white/10 bg-white/5 p-4">
+                <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">Primary objective</p>
+                <p className="mt-2 text-sm text-slate-100">
+                  {worldState.currentObjective || instance.primaryObjective}
+                </p>
+              </div>
+            </div>
 
             <CollapsibleCard
               title="Objective"
@@ -792,17 +793,107 @@ export function SgaConsole({ instance, events, worldState }: SgaConsoleProps) {
               )}
             </CollapsibleCard>
           </section>
-        </main>
-        <div className={cn("flex-shrink-0 transition-all duration-300", isChatSidebarOpen ? "w-[420px]" : "w-0")}>
-          <SgaChatSidebar
-            open={isChatSidebarOpen}
-            onClose={() => setIsChatSidebarOpen(false)}
-            messages={messages}
-            messageText={messageText}
-            onMessageTextChange={(value) => setMessageText(value)}
-            onSend={handleSend}
-            messageEndRef={messageEndRef}
-          />
+
+          <aside className="space-y-4 hidden lg:block">
+            <div className="rounded-2xl border border-border/70 bg-card/50 p-4 shadow-lg shadow-black/20 backdrop-blur">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Loop status</p>
+                  <p className="text-sm font-semibold text-white">Governance controls</p>
+                </div>
+                <Badge variant="outline" className={cn("border px-2 py-0.5 text-xs", getStatusTone(status))}>
+                  {STATUS_LABELS[status]}
+                </Badge>
+              </div>
+              <div className="mt-4 space-y-3">
+                <Button onClick={handleToggleStatus} className="w-full justify-center gap-2">
+                  {status === "paused" ? <Play className="h-4 w-4" /> : <Pause className="h-4 w-4" />}
+                  {status === "paused" ? "Resume loop" : "Pause loop"}
+                </Button>
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold text-muted-foreground">Assurance level</label>
+                  <Select value={String(assuranceLevel)} onValueChange={handleAssuranceChange}>
+                    <SelectTrigger className="w-full bg-background/60">
+                      <SelectValue placeholder="Select assurance" />
+                    </SelectTrigger>
+                    <SelectContent className="bg-popover">
+                      <SelectItem value="0">Assurance 0 - Fast</SelectItem>
+                      <SelectItem value="1">Assurance 1 - Standard</SelectItem>
+                      <SelectItem value="2">Assurance 2 - High</SelectItem>
+                      <SelectItem value="3">Assurance 3 - Max</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground">
+                  <div className="rounded-lg border border-white/10 bg-white/5 p-2">
+                    Run clock: {loopClockLabel}
+                  </div>
+                  <div className="rounded-lg border border-white/10 bg-white/5 p-2">
+                    Remaining: {formatRemaining(timeRemainingMinutes)}
+                  </div>
+                  <div className="rounded-lg border border-white/10 bg-white/5 p-2">
+                    Pending: {pendingDelegations}
+                  </div>
+                  <div className="rounded-lg border border-white/10 bg-white/5 p-2">
+                    Spend: {formatCurrency(worldState.budgets.todayEstimatedSpendUsd)}
+                  </div>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button variant="ghost" size="sm" className="gap-2">
+                    <ShieldCheck className="h-4 w-4" />
+                    View history
+                  </Button>
+                  <Button variant="ghost" size="sm" className="gap-2">
+                    <Activity className="h-4 w-4" />
+                    Export log
+                  </Button>
+                </div>
+                {error ? <p className="text-xs text-rose-300">{error}</p> : null}
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-border/70 bg-card/50 p-4 shadow-lg shadow-black/20 backdrop-blur">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Quick actions</p>
+                  <p className="text-sm font-semibold text-white">Interventions</p>
+                </div>
+                <Activity className="h-4 w-4 text-slate-300" />
+              </div>
+              <div className="mt-3 flex flex-col gap-2">
+                {QUICK_ACTIONS.map((action) => (
+                  <Button
+                    key={action.label}
+                    variant="secondary"
+                    size="sm"
+                    className="justify-start"
+                    onClick={() => applyQuickAction(action.message)}
+                  >
+                    {action.label}
+                  </Button>
+                ))}
+              </div>
+            </div>
+          </aside>
+        </div>
+        <div
+          className={cn(
+            "fixed inset-y-4 right-4 z-30 w-[90vw] max-w-[420px] overflow-hidden rounded-2xl border border-white/10 bg-[#050505]/95 shadow-2xl transition-transform duration-300 ease-in-out lg:block lg:w-[420px] lg:max-w-[420px] lg:translate-x-0 lg:flex-shrink-0 lg:overflow-visible lg:border-none lg:bg-transparent lg:shadow-none lg:rounded-none lg:sticky lg:top-6 lg:h-[calc(100vh-3rem)]",
+            isChatSidebarOpen ? "translate-x-0" : "translate-x-full lg:translate-x-0 lg:w-0"
+          )}
+          aria-hidden={!isChatSidebarOpen}
+        >
+          {isChatSidebarOpen ? (
+            <SgaChatSidebar
+              open={isChatSidebarOpen}
+              onClose={() => setIsChatSidebarOpen(false)}
+              messages={messages}
+              messageText={messageText}
+              onMessageTextChange={(value) => setMessageText(value)}
+              onSend={handleSend}
+              messageEndRef={messageEndRef}
+            />
+          ) : null}
         </div>
       </div>
     </div>
@@ -829,7 +920,7 @@ function SgaChatSidebar({
   messageEndRef,
 }: SgaChatSidebarProps) {
   const panelClass = cn(
-    "flex h-full min-h-screen flex-col border-l border-white/10 bg-[#050505] text-foreground shadow-2xl transition-opacity duration-300",
+    "flex h-full max-h-[calc(100vh-3rem)] flex-col bg-[#050505] text-foreground shadow-2xl transition-opacity duration-300 lg:border-l lg:border-white/10",
     open ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
   );
 
