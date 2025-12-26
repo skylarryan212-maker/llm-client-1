@@ -445,9 +445,10 @@ export function SgaConsole({ instance, events, worldState }: SgaConsoleProps) {
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-[#05070b] via-[#050607] to-black text-foreground">
-      <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-        <div className="flex min-h-screen gap-6">
-          <main className="flex-1 space-y-6">
+      <div className="flex min-h-screen">
+        <div className="flex-1">
+          <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+            <main className="space-y-6">
             <header className="flex flex-wrap items-center justify-between gap-4">
               <div className="flex flex-wrap items-center gap-4">
                 <Button asChild variant="ghost" size="sm" className="gap-2">
@@ -792,10 +793,12 @@ export function SgaConsole({ instance, events, worldState }: SgaConsoleProps) {
               )}
             </CollapsibleCard>
           </section>
-        </main>
+            </main>
+          </div>
+        </div>
         <div
           className={cn(
-            "flex-shrink-0 h-full overflow-hidden transition-[width] duration-300",
+            "flex-shrink-0 sticky top-0 h-screen overflow-hidden transition-[width] duration-300",
             isChatSidebarOpen ? "w-[420px]" : "w-0"
           )}
           aria-hidden={!isChatSidebarOpen}
@@ -812,7 +815,6 @@ export function SgaConsole({ instance, events, worldState }: SgaConsoleProps) {
         </div>
       </div>
     </div>
-  </div>
 );
 }
 
