@@ -793,7 +793,20 @@ export function SgaConsole({ instance, events, worldState }: SgaConsoleProps) {
             </CollapsibleCard>
           </section>
         </main>
-        <div className={cn("flex-shrink-0 transition-all duration-300", isChatSidebarOpen ? "w-[420px]" : "w-0")}>
+      </div>
+      <div
+        className={cn(
+          "fixed inset-y-0 right-0 z-50 flex h-full w-full justify-end",
+          isChatSidebarOpen ? "pointer-events-auto" : "pointer-events-none"
+        )}
+        aria-hidden={!isChatSidebarOpen}
+      >
+        <div
+          className={cn(
+            "h-full w-[420px] max-w-full transform transition-transform duration-300 ease-in-out",
+            isChatSidebarOpen ? "translate-x-0" : "translate-x-full"
+          )}
+        >
           <SgaChatSidebar
             open={isChatSidebarOpen}
             onClose={() => setIsChatSidebarOpen(false)}
@@ -830,7 +843,7 @@ function SgaChatSidebar({
   messageEndRef,
 }: SgaChatSidebarProps) {
   const panelClass = cn(
-    "flex h-full min-h-screen flex-col border-l border-white/10 bg-[#050505] text-foreground shadow-2xl transition-opacity duration-300",
+    "flex h-full min-h-screen w-full flex-col border-l border-white/10 bg-[#050505] text-foreground shadow-2xl transition-opacity duration-300",
     open ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
   );
 
