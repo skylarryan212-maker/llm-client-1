@@ -13,7 +13,7 @@ export type ModelFamily =
   | "gpt-5.2-pro"
   | "gpt-5-mini"
   | "gpt-5-nano";
-export type ReasoningEffort = "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
+export type ReasoningEffort = "none" | "low" | "medium" | "high" | "xhigh";
 
 export interface ModelConfig {
   model: string;
@@ -145,7 +145,7 @@ function ensureMiniNanoEffort(
   effort: ReasoningEffort | null
 ): Exclude<ReasoningEffort, "none"> {
   if (!effort || effort === "none") {
-    return "minimal";
+    return "low";
   }
   if (effort === "xhigh") {
     return "high";
@@ -157,7 +157,7 @@ export function suggestSmallerModelForEffort(
   promptText: string,
   effort: ReasoningEffort | null
 ): "gpt-5-mini" | "gpt-5-nano" | null {
-  if (!effort || effort === "minimal" || effort === "low" || effort === "none") {
+  if (!effort || effort === "low" || effort === "none") {
     return null;
   }
   const normalized = promptText.trim().toLowerCase();
@@ -214,7 +214,7 @@ function selectGpt52AutoFamily(
     return length < 320 ? "gpt-5-nano" : "gpt-5-mini";
   }
 
-  if (effort === "minimal" || effort === "low") {
+  if (effort === "low") {
     if (length < 600 && !mentionsComplexity) {
       return "gpt-5-nano";
     }
@@ -262,15 +262,15 @@ function buildConfigFromRouterDecision(
   let finalEffort = decision.effort;
   if (speedMode === "instant") {
     const isFullModel = decision.model === "gpt-5.2" || decision.model === "gpt-5.2-pro";
-    finalEffort = isFullModel ? "none" : "minimal";
+    finalEffort = isFullModel ? "none" : "low";
   } else if (speedMode === "thinking") {
-    if (finalEffort === "none" || finalEffort === "minimal" || finalEffort === "low") {
+    if (finalEffort === "none" || finalEffort === "low") {
       finalEffort = pickMediumOrHigh(promptText);
     }
   }
 
   if ((decision.model === "gpt-5-mini" || decision.model === "gpt-5-nano") && finalEffort === "none") {
-    finalEffort = "minimal";
+    finalEffort = "low";
   }
 
   const reuseMemory = options?.reuseMemoryInstructions ?? true;
@@ -312,7 +312,7 @@ export function getModelAndReasoningConfig(
   } else if (resolvedFamily === "gpt-5.2-pro") {
     chosenEffort = "high";
   } else if (speedMode === "instant") {
-    chosenEffort = isFullFamily ? "none" : "minimal";
+    chosenEffort = isFullFamily ? "none" : "low";
   } else if (speedMode === "thinking") {
     chosenEffort = pickMediumOrHigh(trimmedPrompt);
   } else {
@@ -503,7 +503,7 @@ export function getModelSettingsFromDisplayName(displayName: string): ModelSetti
   if (displayName === "GPT 5 Nano Auto") return { modelFamily: "gpt-5-nano", speedMode: "auto" };
   if (displayName === "GPT 5 Nano Instant") return { modelFamily: "gpt-5-nano", speedMode: "instant", reasoningEffort: "low" };
   if (displayName === "GPT 5 Nano Thinking") return { modelFamily: "gpt-5-nano", speedMode: "thinking", reasoningEffort: "medium" };
-  if (displayName === "GPT 5 Nano") return { modelFamily: "gpt-5-nano", speedMode: "auto", reasoningEffort: "minimal" };
+  if (displayName === "GPT 5 Nano") return { modelFamily: "gpt-5-nano", speedMode: "auto", reasoningEffort: "low" };
 
   // GPT 5 Mini options
   if (displayName === "GPT 5 Mini Auto") return { modelFamily: "gpt-5-mini", speedMode: "auto" };

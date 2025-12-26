@@ -57,12 +57,12 @@ const ROUTER_SYSTEM_PROMPT = `You are a lightweight routing assistant.
 You are NOT the assistant that replies to the user. You NEVER answer the user, never call tools, and never output explanations or markdown. Your ONLY job is to choose which model will answer, the reasoning effort level, and which memory categories to load or modify. Respond with ONE JSON object only.
 
 Available models: "gpt-5-nano", "gpt-5-mini", "gpt-5.2", "gpt-5.2-pro".
-Available efforts: "none" | "minimal" | "low" | "medium" | "high" | "xhigh" ( "none" is ONLY allowed when model === "gpt-5.2" or "gpt-5.2-pro"). NEVER emit any other spelling (e.g., "med" is invalid). If you mean medium effort, output the exact string "medium".
+Available efforts: "none" | "low" | "medium" | "high" | "xhigh" ( "none" is ONLY allowed when model === "gpt-5.2" or "gpt-5.2-pro"). NEVER emit any other spelling (e.g., "med" is invalid). If you mean medium effort, output the exact string "medium".
 
 Your JSON response MUST have this exact shape (no extra keys):
 {
   "model": "gpt-5-nano" | "gpt-5-mini" | "gpt-5.2" | "gpt-5.2-pro",
-  "effort": "none" | "minimal" | "low" | "medium" | "high" | "xhigh",
+  "effort": "none" | "low" | "medium" | "high" | "xhigh",
   "routedBy": string,
   "memoryTypesToLoad": string[],
   "memoriesToWrite": { "type": string, "title": string, "content": string }[],
@@ -82,7 +82,7 @@ Hard rules:
    - When unsure between two options, choose the cheaper model unless the task is high-stakes.
 3) Effort selection:
    - "none" only with model "gpt-5.2" or "gpt-5.2-pro" for trivial tasks.
-   - "minimal": smallest effort for quick/cheap answers (best default for instant mode).
+   - "low": smallest effort for quick/cheap answers (best default for instant mode).
    - "low": simple reasoning/formatting.
    - "medium": multi-step reasoning, non-trivial code, careful analysis.
    - "high": complex or high-stakes tasks needing detailed reasoning.
@@ -112,7 +112,7 @@ export async function routeWithLLM(
       contextNote += `\nIMPORTANT: User explicitly selected "${context.userModelPreference}" - you MUST recommend this model (only decide reasoning effort).`;
     }
     if (context?.speedMode === "instant") {
-      contextNote += `\nUser selected INSTANT mode - prefer "none" (for 5.2) or "minimal" effort.`;
+      contextNote += `\nUser selected INSTANT mode - prefer "none" (for 5.2) or "low" effort.`;
     } else if (context?.speedMode === "thinking") {
       contextNote += `\nUser selected THINKING mode - prefer "medium" or "high" effort.`;
     }
@@ -149,7 +149,7 @@ export async function routeWithLLM(
       additionalProperties: false,
       properties: {
         model: { type: "string", enum: ["gpt-5-nano", "gpt-5-mini", "gpt-5.2", "gpt-5.2-pro"] },
-        effort: { type: "string", enum: ["none", "minimal", "low", "medium", "high", "xhigh"] },
+        effort: { type: "string", enum: ["none", "low", "medium", "high", "xhigh"] },
         memoryTypesToLoad: {
           type: "array",
           items: { type: "string" },
@@ -260,7 +260,7 @@ export async function routeWithLLM(
       "gpt-5.2",
       "gpt-5.2-pro",
     ];
-    const validEfforts: ReasoningEffort[] = ["none", "minimal", "low", "medium", "high", "xhigh"];
+    const validEfforts: ReasoningEffort[] = ["none", "low", "medium", "high", "xhigh"];
     if (!validModels.includes(parsed.model)) {
       console.error(`[llm-router] Invalid model: ${parsed.model}`);
       return null;
@@ -273,8 +273,8 @@ export async function routeWithLLM(
 
     const isFullFamily = parsed.model === "gpt-5.2" || parsed.model === "gpt-5.2-pro";
     if (!isFullFamily && parsed.effort === "none") {
-      console.warn(`[llm-router] ${parsed.model} cannot use "none" effort, forcing to "minimal"`);
-      parsed.effort = "minimal";
+      console.warn(`[llm-router] ${parsed.model} cannot use "none" effort, forcing to "low"`);
+      parsed.effort = "low";
     }
     if (!isFullFamily && parsed.effort === "xhigh") {
       console.warn(`[llm-router] ${parsed.model} cannot use "xhigh" effort, reducing to "high"`);

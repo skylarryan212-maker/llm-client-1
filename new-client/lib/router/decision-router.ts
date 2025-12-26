@@ -103,7 +103,7 @@ Output shape:
     "secondaryTopicIds": string[],         // array, never null
     "newParentTopicId": string | null,
     "model": "gpt-5-nano" | "gpt-5-mini" | "gpt-5.2" | "gpt-5.2-pro",
-    "effort": "none" | "minimal" | "low" | "medium" | "high" | "xhigh",
+    "effort": "none" | "low" | "medium" | "high" | "xhigh",
     "memoryTypesToLoad": string[]
   }
 }
@@ -127,16 +127,15 @@ Rules:
   * ONLY use gpt-5.2-pro if the user explicitly prefers it AND the task is extremely high-stakes + complex. Otherwise downgrade to gpt-5.2/mini/nano.
 - Effort selection:
   * Effort is for the downstream chat model's response (not for routing).
-  * Default to minimal/low; use medium only when strong complexity indicators are present.
+  * Default to low; use medium only when strong complexity indicators are present.
   * Guidance (speedMode="auto"):
-    - minimal: greetings/small-talk, short factual Q/A, simple rewrites, short summaries, straightforward instructions.
     - low: most normal requests (2-5 simple steps), short coding, simple comparisons, light planning.
     - medium: debugging, non-trivial code, math/proofs, multi-constraint planning, long-form outputs, high-stakes domains.
   * If unsure between low vs medium, choose low.
   * High or xhigh only when the request is clearly rare, intricate, or high-stakes, and you are confident it needs extra depth.
-  * For gpt-5-nano/gpt-5-mini: never emit "none"/"high"/"xhigh"; stay at minimal/low/medium. If a task would need high/xhigh, escalate the model instead of effort on nano/mini.
+  * For gpt-5-nano/gpt-5-mini: never emit "none"/"high"/"xhigh"; stay at low/medium. If a task would need high/xhigh, escalate the model instead of effort on nano/mini.
   * Speed mode:
-    - instant -> effort MUST be one of: none, minimal, low (choose the lowest that fits the task).
+    - instant -> effort MUST be one of: none, low (choose the lowest that fits the task).
     - thinking -> effort MUST be one of: medium, high, xhigh (choose the lowest that fits the task; prefer medium unless clearly needed).
   * Model preference: if modelPreference is not "auto", you MUST return that exact model.
 - Arrays must be arrays (never null). No extra fields. No markdown.`;
@@ -154,6 +153,8 @@ Rules:
       artifacts: input.artifacts,
     },
   };
+
+  console.log("[decision-router] Input payload:", JSON.stringify(inputPayload.input, null, 2));
 
   const userPrompt = `Input JSON:
 ${JSON.stringify(inputPayload, null, 2)}
@@ -182,7 +183,7 @@ Return only the "labels" object matching the output schema.`;
           secondaryTopicIds: { type: "array", items: { type: "string" }, default: [] },
           newParentTopicId: { type: ["string", "null"] },
           model: { type: "string", enum: ["gpt-5-nano", "gpt-5-mini", "gpt-5.2", "gpt-5.2-pro"] },
-          effort: { type: "string", enum: ["none", "minimal", "low", "medium", "high", "xhigh"] },
+          effort: { type: "string", enum: ["none", "low", "medium", "high", "xhigh"] },
           memoryTypesToLoad: { type: "array", items: { type: "string" }, default: [] },
         },
         required: [
@@ -214,7 +215,7 @@ Return only the "labels" object matching the output schema.`;
       secondaryTopicIds: [] as string[],
       newParentTopicId: null,
       model: modelConfig.resolvedFamily,
-      effort: (modelConfig.reasoning?.effort as ReasoningEffort) ?? "minimal",
+      effort: (modelConfig.reasoning?.effort as ReasoningEffort) ?? "low",
       memoryTypesToLoad,
     };
   };
@@ -252,8 +253,8 @@ Return only the "labels" object matching the output schema.`;
       primaryTopicId = null;
     }
 
-    const validEfforts: ReasoningEffort[] = ["none", "minimal", "low", "medium", "high", "xhigh"];
-    const effort: ReasoningEffort = validEfforts.includes(labels.effort) ? labels.effort : "minimal";
+    const validEfforts: ReasoningEffort[] = ["none", "low", "medium", "high", "xhigh"];
+    const effort: ReasoningEffort = validEfforts.includes(labels.effort) ? labels.effort : "low";
 
     // Enforce model preference if provided
     const userForcedModel = input.modelPreference !== "auto";

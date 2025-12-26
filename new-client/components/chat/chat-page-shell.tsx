@@ -244,7 +244,7 @@ function getSpeedModeModelSettings(displayName: string): ModelSettings {
     case "GPT 5.2 Pro":
       return { modelFamily: "gpt-5.2-pro", speedMode: "auto", reasoningEffort: "high" };
     default:
-      return { modelFamily: "gpt-5-nano", speedMode: "auto", reasoningEffort: "minimal" };
+      return { modelFamily: "gpt-5-nano", speedMode: "auto", reasoningEffort: "low" };
   }
 }
 
@@ -255,7 +255,7 @@ function mergeThinkingTimingIntoMetadata(
   if (!timing) {
     return metadata;
   }
-  const skipEfforts = new Set<ReasoningEffort>(["low", "none", "minimal"]);
+  const skipEfforts = new Set<ReasoningEffort>(["low", "none"]);
   if (metadata && metadata.reasoningEffort && skipEfforts.has(metadata.reasoningEffort)) {
     return metadata;
   }
@@ -2975,7 +2975,7 @@ export default function ChatPageShell({
     if (retryModelName === "GPT 5 Nano") {
       retryModelFamily = "gpt-5-nano";
       retrySpeedMode = "auto";
-      retryReasoningOverride = speedModeEnabled ? "minimal" : undefined;
+      retryReasoningOverride = speedModeEnabled ? "low" : undefined;
     } else if (retryModelName === "GPT 5 Mini") {
       retryModelFamily = "gpt-5-mini";
       retrySpeedMode = "auto";
