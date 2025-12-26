@@ -479,7 +479,7 @@ export function SgaConsole({ instance, events, worldState }: SgaConsoleProps) {
                   onClick={() => setIsChatSidebarOpen((prev) => !prev)}
                 >
                   <MessageCircle className="h-4 w-4" />
-                  Chat
+                  {isChatSidebarOpen ? "Hide chat" : "Chat"}
                 </Button>
               </div>
             </header>
