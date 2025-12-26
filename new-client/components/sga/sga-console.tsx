@@ -448,36 +448,25 @@ export function SgaConsole({ instance, events, worldState }: SgaConsoleProps) {
       <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8 space-y-6">
         <header className="flex flex-wrap items-center justify-between gap-4">
         <div className="flex flex-wrap items-center gap-4">
-          <Button
-            asChild
-            variant="ghost"
-            size="sm"
-            className="gap-2"
-          >
-            <Link href="/agents" className="inline-flex items-center gap-2 text-sm text-slate-300 transition hover:text-white">
-              <ArrowLeft className="h-4 w-4" />
-              Back to agents
-            </Link>
-          </Button>
           <Button asChild variant="ghost" size="sm" className="gap-2">
             <Link href="/sga">
               <ArrowLeft className="h-4 w-4" />
               Back to fleet
             </Link>
-            </Button>
-            <div>
-              <div className="flex flex-wrap items-center gap-3">
-                <h1 className="text-2xl font-semibold text-white">{instance.name}</h1>
-                <Badge variant="outline" className={cn("border px-2 py-0.5 text-xs", getStatusTone(status))}>
-                  {STATUS_LABELS[status]}
-                </Badge>
-                <Badge variant="outline" className="border-white/20 bg-white/5 text-white/80">
-                  Assurance {assuranceLevel} - {ASSURANCE_LABELS[assuranceLevel]}
-                </Badge>
-              </div>
-              <p className="text-sm text-muted-foreground">{instance.environmentLabel}</p>
+          </Button>
+          <div>
+            <div className="flex flex-wrap items-center gap-3">
+              <h1 className="text-2xl font-semibold text-white">{instance.name}</h1>
+              <Badge variant="outline" className={cn("border px-2 py-0.5 text-xs", getStatusTone(status))}>
+                {STATUS_LABELS[status]}
+              </Badge>
+              <Badge variant="outline" className="border-white/20 bg-white/5 text-white/80">
+                Assurance {assuranceLevel} - {ASSURANCE_LABELS[assuranceLevel]}
+              </Badge>
             </div>
+            <p className="text-sm text-muted-foreground">{instance.environmentLabel}</p>
           </div>
+        </div>
           <div className="flex flex-wrap items-center gap-3">
             <div className="text-xs text-muted-foreground">Today active: {loopClockLabel}</div>
             <Button
