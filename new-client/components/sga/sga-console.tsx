@@ -281,6 +281,21 @@ export function SgaConsole({ instance, events, worldState }: SgaConsoleProps) {
   const timelineEndRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
+    if (typeof window === "undefined") return;
+    const query = window.matchMedia("(min-width: 1024px)");
+    const sync = () => setIsChatSidebarOpen(query.matches);
+    sync();
+
+    if (typeof query.addEventListener === "function") {
+      query.addEventListener("change", sync);
+      return () => query.removeEventListener("change", sync);
+    }
+
+    query.addListener(sync);
+    return () => query.removeListener(sync);
+  }, []);
+
+  useEffect(() => {
     messageEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [messages]);
 
@@ -434,64 +449,65 @@ export function SgaConsole({ instance, events, worldState }: SgaConsoleProps) {
         <div className="flex-1">
           <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
             <main className="space-y-6">
-              <div className="rounded-2xl border border-border/70 bg-card/50 p-5 shadow-lg shadow-black/30 backdrop-blur">
-                <div className="flex flex-wrap items-center justify-between gap-4">
-                  <div className="flex flex-wrap items-center gap-4">
-                    <Button asChild variant="ghost" size="sm" className="gap-2">
-                      <Link href="/sga">
-                        <ArrowLeft className="h-4 w-4" />
-                        Back to fleet
-                      </Link>
-                    </Button>
-                    <div>
-                      <div className="flex flex-wrap items-center gap-3">
-                        <h1 className="text-2xl font-semibold text-white">{instance.name}</h1>
-                        <Badge variant="outline" className={cn("border px-2 py-0.5 text-xs", getStatusTone(status))}>
-                          {STATUS_LABELS[status]}
-                        </Badge>
-                        <Badge variant="outline" className="border-white/20 bg-white/5 text-white/80">
-                          Assurance {assuranceLevel} - {ASSURANCE_LABELS[assuranceLevel]}
-                        </Badge>
-                      </div>
-                      <p className="text-sm text-muted-foreground">{instance.environmentLabel}</p>
-                    </div>
-                  </div>
+            <header className="flex flex-wrap items-center justify-between gap-4">
+              <div className="flex flex-wrap items-center gap-4">
+                <Button asChild variant="ghost" size="sm" className="gap-2">
+                  <Link href="/sga">
+                    <ArrowLeft className="h-4 w-4" />
+                    Back to fleet
+                  </Link>
+                </Button>
+                <div>
                   <div className="flex flex-wrap items-center gap-3">
-                    <div className="text-xs text-muted-foreground">Today active: {loopClockLabel}</div>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="gap-2"
-                      onClick={() => setIsChatSidebarOpen((prev) => !prev)}
-                    >
-                      <MessageCircle className="h-4 w-4" />
-                      {isChatSidebarOpen ? "Hide chat" : "Chat"}
-                    </Button>
+                    <h1 className="text-2xl font-semibold text-white">{instance.name}</h1>
+                    <Badge variant="outline" className={cn("border px-2 py-0.5 text-xs", getStatusTone(status))}>
+                      {STATUS_LABELS[status]}
+                    </Badge>
+                    <Badge variant="outline" className="border-white/20 bg-white/5 text-white/80">
+                      Assurance {assuranceLevel} - {ASSURANCE_LABELS[assuranceLevel]}
+                    </Badge>
                   </div>
-                </div>
-                <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-5 text-xs text-muted-foreground">
-                  <div className="flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-2 text-xs uppercase tracking-[0.2em] text-slate-200">
-                    <Timer className="h-4 w-4 text-sky-200" />
-                    <span className="font-semibold text-white">{`Iteration: ${loopIteration} - ${modeLabel}`}</span>
-                  </div>
-                  <div className="flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/80">
-                    <ShieldCheck className="h-4 w-4 text-emerald-200" />
-                    Assurance {assuranceLevel}
-                  </div>
-                  <div className="flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/80">
-                    <Clock3 className="h-4 w-4 text-sky-200" />
-                    Run clock {loopClockLabel}
-                  </div>
-                  <div className="flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/80">
-                    <ListChecks className="h-4 w-4 text-amber-200" />
-                    Pending {pendingDelegations}
-                  </div>
-                  <div className="flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/80">
-                    <Activity className="h-4 w-4 text-slate-200" />
-                    Last decision {formatTime(instance.lastDecisionAt)}
-                  </div>
+                  <p className="text-sm text-muted-foreground">{instance.environmentLabel}</p>
                 </div>
               </div>
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="text-xs text-muted-foreground">Today active: {loopClockLabel}</div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-2"
+                  onClick={() => setIsChatSidebarOpen((prev) => !prev)}
+                >
+                  <MessageCircle className="h-4 w-4" />
+                  Chat
+                </Button>
+              </div>
+            </header>
+
+            <div className="rounded-2xl border border-border/70 bg-background/60 px-4 py-2 text-xs text-muted-foreground">
+              <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
+                <div className="flex items-center gap-2">
+                  <Timer className="h-4 w-4 text-sky-200" />
+                  Iteration: {loopIteration} - {modeLabel}
+                </div>
+                <div className="flex items-center gap-2">
+                  <ShieldCheck className="h-4 w-4 text-emerald-200" />
+                  Assurance {assuranceLevel}
+                </div>
+                <div className="flex items-center gap-2">
+                  <Clock3 className="h-4 w-4 text-sky-200" />
+                  Run clock {loopClockLabel}
+                </div>
+                <div className="flex items-center gap-2">
+                  <ListChecks className="h-4 w-4 text-amber-200" />
+                  Pending {pendingDelegations}
+                </div>
+                <div className="flex items-center gap-2">
+                  <Activity className="h-4 w-4 text-slate-200" />
+                  Last decision {formatTime(instance.lastDecisionAt)}
+                </div>
+              </div>
+            </div>
 
             <section className="space-y-4">
               <div className="rounded-2xl border border-border/70 bg-gradient-to-b from-white/5 via-transparent to-transparent p-5 shadow-lg shadow-black/30 backdrop-blur">
@@ -777,8 +793,8 @@ export function SgaConsole({ instance, events, worldState }: SgaConsoleProps) {
               )}
             </CollapsibleCard>
           </section>
-        </main>
-      </div>
+            </main>
+          </div>
         </div>
         <div
           className={cn(
