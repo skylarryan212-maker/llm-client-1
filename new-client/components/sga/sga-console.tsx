@@ -445,70 +445,71 @@ export function SgaConsole({ instance, events, worldState }: SgaConsoleProps) {
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-[#05070b] via-[#050607] to-black text-foreground">
-      <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8 space-y-6">
-        <header className="flex flex-wrap items-center justify-between gap-4">
-        <div className="flex flex-wrap items-center gap-4">
-          <Button asChild variant="ghost" size="sm" className="gap-2">
-            <Link href="/sga">
-              <ArrowLeft className="h-4 w-4" />
-              Back to fleet
-            </Link>
-          </Button>
-          <div>
-            <div className="flex flex-wrap items-center gap-3">
-              <h1 className="text-2xl font-semibold text-white">{instance.name}</h1>
-              <Badge variant="outline" className={cn("border px-2 py-0.5 text-xs", getStatusTone(status))}>
-                {STATUS_LABELS[status]}
-              </Badge>
-              <Badge variant="outline" className="border-white/20 bg-white/5 text-white/80">
-                Assurance {assuranceLevel} - {ASSURANCE_LABELS[assuranceLevel]}
-              </Badge>
-            </div>
-            <p className="text-sm text-muted-foreground">{instance.environmentLabel}</p>
-          </div>
-        </div>
-          <div className="flex flex-wrap items-center gap-3">
-            <div className="text-xs text-muted-foreground">Today active: {loopClockLabel}</div>
-            <Button
-              variant="outline"
-              size="sm"
-              className="gap-2"
-              onClick={() => setIsChatSidebarOpen((prev) => !prev)}
-            >
-              <MessageCircle className="h-4 w-4" />
-              Chat
-            </Button>
-          </div>
-        </header>
+      <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+        <div className="flex gap-6">
+          <main className="flex-1 space-y-6">
+            <header className="flex flex-wrap items-center justify-between gap-4">
+              <div className="flex flex-wrap items-center gap-4">
+                <Button asChild variant="ghost" size="sm" className="gap-2">
+                  <Link href="/sga">
+                    <ArrowLeft className="h-4 w-4" />
+                    Back to fleet
+                  </Link>
+                </Button>
+                <div>
+                  <div className="flex flex-wrap items-center gap-3">
+                    <h1 className="text-2xl font-semibold text-white">{instance.name}</h1>
+                    <Badge variant="outline" className={cn("border px-2 py-0.5 text-xs", getStatusTone(status))}>
+                      {STATUS_LABELS[status]}
+                    </Badge>
+                    <Badge variant="outline" className="border-white/20 bg-white/5 text-white/80">
+                      Assurance {assuranceLevel} - {ASSURANCE_LABELS[assuranceLevel]}
+                    </Badge>
+                  </div>
+                  <p className="text-sm text-muted-foreground">{instance.environmentLabel}</p>
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="text-xs text-muted-foreground">Today active: {loopClockLabel}</div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-2"
+                  onClick={() => setIsChatSidebarOpen((prev) => !prev)}
+                >
+                  <MessageCircle className="h-4 w-4" />
+                  Chat
+                </Button>
+              </div>
+            </header>
 
-        <div className="rounded-2xl border border-border/70 bg-background/60 px-4 py-2 text-xs text-muted-foreground">
-          <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
-            <div className="flex items-center gap-2">
-              <Timer className="h-4 w-4 text-sky-200" />
-              Iteration: {loopIteration} - {modeLabel}
+            <div className="rounded-2xl border border-border/70 bg-background/60 px-4 py-2 text-xs text-muted-foreground">
+              <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
+                <div className="flex items-center gap-2">
+                  <Timer className="h-4 w-4 text-sky-200" />
+                  Iteration: {loopIteration} - {modeLabel}
+                </div>
+                <div className="flex items-center gap-2">
+                  <ShieldCheck className="h-4 w-4 text-emerald-200" />
+                  Assurance {assuranceLevel}
+                </div>
+                <div className="flex items-center gap-2">
+                  <Clock3 className="h-4 w-4 text-sky-200" />
+                  Run clock {loopClockLabel}
+                </div>
+                <div className="flex items-center gap-2">
+                  <ListChecks className="h-4 w-4 text-amber-200" />
+                  Pending {pendingDelegations}
+                </div>
+                <div className="flex items-center gap-2">
+                  <Activity className="h-4 w-4 text-slate-200" />
+                  Last decision {formatTime(instance.lastDecisionAt)}
+                </div>
+              </div>
             </div>
-            <div className="flex items-center gap-2">
-              <ShieldCheck className="h-4 w-4 text-emerald-200" />
-              Assurance {assuranceLevel}
-            </div>
-            <div className="flex items-center gap-2">
-              <Clock3 className="h-4 w-4 text-sky-200" />
-              Run clock {loopClockLabel}
-            </div>
-            <div className="flex items-center gap-2">
-              <ListChecks className="h-4 w-4 text-amber-200" />
-              Pending {pendingDelegations}
-            </div>
-            <div className="flex items-center gap-2">
-              <Activity className="h-4 w-4 text-slate-200" />
-              Last decision {formatTime(instance.lastDecisionAt)}
-            </div>
-          </div>
-        </div>
 
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1.6fr,0.8fr]">
-          <section className="space-y-4">
-            <div className="rounded-2xl border border-border/70 bg-gradient-to-b from-white/5 via-transparent to-transparent p-5 shadow-lg shadow-black/30 backdrop-blur">
+            <div className="space-y-4">
+              <div className="rounded-2xl border border-border/70 bg-gradient-to-b from-white/5 via-transparent to-transparent p-5 shadow-lg shadow-black/30 backdrop-blur">
               <div className="flex flex-wrap items-start justify-between gap-4">
                 <div className="space-y-2">
                   <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-slate-200">
@@ -791,99 +792,19 @@ export function SgaConsole({ instance, events, worldState }: SgaConsoleProps) {
               )}
             </CollapsibleCard>
           </section>
-
-          <aside className="space-y-4 hidden lg:block">
-            <div className="rounded-2xl border border-border/70 bg-card/50 p-4 shadow-lg shadow-black/20 backdrop-blur">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Loop status</p>
-                  <p className="text-sm font-semibold text-white">Governance controls</p>
-                </div>
-                <Badge variant="outline" className={cn("border px-2 py-0.5 text-xs", getStatusTone(status))}>
-                  {STATUS_LABELS[status]}
-                </Badge>
-              </div>
-              <div className="mt-4 space-y-3">
-                <Button onClick={handleToggleStatus} className="w-full justify-center gap-2">
-                  {status === "paused" ? <Play className="h-4 w-4" /> : <Pause className="h-4 w-4" />}
-                  {status === "paused" ? "Resume loop" : "Pause loop"}
-                </Button>
-                <div className="space-y-1">
-                  <label className="text-xs font-semibold text-muted-foreground">Assurance level</label>
-                  <Select value={String(assuranceLevel)} onValueChange={handleAssuranceChange}>
-                    <SelectTrigger className="w-full bg-background/60">
-                      <SelectValue placeholder="Select assurance" />
-                    </SelectTrigger>
-                    <SelectContent className="bg-popover">
-                      <SelectItem value="0">Assurance 0 - Fast</SelectItem>
-                      <SelectItem value="1">Assurance 1 - Standard</SelectItem>
-                      <SelectItem value="2">Assurance 2 - High</SelectItem>
-                      <SelectItem value="3">Assurance 3 - Max</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground">
-                  <div className="rounded-lg border border-white/10 bg-white/5 p-2">
-                    Run clock: {loopClockLabel}
-                  </div>
-                  <div className="rounded-lg border border-white/10 bg-white/5 p-2">
-                    Remaining: {formatRemaining(timeRemainingMinutes)}
-                  </div>
-                  <div className="rounded-lg border border-white/10 bg-white/5 p-2">
-                    Pending: {pendingDelegations}
-                  </div>
-                  <div className="rounded-lg border border-white/10 bg-white/5 p-2">
-                    Spend: {formatCurrency(worldState.budgets.todayEstimatedSpendUsd)}
-                  </div>
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <Button variant="ghost" size="sm" className="gap-2">
-                    <ShieldCheck className="h-4 w-4" />
-                    View history
-                  </Button>
-                  <Button variant="ghost" size="sm" className="gap-2">
-                    <Activity className="h-4 w-4" />
-                    Export log
-                  </Button>
-                </div>
-                {error ? <p className="text-xs text-rose-300">{error}</p> : null}
-              </div>
-            </div>
-
-            <div className="rounded-2xl border border-border/70 bg-card/50 p-4 shadow-lg shadow-black/20 backdrop-blur">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Quick actions</p>
-                  <p className="text-sm font-semibold text-white">Interventions</p>
-                </div>
-                <Activity className="h-4 w-4 text-slate-300" />
-              </div>
-              <div className="mt-3 flex flex-col gap-2">
-                {QUICK_ACTIONS.map((action) => (
-                  <Button
-                    key={action.label}
-                    variant="secondary"
-                    size="sm"
-                    className="justify-start"
-                    onClick={() => applyQuickAction(action.message)}
-                  >
-                    {action.label}
-                  </Button>
-                ))}
-              </div>
-            </div>
-          </aside>
+        </main>
+        <div className={cn("flex-shrink-0 transition-all duration-300", isChatSidebarOpen ? "w-[420px]" : "w-0")}>
+          <SgaChatSidebar
+            open={isChatSidebarOpen}
+            onClose={() => setIsChatSidebarOpen(false)}
+            messages={messages}
+            messageText={messageText}
+            onMessageTextChange={(value) => setMessageText(value)}
+            onSend={handleSend}
+            messageEndRef={messageEndRef}
+          />
         </div>
       </div>
-      <SgaChatSidebar
-        open={isChatSidebarOpen}
-        onClose={() => setIsChatSidebarOpen(false)}
-        messages={messages}
-        messageText={messageText}
-        onMessageTextChange={(value) => setMessageText(value)}
-        onSend={handleSend}
-        messageEndRef={messageEndRef}
-      />
     </div>
   );
 }
@@ -907,63 +828,56 @@ function SgaChatSidebar({
   onSend,
   messageEndRef,
 }: SgaChatSidebarProps) {
-  const sidebarShellClass = cn(
-    "fixed inset-y-0 right-0 z-50 flex w-full max-w-[420px] transition-transform duration-300",
-    open ? "translate-x-0" : "translate-x-full"
-  );
-
   const panelClass = cn(
-    "flex h-full min-h-0 flex-col border-l border-white/10 bg-[#050505] text-foreground shadow-2xl transition-opacity duration-300",
+    "flex h-full min-h-screen flex-col border-l border-white/10 bg-[#050505] text-foreground shadow-2xl transition-opacity duration-300",
     open ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
   );
 
   return (
-    <div className={sidebarShellClass} aria-hidden={!open}>
-      <div className={panelClass}>
-        <div className="flex items-start justify-between border-b border-white/10 px-6 py-4">
-          <div className="space-y-1">
-            <p className="text-xs uppercase tracking-[0.3em] text-white/60">Conversation</p>
-            <p className="text-lg font-semibold text-white">Talk to SGA</p>
-            <p className="text-[11px] text-muted-foreground">Send directives or request a status update.</p>
-          </div>
-          <Button variant="ghost" size="icon" onClick={onClose}>
-            <X className="h-4 w-4" />
-          </Button>
+    <div className={panelClass} aria-hidden={!open}>
+      <div className="flex items-start justify-between border-b border-white/10 px-6 py-4">
+        <div className="space-y-1">
+          <p className="text-xs uppercase tracking-[0.3em] text-white/60">Conversation</p>
+          <p className="text-lg font-semibold text-white">Talk to SGA</p>
+          <p className="text-[11px] text-muted-foreground">Send directives or request a status update.</p>
         </div>
-        <div className="flex-1 min-h-0 px-6 py-4">
-          <ScrollArea className="h-full min-h-0">
-            <div className="space-y-3 pr-3">
-              {messages.map((message) => (
-                <div
-                  key={message.id}
-                  className={cn(
-                    "rounded-xl border p-3 transition",
-                    message.role === "user" ? "border-sky-400/30 bg-sky-500/10" : "border-white/10 bg-white/5"
-                  )}
-                >
-                  <div className="flex items-center justify-between text-xs text-muted-foreground">
-                    <span>{message.role === "user" ? "You" : "SGA"}</span>
-                    <span>{formatTime(message.createdAt)}</span>
-                  </div>
-                  <p className="mt-1 text-sm text-slate-100">{message.content}</p>
+        <Button variant="ghost" size="icon" onClick={onClose}>
+          <X className="h-4 w-4" />
+        </Button>
+      </div>
+      <div className="flex-1 min-h-0 px-6 py-4">
+        <ScrollArea className="h-full min-h-0">
+          <div className="space-y-3 pr-3">
+            {messages.map((message) => (
+              <div
+                key={message.id}
+                className={cn(
+                  "rounded-xl border p-3 transition",
+                  message.role === "user" ? "border-sky-400/30 bg-sky-500/10" : "border-white/10 bg-white/5"
+                )}
+              >
+                <div className="flex items-center justify-between text-xs text-muted-foreground">
+                  <span>{message.role === "user" ? "You" : "SGA"}</span>
+                  <span>{formatTime(message.createdAt)}</span>
                 </div>
-              ))}
-              <div ref={messageEndRef} />
-            </div>
-          </ScrollArea>
-        </div>
-        <div className="border-t border-white/10 px-6 py-4">
-          <Textarea
-            value={messageText}
-            onChange={(event) => onMessageTextChange(event.target.value)}
-            placeholder="Send a directive or ask for a status update..."
-            className="min-h-[90px] bg-background/60"
-          />
-          <Button onClick={onSend} className="mt-3 w-full gap-2">
-            <MessageCircle className="h-4 w-4" />
-            Send
-          </Button>
-        </div>
+                <p className="mt-1 text-sm text-slate-100">{message.content}</p>
+              </div>
+            ))}
+            <div ref={messageEndRef} />
+          </div>
+        </ScrollArea>
+      </div>
+      <div className="border-t border-white/10 px-6 py-4">
+        <Textarea
+          value={messageText}
+          onChange={(event) => onMessageTextChange(event.target.value)}
+          placeholder="Send a directive or ask for a status update..."
+          className="min-h-[90px] bg-background/60"
+        />
+        <Button onClick={onSend} className="mt-3 w-full gap-2">
+          <MessageCircle className="h-4 w-4" />
+          Send
+        </Button>
       </div>
     </div>
   );
