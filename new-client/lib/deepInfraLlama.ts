@@ -112,7 +112,7 @@ export async function callDeepInfraLlama({
   const isDeepInfra = resolvedBaseURL.startsWith("https://api.deepinfra.com/");
   const disableJsonObject =
     isDeepInfra && typeof model === "string" && model.includes("gpt-oss-");
-  const responseFormat = enforceJson && !disableJsonObject ? { type: "json_object" } : undefined;
+  const responseFormat = enforceJson && !disableJsonObject ? ({ type: "json_object" } as const) : undefined;
 
   const requestPayload: ChatCompletionCreateParamsNonStreaming & Record<string, any> = {
     model,
