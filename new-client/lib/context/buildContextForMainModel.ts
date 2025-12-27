@@ -174,6 +174,11 @@ export async function buildContextForMainModel({
     summaryCount += 1;
   }
   const primaryOrigin = formatTopicOrigin(primaryTopic, conversationMeta, conversationId);
+  const crossChatPrimaryNotice = buildCrossChatPrimaryNotice(
+    primaryTopic,
+    conversationMeta,
+    conversationId
+  );
 
   if (primaryTopic.summary?.trim()) {
     summaryMessages.push({
@@ -258,7 +263,16 @@ export async function buildContextForMainModel({
 
   if (totalTopicTokens + artifactTokens <= maxContextTokens) {
     // Load all messages (no summaries needed) and cap with artifacts if necessary
-    allTopicMessages.forEach((msg) => conversationMessages.push(toContextMessage(msg)));
+    if (crossChatPrimaryNotice) {
+      conversationMessages.push(crossChatPrimaryNotice);
+    }
+    allTopicMessages.forEach((msg) => {
+      const originLabel =
+        msg.conversation_id === conversationId
+          ? null
+          : formatConversationOrigin(conversationMeta, msg.conversation_id, conversationId);
+      conversationMessages.push(toContextMessage(msg, originLabel));
+    });
     summaryMessages.length = 0;
     summaryCount = 0;
   } else {
@@ -266,7 +280,16 @@ export async function buildContextForMainModel({
     const budgetForMessages = Math.max(0, maxContextTokens - summaryTokens - artifactTokens);
     const { trimmed } = trimMessagesToBudget(allTopicMessages, budgetForMessages);
     trimmedMessageCount = allTopicMessages.length - trimmed.length;
-    trimmed.forEach((msg) => conversationMessages.push(toContextMessage(msg)));
+    if (crossChatPrimaryNotice) {
+      conversationMessages.push(crossChatPrimaryNotice);
+    }
+    trimmed.forEach((msg) => {
+      const originLabel =
+        msg.conversation_id === conversationId
+          ? null
+          : formatConversationOrigin(conversationMeta, msg.conversation_id, conversationId);
+      conversationMessages.push(toContextMessage(msg, originLabel));
+    });
   }
 
   // Place the chronological conversation messages first to keep the prefix as stable as possible
@@ -378,6 +401,38 @@ function formatTopicOrigin(
     return "this chat";
   }
   const meta = conversationMeta.get(topic.conversation_id);
+  const chatLabel = meta?.title || "another chat";
+  if (meta?.project_name) {
+    return `${chatLabel} in project ${meta.project_name}`;
+  }
+  return chatLabel;
+}
+
+function buildCrossChatPrimaryNotice(
+  topic: TopicRow,
+  conversationMeta: Map<string, ConversationMeta>,
+  activeConversationId: string
+): ContextMessage | null {
+  if (topic.conversation_id === activeConversationId) {
+    return null;
+  }
+  const origin = formatTopicOrigin(topic, conversationMeta, activeConversationId);
+  return {
+    role: "assistant",
+    type: "message",
+    content: `[Cross-chat context] The following messages are from ${origin}. Treat them as prior chat context, not the current conversation.`,
+  };
+}
+
+function formatConversationOrigin(
+  conversationMeta: Map<string, ConversationMeta>,
+  topicConversationId: string,
+  activeConversationId: string
+): string {
+  if (topicConversationId === activeConversationId) {
+    return "this chat";
+  }
+  const meta = conversationMeta.get(topicConversationId);
   const chatLabel = meta?.title || "another chat";
   if (meta?.project_name) {
     return `${chatLabel} in project ${meta.project_name}`;
@@ -563,10 +618,11 @@ function trimContextMessages(
   return { trimmed: trimmed.reverse(), tokensUsed: consumed };
 }
 
-function toContextMessage(msg: MessageRow): ContextMessage {
+function toContextMessage(msg: MessageRow, originLabel?: string | null): ContextMessage {
+  const sanitized = sanitizeTopicMessageContent(msg);
   return {
     role: (msg.role === "assistant" ? "assistant" : "user") as ContextMessage["role"],
-    content: sanitizeTopicMessageContent(msg),
+    content: originLabel ? `[From ${originLabel}] ${sanitized}` : sanitized,
     type: "message",
   };
 }

@@ -1161,7 +1161,6 @@ async function loadCrossConversationTopicsForDecisionRouter(params: {
     is_cross_conversation: true,
   }));
 }
-}
 
 function summarizeMarketState(state: any): string | null {
   if (!state || typeof state !== "object") return null;

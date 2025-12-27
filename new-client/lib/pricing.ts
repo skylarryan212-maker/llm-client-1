@@ -32,6 +32,18 @@ export const MODEL_PRICING = {
     cached: 0.002, // assume ~10% discount for cached tokens (align with other models)
     output: 0.03,
   },
+  // DeepInfra gpt-oss-20b (per-model page: $0.03 input / $0.14 output per 1M)
+  "gpt-oss-20b": {
+    input: 0.03,
+    cached: 0, // no cached token pricing provided
+    output: 0.14,
+  },
+  // DeepInfra OpenAI-compatible gpt-oss-20b
+  "openai/gpt-oss-20b": {
+    input: 0.03,
+    cached: 0,
+    output: 0.14,
+  },
   // DeepInfra Gemma 3 4B IT
   "google/gemma-3-4b-it": {
     input: 0.04, // $0.04 per 1M input tokens

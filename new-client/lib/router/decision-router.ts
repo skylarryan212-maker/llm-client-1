@@ -54,6 +54,9 @@ export async function runDecisionRouter(params: {
   allowLLM?: boolean;
 }): Promise<DecisionRouterOutput> {
   const { input, allowLLM = true } = params;
+  const totalStart = Date.now();
+  let semanticMs = 0;
+  let llmMs: number | null = null;
 
   // Build prompt context
   const memorySection =
@@ -70,25 +73,43 @@ export async function runDecisionRouter(params: {
         .filter((t) => !!t)
     )
   );
-  const semanticMatches = await computeTopicSemantics(input.userMessage, input.topics);
+  const semanticStart = Date.now();
+  const semanticMatches = await computeTopicSemantics(input.userMessage, input.topics, input.artifacts);
+  semanticMs = Date.now() - semanticStart;
+  const highConfidenceMatches = (semanticMatches || []).filter((m) => typeof m.similarity === "number" && m.similarity >= 0.5);
+  const highConfidenceTopicIds = new Set(
+    highConfidenceMatches.filter((m) => m.kind === "topic").map((m) => m.topicId)
+  );
+  const highConfidenceArtifactIds = new Set(
+    highConfidenceMatches.filter((m) => m.kind === "artifact").map((m) => m.topicId)
+  );
   if (semanticMatches && semanticMatches.length) {
     console.log("[semantic] top topic matches", semanticMatches.slice(0, 4));
   }
+  const topicsById = new Map((input.topics || []).map((t) => [t.id, t]));
   const semanticSection =
-    semanticMatches && semanticMatches.length
-      ? semanticMatches
-          .slice(0, 4)
+    highConfidenceMatches && highConfidenceMatches.length
+      ? highConfidenceMatches
+          .slice(0, 6)
           .map((match) => {
             const flag = match.topicId === input.activeTopicId ? " (active topic)" : "";
+            const kindLabel = match.kind === "artifact" ? "artifact" : "topic";
             const preview =
               (match.summary || match.description || "No summary available.")
                 .replace(/\s+/g, " ")
                 .trim()
                 .slice(0, 160);
-            return `- [${match.topicId}]${flag} ${match.label} (score ${match.similarity.toFixed(3)}): ${preview}`;
+            const linkedTopic =
+              match.kind === "artifact" && match.relatedTopicId
+                ? topicsById.get(match.relatedTopicId)?.label || match.relatedTopicId
+                : null;
+            const linkNote = linkedTopic ? ` (linked topic: ${linkedTopic})` : "";
+            return `- [${kindLabel}:${match.topicId}]${flag} ${match.label}${linkNote} (score ${match.similarity.toFixed(
+              3
+            )}): ${preview}`;
           })
           .join("\n")
-      : "No semantic similarity data available.";
+      : "No semantic matches >= 0.50 available.";
   const bestNonActiveMatch = semanticMatches?.find((match) => match.topicId !== input.activeTopicId);
   const bestNonActiveHint = bestNonActiveMatch
     ? `Closest non-active topic: [${bestNonActiveMatch.topicId}] ${bestNonActiveMatch.label} (score ${bestNonActiveMatch.similarity.toFixed(
@@ -123,7 +144,8 @@ Rules:
 - Topics may include cross-chat items marked is_cross_conversation=true and conversation_title set.
   * Prefer current-chat topics unless the user clearly refers to another chat or asks about prior messages outside this conversation.
   * If you select a cross-chat topic, use topicAction="reopen_existing" with that topic id.
-- Use the "Semantic similarity to prior topics" section (below) to weigh reopen_existing decisions: if a non-active topic shows the strongest similarity to the new message, strongly consider reusing that topic id.
+ - Use the "Semantic similarity to prior topics/artifacts" section (below) as a signal: higher similarity means a stronger candidate to reopen, but you may still choose any provided topic if it best matches the user’s intent.
+  * If an artifact is the strongest semantic match and it links to a topic, prefer reopen_existing with that linked topic unless the user explicitly wants a new topic.
 - secondaryTopicIds: subset of provided topic ids, exclude primary; may be empty.
 - newParentTopicId: null or a provided topic id.
 - Model selection:
@@ -168,7 +190,7 @@ ${JSON.stringify(inputPayload, null, 2)}
 Memory summary:
 ${memorySection}
 
-Semantic similarity to prior topics (higher score = stronger match):
+Semantic similarity to prior topics/artifacts (score >= 0.50 only; higher = stronger):
 ${semanticSection}
 
 Closest non-active topic hint:
@@ -228,10 +250,17 @@ Return only the "labels" object matching the output schema.`;
 
   if (!allowLLM) {
     console.log("[decision-router] Skipping LLM router (disabled); using fallback.");
+    console.log("[decision-router] timing", {
+      semanticMs,
+      llmMs,
+      totalMs: Date.now() - totalStart,
+      allowLLM,
+    });
     return fallback();
   }
 
   try {
+    const llmStart = Date.now();
     const { text } = await callDeepInfraLlama({
       messages: [
         { role: "system", content: systemPrompt },
@@ -240,7 +269,13 @@ Return only the "labels" object matching the output schema.`;
       schemaName: "decision_router",
       schema,
       temperature: 0.2,
+      model: "openai/gpt-oss-20b",
+      baseURL: "https://api.deepinfra.com/v1/openai",
+      enforceJson: true,
+      maxTokens: null,
+      extraParams: { reasoning_effort: "low" },
     });
+    llmMs = Date.now() - llmStart;
     const cleaned = (text || "").replace(/```json|```/g, "").trim();
     const parsed = JSON.parse(cleaned);
     const labels = parsed?.labels || {};
@@ -276,12 +311,18 @@ Return only the "labels" object matching the output schema.`;
     // Enforce new topic invariants
     let secondaryTopicIds =
       Array.isArray(labels.secondaryTopicIds)
-        ? labels.secondaryTopicIds.filter((id: string) => topicIds.has(id) && id !== primaryTopicId).slice(0, 3)
+        ? labels.secondaryTopicIds.filter((id: string) => topicIds.has(id) && id !== primaryTopicId)
         : [];
     let newParentTopicId =
       labels.newParentTopicId && topicIds.has(labels.newParentTopicId) ? labels.newParentTopicId : null;
-    const topicAction: DecisionRouterOutput["topicAction"] = labels.topicAction;
+    let topicAction: DecisionRouterOutput["topicAction"] = labels.topicAction;
     if (topicAction === "new") {
+      primaryTopicId = null;
+      secondaryTopicIds = [];
+      newParentTopicId = null;
+    }
+    if (topicAction === "reopen_existing" && primaryTopicId && !topicIds.has(primaryTopicId)) {
+      topicAction = "new";
       primaryTopicId = null;
       secondaryTopicIds = [];
       newParentTopicId = null;
@@ -298,6 +339,21 @@ Return only the "labels" object matching the output schema.`;
     };
   } catch (err) {
     console.error("[decision-router] LLM routing failed, using fallback:", err);
+    console.log("[decision-router] timing", {
+      semanticMs,
+      llmMs,
+      totalMs: Date.now() - totalStart,
+      allowLLM,
+    });
     return fallback();
+  }
+  finally {
+    // Log timing on successful path
+    console.log("[decision-router] timing", {
+      semanticMs,
+      llmMs,
+      totalMs: Date.now() - totalStart,
+      allowLLM,
+    });
   }
 }
