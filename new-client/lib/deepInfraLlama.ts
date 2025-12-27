@@ -125,10 +125,16 @@ export async function callDeepInfraLlama({
     requestPayload.max_tokens = maxTokens;
   }
   if (resolvedBaseURL.startsWith("https://api.deepinfra.com/")) {
+    const cleanPayload = {
+      ...requestPayload,
+    };
+    if (disableJsonObject) {
+      delete (cleanPayload as any).response_format;
+    }
     return callDeepInfraChatCompletions({
       apiKey,
       baseURL: resolvedBaseURL,
-      payload: requestPayload,
+      payload: cleanPayload,
     });
   }
 
