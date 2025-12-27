@@ -45,6 +45,14 @@ type SgaMessage = {
   metadata: Json | null;
 };
 
+type SgaMessageRow = {
+  id: string;
+  role: string | null;
+  content?: string | null;
+  created_at?: string | null;
+  metadata?: Json | null;
+};
+
 type ConstraintSource = "User" | "Policy" | "Safety";
 
 type CollapsibleCardProps = {
@@ -446,11 +454,14 @@ export function SgaConsole({ instance, events, worldState }: SgaConsoleProps) {
         if (!res.ok) {
           throw new Error(payload?.error ?? "Failed to load chat");
         }
-        const items = Array.isArray(payload?.messages) ? payload.messages : [];
+        const items: SgaMessageRow[] = Array.isArray(payload?.messages)
+          ? (payload.messages as SgaMessageRow[])
+          : [];
         items.sort(
-          (a, b) => new Date(a.created_at || "").getTime() - new Date(b.created_at || "").getTime()
+          (a: SgaMessageRow, b: SgaMessageRow) =>
+            new Date(a.created_at || "").getTime() - new Date(b.created_at || "").getTime()
         );
-        const mapped: SgaMessage[] = items.map((msg: any) => ({
+        const mapped: SgaMessage[] = items.map((msg) => ({
           id: msg.id,
           role: msg.role === "user" ? "user" : "sga",
           content: msg.content ?? "",
