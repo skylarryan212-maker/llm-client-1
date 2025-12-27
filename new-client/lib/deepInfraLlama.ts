@@ -1,5 +1,8 @@
 import type OpenAI from "openai";
-import type { ChatCompletionMessageParam } from "openai/resources/chat/completions";
+import type {
+  ChatCompletionCreateParamsNonStreaming,
+  ChatCompletionMessageParam,
+} from "openai/resources/chat/completions";
 import { createOpenAIClient, getOpenAIRequestId } from "@/lib/openai/client";
 
 const DEFAULT_BASE_URL = "https://api.deepinfra.com/v1/openai";
@@ -111,7 +114,7 @@ export async function callDeepInfraLlama({
     isDeepInfra && typeof model === "string" && model.includes("gpt-oss-");
   const responseFormat = enforceJson && !disableJsonObject ? { type: "json_object" } : undefined;
 
-  const requestPayload: Record<string, any> = {
+  const requestPayload = {
     model,
     messages: finalMessages,
     temperature,
@@ -131,7 +134,7 @@ export async function callDeepInfraLlama({
 
   const client = getClient(resolvedBaseURL);
   const { data: completion, response: rawResponse } = await client.chat.completions
-    .create(requestPayload)
+    .create(requestPayload as ChatCompletionCreateParamsNonStreaming)
     .withResponse();
   const requestId = getOpenAIRequestId(completion, rawResponse);
   if (requestId) {
