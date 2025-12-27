@@ -3,11 +3,17 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Pause, Play, Plus, ShieldCheck } from "lucide-react";
+import { ArrowLeft, Edit3, MoreHorizontal, Pause, Play, Plus, ShieldCheck, Trash2 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
@@ -96,6 +102,11 @@ export function SgaFleet({ initialInstances }: SgaFleetProps) {
   const [formAssurance, setFormAssurance] = useState<SgaInstance["assuranceLevel"]>(1);
   const [formTimeBudget, setFormTimeBudget] = useState("");
   const [formCostBudget, setFormCostBudget] = useState("");
+  const [isRenameDialogOpen, setIsRenameDialogOpen] = useState(false);
+  const [renameTarget, setRenameTarget] = useState<{ id: string; name: string } | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+  const [isRenaming, setIsRenaming] = useState(false);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   const activeCount = useMemo(
     () => instances.filter((instance) => instance.status !== "paused" && instance.status !== "idle").length,
@@ -172,6 +183,62 @@ export function SgaFleet({ initialInstances }: SgaFleetProps) {
       );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to update status");
+    }
+  };
+
+  const openRenameDialog = (instance: SgaInstance) => {
+    setRenameTarget({ id: instance.id, name: instance.name });
+    setRenameValue(instance.name);
+    setIsRenameDialogOpen(true);
+  };
+
+  const closeRenameDialog = () => {
+    setIsRenameDialogOpen(false);
+    setRenameTarget(null);
+    setRenameValue("");
+  };
+
+  const handleRename = async () => {
+    if (!renameTarget) return;
+    const newName = renameValue.trim() || renameTarget.name;
+    setIsRenaming(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/sga/instances/${renameTarget.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: newName }),
+      });
+      const payload = await res.json().catch(() => null);
+      if (!res.ok) {
+        throw new Error(payload?.error || "Failed to rename instance");
+      }
+      setInstances((prev) =>
+        prev.map((instance) =>
+          instance.id === renameTarget.id ? { ...instance, name: newName } : instance
+        )
+      );
+      closeRenameDialog();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to rename instance");
+    } finally {
+      setIsRenaming(false);
+    }
+  };
+
+  const handleDelete = async (instanceId: string) => {
+    setError(null);
+    try {
+      const res = await fetch(`/api/sga/instances/${instanceId}`, { method: "DELETE" });
+      const payload = await res.json().catch(() => null);
+      if (!res.ok) {
+        throw new Error(payload?.error || "Failed to delete instance");
+      }
+      setInstances((prev) => prev.filter((instance) => instance.id !== instanceId));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to delete instance");
+    } finally {
+      setConfirmDeleteId(null);
     }
   };
 
@@ -285,6 +352,38 @@ export function SgaFleet({ initialInstances }: SgaFleetProps) {
                               {instance.status === "paused" ? <Play className="h-4 w-4" /> : <Pause className="h-4 w-4" />}
                               {instance.status === "paused" ? "Resume" : "Pause"}
                             </Button>
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-8 w-8 text-muted-foreground hover:text-foreground"
+                                >
+                                  <span className="sr-only">Instance actions</span>
+                                  <MoreHorizontal className="h-4 w-4" />
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent
+                                side="bottom"
+                                align="end"
+                                className="w-44 rounded-lg border border-border/60 bg-popover p-1 text-sm shadow-lg"
+                              >
+                                <DropdownMenuItem
+                                  onSelect={() => openRenameDialog(instance)}
+                                  className="flex w-full items-center gap-2 px-3 py-2 text-foreground hover:bg-accent"
+                                >
+                                  <Edit3 className="h-4 w-4 text-muted-foreground" />
+                                  Edit name
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  onSelect={() => setConfirmDeleteId(instance.id)}
+                                  className="flex w-full items-center gap-2 px-3 py-2 text-destructive focus:text-destructive hover:bg-accent"
+                                >
+                                  <Trash2 className="h-4 w-4 text-destructive" />
+                                  Delete instance
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
                           </div>
                         </div>
                       </div>
@@ -395,6 +494,47 @@ export function SgaFleet({ initialInstances }: SgaFleetProps) {
           </div>
         </div>
       </Dialog>
+      <Dialog open={isRenameDialogOpen} onClose={closeRenameDialog}>
+        <div className="space-y-4">
+          <div>
+            <h2 className="text-lg font-semibold text-white">Edit instance name</h2>
+            <p className="text-sm text-muted-foreground">Give this Self-Governing Agent a descriptive name.</p>
+          </div>
+          <div className="space-y-1.5">
+            <label className="text-xs font-semibold text-muted-foreground">Name</label>
+            <Input
+              value={renameValue}
+              onChange={(event) => setRenameValue(event.target.value)}
+              placeholder="Self-Governing Agent"
+              className="bg-background/60"
+            />
+          </div>
+          <div className="flex items-center justify-end gap-2">
+            <Button variant="ghost" onClick={closeRenameDialog}>
+              Cancel
+            </Button>
+            <Button onClick={handleRename} disabled={isRenaming}>
+              {isRenaming ? "Saving..." : "Save name"}
+            </Button>
+          </div>
+        </div>
+      </Dialog>
+      {confirmDeleteId ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm px-4">
+          <div className="w-full max-w-sm rounded-xl border border-border bg-background p-5 shadow-2xl">
+            <h3 className="text-lg font-semibold text-white">Delete SGA instance?</h3>
+            <p className="mt-1 text-sm text-muted-foreground">This action cannot be undone.</p>
+            <div className="mt-4 flex items-center justify-end gap-2">
+              <Button variant="ghost" size="sm" onClick={() => setConfirmDeleteId(null)}>
+                Cancel
+              </Button>
+              <Button variant="destructive" size="sm" onClick={() => confirmDeleteId && handleDelete(confirmDeleteId)}>
+                Delete
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

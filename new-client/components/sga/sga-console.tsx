@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import type { ReactNode, RefObject } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import Link from "next/link";
 import {
   Activity,
   AlertTriangle,
+  ArrowDown,
   ArrowLeft,
   ChevronDown,
   Clock3,
@@ -22,10 +23,12 @@ import {
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { ChatComposer } from "@/components/chat-composer";
+import { ChatMessage } from "@/components/chat-message";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
+import type { Json } from "@/lib/supabase/types";
 import type { SgaEvent, SgaInstance, SgaStatus, SgaWorldState } from "@/lib/types/sga";
 
 type SgaConsoleProps = {
@@ -39,6 +42,7 @@ type SgaMessage = {
   role: "user" | "sga";
   content: string;
   createdAt: string;
+  metadata: Json | null;
 };
 
 type ConstraintSource = "User" | "Policy" | "Safety";
@@ -82,24 +86,9 @@ const ASSURANCE_LABELS: Record<SgaInstance["assuranceLevel"], string> = {
   3: "Max",
 };
 
-const QUICK_ACTIONS = [
-  {
-    label: "Clarify current objective",
-    message: "Clarify the current objective and what success looks like for this cycle.",
-  },
-  {
-    label: "Request daily summary",
-    message: "Provide the daily summary, including decisions, risks, and outstanding tasks.",
-  },
-  {
-    label: "Pause non-critical work",
-    message: "Pause non-critical work and report what is safe to defer.",
-  },
-  {
-    label: "List pending delegations",
-    message: "List pending delegations and who is responsible for each item.",
-  },
-];
+const baseBottomSpacerPx = 28;
+const DEFAULT_INDICATOR_LABEL = "Thinking";
+const DEFAULT_SGA_GREETING = "Standing by for governance directives and timeline updates.";
 
 function getStatusTone(status: SgaStatus) {
   switch (status) {
@@ -256,16 +245,18 @@ function CollapsibleCard({ title, subtitle, icon, isOpen, onToggle, children }: 
 export function SgaConsole({ instance, events, worldState }: SgaConsoleProps) {
   const [status, setStatus] = useState<SgaStatus>(instance.status);
   const [assuranceLevel, setAssuranceLevel] = useState<SgaInstance["assuranceLevel"]>(instance.assuranceLevel);
-  const [messageText, setMessageText] = useState("");
   const [messages, setMessages] = useState<SgaMessage[]>(() => [
     {
       id: "sga-greeting",
       role: "sga",
-      content: "Standing by for governance directives and timeline updates.",
+      content: DEFAULT_SGA_GREETING,
       createdAt: new Date().toISOString(),
+      metadata: null,
     },
   ]);
-  const [error, setError] = useState<string | null>(null);
+  const [statusError, setStatusError] = useState<string | null>(null);
+  const [chatError, setChatError] = useState<string | null>(null);
+  const [isLoadingMessages, setIsLoadingMessages] = useState(true);
   const [isChatSidebarOpen, setIsChatSidebarOpen] = useState(false);
   const [openSections, setOpenSections] = useState({
     objective: false,
@@ -277,12 +268,7 @@ export function SgaConsole({ instance, events, worldState }: SgaConsoleProps) {
   });
 
   const replyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const messageEndRef = useRef<HTMLDivElement | null>(null);
   const timelineEndRef = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    messageEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [messages]);
 
   useEffect(() => {
     timelineEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
@@ -372,7 +358,7 @@ export function SgaConsole({ instance, events, worldState }: SgaConsoleProps) {
 
   const handleToggleStatus = async () => {
     const nextStatus: SgaStatus = status === "paused" ? "coordinating" : "paused";
-    setError(null);
+    setStatusError(null);
     try {
       const res = await fetch(`/api/sga/instances/${instance.id}`, {
         method: "PATCH",
@@ -385,7 +371,7 @@ export function SgaConsole({ instance, events, worldState }: SgaConsoleProps) {
       }
       setStatus(nextStatus);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to update status");
+      setStatusError(err instanceof Error ? err.message : "Unable to update status");
     }
   };
 
@@ -395,19 +381,41 @@ export function SgaConsole({ instance, events, worldState }: SgaConsoleProps) {
     // TODO: Persist assurance level to Supabase config for this instance.
   };
 
-  const handleSend = () => {
-    const trimmed = messageText.trim();
-    if (!trimmed) return;
+  const persistChatMessage = useCallback(
+    async (payload: { role: "user" | "agent"; content: string }) => {
+      try {
+        const res = await fetch(`/api/sga/instances/${instance.id}/messages`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        const body = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(body?.error || "Failed to save chat message");
+        }
+        return body?.message ?? null;
+      } catch (err) {
+        setChatError(err instanceof Error ? err.message : "Failed to save chat message");
+        return null;
+      }
+    },
+    [instance.id]
+  );
+
+  const handleSend = (input: string) => {
+    const trimmed = input.trim();
+    if (!trimmed) return null;
+    setChatError(null);
     const createdAt = new Date().toISOString();
     const outgoing: SgaMessage = {
       id: generateId(),
       role: "user",
       content: trimmed,
       createdAt,
+      metadata: null,
     };
     setMessages((prev) => [...prev, outgoing]);
-    setMessageText("");
-    // TODO: Persist outbound message to Supabase once sga_messages exists.
+    void persistChatMessage({ role: "user", content: trimmed });
 
     if (replyTimeoutRef.current) {
       clearTimeout(replyTimeoutRef.current);
@@ -418,56 +426,86 @@ export function SgaConsole({ instance, events, worldState }: SgaConsoleProps) {
         role: "sga",
         content: "Acknowledged. Logging this for the next decision cycle.",
         createdAt: new Date().toISOString(),
+        metadata: null,
       };
       setMessages((prev) => [...prev, inbound]);
+      void persistChatMessage({ role: "agent", content: inbound.content });
       // TODO: Replace mock response with real SGA response pipeline.
     }, 700);
+    return outgoing.id;
   };
 
-  const applyQuickAction = (message: string) => {
-    setMessageText(message);
-  };
+  useEffect(() => {
+    let cancelled = false;
+    const loadMessages = async () => {
+      setIsLoadingMessages(true);
+      setChatError(null);
+      try {
+        const res = await fetch(`/api/sga/instances/${instance.id}/messages`);
+        const payload = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(payload?.error ?? "Failed to load chat");
+        }
+        const items = Array.isArray(payload?.messages) ? payload.messages : [];
+        items.sort(
+          (a, b) => new Date(a.created_at || "").getTime() - new Date(b.created_at || "").getTime()
+        );
+        const mapped: SgaMessage[] = items.map((msg: any) => ({
+          id: msg.id,
+          role: msg.role === "user" ? "user" : "sga",
+          content: msg.content ?? "",
+          createdAt: msg.created_at ?? new Date().toISOString(),
+          metadata: msg.metadata ?? null,
+        }));
+        if (!cancelled && mapped.length) {
+          setMessages((prev) => {
+            const mappedIds = new Set(mapped.map((msg) => msg.id));
+            const extras = prev.filter(
+              (msg) => msg.id !== "sga-greeting" && !mappedIds.has(msg.id)
+            );
+            return extras.length ? [...mapped, ...extras] : mapped;
+          });
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setChatError(err instanceof Error ? err.message : "Failed to load chat");
+        }
+      } finally {
+        if (!cancelled) setIsLoadingMessages(false);
+      }
+    };
+    loadMessages();
+    return () => {
+      cancelled = true;
+    };
+  }, [instance.id]);
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-[#05070b] via-[#050607] to-black text-foreground">
-      <div className="flex min-h-screen">
-        <div className="flex-1">
+    <div className="flex min-h-screen md:h-screen md:overflow-hidden flex-col bg-gradient-to-b from-[#05070b] via-[#050607] to-black text-foreground">
+      <header className="sticky top-0 z-40 flex w-full items-center justify-between border-b border-white/10 bg-black/80 px-4 py-0 backdrop-blur" style={{ minHeight: "56px" }}>
+        <div className="flex items-center">
+          <Button asChild variant="ghost" size="icon" className="h-8 w-8 text-white/80 hover:text-white">
+            <Link href="/sga">
+              <ArrowLeft className="h-4 w-4" />
+            </Link>
+          </Button>
+        </div>
+        <div className="flex items-center">
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-2 h-8"
+            onClick={() => setIsChatSidebarOpen((prev) => !prev)}
+          >
+            <MessageCircle className="h-4 w-4" />
+            {isChatSidebarOpen ? "Hide chat" : "Chat"}
+          </Button>
+        </div>
+      </header>
+      <div className="flex flex-1 min-h-0 h-full items-stretch md:overflow-hidden">
+        <div className="flex-1 overflow-y-auto">
           <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
             <main className="space-y-6">
-            <header className="flex flex-wrap items-center justify-between gap-4">
-              <div className="flex flex-wrap items-center gap-4">
-                <Button asChild variant="ghost" size="sm" className="gap-2">
-                  <Link href="/sga">
-                    <ArrowLeft className="h-4 w-4" />
-                    Back to fleet
-                  </Link>
-                </Button>
-                <div>
-                  <div className="flex flex-wrap items-center gap-3">
-                    <h1 className="text-2xl font-semibold text-white">{instance.name}</h1>
-                    <Badge variant="outline" className={cn("border px-2 py-0.5 text-xs", getStatusTone(status))}>
-                      {STATUS_LABELS[status]}
-                    </Badge>
-                    <Badge variant="outline" className="border-white/20 bg-white/5 text-white/80">
-                      Assurance {assuranceLevel} - {ASSURANCE_LABELS[assuranceLevel]}
-                    </Badge>
-                  </div>
-                  <p className="text-sm text-muted-foreground">{instance.environmentLabel}</p>
-                </div>
-              </div>
-              <div className="flex flex-wrap items-center gap-3">
-                <div className="text-xs text-muted-foreground">Today active: {loopClockLabel}</div>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="gap-2"
-                  onClick={() => setIsChatSidebarOpen((prev) => !prev)}
-                >
-                  <MessageCircle className="h-4 w-4" />
-                  {isChatSidebarOpen ? "Hide chat" : "Chat"}
-                </Button>
-              </div>
-            </header>
 
             <div className="rounded-2xl border border-border/70 bg-background/60 px-4 py-2 text-xs text-muted-foreground">
               <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
@@ -781,97 +819,474 @@ export function SgaConsole({ instance, events, worldState }: SgaConsoleProps) {
             </main>
           </div>
         </div>
-        <div
-          className={cn(
-            "flex-shrink-0 sticky top-0 h-screen overflow-hidden transition-[width] duration-300",
-            isChatSidebarOpen ? "w-[420px]" : "w-0"
-          )}
-          aria-hidden={!isChatSidebarOpen}
-        >
-          <SgaChatSidebar
-            open={isChatSidebarOpen}
-            onClose={() => setIsChatSidebarOpen(false)}
-            messages={messages}
-            messageText={messageText}
-            onMessageTextChange={(value) => setMessageText(value)}
-            onSend={handleSend}
-            messageEndRef={messageEndRef}
-          />
-        </div>
+        <SgaChatSidebar
+          open={isChatSidebarOpen}
+          onClose={() => setIsChatSidebarOpen(false)}
+          messages={messages}
+          onSend={handleSend}
+          isLoading={isLoadingMessages}
+          error={chatError}
+        />
       </div>
     </div>
-);
+  );
 }
 
 type SgaChatSidebarProps = {
   open: boolean;
   onClose: () => void;
   messages: SgaMessage[];
-  messageText: string;
-  onMessageTextChange: (value: string) => void;
-  onSend: () => void;
-  messageEndRef: RefObject<HTMLDivElement | null>;
+  onSend: (message: string) => string | null;
+  isLoading: boolean;
+  error: string | null;
 };
 
 function SgaChatSidebar({
   open,
   onClose,
   messages,
-  messageText,
-  onMessageTextChange,
   onSend,
-  messageEndRef,
+  isLoading,
+  error,
 }: SgaChatSidebarProps) {
   const panelClass = cn(
-    "flex h-full min-h-screen w-full flex-col border-l border-white/10 bg-[#050505] text-foreground shadow-2xl transition-opacity duration-300",
-    open ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
+    "flex-shrink-0 min-h-0 overflow-hidden transition-[width] duration-300",
+    open
+      ? "fixed inset-0 z-40 h-full w-full md:relative md:z-auto md:h-full md:w-[440px] md:max-w-[440px]"
+      : "hidden md:block md:w-0"
   );
+  const [isMobileView, setIsMobileView] = useState(false);
+  const [showScrollToBottom, setShowScrollToBottom] = useState(false);
+  const [isAutoScroll, setIsAutoScroll] = useState(true);
+  const [bottomSpacerPx, setBottomSpacerPx] = useState(baseBottomSpacerPx);
+  const [pinSpacerHeight, setPinSpacerHeight] = useState(0);
+  const [alignTrigger, setAlignTrigger] = useState(0);
+  const chatListRef = useRef<HTMLDivElement | null>(null);
+  const pinnedMessageIdRef = useRef<string | null>(null);
+  const initialScrollDoneRef = useRef(false);
+  const pinToPromptRef = useRef(false);
+  const pinnedScrollTopRef = useRef<number | null>(null);
+  const alignNextUserMessageToTopRef = useRef<string | null>(null);
+  const isProgrammaticScrollRef = useRef(false);
+  const programmaticScrollTimeoutRef = useRef<number | null>(null);
+  const lockedScrollHeightRef = useRef<number | null>(null);
+  const [prefillValue, setPrefillValue] = useState<string | null>(null);
+  const isStreaming = false;
+  const showThinkingIndicator = false;
+  const indicatorLabel = DEFAULT_INDICATOR_LABEL;
+
+  const composerWrapperClass = cn(
+    "agent-chat-composer-wrapper border-t border-border/60 space-y-3",
+    isMobileView ? "sticky left-0 right-0 z-20 bg-[#050505]/95 px-4 pt-3" : "px-2 pt-2"
+  );
+  const composerStickyStyle = isMobileView
+    ? { bottom: `calc(4rem + env(safe-area-inset-bottom, 0px))`, paddingBottom: "1rem" }
+    : undefined;
+  const baseScrollBottom = 96;
+  const scrollTipBottom = baseScrollBottom;
+  const scrollTipBottomPosition = isMobileView
+    ? `calc(${scrollTipBottom}px + 4rem + env(safe-area-inset-bottom,0px))`
+    : `calc(${scrollTipBottom}px + env(safe-area-inset-bottom,0px))`;
+
+  const showStarterPrompts = !isLoading && !error && messages.length === 0;
+  const starterPrompts = [
+    "Refine the current thesis for these tickers.",
+    "What would invalidate this bias today?",
+    "Tighten alerts around key levels and volatility.",
+  ];
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const update = () => setIsMobileView(window.innerWidth < 768);
+    update();
+    window.addEventListener("resize", update);
+    return () => window.removeEventListener("resize", update);
+  }, []);
+
+  useEffect(() => {
+    if (open) {
+      initialScrollDoneRef.current = false;
+    }
+  }, [open]);
+
+  const scheduleProgrammaticScrollReset = () => {
+    if (typeof window === "undefined") return;
+    if (programmaticScrollTimeoutRef.current) {
+      window.clearTimeout(programmaticScrollTimeoutRef.current);
+    }
+    programmaticScrollTimeoutRef.current = window.setTimeout(() => {
+      isProgrammaticScrollRef.current = false;
+      programmaticScrollTimeoutRef.current = null;
+    }, 160);
+  };
+
+  const getEffectiveScrollBottom = useCallback(
+    (viewport: HTMLDivElement) => {
+      const extraSpacer = Math.max(0, bottomSpacerPx - baseBottomSpacerPx);
+      return Math.max(0, viewport.scrollHeight - extraSpacer);
+    },
+    [bottomSpacerPx]
+  );
+
+  const getLockedMaxScrollTop = (viewport: HTMLDivElement) => {
+    const lockedHeight = lockedScrollHeightRef.current;
+    if (!lockedHeight) return null;
+    return Math.max(0, lockedHeight - viewport.clientHeight);
+  };
+
+  const scrollToBottom = useCallback(
+    (behavior: ScrollBehavior = "smooth") => {
+      const viewport = chatListRef.current;
+      if (!viewport) return;
+      const bottom = getEffectiveScrollBottom(viewport);
+      const targetTop = Math.max(0, bottom - viewport.clientHeight);
+      isProgrammaticScrollRef.current = true;
+      viewport.scrollTo({ top: targetTop, behavior });
+      scheduleProgrammaticScrollReset();
+    },
+    [getEffectiveScrollBottom]
+  );
+
+  const releasePinning = () => {
+    pinToPromptRef.current = false;
+    pinnedScrollTopRef.current = null;
+    setPinSpacerHeight(0);
+  };
+
+  const computeRequiredSpacerForMessage = useCallback(
+    (messageId: string) => {
+      const viewport = chatListRef.current;
+      if (!viewport) return null;
+      const messageEl = viewport.querySelector(`[data-agent-message-id="${messageId}"]`) as HTMLElement | null;
+      if (!messageEl) return null;
+      const viewportRect = viewport.getBoundingClientRect();
+      const elRect = messageEl.getBoundingClientRect();
+      const desiredPadding = 14;
+      const elContentTop = viewport.scrollTop + (elRect.top - viewportRect.top);
+      const requiredScrollTop = Math.max(0, Math.round(elContentTop - desiredPadding));
+      const contentWithoutSpacer = viewport.scrollHeight - bottomSpacerPx;
+      const maxScrollTopWithBase = Math.max(
+        0,
+        contentWithoutSpacer + baseBottomSpacerPx - viewport.clientHeight
+      );
+      const extraNeeded = Math.max(0, requiredScrollTop - maxScrollTopWithBase);
+      return baseBottomSpacerPx + extraNeeded;
+    },
+    [baseBottomSpacerPx, bottomSpacerPx]
+  );
+
+  const handleChatScroll = () => {
+    const viewport = chatListRef.current;
+    if (!viewport) return;
+    if (isProgrammaticScrollRef.current) return;
+    if (pinToPromptRef.current) {
+      pinToPromptRef.current = false;
+      pinnedScrollTopRef.current = null;
+      setPinSpacerHeight(0);
+    }
+    const { scrollTop, clientHeight } = viewport;
+    const lockedMax = getLockedMaxScrollTop(viewport);
+    if (lockedMax !== null && !isStreaming && scrollTop > lockedMax + 2) {
+      isProgrammaticScrollRef.current = true;
+      viewport.scrollTop = lockedMax;
+      scheduleProgrammaticScrollReset();
+      return;
+    }
+    const effectiveBottom = getEffectiveScrollBottom(viewport);
+    const distanceFromBottom = effectiveBottom - (scrollTop + clientHeight);
+    const tolerance = Math.max(16, bottomSpacerPx / 3);
+    const atBottom = distanceFromBottom <= tolerance;
+    setShowScrollToBottom(!atBottom);
+    if (!pinToPromptRef.current) {
+      setIsAutoScroll(atBottom);
+    }
+  };
+
+  const recomputeScrollFlags = useCallback(() => {
+    const viewport = chatListRef.current;
+    if (!viewport) return;
+    const { scrollTop, clientHeight } = viewport;
+    const effectiveBottom = getEffectiveScrollBottom(viewport);
+    const distanceFromBottom = effectiveBottom - (scrollTop + clientHeight);
+    const tolerance = Math.max(16, bottomSpacerPx / 3);
+    const atBottom = distanceFromBottom <= tolerance;
+    setShowScrollToBottom(!atBottom);
+  }, [bottomSpacerPx, getEffectiveScrollBottom]);
+
+  useEffect(() => {
+    if (!open) {
+      releasePinning();
+      setShowScrollToBottom(false);
+      setIsAutoScroll(true);
+      return;
+    }
+    if (isAutoScroll) {
+      setShowScrollToBottom(false);
+    } else {
+      recomputeScrollFlags();
+    }
+  }, [open, isAutoScroll, recomputeScrollFlags]);
+
+  useEffect(() => {
+    const targetMessageId = alignNextUserMessageToTopRef.current;
+    if (!open || !targetMessageId) return;
+    pinnedMessageIdRef.current = targetMessageId;
+
+    let cancelled = false;
+    let retryRaf: number | null = null;
+    let scrollTimer: number | null = null;
+    const startMs = typeof performance !== "undefined" ? performance.now() : Date.now();
+    const deadlineMs = startMs + 2500;
+
+    const doScroll = () => {
+      if (cancelled) return;
+      const nowMs = typeof performance !== "undefined" ? performance.now() : Date.now();
+      if (nowMs > deadlineMs) return;
+
+      const viewport = chatListRef.current;
+      if (!viewport) return;
+
+      const el = viewport.querySelector(
+        `[data-agent-message-id="${targetMessageId}"]`
+      ) as HTMLElement | null;
+      if (!el) {
+        if (typeof requestAnimationFrame !== "undefined") {
+          retryRaf = requestAnimationFrame(doScroll);
+        }
+        return;
+      }
+
+      const viewportRect = viewport.getBoundingClientRect();
+      const elRect = el.getBoundingClientRect();
+      const desiredPadding = 14;
+      const nextTop = viewport.scrollTop + (elRect.top - viewportRect.top) - desiredPadding;
+      const targetTop = Math.max(0, Math.round(nextTop));
+      const maxScrollTop = Math.max(0, viewport.scrollHeight - viewport.clientHeight);
+      if (targetTop > maxScrollTop) {
+        const desiredSpacer = computeRequiredSpacerForMessage(targetMessageId);
+        if (typeof desiredSpacer === "number") {
+          setBottomSpacerPx((prev) => Math.max(prev, desiredSpacer));
+        }
+        if (typeof requestAnimationFrame !== "undefined") {
+          retryRaf = requestAnimationFrame(doScroll);
+        }
+        return;
+      }
+
+      isProgrammaticScrollRef.current = true;
+      pinnedScrollTopRef.current = targetTop;
+      setIsAutoScroll(false);
+      const effectiveBottom = getEffectiveScrollBottom(viewport);
+      const distanceFromBottom = effectiveBottom - (targetTop + viewport.clientHeight);
+      const tolerance = Math.max(12, bottomSpacerPx / 3);
+      setShowScrollToBottom(!(distanceFromBottom <= tolerance));
+      alignNextUserMessageToTopRef.current = null;
+
+      scrollTimer = window.setTimeout(() => {
+        viewport.scrollTo({ top: targetTop, behavior: "smooth" });
+      }, 80);
+    };
+
+    if (typeof requestAnimationFrame !== "undefined") {
+      requestAnimationFrame(() => requestAnimationFrame(doScroll));
+    } else {
+      doScroll();
+    }
+
+    return () => {
+      cancelled = true;
+      if (retryRaf && typeof cancelAnimationFrame !== "undefined") {
+        cancelAnimationFrame(retryRaf);
+      }
+      if (scrollTimer) clearTimeout(scrollTimer);
+      isProgrammaticScrollRef.current = false;
+    };
+  }, [
+    alignTrigger,
+    baseBottomSpacerPx,
+    messages.length,
+    bottomSpacerPx,
+    computeRequiredSpacerForMessage,
+    getEffectiveScrollBottom,
+    open,
+  ]);
+
+  useEffect(() => {
+    if (lockedScrollHeightRef.current) return;
+    if (pinToPromptRef.current) return;
+    pinnedScrollTopRef.current = null;
+    const pinnedId = pinnedMessageIdRef.current;
+    if (!pinnedId) return;
+    const desiredSpacer = computeRequiredSpacerForMessage(pinnedId);
+    if (typeof desiredSpacer !== "number") return;
+    const nextSpacer = Math.max(baseBottomSpacerPx, desiredSpacer);
+    if (nextSpacer > bottomSpacerPx) {
+      setBottomSpacerPx(nextSpacer);
+    }
+  }, [messages.length, bottomSpacerPx, baseBottomSpacerPx, computeRequiredSpacerForMessage]);
+
+  useEffect(() => {
+    const ensureSpacer = () => {
+      setBottomSpacerPx((prev) => Math.max(baseBottomSpacerPx, prev));
+    };
+    ensureSpacer();
+    if (typeof window === "undefined") return;
+    window.addEventListener("resize", ensureSpacer);
+    return () => {
+      window.removeEventListener("resize", ensureSpacer);
+    };
+  }, [baseBottomSpacerPx, messages.length]);
+
+  useEffect(() => {
+    if (!open) return;
+    if (initialScrollDoneRef.current) return;
+    if (alignNextUserMessageToTopRef.current || pinToPromptRef.current) {
+      initialScrollDoneRef.current = true;
+      return;
+    }
+    scrollToBottom("auto");
+    setShowScrollToBottom(false);
+    initialScrollDoneRef.current = true;
+  }, [open, scrollToBottom, messages.length]);
+
+  const handleSendChat = (inputContent: string) => {
+    const content = inputContent.trim();
+    if (!content) return;
+    const messageId = onSend(content);
+    if (!messageId) return;
+    pinToPromptRef.current = true;
+    pinnedMessageIdRef.current = messageId;
+    pinnedScrollTopRef.current = null;
+    setPinSpacerHeight(0);
+    alignNextUserMessageToTopRef.current = messageId;
+    setAlignTrigger((prev) => prev + 1);
+    setIsAutoScroll(false);
+    setShowScrollToBottom(true);
+    setPrefillValue(null);
+  };
 
   return (
     <div className={panelClass} aria-hidden={!open}>
-      <div className="flex items-start justify-between border-b border-white/10 px-6 py-4">
-        <div className="space-y-1">
-          <p className="text-xs uppercase tracking-[0.3em] text-white/60">Conversation</p>
-          <p className="text-lg font-semibold text-white">Talk to SGA</p>
-          <p className="text-[11px] text-muted-foreground">Send directives or request a status update.</p>
-        </div>
-        <Button variant="ghost" size="icon" onClick={onClose}>
-          <X className="h-4 w-4" />
-        </Button>
-      </div>
-      <div className="flex-1 min-h-0 px-6 py-4">
-        <ScrollArea className="h-full min-h-0">
-          <div className="space-y-3 pr-3">
-            {messages.map((message) => (
-              <div
-                key={message.id}
-                className={cn(
-                  "rounded-xl border p-3 transition",
-                  message.role === "user" ? "border-sky-400/30 bg-sky-500/10" : "border-white/10 bg-white/5"
-                )}
-              >
-                <div className="flex items-center justify-between text-xs text-muted-foreground">
-                  <span>{message.role === "user" ? "You" : "SGA"}</span>
-                  <span>{formatTime(message.createdAt)}</span>
-                </div>
-                <p className="mt-1 text-sm text-slate-100">{message.content}</p>
-              </div>
-            ))}
-            <div ref={messageEndRef} />
+      <div
+        className={cn(
+          "flex h-full min-h-0 w-full flex-col border-l border-white/10 bg-[#050505] px-0 text-foreground backdrop-blur-xl transition-opacity duration-300",
+          open ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
+        )}
+      >
+        <div className="flex items-start justify-between border-b border-white/10 px-6 py-4">
+          <div className="space-y-1">
+            <p className="text-xs uppercase tracking-[0.3em] text-white/60">Conversation</p>
+            <p className="text-lg font-semibold text-white">Talk to SGA</p>
+            <p className="text-[11px] text-muted-foreground">Send directives or request a status update.</p>
           </div>
-        </ScrollArea>
-      </div>
-      <div className="border-t border-white/10 px-6 py-4">
-        <Textarea
-          value={messageText}
-          onChange={(event) => onMessageTextChange(event.target.value)}
-          placeholder="Send a directive or ask for a status update..."
-          className="min-h-[90px] bg-background/60"
-        />
-        <Button onClick={onSend} className="mt-3 w-full gap-2">
-          <MessageCircle className="h-4 w-4" />
-          Send
-        </Button>
+          <Button variant="ghost" size="icon" onClick={onClose} className="hidden md:inline-flex">
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
+
+        <div className="flex min-h-0 flex-1 flex-col gap-3 px-6 py-4">
+          <div className="relative flex-1 min-h-0 overflow-hidden" style={{ minWidth: 0 }}>
+            <div
+              ref={chatListRef}
+              className="h-full min-h-0 overflow-y-auto overflow-x-hidden space-y-1 agent-chat-message-list agent-chat-scroll-area"
+              onScroll={handleChatScroll}
+              style={{ overflowAnchor: "none" }}
+            >
+              {pinSpacerHeight > 0 && (
+                <div aria-hidden className="w-full" style={{ height: pinSpacerHeight }} />
+              )}
+              {isLoading ? (
+                <p className="px-2 text-xs text-muted-foreground">Loading chat...</p>
+              ) : error ? (
+                <p className="px-2 text-xs text-rose-300">{error}</p>
+              ) : messages.length === 0 ? (
+                <p className="px-2 text-xs text-muted-foreground">
+                  Use chat to refine the thesis, adjust alerts, or request a report.
+                </p>
+              ) : (
+                messages.map((msg) => (
+                  <ChatMessage
+                    key={msg.id}
+                    messageId={msg.id}
+                    role={msg.role === "sga" ? "assistant" : "user"}
+                    content={msg.content}
+                    metadata={msg.metadata}
+                    forceFullWidth
+                    forceStaticBubble
+                  />
+                ))
+              )}
+              {isStreaming && showThinkingIndicator ? (
+                <div className="px-1 pb-1 text-white/80">
+                  <p className="text-base leading-relaxed">
+                    <span className="inline-block thinking-shimmer-text">{indicatorLabel}</span>
+                  </p>
+                </div>
+              ) : null}
+              <div aria-hidden className="w-full" style={{ height: bottomSpacerPx }} />
+            </div>
+            {showScrollToBottom && (
+              <div
+                className={`scroll-tip pointer-events-none fixed inset-x-0 z-30 transition-opacity duration-200 ${
+                  showScrollToBottom ? "opacity-100 scroll-tip-visible" : "opacity-0"
+                }`}
+                style={{ bottom: scrollTipBottomPosition }}
+              >
+                <div className="flex w-full justify-center">
+                  <Button
+                    type="button"
+                    size="icon"
+                    className={`${showScrollToBottom ? "scroll-tip-button" : ""} pointer-events-auto h-10 w-10 rounded-full border border-border bg-card/90 text-foreground shadow-md backdrop-blur hover:bg-background`}
+                    onClick={() => scrollToBottom()}
+                  >
+                    <ArrowDown className="h-4 w-4 text-foreground" />
+                  </Button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className={composerWrapperClass} style={composerStickyStyle}>
+            {showStarterPrompts ? (
+              <div className="rounded-xl border border-dashed border-border/60 bg-white/[0.02] px-3 py-3">
+                <p className="text-xs text-muted-foreground">
+                  Use chat to refine the thesis, adjust alerts, or request a report.
+                </p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {starterPrompts.map((prompt) => (
+                    <Button
+                      key={prompt}
+                      size="sm"
+                      variant="secondary"
+                      className="bg-white/5 text-xs text-white/90 hover:bg-white/10"
+                      onClick={() => setPrefillValue(prompt)}
+                    >
+                      {prompt}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+            {error && !isLoading ? <p className="text-xs text-rose-300 mb-1">{error}</p> : null}
+            <div className="mx-auto w-full max-w-3xl">
+              <ChatComposer
+                onSendMessage={handleSendChat}
+                isStreaming={isStreaming}
+                placeholder="Ask the agent..."
+                disableAccentStyles
+                showAttachmentButton={false}
+                sendButtonStyle={{
+                  backgroundColor: "#ffffff",
+                  color: "#050505",
+                  border: "1px solid rgba(15, 20, 25, 0.35)",
+                  boxShadow: "0 4px 12px rgba(0, 0, 0, 0.25)",
+                }}
+                prefillValue={prefillValue}
+                onPrefillUsed={() => setPrefillValue(null)}
+              />
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );

@@ -56,7 +56,10 @@ export default async function RootLayout({
   const conversations = isGuest
     ? []
     : (await getConversationsForUser()).filter(
-        (c) => (c as any)?.metadata?.agent !== "human-writing"
+        (c) => {
+          const agent = (c as any)?.metadata?.agent;
+          return agent !== "human-writing" && agent !== "market-agent" && agent !== "sga";
+        }
       );
   const userPreferences = isGuest ? null : await getUserPreferences();
   let usageSnapshot = null;

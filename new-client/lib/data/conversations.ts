@@ -15,6 +15,7 @@ export async function getConversationsForUser(options?: {
   projectId?: string | null;
   includeHumanWriting?: boolean;
   includeMarketAgent?: boolean;
+  includeSga?: boolean;
 }) {
   const supabase = await supabaseServer();
   const userId = await requireUserIdServer();
@@ -32,6 +33,10 @@ export async function getConversationsForUser(options?: {
   // Exclude market-agent chats from general lists unless explicitly requested
   if (!options?.includeMarketAgent) {
     conversationQuery.neq("metadata->>agent", "market-agent");
+  }
+  // Exclude SGA chats from general lists unless explicitly requested
+  if (!options?.includeSga) {
+    conversationQuery.neq("metadata->>agent", "sga");
   }
 
   if (options) {

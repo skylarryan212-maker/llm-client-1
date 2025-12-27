@@ -105,6 +105,7 @@ export function ChatMessage({
   }
 
   const typedMetadata = metadataObj as AssistantMessageMetadata | null
+  const agentMetadata = metadataObj && typeof metadataObj === "object" ? (metadataObj as any).agent : undefined
 
   const modelUsed = typedMetadata?.modelUsed as string | undefined
   const isGuest = Boolean((typedMetadata as any)?.isGuest)
@@ -136,7 +137,8 @@ export function ChatMessage({
     else if (lower.includes('gpt-5.2-pro') || lower.includes('gpt 5.2 pro') || lower.includes('gpt-5.2 pro') || lower.includes('pro')) resolvedFamily = 'gpt-5.2-pro'
   }
 
-  const displayModelName = isGuest ? null : getDisplayModelName(resolvedFamily)
+  const shouldHideModelTag = agentMetadata === "sga"
+  const displayModelName = isGuest || shouldHideModelTag ? null : getDisplayModelName(resolvedFamily)
   const isGeminiImageMessage =
     Boolean(modelUsed && modelUsed.toLowerCase().includes("gemini")) ||
     Boolean((typedMetadata as any)?.imageGeneration?.provider === "gemini") ||

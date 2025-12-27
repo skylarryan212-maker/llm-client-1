@@ -1,8 +1,11 @@
 import { supabaseServer } from "@/lib/supabase/server";
 import { requireUserIdServer } from "@/lib/supabase/user";
+import type { Database, Json } from "@/lib/supabase/types";
 import type { SgaEvent, SgaEventKind, SgaInstance, SgaStatus, SgaWorldState } from "@/lib/types/sga";
 
 type RowRecord = Record<string, unknown>;
+type ConversationRow = Database["public"]["Tables"]["conversations"]["Row"];
+type MessageRow = Database["public"]["Tables"]["messages"]["Row"];
 
 const STATUS_VALUES: SgaStatus[] = [
   "idle",
@@ -26,6 +29,14 @@ const EVENT_KIND_VALUES: SgaEventKind[] = [
   "system_resume",
   "error",
 ];
+
+export type SgaChatMessage = {
+  id: string;
+  role: "user" | "agent" | "system" | "assistant";
+  content: string;
+  created_at: string | null;
+  metadata: Json | null;
+};
 
 function isRecord(value: unknown): value is RowRecord {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -647,4 +658,192 @@ export async function updateSgaStatus(instanceId: string, status: SgaStatus) {
   if (error) {
     throw new Error(`Failed to update SGA instance status: ${error.message}`);
   }
+}
+
+export async function renameSgaInstance(instanceId: string, name: string) {
+  if (!instanceId) {
+    throw new Error("Invalid instance id");
+  }
+  const trimmedName = name?.trim();
+  if (!trimmedName) {
+    throw new Error("Instance name is required");
+  }
+  const supabase = await supabaseServer();
+  const userId = await requireUserIdServer();
+
+  const { error } = await supabase
+    .from("governor_instances")
+    .update({ label: trimmedName, updated_at: new Date().toISOString() })
+    .eq("id", instanceId)
+    .eq("user_id", userId);
+
+  if (error) {
+    throw new Error(`Failed to rename SGA instance: ${error.message}`);
+  }
+}
+
+export async function deleteSgaInstance(instanceId: string) {
+  if (!instanceId) {
+    throw new Error("Invalid instance id");
+  }
+  const supabase = await supabaseServer();
+  const userId = await requireUserIdServer();
+
+  const { error } = await supabase
+    .from("governor_instances")
+    .delete()
+    .eq("id", instanceId)
+    .eq("user_id", userId);
+
+  if (error) {
+    throw new Error(`Failed to delete SGA instance: ${error.message}`);
+  }
+}
+
+export async function findSgaConversation(instanceId: string): Promise<ConversationRow | null> {
+  const supabase = await supabaseServer();
+  const userId = await requireUserIdServer();
+  const supabaseAny = supabase as any;
+
+  const { data, error } = await supabaseAny
+    .from("conversations")
+    .select("*")
+    .eq("user_id", userId)
+    .eq("metadata->>agent", "sga")
+    .eq("metadata->>sga_instance_id", instanceId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    if (String((error as any)?.code || "").startsWith("PGRST") || error.message?.includes("Results contain 0 rows")) {
+      return null;
+    }
+    throw new Error(`Failed to lookup SGA conversation: ${error.message}`);
+  }
+
+  return data ?? null;
+}
+
+export async function ensureSgaConversation(instanceId: string): Promise<ConversationRow> {
+  const supabase = await supabaseServer();
+  const userId = await requireUserIdServer();
+  const supabaseAny = supabase as any;
+
+  const existing = await findSgaConversation(instanceId);
+  if (existing) return existing;
+
+  const metadata = {
+    agent: "sga",
+    agent_type: "sga",
+    sga_instance_id: instanceId,
+    agent_chat: true,
+  };
+
+  const { data, error } = await supabaseAny
+    .from("conversations")
+    .insert([
+      {
+        user_id: userId,
+        title: "Self-Governing Agent",
+        project_id: null,
+        metadata,
+      },
+    ])
+    .select()
+    .single();
+
+  if (error || !data) {
+    throw new Error(`Failed to create SGA conversation: ${error?.message ?? "Unknown error"}`);
+  }
+
+  return data as ConversationRow;
+}
+
+export async function listSgaMessages(instanceId: string, limit = 200): Promise<SgaChatMessage[]> {
+  if (!instanceId) return [];
+  const supabase = await supabaseServer();
+  const userId = await requireUserIdServer();
+  const supabaseAny = supabase as any;
+
+  const conversation = await ensureSgaConversation(instanceId);
+
+  const { data, error } = await supabaseAny
+    .from("messages")
+    .select("*")
+    .eq("conversation_id", conversation.id)
+    .eq("user_id", userId)
+    .eq("metadata->>agent", "sga")
+    .eq("metadata->>sga_instance_id", instanceId)
+    .order("created_at", { ascending: true })
+    .limit(limit);
+
+  if (error) {
+    throw new Error(`Failed to load SGA chat messages: ${error.message}`);
+  }
+
+  return (data ?? []).map((row: MessageRow) => ({
+    id: row.id,
+    role: (row.role as SgaChatMessage["role"]) ?? "user",
+    content: row.content ?? "",
+    created_at: row.created_at ?? null,
+    metadata: (row as any).metadata ?? null,
+  }));
+}
+
+export async function insertSgaMessage(params: {
+  instanceId: string;
+  role: "user" | "agent" | "system" | "assistant";
+  content: string;
+  modelUsed?: string | null;
+  resolvedFamily?: string | null;
+}): Promise<SgaChatMessage> {
+  if (!params.instanceId) {
+    throw new Error("Invalid instance id");
+  }
+  const content = (params.content ?? "").trim();
+  if (!content.length) {
+    throw new Error("Message content is required");
+  }
+  const supabase = await supabaseServer();
+  const userId = await requireUserIdServer();
+  const supabaseAny = supabase as any;
+
+  const conversation = await ensureSgaConversation(params.instanceId);
+  const metadata: Record<string, unknown> = {
+    agent: "sga",
+    sga_instance_id: params.instanceId,
+  };
+  if (params.modelUsed) {
+    metadata.modelUsed = params.modelUsed;
+  }
+  if (params.resolvedFamily) {
+    metadata.resolvedFamily = params.resolvedFamily;
+  }
+
+  const { data, error } = await supabaseAny
+    .from("messages")
+    .insert([
+      {
+        user_id: userId,
+        conversation_id: conversation.id,
+        role: params.role,
+        content,
+        metadata,
+      },
+    ])
+    .select()
+    .maybeSingle();
+
+  if (error || !data) {
+    throw new Error(`Failed to insert SGA chat message: ${error?.message ?? "Unknown error"}`);
+  }
+
+  return {
+    id: data.id,
+    role: (data.role as SgaChatMessage["role"]) ?? params.role,
+    content: data.content ?? content,
+    created_at: data.created_at ?? null,
+    metadata: (data as any).metadata ?? metadata,
+  };
 }

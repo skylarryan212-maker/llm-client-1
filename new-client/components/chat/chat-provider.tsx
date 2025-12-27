@@ -81,7 +81,7 @@ export function ChatProvider({ children, initialChats = [], userId }: ChatProvid
 
       const rows = (data ?? []).filter((row) => {
         const agent = (row.metadata as any)?.agent;
-        return agent !== "human-writing" && agent !== "market-agent";
+        return agent !== "human-writing" && agent !== "market-agent" && agent !== "sga";
       });
       const conversationIds = rows.map((row) => row.id);
       const { data: messageRows } = await supabaseClient
@@ -286,8 +286,11 @@ export function ChatProvider({ children, initialChats = [], userId }: ChatProvid
         (payload) => {
           const newRow = payload.new as Database["public"]["Tables"]["conversations"]["Row"] | null;
           const oldRow = payload.old as Database["public"]["Tables"]["conversations"]["Row"] | null;
+          const agent = (newRow?.metadata as any)?.agent;
+          const isExcluded = agent === "human-writing" || agent === "market-agent" || agent === "sga";
 
           if (payload.eventType === "INSERT" && newRow) {
+            if (isExcluded) return;
             setChats((prev) => {
               const existing = prev.find((c) => c.id === newRow.id);
               const toAdd: StoredChat = {
@@ -304,6 +307,10 @@ export function ChatProvider({ children, initialChats = [], userId }: ChatProvid
           }
 
           if (payload.eventType === "UPDATE" && newRow) {
+            if (isExcluded) {
+              setChats((prev) => prev.filter((c) => c.id !== newRow.id));
+              return;
+            }
             setChats((prev) =>
               prev.map((c) => (c.id === newRow.id ? { ...c, title: newRow.title ?? c.title, timestamp: newRow.created_at ?? c.timestamp, projectId: newRow.project_id ?? c.projectId } : c))
             );
