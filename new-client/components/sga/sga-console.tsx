@@ -220,6 +220,11 @@ function formatRemaining(minutes: number | null) {
   if (hours > 0) return `${hours}h ${remainder}m`;
   return `${remainder}m`;
 }
+
+function asMetadataRecord(value: Json | null): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
 function generateId() {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
     return crypto.randomUUID();
@@ -1221,7 +1226,7 @@ function SgaChatSidebar({
                     messageId={msg.id}
                     role={msg.role === "sga" ? "assistant" : "user"}
                     content={msg.content}
-                    metadata={msg.metadata}
+                    metadata={asMetadataRecord(msg.metadata)}
                     forceFullWidth
                     forceStaticBubble
                   />
