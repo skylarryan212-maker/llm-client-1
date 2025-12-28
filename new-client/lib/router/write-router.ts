@@ -343,6 +343,7 @@ export async function runWriterRouter(
       schema,
       enforceJson: true,
       model: "openai/gpt-oss-20b",
+      maxTokens: null,
     });
     const cleaned = (text || "").trim();
     const parsed = parseJsonLoose(cleaned);
