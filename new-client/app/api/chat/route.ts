@@ -4128,7 +4128,7 @@ export async function POST(request: NextRequest) {
                 role: (m.role as "user" | "assistant" | "system") ?? "user",
                 content: m.content ?? "",
               }));
-            const writerMemoryMessages = [
+            const writerMemoryMessages: Array<{ role: "user" | "assistant" | "system"; content: string }> = [
               ...writerRecentMessages.filter((m) => m.role === "user"),
               { role: "user", content: message },
             ];
