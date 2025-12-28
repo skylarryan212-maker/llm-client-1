@@ -275,7 +275,17 @@ Return only the "labels" object matching the output schema.`;
     llmMs = Date.now() - llmStart;
     const cleaned = (text || "").replace(/```json|```/g, "").trim();
     const parsed = JSON.parse(cleaned);
-    const labels = parsed?.labels || {};
+    const labels = parsed?.labels;
+    const fallbackDecision = fallback();
+    if (
+      !labels ||
+      typeof labels.topicAction !== "string" ||
+      !["continue_active", "new", "reopen_existing"].includes(labels.topicAction) ||
+      (labels.model && !["gpt-5-nano", "gpt-5-mini", "gpt-5.2", "gpt-5.2-pro"].includes(labels.model)) ||
+      (labels.effort && !["none", "low", "medium", "high", "xhigh"].includes(labels.effort))
+    ) {
+      return fallbackDecision;
+    }
 
     // Basic validation/enforcement
     const topicIds = new Set((input.topics || []).map((t) => t.id));
@@ -292,13 +302,13 @@ Return only the "labels" object matching the output schema.`;
     }
 
     const validEfforts: ReasoningEffort[] = ["none", "low", "medium", "high", "xhigh"];
-    const effort: ReasoningEffort = validEfforts.includes(labels.effort) ? labels.effort : "low";
+    const effort: ReasoningEffort = validEfforts.includes(labels.effort) ? labels.effort : fallbackDecision.effort;
 
     // Enforce model preference if provided
     const userForcedModel = input.modelPreference !== "auto";
     let model: DecisionRouterOutput["model"] = userForcedModel
       ? (input.modelPreference as DecisionRouterOutput["model"])
-      : (labels.model as DecisionRouterOutput["model"]);
+      : ((labels.model as DecisionRouterOutput["model"]) ?? fallbackDecision.model);
 
     // Clamp model: never auto-select 5.2-pro unless user explicitly preferred it.
     const userRequestedPro = input.modelPreference === "gpt-5.2-pro";
