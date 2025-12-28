@@ -54,6 +54,9 @@ export async function runDecisionRouter(params: {
   allowLLM?: boolean;
 }): Promise<DecisionRouterOutput> {
   const { input, allowLLM = true } = params;
+  const recentMessages = Array.isArray(input.recentMessages)
+    ? input.recentMessages.slice(-6)
+    : [];
   const totalStart = Date.now();
   let semanticMs = 0;
   let llmMs: number | null = null;
@@ -165,7 +168,7 @@ Rules:
   const inputPayload = {
     input: {
       userMessage: input.userMessage,
-      recentMessages: input.recentMessages,
+      recentMessages,
       activeTopicId: input.activeTopicId,
       current_conversation_id: input.currentConversationId,
       speedMode: input.speedMode,
