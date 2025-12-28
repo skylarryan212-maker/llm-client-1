@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { createOpenAIClient, getOpenAIRequestId } from "@/lib/openai/client";
 
 import { listMarketAgentUiEventIds, upsertMarketAgentUiEvent } from "@/lib/data/market-agent";
-import { requireUserIdServer } from "@/lib/supabase/user";
 import { MarketSuggestionEvent } from "@/types/market-suggestion";
 import {
   MAX_SUGGESTIONS,

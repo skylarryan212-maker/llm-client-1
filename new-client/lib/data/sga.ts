@@ -198,26 +198,6 @@ function mapInstanceRow(row: RowRecord): SgaInstance {
   };
 }
 
-function mapEventRow(row: RowRecord): SgaEvent {
-  const id = pickString(row, ["id", "event_id"]) ?? fallbackId("sga-event");
-  const kindRaw =
-    pickString(row, ["kind", "event_kind", "event_type", "type"]) ?? "plan_update";
-  const severityRaw = pickString(row, ["severity", "severity_label"]);
-  const severity =
-    severityRaw === "info" || severityRaw === "low" || severityRaw === "medium" || severityRaw === "high"
-      ? severityRaw
-      : undefined;
-  return {
-    id,
-    instanceId: pickString(row, ["instance_id", "instanceId"]) ?? "",
-    kind: coerceEventKind(kindRaw),
-    createdAt: pickString(row, ["created_at", "createdAt", "ts"]) ?? new Date().toISOString(),
-    title: pickString(row, ["title", "label"]) ?? "Plan update",
-    summary: pickString(row, ["summary", "description", "body"]) ?? "",
-    severity,
-  };
-}
-
 function mapGovernorLogRow(row: RowRecord, instanceId: string): SgaEvent {
   const id = pickString(row, ["id"]) ?? fallbackId("sga-log");
   const logType = pickString(row, ["log_type", "type"]) ?? "log";

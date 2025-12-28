@@ -196,7 +196,7 @@ function ChatInner({ params }: PageProps) {
     return Math.max(0, lockedHeight - viewport.clientHeight);
   };
 
-  const scrollToBottom = (behavior: ScrollBehavior = "smooth") => {
+  const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
     const viewport = scrollRef.current;
     if (!viewport) return;
     const bottom = getEffectiveScrollBottom(viewport);
@@ -204,7 +204,7 @@ function ChatInner({ params }: PageProps) {
     isProgrammaticScrollRef.current = true;
     viewport.scrollTo({ top: targetTop, behavior });
     scheduleProgrammaticScrollReset();
-  };
+  }, [getEffectiveScrollBottom]);
 
   const releasePinning = () => {
     pinToPromptRef.current = false;
@@ -231,7 +231,7 @@ function ChatInner({ params }: PageProps) {
       const extraNeeded = Math.max(0, requiredScrollTop - maxScrollTopWithBase);
       return baseBottomSpacerPx + extraNeeded;
     },
-    [baseBottomSpacerPx, bottomSpacerPx]
+    [bottomSpacerPx]
   );
 
   const handleChatScroll = () => {
@@ -357,7 +357,6 @@ function ChatInner({ params }: PageProps) {
     };
   }, [
     alignTrigger,
-    baseBottomSpacerPx,
     messages.length,
     bottomSpacerPx,
     computeRequiredSpacerForMessage,
@@ -376,7 +375,7 @@ function ChatInner({ params }: PageProps) {
     if (nextSpacer > bottomSpacerPx) {
       setBottomSpacerPx(nextSpacer);
     }
-  }, [messages.length, bottomSpacerPx, baseBottomSpacerPx, computeRequiredSpacerForMessage]);
+  }, [messages.length, bottomSpacerPx, computeRequiredSpacerForMessage]);
 
   useEffect(() => {
     if (!lockScrollAfterStreamRef.current) return;
@@ -395,7 +394,7 @@ function ChatInner({ params }: PageProps) {
       setBottomSpacerPx(nextSpacer);
     }
     lockScrollAfterStreamRef.current = false;
-  }, [baseBottomSpacerPx, bottomSpacerPx, computeRequiredSpacerForMessage, isDrafting, messages.length]);
+  }, [bottomSpacerPx, computeRequiredSpacerForMessage, isDrafting, messages.length]);
 
   useEffect(() => {
     if (isDrafting) return;
@@ -409,7 +408,7 @@ function ChatInner({ params }: PageProps) {
     if (desiredSpacer !== bottomSpacerPx) {
       setBottomSpacerPx(desiredSpacer);
     }
-  }, [bottomSpacerPx, baseBottomSpacerPx, messages.length, isDrafting]);
+  }, [bottomSpacerPx, messages.length, isDrafting]);
 
   useEffect(() => {
     const ensureSpacer = () => {
@@ -421,7 +420,7 @@ function ChatInner({ params }: PageProps) {
     return () => {
       window.removeEventListener("resize", ensureSpacer);
     };
-  }, [baseBottomSpacerPx, messages.length]);
+  }, [messages.length]);
 
   useEffect(() => {
     if (initialScrollDoneRef.current) return;
@@ -432,7 +431,7 @@ function ChatInner({ params }: PageProps) {
     scrollToBottom("auto");
     setShowScrollToBottom(false);
     initialScrollDoneRef.current = true;
-  }, [messages.length]);
+  }, [messages.length, scrollToBottom]);
 
   const handleScrollToBottomClick = () => {
     releasePinning();

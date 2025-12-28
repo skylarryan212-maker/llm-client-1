@@ -328,6 +328,64 @@ export function MarkdownContent({ content, messageId, generatedFiles }: Markdown
     setTimeout(() => setCopiedTableId((prev) => (prev === id ? null : prev)), 2000)
   }
 
+  const TableRenderer = (props: any) => {
+    const { node, ...rest } = props || {}
+    void node
+    const tableId = useMemo(() => `tbl-${Math.random().toString(36).slice(2, 8)}`, [])
+    const tableRef = useCallback(
+      (el: HTMLTableElement | null) => {
+        if (el) {
+          tableRefs.current.set(tableId, el)
+        } else {
+          tableRefs.current.delete(tableId)
+        }
+      },
+      [tableId]
+    )
+    const buttonRef = useRef<HTMLButtonElement | null>(null)
+
+    useEffect(() => {
+      const update = () => {
+        const tableEl = tableRefs.current.get(tableId)
+        const btn = buttonRef.current
+        if (!tableEl || !btn) return
+        const thead = tableEl.querySelector('thead')
+        const wrapper = tableEl.parentElement
+        if (!thead || !wrapper) return
+        const headRect = thead.getBoundingClientRect()
+        const wrapRect = wrapper.getBoundingClientRect()
+        const btnRect = btn.getBoundingClientRect()
+        const offset = headRect.top - wrapRect.top + headRect.height / 2 - btnRect.height / 2
+        btn.style.top = `${Math.max(4, offset)}px`
+      }
+      update()
+      window.addEventListener('resize', update)
+      return () => window.removeEventListener('resize', update)
+    }, [tableId])
+
+    return (
+      <div className="group relative my-6 overflow-x-auto">
+        <button
+          type="button"
+          className="absolute right-2 inline-flex h-8 w-8 items-center justify-center rounded-md bg-transparent text-foreground/80 opacity-0 transition hover:text-foreground hover:bg-surface/30 group-hover:opacity-100 border-0 shadow-none"
+          ref={buttonRef}
+          onClick={(e) => {
+            e.stopPropagation()
+            void handleCopyTable(tableId)
+          }}
+          aria-label="Copy table as markdown"
+        >
+          {copiedTableId === tableId ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+        </button>
+        <table
+          ref={tableRef}
+          className="min-w-full border-collapse text-[14px] text-foreground/90 bg-surface/70"
+          {...rest}
+        />
+      </div>
+    )
+  }
+
 
   return (
     <div className="prose prose-invert max-w-none prose-p:leading-relaxed prose-pre:p-0 prose-pre:bg-transparent w-full max-w-full min-w-0 break-words prose-a:break-words">
@@ -432,63 +490,7 @@ export function MarkdownContent({ content, messageId, generatedFiles }: Markdown
         )),
 
         // Tables
-        table: (props: any) => {
-          const { node, ...rest } = props || {}
-          void node
-          const tableId = useMemo(() => `tbl-${Math.random().toString(36).slice(2, 8)}`, [])
-          const tableRef = useCallback(
-            (el: HTMLTableElement | null) => {
-              if (el) {
-                tableRefs.current.set(tableId, el)
-              } else {
-                tableRefs.current.delete(tableId)
-              }
-            },
-            [tableId]
-          )
-          const buttonRef = useRef<HTMLButtonElement | null>(null)
-
-          useEffect(() => {
-            const update = () => {
-              const tableEl = tableRefs.current.get(tableId)
-              const btn = buttonRef.current
-              if (!tableEl || !btn) return
-              const thead = tableEl.querySelector('thead')
-              const wrapper = tableEl.parentElement
-              if (!thead || !wrapper) return
-              const headRect = thead.getBoundingClientRect()
-              const wrapRect = wrapper.getBoundingClientRect()
-              const btnRect = btn.getBoundingClientRect()
-              const offset = headRect.top - wrapRect.top + headRect.height / 2 - btnRect.height / 2
-              btn.style.top = `${Math.max(4, offset)}px`
-            }
-            update()
-            window.addEventListener('resize', update)
-            return () => window.removeEventListener('resize', update)
-          }, [tableId])
-
-          return (
-            <div className="group relative my-6 overflow-x-auto">
-              <button
-                type="button"
-                className="absolute right-2 inline-flex h-8 w-8 items-center justify-center rounded-md bg-transparent text-foreground/80 opacity-0 transition hover:text-foreground hover:bg-surface/30 group-hover:opacity-100 border-0 shadow-none"
-                ref={buttonRef}
-                onClick={(e) => {
-                  e.stopPropagation()
-                  void handleCopyTable(tableId)
-                }}
-                aria-label="Copy table as markdown"
-              >
-                {copiedTableId === tableId ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
-              </button>
-              <table
-                ref={tableRef}
-                className="min-w-full border-collapse text-[14px] text-foreground/90 bg-surface/70"
-                {...rest}
-              />
-            </div>
-          )
-        },
+        table: TableRenderer,
         thead: withoutNode((props) => (
           <thead className="bg-surface/85 text-foreground/85" {...props} />
         )),

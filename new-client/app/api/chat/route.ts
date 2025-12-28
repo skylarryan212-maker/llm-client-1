@@ -35,7 +35,6 @@ import {
   loadPermanentInstructions,
   type PermanentInstructionCacheItem,
 } from "@/lib/permanentInstructions";
-import { callDeepInfraLlama } from "@/lib/deepInfraLlama";
 import type { RouterDecision } from "@/lib/router/types";
 import { buildContextForMainModel } from "@/lib/context/buildContextForMainModel";
 import { updateTopicSnapshot } from "@/lib/topics/updateTopicSnapshot";
@@ -2676,34 +2675,6 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // Prepare both the full six-message history and a user-only subset for the writer router.
-    const writerRecentMessages: Array<{ role: "user" | "assistant" | "system"; content: string }> = (recentMessages || [])
-      .slice(-6)
-      .map((m: any) => ({
-        role: (m.role as "user" | "assistant" | "system") ?? "user",
-        content: m.content ?? "",
-      }));
-    const writerMemoryMessages = writerRecentMessages.filter((m) => m.role === "user");
-
-    // Kick off writer router for topic metadata and memory/permanent instructions (do not block OpenAI call)
-    const writerPromise = runWriterRouter(
-      {
-        userMessageText: message,
-        recentMessages: writerRecentMessages,
-        memoryRelevantMessages: writerMemoryMessages,
-        currentTopic: {
-          id: activeTopicId,
-          summary: currentTopicMeta?.summary ?? null,
-          description: currentTopicMeta?.description ?? null,
-        },
-      },
-      decision.topicAction,
-      { allowLLM: allowLLMRouters }
-    ).catch((err) => {
-      console.error("[writer-router] failed to start:", err);
-      return null as any;
-    });
-
     // Tag user message with topic if available
     if (userMessageRow && resolvedPrimaryTopicId && userMessageRow.topic_id !== resolvedPrimaryTopicId) {
       try {
@@ -4133,62 +4104,153 @@ export async function POST(request: NextRequest) {
 	            }
 	          }
 
-          // Await writer router now that the main model call is complete.
+          // Run writer router now that we have the assistant reply (topic metadata, memories, artifacts).
           let writer: Awaited<ReturnType<typeof runWriterRouter>> | null = null;
           try {
-            writer = await writerPromise;
+            const writerRecentMessages: Array<{ role: "user" | "assistant" | "system"; content: string }> = [
+              ...(recentMessages || [])
+                .slice(-5)
+                .map((m: any) => ({
+                  role: (m.role as "user" | "assistant" | "system") ?? "user",
+                  content: m.content ?? "",
+                })),
+              { role: "user", content: message },
+              { role: "assistant", content: assistantContent },
+            ];
+            const writerMemoryMessages = writerRecentMessages.filter((m) => m.role === "user");
+            const writerTopicId = assistantRowForMeta?.topic_id ?? resolvedTopicDecision.primaryTopicId ?? activeTopicId;
+            const writerTopics =
+              Array.isArray(topicsForRouter) && topicsForRouter.length
+                ? topicsForRouter
+                    .slice(0, 8)
+                    .map((t: any) => ({
+                      id: t.id,
+                      label: t.label,
+                      summary: t.summary ?? null,
+                      description: t.description ?? null,
+                    }))
+                : [];
+            writer = await runWriterRouter(
+              {
+                userMessageText: message,
+                assistantMessageText: assistantContent,
+                recentMessages: writerRecentMessages.slice(-6),
+                memoryRelevantMessages: writerMemoryMessages.slice(-6),
+                topics: writerTopics,
+                currentTopic: {
+                  id: writerTopicId,
+                  summary: currentTopicMeta?.summary ?? null,
+                  description: currentTopicMeta?.description ?? null,
+                },
+              },
+              decision.topicAction,
+              { allowLLM: allowLLMRouters }
+            );
             console.log("[writer-router] output (post-stream):", JSON.stringify(writer, null, 2));
           } catch (writerErr) {
             console.error("[writer-router] failed post-stream:", writerErr);
           }
 
-          // Upgrade stub topic metadata (or create if stub failed) based on writer output.
-          if (writer?.topicWrite?.action === "create") {
-            const normalizeTopicText = (value?: string | null) => {
-              if (!value) return null;
-              const trimmed = value.trim();
-              if (!trimmed) return null;
-              const lower = trimmed.toLowerCase();
-              if (["none", "null", "n/a", "na", "skip"].includes(lower)) return null;
-              return trimmed;
-            };
-            const label = normalizeTopicText(writer.topicWrite.label) || buildAutoTopicLabel(message);
-            const description = normalizeTopicText(writer.topicWrite.description) || buildAutoTopicDescription(message);
-            const summary = normalizeTopicText(writer.topicWrite.summary) || buildAutoTopicSummary(message);
+          // Apply topic metadata writes (create/update) from writer router.
+          const normalizeTopicText = (value?: string | null) => {
+            if (!value) return null;
+            const trimmed = value.trim();
+            if (!trimmed) return null;
+            const lower = trimmed.toLowerCase();
+            if (["none", "null", "n/a", "na", "skip"].includes(lower)) return null;
+            return trimmed;
+          };
+          const topicIdSet = new Set(
+            (Array.isArray(topicsForRouter) ? topicsForRouter : []).map((t: any) => t.id)
+          );
+          if (resolvedPrimaryTopicId) topicIdSet.add(resolvedPrimaryTopicId);
+          const writerTopicWrites: Array<{
+            action: "create" | "update" | "skip";
+            targetTopicId: string | null;
+            label: string | null;
+            summary: string | null;
+            description: string | null;
+          }> = [];
+          if (writer?.topicWrite) writerTopicWrites.push(writer.topicWrite as any);
+          if (Array.isArray(writer?.additionalTopicWrites)) {
+            writerTopicWrites.push(
+              ...writer.additionalTopicWrites.map((tw: any) => ({ ...tw, action: "update" as const }))
+            );
+          }
 
-            if (resolvedPrimaryTopicId) {
-              const { error: updateErr } = await supabaseAny
-                .from("conversation_topics")
-                .update({
-                  label: label.slice(0, 120),
-                  description: description?.slice(0, 500) ?? null,
-                  summary: summary?.slice(0, 500) ?? null,
-                })
-                .eq("id", resolvedPrimaryTopicId);
-              if (updateErr) {
-                console.error("[topic-router] Failed to update stub topic metadata:", updateErr);
-              } else {
-                console.log(`[topic-router] Updated stub topic ${resolvedPrimaryTopicId} metadata from writer router`);
-              }
-            } else {
-              const { data: insertedTopic, error: topicErr } = await supabaseAny
-                .from("conversation_topics")
-                .insert([
-                  {
-                    conversation_id: conversationId,
+          for (const topicWrite of writerTopicWrites) {
+            if (!topicWrite || topicWrite.action === "skip") continue;
+            if (topicWrite.action === "create") {
+              const label =
+                normalizeTopicText(topicWrite.label) ||
+                buildAutoTopicLabel(message);
+              const description =
+                normalizeTopicText(topicWrite.description) ||
+                buildAutoTopicDescription(message);
+              const summary =
+                normalizeTopicText(topicWrite.summary) ||
+                buildAutoTopicSummary(message);
+
+              if (resolvedPrimaryTopicId) {
+                const { error: updateErr } = await supabaseAny
+                  .from("conversation_topics")
+                  .update({
                     label: label.slice(0, 120),
                     description: description?.slice(0, 500) ?? null,
                     summary: summary?.slice(0, 500) ?? null,
-                    parent_topic_id: decision.newParentTopicId ?? null,
-                  },
-                ])
-                .select()
-                .single();
-              if (topicErr || !insertedTopic) {
-                console.error("[topic-router] Failed to create topic:", topicErr);
+                  })
+                  .eq("id", resolvedPrimaryTopicId);
+                if (updateErr) {
+                  console.error("[topic-router] Failed to update stub topic metadata:", updateErr);
+                } else {
+                  console.log(`[topic-router] Updated stub topic ${resolvedPrimaryTopicId} metadata from writer router`);
+                }
               } else {
-                resolvedPrimaryTopicId = insertedTopic.id;
-                console.log(`[topic-router] Created topic ${insertedTopic.id} label="${insertedTopic.label}"`);
+                const { data: insertedTopic, error: topicErr } = await supabaseAny
+                  .from("conversation_topics")
+                  .insert([
+                    {
+                      conversation_id: conversationId,
+                      label: label.slice(0, 120),
+                      description: description?.slice(0, 500) ?? null,
+                      summary: summary?.slice(0, 500) ?? null,
+                      parent_topic_id: decision.newParentTopicId ?? null,
+                    },
+                  ])
+                  .select()
+                  .single();
+                if (topicErr || !insertedTopic) {
+                  console.error("[topic-router] Failed to create topic:", topicErr);
+                } else {
+                  resolvedPrimaryTopicId = insertedTopic.id;
+                  topicIdSet.add(insertedTopic.id);
+                  console.log(`[topic-router] Created topic ${insertedTopic.id} label="${insertedTopic.label}"`);
+                }
+              }
+            } else if (topicWrite.action === "update") {
+              const targetId =
+                topicWrite.targetTopicId ??
+                resolvedPrimaryTopicId ??
+                activeTopicId;
+              if (!targetId || !topicIdSet.has(targetId)) {
+                continue;
+              }
+              const updatePayload: Record<string, any> = {};
+              const label = normalizeTopicText(topicWrite.label);
+              const summary = normalizeTopicText(topicWrite.summary);
+              const description = normalizeTopicText(topicWrite.description);
+              if (label) updatePayload.label = label.slice(0, 120);
+              if (summary) updatePayload.summary = summary.slice(0, 500) ?? null;
+              if (description) updatePayload.description = description.slice(0, 500) ?? null;
+              if (!Object.keys(updatePayload).length) continue;
+              const { error: updateErr } = await supabaseAny
+                .from("conversation_topics")
+                .update(updatePayload)
+                .eq("id", targetId);
+              if (updateErr) {
+                console.error(`[topic-router] Failed to update topic ${targetId} metadata:`, updateErr);
+              } else {
+                console.log(`[topic-router] Updated topic ${targetId} metadata from writer router`);
               }
             }
           }
@@ -4199,6 +4261,7 @@ export async function POST(request: NextRequest) {
             (modelConfig as any).memoriesToDelete = writer.memoriesToDelete || [];
             (modelConfig as any).permanentInstructionsToWrite = writer.permanentInstructionsToWrite || [];
             (modelConfig as any).permanentInstructionsToDelete = writer.permanentInstructionsToDelete || [];
+            (modelConfig as any).artifactsToWrite = writer.artifactsToWrite || [];
           }
 
           // Apply permanent instruction writes/deletes after streaming (router + heuristics).
@@ -4366,6 +4429,69 @@ export async function POST(request: NextRequest) {
               console.error("[router-memory] Failed to write/delete memories from router:", memError);
             }
 
+            // Write artifacts chosen by writer router (using assistant reply as source).
+            try {
+              const artifactsFromRouter = Array.isArray((modelConfig as any).artifactsToWrite)
+                ? (modelConfig as any).artifactsToWrite.filter(
+                    (a: any) =>
+                      a &&
+                      typeof a.type === "string" &&
+                      a.type.trim().length > 0 &&
+                      typeof a.title === "string" &&
+                      a.title.trim().length > 0 &&
+                      typeof a.content === "string" &&
+                      a.content.trim().length >= 1
+                  )
+                : [];
+              const canWriteArtifacts =
+                assistantRowForMeta.topic_id &&
+                artifactsFromRouter.length > 0 &&
+                (assistantRowForMeta.content || "").length >= 80;
+              if (canWriteArtifacts) {
+                const inserts = artifactsFromRouter.map((art: any) => {
+                  const content = String(art.content || "").trim();
+                  const title = String(art.title || "").trim().slice(0, 200) || "Artifact";
+                  const type = typeof art.type === "string" ? art.type : "other";
+                  const summary = content.replace(/\s+/g, " ").slice(0, 180);
+                  const tokenEstimate = Math.max(50, Math.round(Math.max(summary.length, content.length) / 4));
+                  const keywords = extractKeywords([title, summary, content].join(" "), undefined);
+                  return {
+                    conversation_id: assistantRowForMeta.conversation_id,
+                    topic_id: assistantRowForMeta.topic_id,
+                    created_by_message_id: assistantRowForMeta.id,
+                    type,
+                    title,
+                    summary,
+                    content,
+                    token_estimate: tokenEstimate,
+                    keywords,
+                  };
+                });
+
+                try {
+                  await supabaseAny.from("artifacts").insert(inserts);
+                  console.log(`[artifacts] Inserted ${inserts.length} artifacts from writer router`);
+                } catch (error: any) {
+                  console.error("[artifacts] Failed to insert artifacts:", error);
+                  if (String(error?.message || "").includes("keywords")) {
+                    const insertsNoKeywords = inserts.map((insert: any) => {
+                      const rest = { ...insert };
+                      delete (rest as any).keywords;
+                      return rest;
+                    });
+                    try {
+                      await supabaseAny.from("artifacts").insert(insertsNoKeywords);
+                      console.log(`[artifacts] Inserted ${insertsNoKeywords.length} artifacts without keywords (keywords column missing)`);
+                    } catch (err2) {
+                      console.error("[artifacts] Retry insert without keywords failed:", err2);
+                    }
+                  }
+                }
+              }
+            } catch (artifactErr) {
+              console.error("[artifacts] Failed to write artifacts from router:", artifactErr);
+            }
+
             enqueueJson({
               meta: {
                 assistantMessageRowId: assistantRowForMeta.id,
@@ -4394,18 +4520,6 @@ export async function POST(request: NextRequest) {
               }
             }
 
-            // Kick off artifact extraction in the background so UI is not blocked
-            (async () => {
-              try {
-                await maybeGenerateArtifactsWithLLM({
-                  supabase: supabaseAny,
-                  message: assistantRowForMeta,
-                  userId,
-                });
-              } catch (artifactError) {
-                console.error("[artifacts] LLM extraction failed:", artifactError);
-              }
-            })();
           }
         } catch (error) {
           console.error("Stream error:", error);
@@ -4536,173 +4650,3 @@ export async function DELETE(request: NextRequest) {
   }
 }
 
-async function maybeGenerateArtifactsWithLLM({
-  supabase,
-  message,
-  userId,
-}: {
-  supabase: any;
-  message: MessageRow;
-  userId?: string | null;
-}) {
-  if (!message?.id || !message?.conversation_id) return;
-  if (!message.topic_id) return;
-  const text = message.content ?? "";
-  if (!text || text.length < 80) return; // avoid very tiny replies
-
-  // Avoid duplicate extraction on retries
-  const { data: existing } = await supabase
-    .from("artifacts")
-    .select("id")
-    .eq("created_by_message_id", message.id)
-    .limit(1);
-  if (existing && existing.length) return;
-
-  console.log("[artifacts] Starting LLM artifact extraction");
-
-  const schema = {
-    type: "object",
-    additionalProperties: false,
-    properties: {
-      artifacts: {
-        type: "array",
-        items: {
-          type: "object",
-          additionalProperties: false,
-          properties: {
-            type: {
-              type: "string",
-              enum: [
-                "schema",
-                "design",
-                "notes",
-                "instructions",
-                "summary",
-                "code",
-                "spec",
-                "config",
-                "other",
-              ],
-            },
-            title: { type: "string" },
-            content: { type: "string" },
-          },
-          required: ["type", "title", "content"],
-        },
-        default: [],
-      },
-    },
-    required: ["artifacts"],
-  };
-
-  const { text: responseText, usage: usageInfo } = await callDeepInfraLlama({
-    messages: [
-      {
-        role: "system",
-        content:
-          "You create reusable artifacts (schemas, specs, notes, summaries, code snippets) from the assistant's latest reply. Only emit artifacts that would help future turns on this topic. Output JSON only.",
-      },
-      {
-        role: "user",
-        content: `Conversation topic id: ${message.topic_id}\nMessage:\n${text}`,
-      },
-    ],
-    schemaName: "artifacts",
-    schema,
-  });
-
-  if (userId && usageInfo) {
-    try {
-      await logUsageRecord({
-        userId,
-        conversationId: message.conversation_id ?? null,
-        model: "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
-        inputTokens: usageInfo.input_tokens ?? 0,
-        cachedTokens: 0,
-        outputTokens: usageInfo.output_tokens ?? 0,
-      });
-    } catch (artifactUsageErr) {
-      console.error("[artifacts] Failed to log usage:", artifactUsageErr);
-    }
-  }
-
-  const parsedText = responseText || "";
-  let parsed: any = null;
-  const parseJsonLoose = (raw: string) => {
-    const withoutFences = raw.replace(/```json|```/gi, "").trim();
-    try {
-      return JSON.parse(withoutFences);
-    } catch {
-      const match = withoutFences.match(/\{[\s\S]*\}/);
-      if (match) {
-        try {
-          return JSON.parse(match[0]);
-        } catch {
-          return null;
-        }
-      }
-      return null;
-    }
-  };
-  parsed = parsedText ? parseJsonLoose(parsedText) : null;
-  if (!parsed) {
-    console.error("[artifacts] Failed to parse artifacts JSON: invalid structure");
-    return;
-  }
-  let artifacts: Array<{ type: string; title: string; content: string }> =
-    Array.isArray(parsed?.artifacts) ? parsed.artifacts : [];
-
-  // Bias toward saving at least one artifact when the LLM returns nothing
-  if (!artifacts.length) {
-    artifacts = [
-      {
-        type: "notes",
-        title: (text || "Assistant reply").slice(0, 200),
-        content: text.slice(0, 4000),
-      },
-    ];
-  }
-  console.log(`[artifacts] Parsed ${artifacts.length} candidate artifacts from LLM (or fallback)`);
-
-  const inserts = artifacts.map((art) => {
-    const content = String(art.content || "").trim();
-    const title = String(art.title || "").trim().slice(0, 200) || "Artifact";
-    const type = typeof art.type === "string" ? art.type : "other";
-    const summary = content.replace(/\s+/g, " ").slice(0, 180);
-    const tokenEstimate = Math.max(50, Math.round(Math.max(summary.length, content.length) / 4));
-    const keywords = extractKeywords([title, summary, content].join(" "), undefined);
-    return {
-      conversation_id: message.conversation_id,
-      topic_id: message.topic_id,
-      created_by_message_id: message.id,
-      type,
-      title,
-      summary,
-      content,
-      token_estimate: tokenEstimate,
-      keywords,
-    };
-  });
-
-  try {
-    await supabase.from("artifacts").insert(inserts);
-    console.log(`[artifacts] Inserted ${inserts.length} artifacts from assistant message ${message.id}`);
-  } catch (error: any) {
-    console.error("[artifacts] Failed to insert artifacts:", error);
-    if (String(error?.message || "").includes("keywords")) {
-    const insertsNoKeywords = inserts.map((insert) => {
-      const rest = { ...insert };
-      delete (rest as any).keywords;
-      return rest;
-    });
-      try {
-        await supabase.from("artifacts").insert(insertsNoKeywords);
-        console.log(
-          `[artifacts] Inserted ${insertsNoKeywords.length} artifacts without keywords (keywords column missing)`
-        );
-      } catch (err2) {
-        console.error("[artifacts] Retry insert without keywords failed:", err2);
-      }
-    }
-  }
-}

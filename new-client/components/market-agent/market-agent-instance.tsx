@@ -159,10 +159,6 @@ export function MarketAgentInstanceView({
   const [suggestionError, setSuggestionError] = useState<string | null>(null);
   const lastEventIdsRef = useRef<string[]>(initialSuggestionEventIds ?? []);
   const lastEventIdsSetRef = useRef(new Set(initialSuggestionEventIds ?? []));
-  const userTimezone = useMemo(() => {
-    if (typeof Intl === "undefined") return "UTC";
-    return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
-  }, []);
   const cadenceMode: "market_hours" | "always_on" = useMemo(() => {
     const config = instance.config;
     if (config && typeof config === "object" && !Array.isArray(config)) {
@@ -173,7 +169,6 @@ export function MarketAgentInstanceView({
     }
     return "always_on";
   }, [instance.config]);
-  const stateRow = _state;
   const addEventIdToCache = useCallback((eventId: string) => {
     if (lastEventIdsSetRef.current.has(eventId)) return;
     lastEventIdsSetRef.current.add(eventId);
@@ -463,11 +458,6 @@ export function MarketAgentInstanceView({
     return () => window.removeEventListener("resize", update);
   }, []);
 
-  const handleTimelineNavClick = () => {
-    setActiveWorkspace("timeline");
-    setTimelineOpen(true);
-  };
-
   const handleMobileNavSelect = (selection: MobileNavButtonId) => {
     setMobileActiveTab(selection);
     if (selection === "chat") {
@@ -522,7 +512,7 @@ export function MarketAgentInstanceView({
     return Math.max(0, lockedHeight - viewport.clientHeight);
   };
 
-  const scrollToBottom = (behavior: ScrollBehavior = "smooth") => {
+  const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
     const viewport = chatListRef.current;
     if (!viewport) return;
     const bottom = getEffectiveScrollBottom(viewport);
@@ -530,22 +520,12 @@ export function MarketAgentInstanceView({
     isProgrammaticScrollRef.current = true;
     viewport.scrollTo({ top: targetTop, behavior });
     scheduleProgrammaticScrollReset();
-  };
+  }, [getEffectiveScrollBottom]);
 
   const releasePinning = () => {
     pinToPromptRef.current = false;
     pinnedScrollTopRef.current = null;
     setPinSpacerHeight(0);
-  };
-
-  const alignMessageToTop = (messageId: string) => {
-    const viewport = chatListRef.current;
-    if (!viewport) return;
-    const messageEl = viewport.querySelector(`[data-agent-message-id="${messageId}"]`) as HTMLElement | null;
-    if (!messageEl) return;
-    isProgrammaticScrollRef.current = true;
-    viewport.scrollTop = messageEl.offsetTop;
-    scheduleProgrammaticScrollReset();
   };
 
   const computeRequiredSpacerForMessage = useCallback(
@@ -567,7 +547,7 @@ export function MarketAgentInstanceView({
       const extraNeeded = Math.max(0, requiredScrollTop - maxScrollTopWithBase);
       return baseBottomSpacerPx + extraNeeded;
     },
-    [baseBottomSpacerPx, bottomSpacerPx]
+    [bottomSpacerPx]
   );
 
   const handleChatScroll = () => {
@@ -699,7 +679,6 @@ export function MarketAgentInstanceView({
     };
   }, [
     alignTrigger,
-    baseBottomSpacerPx,
     chatMessages.length,
     bottomSpacerPx,
     computeRequiredSpacerForMessage,
@@ -719,7 +698,7 @@ export function MarketAgentInstanceView({
     if (nextSpacer > bottomSpacerPx) {
       setBottomSpacerPx(nextSpacer);
     }
-  }, [chatMessages.length, bottomSpacerPx, baseBottomSpacerPx, computeRequiredSpacerForMessage]);
+  }, [chatMessages.length, bottomSpacerPx, computeRequiredSpacerForMessage]);
 
   useEffect(() => {
     if (isStreamingAgent) return;
@@ -733,7 +712,7 @@ export function MarketAgentInstanceView({
     if (desiredSpacer !== bottomSpacerPx) {
       setBottomSpacerPx(desiredSpacer);
     }
-  }, [bottomSpacerPx, baseBottomSpacerPx, chatMessages.length, isStreamingAgent]);
+  }, [bottomSpacerPx, chatMessages.length, isStreamingAgent]);
 
   useEffect(() => {
     const ensureSpacer = () => {
@@ -745,7 +724,7 @@ export function MarketAgentInstanceView({
     return () => {
       window.removeEventListener("resize", ensureSpacer);
     };
-  }, [baseBottomSpacerPx, chatMessages.length]);
+  }, [chatMessages.length]);
 
   useEffect(() => {
     if (!isChatOpen) return;
@@ -758,7 +737,7 @@ export function MarketAgentInstanceView({
     scrollToBottom("auto");
     setShowScrollToBottom(false);
     initialScrollDoneRef.current = true;
-  }, [chatMessages.length, isChatOpen, isLoadingMessages]);
+  }, [chatMessages.length, isChatOpen, isLoadingMessages, scrollToBottom]);
 
   const handleScrollToBottomClick = () => {
     releasePinning();
@@ -1023,7 +1002,7 @@ export function MarketAgentInstanceView({
       setBottomSpacerPx(nextSpacer);
     }
     lockScrollAfterStreamRef.current = false;
-  }, [baseBottomSpacerPx, bottomSpacerPx, computeRequiredSpacerForMessage, isStreamingAgent, chatMessages.length]);
+  }, [bottomSpacerPx, computeRequiredSpacerForMessage, isStreamingAgent, chatMessages.length]);
 
   const handleApplySuggestion = useCallback(
     async (event: MarketSuggestionEvent) => {
@@ -1433,8 +1412,6 @@ export function MarketAgentInstanceView({
               open={isChatOpen}
               onClose={closeChatOverlay}
               instance={instance}
-              statusLabel={statusLabel}
-              statusTone={statusTone}
               messages={chatMessages}
               isLoading={isLoadingMessages}
               error={chatError}
@@ -1524,8 +1501,6 @@ type AgentChatSidebarProps = {
   open: boolean;
   onClose: () => void;
   instance: MarketAgentInstanceWithWatchlist;
-  statusLabel: string;
-  statusTone: string;
   messages: AgentChatMessage[];
   isLoading: boolean;
   error: string | null;
@@ -1556,8 +1531,6 @@ function AgentChatSidebar({
   open,
   onClose,
   instance,
-  statusLabel,
-  statusTone,
   messages,
   isLoading,
   error,

@@ -77,7 +77,6 @@ export function ChatSidebar({
   const router = useRouter()
   const pathname = usePathname()
   const isAgentsPage = pathname === '/agents'
-  const isSgaPage = pathname?.startsWith('/sga')
   const [projectsCollapsed, setProjectsCollapsed] = useState(false)
   const [chatsCollapsed, setChatsCollapsed] = useState(false)
   const [showMoreProjects, setShowMoreProjects] = useState(false)

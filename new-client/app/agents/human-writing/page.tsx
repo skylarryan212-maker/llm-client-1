@@ -378,32 +378,3 @@ function BadgePill({ icon, children }: { icon: ReactNode; children: ReactNode })
     </span>
   );
 }
-
-// Intentionally left without extra option helpers for the landing page.
-
-function ToggleRow({
-  label,
-  helper,
-  checked,
-  onChange,
-}: {
-  label: string;
-  helper: string;
-  checked: boolean;
-  onChange: (value: boolean) => void;
-}) {
-  return (
-    <label className="flex items-start gap-3 rounded-xl border border-white/10 bg-black/15 p-3 text-white/80 transition hover:border-amber-400/40">
-      <input
-        type="checkbox"
-        checked={checked}
-        onChange={(event) => onChange(event.target.checked)}
-        className="mt-1 h-4 w-4 cursor-pointer accent-amber-400"
-      />
-      <div className="space-y-1">
-        <div className="text-sm font-medium text-white">{label}</div>
-        <p className="text-xs text-white/60">{helper}</p>
-      </div>
-    </label>
-  );
-}

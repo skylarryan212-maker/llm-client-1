@@ -12,8 +12,6 @@ import {
   Clock3,
   ListChecks,
   MessageCircle,
-  Pause,
-  Play,
   ShieldAlert,
   ShieldCheck,
   Target,
@@ -26,7 +24,6 @@ import { Button } from "@/components/ui/button";
 import { ChatComposer } from "@/components/chat-composer";
 import { ChatMessage } from "@/components/chat-message";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import type { Json } from "@/lib/supabase/types";
 import type { SgaEvent, SgaInstance, SgaStatus, SgaWorldState } from "@/lib/types/sga";
@@ -85,13 +82,6 @@ const EVENT_KIND_LABELS: Record<SgaEvent["kind"], string> = {
   system_pause: "System Pause",
   system_resume: "System Resume",
   error: "Error",
-};
-
-const ASSURANCE_LABELS: Record<SgaInstance["assuranceLevel"], string> = {
-  0: "Fast",
-  1: "Standard",
-  2: "High",
-  3: "Max",
 };
 
 const baseBottomSpacerPx = 28;
@@ -256,8 +246,8 @@ function CollapsibleCard({ title, subtitle, icon, isOpen, onToggle, children }: 
 }
 
 export function SgaConsole({ instance, events, worldState }: SgaConsoleProps) {
-  const [status, setStatus] = useState<SgaStatus>(instance.status);
-  const [assuranceLevel, setAssuranceLevel] = useState<SgaInstance["assuranceLevel"]>(instance.assuranceLevel);
+  const [status] = useState<SgaStatus>(instance.status);
+  const [assuranceLevel] = useState<SgaInstance["assuranceLevel"]>(instance.assuranceLevel);
   const [messages, setMessages] = useState<SgaMessage[]>(() => [
     {
       id: "sga-greeting",
@@ -267,7 +257,6 @@ export function SgaConsole({ instance, events, worldState }: SgaConsoleProps) {
       metadata: null,
     },
   ]);
-  const [statusError, setStatusError] = useState<string | null>(null);
   const [chatError, setChatError] = useState<string | null>(null);
   const [isLoadingMessages, setIsLoadingMessages] = useState(true);
   const [isChatSidebarOpen, setIsChatSidebarOpen] = useState(false);
@@ -367,31 +356,6 @@ export function SgaConsole({ instance, events, worldState }: SgaConsoleProps) {
 
   const toggleSection = (key: keyof typeof openSections) => {
     setOpenSections((prev) => ({ ...prev, [key]: !prev[key] }));
-  };
-
-  const handleToggleStatus = async () => {
-    const nextStatus: SgaStatus = status === "paused" ? "coordinating" : "paused";
-    setStatusError(null);
-    try {
-      const res = await fetch(`/api/sga/instances/${instance.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: nextStatus }),
-      });
-      if (!res.ok) {
-        const payload = await res.json().catch(() => null);
-        throw new Error(payload?.error || "Failed to update status");
-      }
-      setStatus(nextStatus);
-    } catch (err) {
-      setStatusError(err instanceof Error ? err.message : "Unable to update status");
-    }
-  };
-
-  const handleAssuranceChange = (value: string) => {
-    const nextValue = Number(value) as SgaInstance["assuranceLevel"];
-    setAssuranceLevel(nextValue);
-    // TODO: Persist assurance level to Supabase config for this instance.
   };
 
   const persistChatMessage = useCallback(
@@ -988,7 +952,7 @@ function SgaChatSidebar({
       const extraNeeded = Math.max(0, requiredScrollTop - maxScrollTopWithBase);
       return baseBottomSpacerPx + extraNeeded;
     },
-    [baseBottomSpacerPx, bottomSpacerPx]
+    [bottomSpacerPx]
   );
 
   const handleChatScroll = () => {
@@ -1119,7 +1083,6 @@ function SgaChatSidebar({
     };
   }, [
     alignTrigger,
-    baseBottomSpacerPx,
     messages.length,
     bottomSpacerPx,
     computeRequiredSpacerForMessage,
@@ -1139,7 +1102,7 @@ function SgaChatSidebar({
     if (nextSpacer > bottomSpacerPx) {
       setBottomSpacerPx(nextSpacer);
     }
-  }, [messages.length, bottomSpacerPx, baseBottomSpacerPx, computeRequiredSpacerForMessage]);
+  }, [messages.length, bottomSpacerPx, computeRequiredSpacerForMessage]);
 
   useEffect(() => {
     const ensureSpacer = () => {
@@ -1151,7 +1114,7 @@ function SgaChatSidebar({
     return () => {
       window.removeEventListener("resize", ensureSpacer);
     };
-  }, [baseBottomSpacerPx, messages.length]);
+  }, [messages.length]);
 
   useEffect(() => {
     if (!open) return;
