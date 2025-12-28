@@ -4120,17 +4120,18 @@ export async function POST(request: NextRequest) {
           // Run writer router now that we have the assistant reply (topic metadata, memories, artifacts).
           let writer: Awaited<ReturnType<typeof runWriterRouter>> | null = null;
           try {
-            const writerRecentMessages: Array<{ role: "user" | "assistant" | "system"; content: string }> = [
-              ...(recentMessages || [])
-                .slice(-5)
-                .map((m: any) => ({
-                  role: (m.role as "user" | "assistant" | "system") ?? "user",
-                  content: m.content ?? "",
-                })),
+            const writerRecentMessages: Array<{ role: "user" | "assistant" | "system"; content: string }> = (
+              recentMessagesForRouting || []
+            )
+              .slice(-6)
+              .map((m: any) => ({
+                role: (m.role as "user" | "assistant" | "system") ?? "user",
+                content: m.content ?? "",
+              }));
+            const writerMemoryMessages = [
+              ...writerRecentMessages.filter((m) => m.role === "user"),
               { role: "user", content: message },
-              { role: "assistant", content: assistantContent },
             ];
-            const writerMemoryMessages = writerRecentMessages.filter((m) => m.role === "user");
             const writerTopicId = resolvedTopicDecision.primaryTopicId ?? activeTopicId ?? null;
             const writerTopics =
               Array.isArray(topicsForRouter) && topicsForRouter.length
@@ -4147,7 +4148,7 @@ export async function POST(request: NextRequest) {
               {
                 userMessageText: message,
                 assistantMessageText: assistantContent,
-                recentMessages: writerRecentMessages.slice(-6),
+                recentMessages: writerRecentMessages,
                 memoryRelevantMessages: writerMemoryMessages.slice(-6),
                 topics: writerTopics,
                 currentTopic: {
