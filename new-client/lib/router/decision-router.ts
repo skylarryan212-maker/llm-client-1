@@ -257,33 +257,61 @@ Return only the "labels" object matching the output schema.`;
   }
 
   try {
-    const llmStart = Date.now();
-    const { text } = await callDeepInfraLlama({
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userPrompt },
-      ],
-      schemaName: "decision_router",
-      schema,
-      temperature: 0.2,
-      model: "openai/gpt-oss-20b",
-      baseURL: "https://api.deepinfra.com/v1/openai",
-      enforceJson: true,
-      maxTokens: null,
-      extraParams: { reasoning_effort: "low" },
-    });
-    llmMs = Date.now() - llmStart;
-    const cleaned = (text || "").replace(/```json|```/g, "").trim();
-    const parsed = JSON.parse(cleaned);
-    const labels = parsed?.labels;
+    const runRouterAttempt = async () => {
+      const llmStart = Date.now();
+      const { text } = await callDeepInfraLlama({
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        schemaName: "decision_router",
+        schema,
+        temperature: 0.2,
+        model: "openai/gpt-oss-20b",
+        baseURL: "https://api.deepinfra.com/v1/openai",
+        enforceJson: true,
+        maxTokens: null,
+        extraParams: { reasoning_effort: "low" },
+      });
+      llmMs = Date.now() - llmStart;
+      return text;
+    };
+
+    const validateLabels = (labels: any) => {
+      if (
+        !labels ||
+        typeof labels.topicAction !== "string" ||
+        !["continue_active", "new", "reopen_existing"].includes(labels.topicAction) ||
+        (labels.model && !["gpt-5-nano", "gpt-5-mini", "gpt-5.2", "gpt-5.2-pro"].includes(labels.model)) ||
+        (labels.effort && !["none", "low", "medium", "high", "xhigh"].includes(labels.effort))
+      ) {
+        return false;
+      }
+      return true;
+    };
+
+    let labels: any = null;
     const fallbackDecision = fallback();
-    if (
-      !labels ||
-      typeof labels.topicAction !== "string" ||
-      !["continue_active", "new", "reopen_existing"].includes(labels.topicAction) ||
-      (labels.model && !["gpt-5-nano", "gpt-5-mini", "gpt-5.2", "gpt-5.2-pro"].includes(labels.model)) ||
-      (labels.effort && !["none", "low", "medium", "high", "xhigh"].includes(labels.effort))
-    ) {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const text = await runRouterAttempt();
+        const cleaned = (text || "").replace(/```json|```/g, "").trim();
+        const parsed = JSON.parse(cleaned);
+        labels = parsed?.labels;
+        if (validateLabels(labels)) {
+          break;
+        }
+        console.warn("[decision-router] Invalid labels from LLM, retrying...");
+      } catch (err) {
+        if (attempt === 0) {
+          console.warn("[decision-router] Router attempt failed, retrying once...", err);
+          continue;
+        }
+        throw err;
+      }
+    }
+
+    if (!validateLabels(labels)) {
       return fallbackDecision;
     }
 
