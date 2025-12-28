@@ -348,6 +348,7 @@ export async function runWriterRouter(
     const cleaned = (text || "").trim();
     const parsed = parseJsonLoose(cleaned);
     if (!parsed || typeof parsed !== "object") {
+      console.error("[writer-router] Raw response (failed to parse):", cleaned);
       throw new Error("Invalid JSON from writer router");
     }
 
@@ -386,7 +387,9 @@ export async function runWriterRouter(
             .filter((tw: any) => tw && tw.action === "update")
             .map((tw: any) => ({
               action: "update" as const,
-              targetTopicId: normalizeNullableId(tw.targetTopicId),
+              targetTopicId:
+                normalizeNullableId(tw.targetTopicId) ??
+                normalizeNullableId(input.currentTopic.id),
               label: normalizeNullableText(tw.label),
               summary: normalizeNullableText(tw.summary),
               description: normalizeNullableText(tw.description),
