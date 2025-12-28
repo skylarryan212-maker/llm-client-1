@@ -105,28 +105,10 @@ export function ChatMessage({
   }
 
   const typedMetadata = metadataObj as AssistantMessageMetadata | null
-  const agentMetadata = metadataObj && typeof metadataObj === "object" ? (metadataObj as any).agent : undefined
 
   const modelUsed = typedMetadata?.modelUsed as string | undefined
   const isGuest = Boolean((typedMetadata as any)?.isGuest)
   let resolvedFamily = typedMetadata?.resolvedFamily as string | undefined
-  // Map resolved family to display name
-  const getDisplayModelName = (family?: string): string => {
-    if (!family) return 'Unknown'
-    const lower = family.toLowerCase()
-    // Gemini image models (avoid accidental "mini" match from "geMINI")
-    if (lower.includes('gemini-2.5-flash-image')) return 'Nano Banana'
-    if (lower.includes('gemini-3-pro-image-preview')) return 'Nano Banana Pro'
-    if (lower.includes('gemini')) return 'Gemini'
-
-    if (lower.includes('gpt-5-nano') || lower.includes('gpt 5 nano')) return 'GPT 5 Nano'
-    if (lower.includes('gpt-5-mini') || lower.includes('gpt 5 mini')) return 'GPT 5 Mini'
-    if (lower.includes('gpt-5.2-pro') || lower.includes('gpt 5.2 pro') || lower.includes('gpt-5.2 pro') || lower.includes('52-pro')) return 'GPT 5.2 Pro'
-    if (lower.includes('gpt-5.2') || lower.includes('gpt 5.2')) return 'GPT 5.2'
-    if (family.includes('pro')) return 'GPT 5.2 Pro'
-    return family
-  }
-
   // Fallback: derive family from modelUsed if resolvedFamily is missing
   if (!resolvedFamily && modelUsed) {
     const lower = modelUsed.toLowerCase()
@@ -137,8 +119,7 @@ export function ChatMessage({
     else if (lower.includes('gpt-5.2-pro') || lower.includes('gpt 5.2 pro') || lower.includes('gpt-5.2 pro') || lower.includes('pro')) resolvedFamily = 'gpt-5.2-pro'
   }
 
-  const shouldHideModelTag = agentMetadata === "sga"
-  const displayModelName = isGuest || shouldHideModelTag ? null : getDisplayModelName(resolvedFamily)
+  const displayModelName = null
   const isGeminiImageMessage =
     Boolean(modelUsed && modelUsed.toLowerCase().includes("gemini")) ||
     Boolean((typedMetadata as any)?.imageGeneration?.provider === "gemini") ||
