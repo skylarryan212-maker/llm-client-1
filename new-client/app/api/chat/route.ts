@@ -2164,11 +2164,11 @@ export async function POST(request: NextRequest) {
       : [];
 
     // Load last few messages to check for OpenAI response ID (for context chaining)
-    const { data: recentMessages, error: messagesError } = await supabaseAny
+    const { data: recentMessagesRaw, error: messagesError } = await supabaseAny
       .from("messages")
       .select("*")
       .eq("conversation_id", conversationId)
-      .order("created_at", { ascending: true })
+      .order("created_at", { ascending: false })
       .limit(6);
 
     if (messagesError) {
@@ -2178,6 +2178,14 @@ export async function POST(request: NextRequest) {
         { status: 500 }
       );
     }
+
+    // Normalize to the six most recent messages in chronological order for router context.
+    const recentMessages: MessageRow[] = Array.isArray(recentMessagesRaw)
+      ? [...recentMessagesRaw].sort(
+          (a: MessageRow, b: MessageRow) =>
+            new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime()
+        )
+      : [];
 
     // Load topics for this conversation (used by decision router)
     const { data: topicRows } = await supabaseAny
@@ -2304,6 +2312,11 @@ export async function POST(request: NextRequest) {
         userMessageRow = latestFromHistory as MessageRow;
       }
     }
+
+    // Exclude the current user prompt from router contexts to avoid duplication.
+    const recentMessagesForRouting: MessageRow[] = Array.isArray(recentMessages)
+      ? recentMessages.filter((m: MessageRow) => m.id !== userMessageRow?.id)
+      : [];
 
     const resolvedMarketInstanceId =
       (marketAgentContext as any)?.instanceId ??
@@ -2626,7 +2639,7 @@ export async function POST(request: NextRequest) {
     const decision = await runDecisionRouter({
       input: {
         userMessage: message,
-        recentMessages: (recentMessages || []).slice(-6).map((m: any) => ({
+        recentMessages: (recentMessagesForRouting || []).slice(-6).map((m: any) => ({
           role: m.role,
           content: m.content,
           topic_id: (m as any).topic_id ?? null,
@@ -3254,7 +3267,7 @@ export async function POST(request: NextRequest) {
     // If no current attachments, attempt to reuse the most recent user message's image attachments
     if (!Array.isArray(body.attachments) || body.attachments.length === 0) {
       try {
-        const recentUserMessages = (recentMessages || []).filter((m: any) => m.role === "user");
+        const recentUserMessages = (recentMessagesForRouting || []).filter((m: any) => m.role === "user");
         const latestUser = recentUserMessages[recentUserMessages.length - 1];
         const meta = latestUser ? (latestUser.metadata as Record<string, any> | null) : null;
         const priorFiles: Array<{ name?: string; mimeType?: string; dataUrl?: string; url?: string }> = Array.isArray(meta?.files)
@@ -4108,7 +4121,7 @@ export async function POST(request: NextRequest) {
           let writer: Awaited<ReturnType<typeof runWriterRouter>> | null = null;
           try {
             const writerRecentMessages: Array<{ role: "user" | "assistant" | "system"; content: string }> = [
-              ...(recentMessages || [])
+              ...(recentMessagesForRouting || [])
                 .slice(-5)
                 .map((m: any) => ({
                   role: (m.role as "user" | "assistant" | "system") ?? "user",
