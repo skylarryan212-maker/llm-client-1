@@ -162,8 +162,8 @@ export function ChatMessage({
   const rootAttributes = messageId ? { "data-agent-message-id": messageId } : {}
 
   const userBubbleClass = forceStaticBubble
-    ? "inline-block max-w-full rounded-2xl px-3 sm:px-4 py-2.5 sm:py-3 bg-white/5 border border-border/60 text-foreground"
-    : "accent-user-bubble inline-block max-w-full rounded-2xl px-3 sm:px-4 py-2.5 sm:py-3"
+    ? "inline-block max-w-full rounded-2xl px-3 sm:px-3 py-2 sm:py-2 bg-white/5 border border-border/60 text-foreground"
+    : "accent-user-bubble inline-block max-w-full rounded-2xl px-3 sm:px-3 py-2 sm:py-2"
 
   if (role === 'user') {
   return (
@@ -204,7 +204,7 @@ export function ChatMessage({
           )}
           <div className="relative w-full flex justify-end">
             <div
-              className="relative max-w-[92%] sm:max-w-[85%] pb-6 min-w-0"
+              className="relative max-w-[92%] sm:max-w-[85%] pb-0 min-w-0"
               onMouseEnter={() => setShowUserCopyHover(true)}
               onMouseLeave={() => setShowUserCopyHover(false)}
             >
@@ -234,7 +234,7 @@ export function ChatMessage({
 }
 
 return (
-    <div {...rootAttributes} className={`py-4 sm:py-6 ${animateClass} ${assistantStreamingClass}`}>
+    <div {...rootAttributes} className={`py-0 ${animateClass} ${assistantStreamingClass}`}>
       <div
         className={`mx-auto w-full ${
           forceFullWidth ? "max-w-full" : "max-w-3xl"

@@ -77,12 +77,6 @@ export async function runDecisionRouter(params: {
   const semanticMatches = await computeTopicSemantics(input.userMessage, input.topics, input.artifacts);
   semanticMs = Date.now() - semanticStart;
   const highConfidenceMatches = (semanticMatches || []).filter((m) => typeof m.similarity === "number" && m.similarity >= 0.5);
-  const highConfidenceTopicIds = new Set(
-    highConfidenceMatches.filter((m) => m.kind === "topic").map((m) => m.topicId)
-  );
-  const highConfidenceArtifactIds = new Set(
-    highConfidenceMatches.filter((m) => m.kind === "artifact").map((m) => m.topicId)
-  );
   if (semanticMatches && semanticMatches.length) {
     console.log("[semantic] top topic matches", semanticMatches.slice(0, 4));
   }

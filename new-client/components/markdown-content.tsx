@@ -9,7 +9,7 @@ import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import { ArrowLeft, Check, Copy, Download, Share2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import 'katex/dist/katex.min.css'
 
@@ -34,10 +34,12 @@ const withoutNode = <P extends { node?: unknown }>(
 
 export function MarkdownContent({ content, messageId, generatedFiles }: MarkdownContentProps) {
   const [copiedCode, setCopiedCode] = useState<string | null>(null)
+  const [copiedTableId, setCopiedTableId] = useState<string | null>(null)
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null)
   const [lightboxAlt, setLightboxAlt] = useState<string>('')
   const [lightboxCopied, setLightboxCopied] = useState(false)
   const [lightboxOriginalSrc, setLightboxOriginalSrc] = useState<string | null>(null)
+  const tableRefs = useRef<Map<string, HTMLTableElement>>(new Map())
   const safeContent = useMemo(() => {
     // Escape $ when immediately followed by a digit to avoid accidental math-mode rendering (pricing, counts).
     return content.replace(/(^|[^\\])\$(\d)/g, '$1\\\\$$2')
@@ -278,6 +280,55 @@ export function MarkdownContent({ content, messageId, generatedFiles }: Markdown
     )}&containerId=${encodeURIComponent(file.containerId)}&fileId=${encodeURIComponent(file.fileId)}`
   }
 
+  const tableToMarkdown = (tableEl: HTMLTableElement): string => {
+    const textify = (el: Element | null) =>
+      (el?.textContent || '')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .replace(/\|/g, '\\|')
+    const headerCells = Array.from(tableEl.querySelectorAll('thead tr:first-child th'))
+    const bodyRows = Array.from(tableEl.querySelectorAll('tbody tr'))
+    const rows: string[][] = []
+    let headerRow: string[] = headerCells.map(textify).filter(Boolean)
+    if (headerRow.length === 0 && bodyRows.length) {
+      const firstBodyCells = Array.from(bodyRows[0].querySelectorAll('td'))
+      headerRow = firstBodyCells.map(textify)
+      bodyRows.shift()
+    }
+    if (headerRow.length > 0) rows.push(headerRow)
+    for (const row of bodyRows) {
+      const cells = Array.from(row.querySelectorAll('td')).map(textify)
+      if (cells.length) rows.push(cells)
+    }
+    if (!rows.length) return ''
+    const normalizedWidth = Math.max(...rows.map((r) => r.length))
+    const fill = (arr: string[]) => {
+      const copy = [...arr]
+      while (copy.length < normalizedWidth) copy.push('')
+      return copy
+    }
+    const lines: string[] = []
+    const hdr = fill(rows[0])
+    lines.push(`| ${hdr.join(' | ')} |`)
+    lines.push(`| ${hdr.map(() => '---').join(' | ')} |`)
+    for (const bodyRow of rows.slice(1)) {
+      const cells = fill(bodyRow)
+      lines.push(`| ${cells.join(' | ')} |`)
+    }
+    return lines.join('\n')
+  }
+
+  const handleCopyTable = async (id: string) => {
+    const ref = tableRefs.current.get(id)
+    if (!ref) return
+    const markdown = tableToMarkdown(ref)
+    if (!markdown) return
+    await navigator.clipboard.writeText(markdown)
+    setCopiedTableId(id)
+    setTimeout(() => setCopiedTableId((prev) => (prev === id ? null : prev)), 2000)
+  }
+
+
   return (
     <div className="prose prose-invert max-w-none prose-p:leading-relaxed prose-pre:p-0 prose-pre:bg-transparent w-full max-w-full min-w-0 break-words prose-a:break-words">
       <ReactMarkdown
@@ -381,25 +432,77 @@ export function MarkdownContent({ content, messageId, generatedFiles }: Markdown
         )),
 
         // Tables
-        table: withoutNode((props) => (
-          <div className="overflow-x-auto my-4">
-            <table className="min-w-full border-collapse border border-border" {...props} />
-          </div>
-        )),
+        table: (props: any) => {
+          const { node, ...rest } = props || {}
+          void node
+          const tableId = useMemo(() => `tbl-${Math.random().toString(36).slice(2, 8)}`, [])
+          const tableRef = useCallback(
+            (el: HTMLTableElement | null) => {
+              if (el) {
+                tableRefs.current.set(tableId, el)
+              } else {
+                tableRefs.current.delete(tableId)
+              }
+            },
+            [tableId]
+          )
+          const buttonRef = useRef<HTMLButtonElement | null>(null)
+
+          useEffect(() => {
+            const update = () => {
+              const tableEl = tableRefs.current.get(tableId)
+              const btn = buttonRef.current
+              if (!tableEl || !btn) return
+              const thead = tableEl.querySelector('thead')
+              const wrapper = tableEl.parentElement
+              if (!thead || !wrapper) return
+              const headRect = thead.getBoundingClientRect()
+              const wrapRect = wrapper.getBoundingClientRect()
+              const btnRect = btn.getBoundingClientRect()
+              const offset = headRect.top - wrapRect.top + headRect.height / 2 - btnRect.height / 2
+              btn.style.top = `${Math.max(4, offset)}px`
+            }
+            update()
+            window.addEventListener('resize', update)
+            return () => window.removeEventListener('resize', update)
+          }, [tableId])
+
+          return (
+            <div className="group relative my-6 overflow-x-auto">
+              <button
+                type="button"
+                className="absolute right-2 inline-flex h-8 w-8 items-center justify-center rounded-md bg-transparent text-foreground/80 opacity-0 transition hover:text-foreground hover:bg-surface/30 group-hover:opacity-100 border-0 shadow-none"
+                ref={buttonRef}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  void handleCopyTable(tableId)
+                }}
+                aria-label="Copy table as markdown"
+              >
+                {copiedTableId === tableId ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
+              </button>
+              <table
+                ref={tableRef}
+                className="min-w-full border-collapse text-[14px] text-foreground/90 bg-surface/70"
+                {...rest}
+              />
+            </div>
+          )
+        },
         thead: withoutNode((props) => (
-          <thead className="bg-muted" {...props} />
+          <thead className="bg-surface/85 text-foreground/85" {...props} />
         )),
         tbody: withoutNode((props) => (
-          <tbody {...props} />
+          <tbody className="bg-surface/70" {...props} />
         )),
         tr: withoutNode((props) => (
-          <tr className="border-b border-border" {...props} />
+          <tr className="last:border-0 hover:bg-surface/75 transition-colors" {...props} />
         )),
         th: withoutNode((props) => (
-          <th className="px-4 py-2 text-left font-semibold text-foreground border border-border" {...props} />
+          <th className="px-5 py-3 text-left text-[14px] font-bold uppercase tracking-wide border-b-2 border-border/60 leading-tight align-middle first:rounded-tl-none last:rounded-tr-none" {...props} />
         )),
         td: withoutNode((props) => (
-          <td className="px-4 py-2 text-foreground border border-border" {...props} />
+          <td className="px-5 py-3 text-[14px] text-foreground/90 align-middle border-b border-border/60 leading-tight" {...props} />
         )),
 
         // Inline code
