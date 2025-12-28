@@ -4121,7 +4121,7 @@ export async function POST(request: NextRequest) {
           let writer: Awaited<ReturnType<typeof runWriterRouter>> | null = null;
           try {
             const writerRecentMessages: Array<{ role: "user" | "assistant" | "system"; content: string }> = [
-              ...(recentMessagesForRouting || [])
+              ...(recentMessages || [])
                 .slice(-5)
                 .map((m: any) => ({
                   role: (m.role as "user" | "assistant" | "system") ?? "user",
