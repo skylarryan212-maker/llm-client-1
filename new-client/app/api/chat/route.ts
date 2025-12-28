@@ -4118,7 +4118,7 @@ export async function POST(request: NextRequest) {
               { role: "assistant", content: assistantContent },
             ];
             const writerMemoryMessages = writerRecentMessages.filter((m) => m.role === "user");
-            const writerTopicId = assistantRowForMeta?.topic_id ?? resolvedTopicDecision.primaryTopicId ?? activeTopicId;
+            const writerTopicId = resolvedTopicDecision.primaryTopicId ?? activeTopicId ?? null;
             const writerTopics =
               Array.isArray(topicsForRouter) && topicsForRouter.length
                 ? topicsForRouter
@@ -4138,7 +4138,7 @@ export async function POST(request: NextRequest) {
                 memoryRelevantMessages: writerMemoryMessages.slice(-6),
                 topics: writerTopics,
                 currentTopic: {
-                  id: writerTopicId,
+                  id: writerTopicId ?? null,
                   summary: currentTopicMeta?.summary ?? null,
                   description: currentTopicMeta?.description ?? null,
                 },
