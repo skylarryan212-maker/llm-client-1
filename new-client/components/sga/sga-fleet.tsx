@@ -336,22 +336,6 @@ export function SgaFleet({ initialInstances }: SgaFleetProps) {
                             </div>
                           </div>
                           <div className="flex flex-wrap items-center gap-2">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => router.push(`/sga/${instance.id}`)}
-                            >
-                              Open console
-                            </Button>
-                            <Button
-                              variant={instance.status === "paused" ? "secondary" : "ghost"}
-                              size="sm"
-                              className="gap-1"
-                              onClick={() => handleToggleStatus(instance.id)}
-                            >
-                              {instance.status === "paused" ? <Play className="h-4 w-4" /> : <Pause className="h-4 w-4" />}
-                              {instance.status === "paused" ? "Resume" : "Pause"}
-                            </Button>
                             <DropdownMenu>
                               <DropdownMenuTrigger asChild>
                                 <Button
@@ -384,6 +368,22 @@ export function SgaFleet({ initialInstances }: SgaFleetProps) {
                                 </DropdownMenuItem>
                               </DropdownMenuContent>
                             </DropdownMenu>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => router.push(`/sga/${instance.id}`)}
+                            >
+                              Open console
+                            </Button>
+                            <Button
+                              variant={instance.status === "paused" ? "secondary" : "ghost"}
+                              size="sm"
+                              className="gap-1"
+                              onClick={() => handleToggleStatus(instance.id)}
+                            >
+                              {instance.status === "paused" ? <Play className="h-4 w-4" /> : <Pause className="h-4 w-4" />}
+                              {instance.status === "paused" ? "Resume" : "Pause"}
+                            </Button>
                           </div>
                         </div>
                       </div>

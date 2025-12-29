@@ -25,10 +25,20 @@ export async function POST(request: NextRequest) {
         ? body.assuranceLevel
         : 1;
 
+    const authorityLevel =
+      body?.authorityLevel === 0 ||
+      body?.authorityLevel === 1 ||
+      body?.authorityLevel === 2 ||
+      body?.authorityLevel === 3 ||
+      body?.authorityLevel === 4
+        ? body.authorityLevel
+        : 2;
+
     const instance = await createSgaInstance({
       name: typeof body?.name === "string" ? body.name : "Self-Governing Agent",
       environmentLabel: typeof body?.environmentLabel === "string" ? body.environmentLabel : "Primary Ops",
       assuranceLevel,
+      authorityLevel,
       dailyTimeBudgetHours: typeof body?.dailyTimeBudgetHours === "number" ? body.dailyTimeBudgetHours : null,
       dailyCostBudgetUsd: typeof body?.dailyCostBudgetUsd === "number" ? body.dailyCostBudgetUsd : null,
     });

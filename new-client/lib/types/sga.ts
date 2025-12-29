@@ -7,12 +7,58 @@ export type SgaStatus =
   | "paused"
   | "error";
 
+export type SgaAuthorityLevel = 0 | 1 | 2 | 3 | 4;
+export type SgaConnectionPermission = "read" | "write" | "read_write" | "custom";
+export type SgaConnectionAuthType = "none" | "api_key" | "bearer" | "basic";
+
+export interface SgaPolicy {
+  allowedActions: string[];
+  forbiddenActions: string[];
+  approvalRequiredActions: string[];
+  riskBudget: {
+    maxHighRiskActionsPerWeek: number;
+    maxMediumRiskPerDay: number;
+  };
+  costBudget: {
+    monthlyUsdCap: number;
+    dailyUsdCap: number;
+    perTaskUsdCap: number;
+  };
+  timeBudget: {
+    dailyActiveWindowMinutes: number;
+    maxCycleSeconds: number;
+  };
+  throttleRules: {
+    minMinutesBetweenCyclesNormal: number;
+    minMinutesBetweenCyclesAlert: number;
+    maxCyclesPerDay: number;
+  };
+}
+
+export interface SgaConnection {
+  id: string;
+  name: string;
+  baseUrl: string;
+  permission: SgaConnectionPermission;
+  allowList: string[];
+  denyList: string[];
+  readEndpoints: string[];
+  headers: Record<string, string>;
+  authType: SgaConnectionAuthType;
+  authHeader?: string | null;
+  authValue?: string | null;
+  hasAuthValue?: boolean;
+}
+
 export interface SgaInstance {
   id: string;
   name: string;
   environmentLabel: string;
   status: SgaStatus;
   assuranceLevel: 0 | 1 | 2 | 3;
+  authorityLevel: SgaAuthorityLevel;
+  policy?: SgaPolicy;
+  connections?: SgaConnection[];
   primaryObjective: string;
   lastDecisionAt: string | null;
   createdAt: string;
@@ -42,6 +88,7 @@ export interface SgaEvent {
   title: string;
   summary: string;
   severity?: "info" | "low" | "medium" | "high";
+  metadata?: Record<string, unknown>;
 }
 
 export interface SgaWorldState {

@@ -15,7 +15,7 @@ import { getMonthlySpending } from "@/app/actions/usage-actions";
 import { getUserPlan } from "@/app/actions/plan-actions";
 import { getUsageStatus } from "@/lib/usage-limits";
 import { LocationPermissionWrapper } from "@/components/location-permission-wrapper";
-import { SpeedInsights } from "@vercel/speed-insights/next";
+import { OptionalSpeedInsights } from "@/lib/speedInsights";
 
 const geistSans = Geist({
   subsets: ["latin"],
@@ -103,7 +103,7 @@ export default async function RootLayout({
               <ProjectsProvider initialProjects={initialProjectSummaries} userId={identity.userId ?? ""}>
                 <ChatProvider initialChats={initialChats} userId={identity.userId ?? ""}>
                   <LocationPermissionWrapper />
-                  <SpeedInsights />
+                  <OptionalSpeedInsights />
                   {children}
                 </ChatProvider>
               </ProjectsProvider>

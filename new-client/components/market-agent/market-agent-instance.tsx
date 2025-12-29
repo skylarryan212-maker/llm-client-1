@@ -1175,11 +1175,11 @@ export function MarketAgentInstanceView({
               </div>
             </div>
           </div>
-          <div className="flex w-full md:w-auto flex-wrap items-center gap-2 md:justify-end">
+          <div className="flex w-full md:w-auto flex-wrap items-center gap-2 md:justify-end min-w-[320px]">
             <Button
               variant={instance.status === "running" ? "ghost" : "secondary"}
               size="sm"
-              className="gap-1"
+              className="gap-1 h-8 w-[110px] justify-center"
               disabled={isBusy || isDraft}
               onClick={async () => {
                 const nextStatus = instance.status === "running" ? "paused" : "running";
@@ -1192,13 +1192,19 @@ export function MarketAgentInstanceView({
             <Button
               variant={isChatOpen ? "secondary" : "outline"}
               size="sm"
-              className="gap-1 hidden md:flex"
+              className="gap-1 h-8 w-[120px] justify-center hidden md:flex"
               onClick={() => setIsChatOpen((prev) => !prev)}
             >
               <MessageCircle className="h-4 w-4" />
               {isChatOpen ? "Hide chat" : "Chat"}
             </Button>
-            <Button variant="outline" size="sm" className="gap-1" disabled={isBusy} onClick={() => setIsSettingsOpen(true)}>
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1 h-8 w-[110px] justify-center"
+              disabled={isBusy}
+              onClick={() => setIsSettingsOpen(true)}
+            >
               <Settings2 className="h-4 w-4" />
               Settings
             </Button>
