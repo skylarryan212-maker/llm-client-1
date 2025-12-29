@@ -10,14 +10,17 @@ import {
   ArrowLeft,
   ChevronDown,
   Clock3,
+  LayoutGrid,
   ListChecks,
   MessageCircle,
   Pause,
   Play,
+  Route,
   Settings2,
   ShieldAlert,
   ShieldCheck,
   Target,
+  TrendingUp,
   X,
 } from "lucide-react";
 
@@ -66,6 +69,7 @@ type SgaMessageRow = {
 type ConstraintSource = "User" | "Policy" | "Safety";
 type DecisionStatus = "NOOP" | "Delegating" | "Executing" | "Waiting approval" | "Paused";
 type RunPhase = "paused" | "waiting" | "running";
+type SgaConsoleTab = "overview" | "initiatives" | "actions" | "health";
 
 type CollapsibleCardProps = {
   title: string;
@@ -963,6 +967,7 @@ export function SgaConsole({ instance, events, worldState }: SgaConsoleProps) {
     capabilities: false,
     timeline: false,
   });
+  const [activeTab, setActiveTab] = useState<SgaConsoleTab>("overview");
   const [settingsError, setSettingsError] = useState<string | null>(null);
   const [statusSaving, setStatusSaving] = useState(false);
   const [runError, setRunError] = useState<string | null>(null);
@@ -1042,6 +1047,18 @@ export function SgaConsole({ instance, events, worldState }: SgaConsoleProps) {
       }
     });
     return groups;
+  }, [eventsState]);
+
+  const recentCycles = useMemo(() => {
+    if (!eventsState.length) return [];
+    const summaryEvents = eventsState.filter(
+      (event) =>
+        event.kind === "situation_scan" &&
+        event.title.toLowerCase().includes("observation")
+    );
+    return [...summaryEvents]
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+      .slice(0, 5);
   }, [eventsState]);
 
   const latestEvent = useMemo(() => {
@@ -1583,381 +1600,498 @@ export function SgaConsole({ instance, events, worldState }: SgaConsoleProps) {
         </div>
       </header>
       <div className="flex flex-1 min-h-0 h-full items-stretch md:overflow-hidden">
+        <div className="hidden md:flex h-full w-[76px] flex-col items-center gap-2 border-r border-white/10 bg-[#050505] px-2 py-3">
+          <button
+            type="button"
+            className={cn(
+              "flex flex-col items-center gap-1 rounded-xl px-2 py-2 text-[11px] font-medium transition md:w-full",
+              activeTab === "overview" ? "bg-white/5 text-white" : "text-white/60 hover:text-white"
+            )}
+            onClick={() => setActiveTab("overview")}
+          >
+            <LayoutGrid className="h-5 w-5" />
+            <span>Overview</span>
+          </button>
+          <button
+            type="button"
+            className={cn(
+              "flex flex-col items-center gap-1 rounded-xl px-2 py-2 text-[11px] font-medium transition md:w-full",
+              activeTab === "initiatives" ? "bg-white/5 text-white" : "text-white/60 hover:text-white"
+            )}
+            onClick={() => setActiveTab("initiatives")}
+          >
+            <Route className="h-5 w-5" />
+            <span>Initiatives</span>
+          </button>
+          <button
+            type="button"
+            className={cn(
+              "flex flex-col items-center gap-1 rounded-xl px-2 py-2 text-[11px] font-medium transition md:w-full",
+              activeTab === "actions" ? "bg-white/5 text-white" : "text-white/60 hover:text-white"
+            )}
+            onClick={() => setActiveTab("actions")}
+          >
+            <ListChecks className="h-5 w-5" />
+            <span>Actions</span>
+          </button>
+          <button
+            type="button"
+            className={cn(
+              "flex flex-col items-center gap-1 rounded-xl px-2 py-2 text-[11px] font-medium transition md:w-full",
+              activeTab === "health" ? "bg-white/5 text-white" : "text-white/60 hover:text-white"
+            )}
+            onClick={() => setActiveTab("health")}
+          >
+            <TrendingUp className="h-5 w-5" />
+            <span>Health</span>
+          </button>
+        </div>
         <div className="flex-1 overflow-y-auto">
           <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
             <main className="space-y-6">
-            {settingsError || runError ? (
-              <p className="text-xs text-rose-300 px-1">{settingsError || runError}</p>
-            ) : null}
+              {settingsError || runError ? (
+                <p className="text-xs text-rose-300 px-1">{settingsError || runError}</p>
+              ) : null}
 
-            <section className="space-y-4">
-              <div className="rounded-2xl border border-border/70 bg-gradient-to-b from-white/5 via-transparent to-transparent p-5 shadow-lg shadow-black/30 backdrop-blur">
-                <div className="flex flex-wrap items-start justify-between gap-4">
-                  <div className="space-y-2">
-                    <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-slate-200">
-                      Cycle summary
+              {activeTab === "overview" ? (
+                <>
+                  <section className="space-y-4">
+                    <div className="rounded-2xl border border-border/70 bg-gradient-to-b from-white/5 via-transparent to-transparent p-5 shadow-lg shadow-black/30 backdrop-blur">
+                      <p className="text-xs uppercase tracking-[0.3em] text-white/60">Since your last visit</p>
+                      <h2 className="mt-3 text-2xl font-semibold text-white">While you were gone...</h2>
+                      <p className="mt-2 text-sm text-muted-foreground">
+                        No new updates yet. Once the model is connected, this panel will summarize what changed and why it matters.
+                      </p>
                     </div>
-                    <h2 className="text-2xl font-semibold text-white">{latestAction}</h2>
-                    <p className="text-sm text-muted-foreground">{reasoningSnapshot}</p>
-                    <div className="flex flex-wrap items-center gap-3 text-xs text-white/70">
-                      <span>Agent: {runPhaseLabel}</span>
-                      <span>Last API call: {lastRunLabel}</span>
-                      <span>Next trigger: {nextCycleLabel}</span>
-                    </div>
-                    <p className="text-sm text-white/80">
-                      Health:{" "}
-                      <span className="font-semibold text-white">{healthStatus}</span>
-                      {healthDriver ? ` - ${healthDriver}` : ""}
-                    </p>
-                  </div>
-                  <div className="flex flex-col items-end gap-2">
-                    <Badge variant="outline" className="border-white/20 bg-white/5 text-white/80">
-                      {modeTone}
-                    </Badge>
-                    <Badge
-                      variant="outline"
-                      className={cn("border px-2 py-0.5 text-xs font-semibold uppercase", getDecisionTone(decisionStatus))}
-                    >
-                      {decisionStatus}
-                    </Badge>
-                    <Badge
-                      variant="outline"
-                      className={cn(
-                        "border px-2 py-0.5 text-xs",
-                        highestRisk ? getRiskTone(highestRisk.level) : "border-emerald-400/40 bg-emerald-500/10 text-emerald-100"
-                      )}
-                    >
-                      {highestRisk ? `${highestRisk.level} risk` : "low risk"}
-                    </Badge>
-                  </div>
-                </div>
-                <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
-                  <div className="rounded-xl border border-border/70 bg-background/70 p-3">
-                    <p className="text-xs text-muted-foreground">Decision outcome</p>
-                    <p className="text-sm font-semibold text-white">{decisionStatus}</p>
-                  </div>
-                  <div className="rounded-xl border border-border/70 bg-background/70 p-3">
-                    <p className="text-xs text-muted-foreground">Risk posture</p>
-                    <p className="text-sm font-semibold text-white">{riskPosture}</p>
-                  </div>
-                  <div className="rounded-xl border border-border/70 bg-background/70 p-3">
-                    <p className="text-xs text-muted-foreground">Budget remaining</p>
-                    <p className="text-sm font-semibold text-white">
-                      {budgetRemainingUsd !== null ? formatCurrency(budgetRemainingUsd) : "n/a"}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      {timeRemainingMinutes !== null ? `${formatRemaining(timeRemainingMinutes)} left` : "Time window not set"}
-                    </p>
-                  </div>
-                  <div className="rounded-xl border border-border/70 bg-background/70 p-3">
-                    <p className="text-xs text-muted-foreground">Next check</p>
-                    <p className="text-sm font-semibold text-white">{nextCycleLabel}</p>
-                    <p className="text-xs text-muted-foreground">{cadenceReason}</p>
-                  </div>
-                </div>
-                <div className="mt-4 flex flex-wrap items-center gap-2">
-                  <Button variant="outline" size="sm" onClick={() => setOpenSections((prev) => ({ ...prev, timeline: true }))}>
-                    View evidence
-                  </Button>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setOpenSections((prev) => ({ ...prev, delegations: true }))}
-                  >
-                    View delegations
-                  </Button>
-                  <Button variant="outline" size="sm" onClick={() => setOpenSections((prev) => ({ ...prev, timeline: true }))}>
-                    View full record
-                  </Button>
-                </div>
-                <div className="mt-4 rounded-xl border border-white/10 bg-white/5 p-4">
-                  <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
-                    Primary objective
-                  </p>
-                  <p className="mt-2 text-sm text-slate-100">
-                    {focusThread}
-                  </p>
-                </div>
-              </div>
 
-            <CollapsibleCard
-              title="Objective & initiatives"
-              subtitle={`Focus thread updated ${formatTime(worldStateState.lastUpdatedAt)}`}
-              icon={<Target className="h-4 w-4" />}
-              isOpen={openSections.objective}
-              onToggle={() => toggleSection("objective")}
-            >
-              <div className="space-y-3">
-                <p className="text-sm text-slate-100">{worldStateState.currentObjective}</p>
-                <p className="text-xs text-muted-foreground">
-                  {currentTask ? `In execution: ${currentTask.label}` : "No initiative currently in execution."}
-                </p>
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-                  <div className="rounded-xl border border-white/10 bg-white/5 p-3">
-                    <p className="text-xs text-muted-foreground">Daily time budget</p>
-                    <p className="text-sm font-semibold text-white">
-                      {formatHours(worldStateState.budgets.dailyTimeBudgetHours)}
-                    </p>
-                  </div>
-                  <div className="rounded-xl border border-white/10 bg-white/5 p-3">
-                    <p className="text-xs text-muted-foreground">Daily cost budget</p>
-                    <p className="text-sm font-semibold text-white">
-                      {formatCurrency(worldStateState.budgets.dailyCostBudgetUsd)}
-                    </p>
-                  </div>
-                  <div className="rounded-xl border border-white/10 bg-white/5 p-3">
-                    <p className="text-xs text-muted-foreground">Today's spend</p>
-                    <p className="text-sm font-semibold text-white">
-                      {formatCurrency(worldStateState.budgets.todayEstimatedSpendUsd)}
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </CollapsibleCard>
-
-            <CollapsibleCard
-              title="Constraints & policy"
-              subtitle="Guardrails, approvals, and authority levels"
-              icon={<ShieldCheck className="h-4 w-4" />}
-              isOpen={openSections.constraints}
-              onToggle={() => toggleSection("constraints")}
-            >
-              <div className="flex flex-wrap items-center gap-3">
-                <div className="flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-slate-100">
-                  <ShieldCheck className="h-3.5 w-3.5 text-emerald-200" />
-                  <Select value={String(assuranceLevel)} onValueChange={handleAssuranceChange}>
-                    <SelectTrigger className="h-auto min-h-0 w-auto !border-transparent !bg-transparent !px-0 !py-0 text-xs font-normal text-slate-100 shadow-none">
-                      <SelectValue placeholder="Assurance level" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="0">Assurance 0 - Fast</SelectItem>
-                      <SelectItem value="1">Assurance 1 - Standard</SelectItem>
-                      <SelectItem value="2">Assurance 2 - High</SelectItem>
-                      <SelectItem value="3">Assurance 3 - Max</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-slate-100">
-                  <ShieldAlert className="h-3.5 w-3.5 text-amber-200" />
-                  <Select value={String(authorityLevel)} onValueChange={handleAuthorityChange}>
-                    <SelectTrigger className="h-auto min-h-0 w-auto !border-transparent !bg-transparent !px-0 !py-0 text-xs font-normal text-slate-100 shadow-none">
-                      <SelectValue placeholder="Authority level" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="0">AL0 - Observe</SelectItem>
-                      <SelectItem value="1">AL1 - Recommend</SelectItem>
-                      <SelectItem value="2">AL2 - Execute Safe</SelectItem>
-                      <SelectItem value="3">AL3 - Execute Extended</SelectItem>
-                      <SelectItem value="4">AL4 - Override</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-              <div className="mt-3">
-                {worldStateState.constraints.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">No constraints recorded.</p>
-                ) : (
-                  <div className="flex flex-wrap gap-2">
-                    {worldStateState.constraints.map((constraint) => {
-                      const source = inferConstraintSource(constraint);
-                      return (
-                        <div
-                          key={constraint}
-                          className="flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-slate-100"
-                          title={constraint}
-                        >
-                          <span className="max-w-[220px] truncate">{constraint}</span>
+                    <div className="rounded-2xl border border-border/70 bg-gradient-to-b from-white/5 via-transparent to-transparent p-5 shadow-lg shadow-black/30 backdrop-blur">
+                      <div className="flex flex-wrap items-start justify-between gap-4">
+                        <div className="space-y-2">
+                          <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-slate-200">
+                            Cycle summary
+                          </div>
+                          <h2 className="text-2xl font-semibold text-white">{latestAction}</h2>
+                          <p className="text-sm text-muted-foreground">{reasoningSnapshot}</p>
+                          <div className="flex flex-wrap items-center gap-3 text-xs text-white/70">
+                            <span>Agent: {runPhaseLabel}</span>
+                            <span>Last API call: {lastRunLabel}</span>
+                            <span>Next trigger: {nextCycleLabel}</span>
+                          </div>
+                          <p className="text-sm text-white/80">
+                            Health:{" "}
+                            <span className="font-semibold text-white">{healthStatus}</span>
+                            {healthDriver ? ` - ${healthDriver}` : ""}
+                          </p>
+                        </div>
+                        <div className="flex flex-col items-end gap-2">
+                          <Badge variant="outline" className="border-white/20 bg-white/5 text-white/80">
+                            {modeTone}
+                          </Badge>
+                          <Badge
+                            variant="outline"
+                            className={cn("border px-2 py-0.5 text-xs font-semibold uppercase", getDecisionTone(decisionStatus))}
+                          >
+                            {decisionStatus}
+                          </Badge>
                           <Badge
                             variant="outline"
                             className={cn(
-                              "border px-2 py-0.5 text-[10px] font-semibold uppercase",
-                              getConstraintTone(source)
+                              "border px-2 py-0.5 text-xs",
+                              highestRisk ? getRiskTone(highestRisk.level) : "border-emerald-400/40 bg-emerald-500/10 text-emerald-100"
                             )}
                           >
-                            {source}
+                            {highestRisk ? `${highestRisk.level} risk` : "low risk"}
                           </Badge>
                         </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            </CollapsibleCard>
-            <CollapsibleCard
-              title="Risk register"
-              subtitle="Severity, horizon, and mitigation status"
-              icon={<ShieldAlert className="h-4 w-4" />}
-              isOpen={openSections.risks}
-              onToggle={() => toggleSection("risks")}
-            >
-              {worldStateState.riskRegister.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No risks logged for this cycle.</p>
-              ) : (
-                <div className="space-y-3">
-                  {worldStateState.riskRegister.map((risk) => (
-                    <div
-                      key={risk.id}
-                      className="flex flex-wrap items-start justify-between gap-3 rounded-xl border border-white/10 bg-white/5 p-3"
-                    >
+                      </div>
+                      <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+                        <div className="rounded-xl border border-border/70 bg-background/70 p-3">
+                          <p className="text-xs text-muted-foreground">Decision outcome</p>
+                          <p className="text-sm font-semibold text-white">{decisionStatus}</p>
+                        </div>
+                        <div className="rounded-xl border border-border/70 bg-background/70 p-3">
+                          <p className="text-xs text-muted-foreground">Risk posture</p>
+                          <p className="text-sm font-semibold text-white">{riskPosture}</p>
+                        </div>
+                        <div className="rounded-xl border border-border/70 bg-background/70 p-3">
+                          <p className="text-xs text-muted-foreground">Budget remaining</p>
+                          <p className="text-sm font-semibold text-white">
+                            {budgetRemainingUsd !== null ? formatCurrency(budgetRemainingUsd) : "n/a"}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            {timeRemainingMinutes !== null ? `${formatRemaining(timeRemainingMinutes)} left` : "Time window not set"}
+                          </p>
+                        </div>
+                        <div className="rounded-xl border border-border/70 bg-background/70 p-3">
+                          <p className="text-xs text-muted-foreground">Next check</p>
+                          <p className="text-sm font-semibold text-white">{nextCycleLabel}</p>
+                          <p className="text-xs text-muted-foreground">{cadenceReason}</p>
+                        </div>
+                      </div>
+                      <div className="mt-4 flex flex-wrap items-center gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            setActiveTab("actions");
+                            setOpenSections((prev) => ({ ...prev, timeline: true }));
+                          }}
+                        >
+                          View evidence
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            setActiveTab("actions");
+                            setOpenSections((prev) => ({ ...prev, delegations: true }));
+                          }}
+                        >
+                          View delegations
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            setActiveTab("actions");
+                            setOpenSections((prev) => ({ ...prev, timeline: true }));
+                          }}
+                        >
+                          View full record
+                        </Button>
+                      </div>
+                    </div>
+                  </section>
+
+                  <section className="space-y-4">
+                    <div className="rounded-2xl border border-border/70 bg-white/5 p-5">
                       <div>
-                        <p className="text-sm font-semibold text-white">{risk.label}</p>
-                        <p className="text-xs text-muted-foreground">{risk.note}</p>
+                        <p className="text-xs uppercase tracking-[0.3em] text-white/60">Recent cycles</p>
+                        <p className="text-sm text-muted-foreground">A quick glance at the last five cycles.</p>
                       </div>
-                      <Badge variant="outline" className={cn("border px-2 py-0.5 text-xs", getRiskTone(risk.level))}>
-                        {risk.level}
-                      </Badge>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </CollapsibleCard>
-
-            <CollapsibleCard
-              title="Delegations & active work"
-              subtitle="Issued tasks, approvals, and evidence returns"
-              icon={<ListChecks className="h-4 w-4" />}
-              isOpen={openSections.delegations}
-              onToggle={() => toggleSection("delegations")}
-            >
-              {worldStateState.openTasks.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No open tasks tracked right now.</p>
-              ) : (
-                <div className="space-y-3">
-                  {worldStateState.openTasks.map((task) => (
-                    <div
-                      key={task.id}
-                      className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-white/10 bg-white/5 p-3"
-                    >
-                      <div className="space-y-1">
-                        <p className="text-sm font-semibold text-white">{task.label}</p>
-                        <p className="text-xs text-muted-foreground">
-                          Assurance A{assuranceLevel} - Deadline n/a
-                        </p>
-                      </div>
-                      <Badge
-                        variant="outline"
-                        className={cn(
-                          "border px-2 py-0.5 text-xs",
-                          task.status === "blocked"
-                            ? "border-rose-400/40 bg-rose-500/10 text-rose-100"
-                            : task.status === "in_progress"
-                              ? "border-sky-400/40 bg-sky-500/10 text-sky-100"
-                              : task.status === "planned"
-                                ? "border-amber-400/40 bg-amber-500/10 text-amber-100"
-                                : "border-emerald-400/40 bg-emerald-500/10 text-emerald-100"
-                        )}
-                      >
-                        {task.status.replace("_", " ")}
-                      </Badge>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </CollapsibleCard>
-
-            <CollapsibleCard
-              title="Capabilities & connections"
-              subtitle="Connected systems, tools, and data sources"
-              icon={<Activity className="h-4 w-4" />}
-              isOpen={openSections.capabilities}
-              onToggle={() => toggleSection("capabilities")}
-            >
-              {worldStateState.capabilitiesSummary.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No capabilities registered yet.</p>
-              ) : (
-                <ScrollArea className="h-56">
-                  <div className="space-y-3 pr-3">
-                    {worldStateState.capabilitiesSummary.map((capability) => (
-                      <div
-                        key={capability.id}
-                        className="rounded-xl border border-white/10 bg-white/5 p-3"
-                      >
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <p className="text-sm font-semibold text-white">{capability.displayName}</p>
-                          <Badge variant="outline" className={cn("border px-2 py-0.5 text-xs", getRiskTone(capability.riskLevel))}>
-                            {capability.riskLevel} risk
-                          </Badge>
-                        </div>
-                        <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                          <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5">
-                            {capability.kind.replace("_", " ")}
-                          </span>
-                          {capability.domainTags.map((tag) => (
-                            <span
-                              key={tag}
-                              className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5"
-                            >
-                              {tag}
-                            </span>
+                      {recentCycles.length === 0 ? (
+                        <p className="mt-3 text-sm text-muted-foreground">No cycle history yet.</p>
+                      ) : (
+                        <ul className="mt-4 space-y-2 text-sm text-slate-100">
+                          {recentCycles.map((event, index) => (
+                            <li key={event.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-white/10 bg-black/20 px-3 py-2">
+                              <span className="font-semibold text-white">
+                                Cycle {recentCycles.length - index}
+                              </span>
+                              <span className="text-white/70">{event.summary || event.title}</span>
+                              <span className="text-xs text-muted-foreground">{formatTime(event.createdAt)}</span>
+                            </li>
                           ))}
+                        </ul>
+                      )}
+                    </div>
+                  </section>
+                </>
+              ) : null}
+
+              {activeTab === "initiatives" ? (
+                <section className="space-y-4">
+                  <div className="rounded-2xl border border-border/70 bg-white/5 p-5">
+                    <p className="text-xs uppercase tracking-[0.3em] text-muted-foreground">Primary objective</p>
+                    <p className="mt-2 text-lg font-semibold text-white">{focusThread}</p>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      This is the anchor for decisions and initiative planning.
+                    </p>
+                  </div>
+                  <CollapsibleCard
+                    title="Objective & initiatives"
+                    subtitle={`Focus thread updated ${formatTime(worldStateState.lastUpdatedAt)}`}
+                    icon={<Target className="h-4 w-4" />}
+                    isOpen={openSections.objective}
+                    onToggle={() => toggleSection("objective")}
+                  >
+                    <div className="space-y-3">
+                      <p className="text-sm text-slate-100">{worldStateState.currentObjective}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {currentTask ? `In execution: ${currentTask.label}` : "No initiative currently in execution."}
+                      </p>
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                        <div className="rounded-xl border border-white/10 bg-white/5 p-3">
+                          <p className="text-xs text-muted-foreground">Daily time budget</p>
+                          <p className="text-sm font-semibold text-white">
+                            {formatHours(worldStateState.budgets.dailyTimeBudgetHours)}
+                          </p>
+                        </div>
+                        <div className="rounded-xl border border-white/10 bg-white/5 p-3">
+                          <p className="text-xs text-muted-foreground">Daily cost budget</p>
+                          <p className="text-sm font-semibold text-white">
+                            {formatCurrency(worldStateState.budgets.dailyCostBudgetUsd)}
+                          </p>
+                        </div>
+                        <div className="rounded-xl border border-white/10 bg-white/5 p-3">
+                          <p className="text-xs text-muted-foreground">Today's spend</p>
+                          <p className="text-sm font-semibold text-white">
+                            {formatCurrency(worldStateState.budgets.todayEstimatedSpendUsd)}
+                          </p>
                         </div>
                       </div>
-                    ))}
-                  </div>
-                </ScrollArea>
-              )}
-            </CollapsibleCard>
+                    </div>
+                  </CollapsibleCard>
+                </section>
+              ) : null}
 
-            <CollapsibleCard
-              title="Activity timeline"
-              subtitle="Operations log and decisions"
-              icon={<Activity className="h-4 w-4" />}
-              isOpen={openSections.timeline}
-              onToggle={() => toggleSection("timeline")}
-            >
-              {groupedEvents.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No activity yet for this SGA.</p>
-              ) : (
-                <ScrollArea className="h-[360px]">
-                  <div className="space-y-6 pr-4">
-                    {groupedEvents.map((group) => (
-                      <div key={group.dateLabel} className="space-y-3">
-                        <div className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
-                          {group.dateLabel}
-                        </div>
-                        <div className="space-y-3 border-l border-white/10 pl-4">
-                          {group.events.map((event) => {
-                            const severityTone = getSeverityTone(event.severity);
-                            return (
-                              <div key={event.id} className="relative">
-                                <span className="absolute -left-[9px] top-2 h-2 w-2 rounded-full bg-sky-400" />
-                                <div className="rounded-xl border border-white/10 bg-white/5 p-3">
-                                  <div className="flex flex-wrap items-center justify-between gap-2">
-                                    <div className="flex flex-wrap items-center gap-2">
-                                      <Badge variant="outline" className="border-white/20 bg-white/5 text-white/80">
-                                        {EVENT_KIND_LABELS[event.kind]}
-                                      </Badge>
-                                      {event.severity ? (
-                                        <Badge variant="outline" className={cn("border px-2 py-0.5 text-xs", severityTone)}>
-                                          {event.severity === "high" || event.severity === "medium" ? (
-                                            <AlertTriangle className="mr-1 h-3 w-3" />
-                                          ) : null}
-                                          {event.severity}
-                                        </Badge>
-                                      ) : null}
+              {activeTab === "actions" ? (
+                <section className="space-y-4">
+                  <div className="rounded-2xl border border-border/70 bg-white/5 p-5">
+                    <p className="text-xs uppercase tracking-[0.3em] text-white/60">Approvals & decisions</p>
+                    <p className="mt-2 text-sm text-muted-foreground">
+                      No approvals requested yet. This panel will list decisions that need your review.
+                    </p>
+                  </div>
+                  <CollapsibleCard
+                    title="Delegations & active work"
+                    subtitle="Issued tasks, approvals, and evidence returns"
+                    icon={<ListChecks className="h-4 w-4" />}
+                    isOpen={openSections.delegations}
+                    onToggle={() => toggleSection("delegations")}
+                  >
+                    {worldStateState.openTasks.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">No open tasks tracked right now.</p>
+                    ) : (
+                      <div className="space-y-3">
+                        {worldStateState.openTasks.map((task) => (
+                          <div
+                            key={task.id}
+                            className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-white/10 bg-white/5 p-3"
+                          >
+                            <div className="space-y-1">
+                              <p className="text-sm font-semibold text-white">{task.label}</p>
+                              <p className="text-xs text-muted-foreground">
+                                Assurance A{assuranceLevel} - Deadline n/a
+                              </p>
+                            </div>
+                            <Badge
+                              variant="outline"
+                              className={cn(
+                                "border px-2 py-0.5 text-xs",
+                                task.status === "blocked"
+                                  ? "border-rose-400/40 bg-rose-500/10 text-rose-100"
+                                  : task.status === "in_progress"
+                                    ? "border-sky-400/40 bg-sky-500/10 text-sky-100"
+                                    : task.status === "planned"
+                                      ? "border-amber-400/40 bg-amber-500/10 text-amber-100"
+                                      : "border-emerald-400/40 bg-emerald-500/10 text-emerald-100"
+                              )}
+                            >
+                              {task.status.replace("_", " ")}
+                            </Badge>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </CollapsibleCard>
+
+                  <CollapsibleCard
+                    title="Activity timeline"
+                    subtitle="Operations log and decisions"
+                    icon={<Activity className="h-4 w-4" />}
+                    isOpen={openSections.timeline}
+                    onToggle={() => toggleSection("timeline")}
+                  >
+                    {groupedEvents.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">No activity yet for this SGA.</p>
+                    ) : (
+                      <ScrollArea className="h-[360px]">
+                        <div className="space-y-6 pr-4">
+                          {groupedEvents.map((group) => (
+                            <div key={group.dateLabel} className="space-y-3">
+                              <div className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">
+                                {group.dateLabel}
+                              </div>
+                              <div className="space-y-3 border-l border-white/10 pl-4">
+                                {group.events.map((event) => {
+                                  const severityTone = getSeverityTone(event.severity);
+                                  return (
+                                    <div key={event.id} className="relative">
+                                      <span className="absolute -left-[9px] top-2 h-2 w-2 rounded-full bg-sky-400" />
+                                      <div className="rounded-xl border border-white/10 bg-white/5 p-3">
+                                        <div className="flex flex-wrap items-center justify-between gap-2">
+                                          <div className="flex flex-wrap items-center gap-2">
+                                            <Badge variant="outline" className="border-white/20 bg-white/5 text-white/80">
+                                              {EVENT_KIND_LABELS[event.kind]}
+                                            </Badge>
+                                            {event.severity ? (
+                                              <Badge variant="outline" className={cn("border px-2 py-0.5 text-xs", severityTone)}>
+                                                {event.severity === "high" || event.severity === "medium" ? (
+                                                  <AlertTriangle className="mr-1 h-3 w-3" />
+                                                ) : null}
+                                                {event.severity}
+                                              </Badge>
+                                            ) : null}
+                                          </div>
+                                          <span className="text-xs text-muted-foreground">{formatTime(event.createdAt)}</span>
+                                        </div>
+                                        <p className="mt-2 text-sm font-semibold text-white">{event.title}</p>
+                                        <p className="mt-1 text-xs text-muted-foreground">{event.summary}</p>
+                                        {typeof event.metadata?.preview === "string" && event.metadata.preview.trim() ? (
+                                          <p className="mt-2 text-xs text-white/70 font-mono whitespace-pre-wrap">
+                                            {event.metadata.preview}
+                                          </p>
+                                        ) : null}
+                                      </div>
                                     </div>
-                                    <span className="text-xs text-muted-foreground">{formatTime(event.createdAt)}</span>
-                                  </div>
-                                  <p className="mt-2 text-sm font-semibold text-white">{event.title}</p>
-                                  <p className="mt-1 text-xs text-muted-foreground">{event.summary}</p>
-                                  {typeof event.metadata?.preview === "string" && event.metadata.preview.trim() ? (
-                                    <p className="mt-2 text-xs text-white/70 font-mono whitespace-pre-wrap">
-                                      {event.metadata.preview}
-                                    </p>
-                                  ) : null}
-                                </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          ))}
+                          <div ref={timelineEndRef} />
+                        </div>
+                      </ScrollArea>
+                    )}
+                  </CollapsibleCard>
+                </section>
+              ) : null}
+
+              {activeTab === "health" ? (
+                <section className="space-y-4">
+                  <CollapsibleCard
+                    title="Constraints & policy"
+                    subtitle="Guardrails, approvals, and authority levels"
+                    icon={<ShieldCheck className="h-4 w-4" />}
+                    isOpen={openSections.constraints}
+                    onToggle={() => toggleSection("constraints")}
+                  >
+                    <div className="flex flex-wrap items-center gap-3">
+                      <div className="flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-slate-100">
+                        <ShieldCheck className="h-3.5 w-3.5 text-emerald-200" />
+                        <Select value={String(assuranceLevel)} onValueChange={handleAssuranceChange}>
+                          <SelectTrigger className="h-auto min-h-0 w-auto !border-transparent !bg-transparent !px-0 !py-0 text-xs font-normal text-slate-100 shadow-none">
+                            <SelectValue placeholder="Assurance level" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="0">Assurance 0 - Fast</SelectItem>
+                            <SelectItem value="1">Assurance 1 - Standard</SelectItem>
+                            <SelectItem value="2">Assurance 2 - High</SelectItem>
+                            <SelectItem value="3">Assurance 3 - Max</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-slate-100">
+                        <ShieldAlert className="h-3.5 w-3.5 text-amber-200" />
+                        <Select value={String(authorityLevel)} onValueChange={handleAuthorityChange}>
+                          <SelectTrigger className="h-auto min-h-0 w-auto !border-transparent !bg-transparent !px-0 !py-0 text-xs font-normal text-slate-100 shadow-none">
+                            <SelectValue placeholder="Authority level" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="0">AL0 - Observe</SelectItem>
+                            <SelectItem value="1">AL1 - Recommend</SelectItem>
+                            <SelectItem value="2">AL2 - Execute Safe</SelectItem>
+                            <SelectItem value="3">AL3 - Execute Extended</SelectItem>
+                            <SelectItem value="4">AL4 - Override</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                    <div className="mt-3">
+                      {worldStateState.constraints.length === 0 ? (
+                        <p className="text-sm text-muted-foreground">No constraints recorded.</p>
+                      ) : (
+                        <div className="flex flex-wrap gap-2">
+                          {worldStateState.constraints.map((constraint) => {
+                            const source = inferConstraintSource(constraint);
+                            return (
+                              <div
+                                key={constraint}
+                                className="flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-slate-100"
+                                title={constraint}
+                              >
+                                <span className="max-w-[220px] truncate">{constraint}</span>
+                                <Badge
+                                  variant="outline"
+                                  className={cn(
+                                    "border px-2 py-0.5 text-[10px] font-semibold uppercase",
+                                    getConstraintTone(source)
+                                  )}
+                                >
+                                  {source}
+                                </Badge>
                               </div>
                             );
                           })}
                         </div>
+                      )}
+                    </div>
+                  </CollapsibleCard>
+
+                  <CollapsibleCard
+                    title="Risk register"
+                    subtitle="Severity, horizon, and mitigation status"
+                    icon={<ShieldAlert className="h-4 w-4" />}
+                    isOpen={openSections.risks}
+                    onToggle={() => toggleSection("risks")}
+                  >
+                    {worldStateState.riskRegister.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">No risks logged for this cycle.</p>
+                    ) : (
+                      <div className="space-y-3">
+                        {worldStateState.riskRegister.map((risk) => (
+                          <div
+                            key={risk.id}
+                            className="flex flex-wrap items-start justify-between gap-3 rounded-xl border border-white/10 bg-white/5 p-3"
+                          >
+                            <div>
+                              <p className="text-sm font-semibold text-white">{risk.label}</p>
+                              <p className="text-xs text-muted-foreground">{risk.note}</p>
+                            </div>
+                            <Badge variant="outline" className={cn("border px-2 py-0.5 text-xs", getRiskTone(risk.level))}>
+                              {risk.level}
+                            </Badge>
+                          </div>
+                        ))}
                       </div>
-                    ))}
-                    <div ref={timelineEndRef} />
-                  </div>
-                </ScrollArea>
-              )}
-            </CollapsibleCard>
-          </section>
+                    )}
+                  </CollapsibleCard>
+
+                  <CollapsibleCard
+                    title="Capabilities & connections"
+                    subtitle="Connected systems, tools, and data sources"
+                    icon={<Activity className="h-4 w-4" />}
+                    isOpen={openSections.capabilities}
+                    onToggle={() => toggleSection("capabilities")}
+                  >
+                    {worldStateState.capabilitiesSummary.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">No capabilities registered yet.</p>
+                    ) : (
+                      <ScrollArea className="h-56">
+                        <div className="space-y-3 pr-3">
+                          {worldStateState.capabilitiesSummary.map((capability) => (
+                            <div
+                              key={capability.id}
+                              className="rounded-xl border border-white/10 bg-white/5 p-3"
+                            >
+                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                <p className="text-sm font-semibold text-white">{capability.displayName}</p>
+                                <Badge variant="outline" className={cn("border px-2 py-0.5 text-xs", getRiskTone(capability.riskLevel))}>
+                                  {capability.riskLevel} risk
+                                </Badge>
+                              </div>
+                              <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                                <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5">
+                                  {capability.kind.replace("_", " ")}
+                                </span>
+                                {capability.domainTags.map((tag) => (
+                                  <span
+                                    key={tag}
+                                    className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5"
+                                  >
+                                    {tag}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </ScrollArea>
+                    )}
+                  </CollapsibleCard>
+                </section>
+              ) : null}
             </main>
           </div>
         </div>
