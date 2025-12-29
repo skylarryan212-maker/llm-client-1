@@ -54,7 +54,7 @@ export async function PATCH(
     if (hasStatus && body.status) {
       await updateSgaStatus(instanceId, body.status as SgaStatus);
     }
-    if (hasName) {
+    if (hasName && body.name) {
       await renameSgaInstance(instanceId, body.name);
     }
     if (hasAssurance) {
