@@ -51,8 +51,8 @@ export async function PATCH(
       return NextResponse.json({ error: "Missing updates" }, { status: 400 });
     }
 
-    if (hasStatus) {
-      await updateSgaStatus(instanceId, body.status);
+    if (hasStatus && body.status) {
+      await updateSgaStatus(instanceId, body.status as SgaStatus);
     }
     if (hasName) {
       await renameSgaInstance(instanceId, body.name);
