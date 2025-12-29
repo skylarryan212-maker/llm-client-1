@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { loadSgaInstance } from "@/lib/data/sga";
-import { supabaseServer } from "@/lib/supabase/server";
+import { supabaseServer, supabaseServerAdmin } from "@/lib/supabase/server";
 import { requireUserIdServer } from "@/lib/supabase/user";
 import type { SgaConnection } from "@/lib/types/sga";
 
@@ -130,8 +130,12 @@ export async function POST(
       return NextResponse.json({ error: "Invalid instance id" }, { status: 400 });
     }
 
-    const body = (await request.json().catch(() => ({}))) as { trigger?: string };
+    const body = (await request.json().catch(() => ({}))) as {
+      trigger?: string;
+      stage?: string;
+    };
     const trigger = body?.trigger === "schedule" ? "schedule" : "manual";
+    const stage = body?.stage === "schedule_only" ? "schedule_only" : "run";
 
     const instance = await loadSgaInstance(instanceId, { includeSecrets: true });
     if (!instance) {
@@ -140,17 +144,85 @@ export async function POST(
 
     const supabase = await supabaseServer();
     const supabaseAny = supabase as any;
+    let supabaseWrite: any = supabaseAny;
+    try {
+      supabaseWrite = await supabaseServerAdmin();
+    } catch {
+      // Fall back to user-scoped client when admin credentials are unavailable.
+    }
     const runStartedAt = new Date().toISOString();
     const cycleId = `cycle-${Date.now()}`;
 
-    const { data: runRow, error: runError } = await supabaseAny
+    if (stage === "schedule_only") {
+      const { data: waitingRow, error: waitingError } = await supabaseWrite
+        .from("governor_runs")
+        .insert([
+          {
+            instance_id: instanceId,
+            status: "waiting",
+            cycle_id: cycleId,
+            mode: trigger === "manual" ? "MANUAL" : "NORMAL",
+            current_phase: 0,
+            phase_data: {
+              phase: "scheduler",
+              phase_index: 0,
+              trigger,
+              ts_start: runStartedAt,
+            },
+            created_at: runStartedAt,
+            updated_at: runStartedAt,
+          },
+        ])
+        .select("*")
+        .maybeSingle();
+
+      if (waitingError || !waitingRow) {
+        throw new Error(waitingError?.message ?? "Failed to schedule run");
+      }
+
+      return NextResponse.json({ ok: true, run: waitingRow });
+    }
+
+    const { error: phaseZeroError } = await supabaseWrite
       .from("governor_runs")
       .insert([
         {
           instance_id: instanceId,
+          status: "completed",
           cycle_id: cycleId,
           mode: trigger === "manual" ? "MANUAL" : "NORMAL",
-          phase_data: {},
+          current_phase: 0,
+          phase_data: {
+            phase: "scheduler",
+            phase_index: 0,
+            trigger,
+            ts_start: runStartedAt,
+            ts_end: runStartedAt,
+          },
+          created_at: runStartedAt,
+          updated_at: runStartedAt,
+        },
+      ]);
+
+    if (phaseZeroError) {
+      throw new Error(phaseZeroError.message ?? "Failed to record scheduler completion");
+    }
+
+    const { data: runningRow, error: runningError } = await supabaseWrite
+      .from("governor_runs")
+      .insert([
+        {
+          instance_id: instanceId,
+          status: "running",
+          cycle_id: cycleId,
+          mode: trigger === "manual" ? "MANUAL" : "NORMAL",
+          current_phase: 1,
+          phase_data: {
+            phase: "observe",
+            phase_index: 1,
+            trigger,
+            ts_start: runStartedAt,
+          },
           created_at: runStartedAt,
           updated_at: runStartedAt,
         },
@@ -158,11 +230,11 @@ export async function POST(
       .select("*")
       .maybeSingle();
 
-    if (runError || !runRow) {
-      throw new Error(runError?.message ?? "Failed to start run");
+    if (runningError || !runningRow) {
+      throw new Error(runningError?.message ?? "Failed to start run");
     }
 
-    const runId = runRow.id;
+    const runId = runningRow.id;
     const connections = instance.connections ?? [];
     const connectionReports: Array<Record<string, unknown>> = [];
     const errorSummaries: Array<Record<string, unknown>> = [];
@@ -282,6 +354,8 @@ export async function POST(
       ts_start: runStartedAt,
       ts_end: runFinishedAt,
       mode: trigger === "manual" ? "MANUAL" : "NORMAL",
+      phase: "observe",
+      phase_index: 1,
       currentObjective: instance.primaryObjective,
       constraints: ["Observe-only mode: read-only API access."],
       riskRegister,
@@ -308,13 +382,26 @@ export async function POST(
       },
     };
 
-    await supabaseAny
+    const { data: completedRow, error: completedError } = await supabaseWrite
       .from("governor_runs")
-      .update({
-        phase_data: phaseData,
-        updated_at: runFinishedAt,
-      })
-      .eq("id", runId);
+      .insert([
+        {
+          instance_id: instanceId,
+          status: "completed",
+          cycle_id: cycleId,
+          mode: trigger === "manual" ? "MANUAL" : "NORMAL",
+          current_phase: 1,
+          phase_data: phaseData,
+          created_at: runFinishedAt,
+          updated_at: runFinishedAt,
+        },
+      ])
+      .select("*")
+      .maybeSingle();
+
+    if (completedError || !completedRow) {
+      throw new Error(completedError?.message ?? "Failed to record run completion");
+    }
 
     const { data: existingInstance } = await supabaseAny
       .from("governor_instances")
@@ -325,7 +412,7 @@ export async function POST(
       existingInstance && typeof existingInstance.config === "object" && existingInstance.config !== null
         ? existingInstance.config
         : {};
-    await supabaseAny
+    await supabaseWrite
       .from("governor_instances")
       .update({
         config: { ...existingConfig, last_cycle_at: runFinishedAt, last_decision_at: runFinishedAt },
@@ -342,7 +429,7 @@ export async function POST(
       metadata: Record<string, unknown>;
     }> = [
       {
-        run_id: runId,
+        run_id: completedRow.id,
         instance_id: instanceId,
         log_type: "situation_scan",
         severity,
@@ -452,7 +539,28 @@ export async function POST(
       });
     });
 
-    await supabaseAny.from("governor_logs").insert(logs);
+    await supabaseWrite.from("governor_logs").insert(logs);
+
+    const waitingStartedAt = new Date().toISOString();
+    await supabaseWrite
+      .from("governor_runs")
+      .insert([
+        {
+          instance_id: instanceId,
+          status: "waiting",
+          cycle_id: `cycle-${Date.now() + 1}`,
+          mode: "NORMAL",
+          current_phase: 0,
+          phase_data: {
+            phase: "scheduler",
+            phase_index: 0,
+            trigger: "schedule",
+            ts_start: waitingStartedAt,
+          },
+          created_at: waitingStartedAt,
+          updated_at: waitingStartedAt,
+        },
+      ]);
 
     const worldStatePayload = {
       instanceId,
@@ -466,7 +574,7 @@ export async function POST(
     };
 
     const eventPayload = {
-      id: runId,
+      id: completedRow.id,
       instanceId,
       kind: "situation_scan",
       createdAt: runFinishedAt,

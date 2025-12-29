@@ -326,9 +326,11 @@ function mapInstanceRow(row: RowRecord, options?: { includeSecrets?: boolean }):
     ? coerceStatus(statusOverride)
     : governorStatus === "paused"
       ? "paused"
-      : governorStatus === "archived"
-        ? "error"
-        : "coordinating";
+      : governorStatus === "not_started"
+        ? "idle"
+        : governorStatus === "archived"
+          ? "error"
+          : "coordinating";
   const lastDecision =
     pickString(config, ["last_decision_at", "lastDecisionAt"]) ??
     pickString(row, ["last_decision_at", "lastDecisionAt", "updated_at", "updatedAt"]);
@@ -954,7 +956,7 @@ export async function createSgaInstance(params: {
   const payload = {
     user_id: userId,
     label: params.name ?? "Self-Governing Agent",
-    status: "active",
+    status: "not_started",
     config,
   };
 

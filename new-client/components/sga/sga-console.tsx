@@ -292,6 +292,8 @@ type SettingsSheetProps = {
   onAssuranceChange: (value: string) => void;
   onAuthorityChange: (value: string) => void;
   onPolicySaved: (policy: SgaPolicy) => void;
+  onPolicySavedCadence?: (minutes: number | null) => void;
+  onCadenceDraftChange?: (minutes: number | null) => void;
 };
 
 type ConnectionDraft = {
@@ -373,6 +375,8 @@ function SettingsSheet({
   onAssuranceChange,
   onAuthorityChange,
   onPolicySaved,
+  onPolicySavedCadence,
+  onCadenceDraftChange,
 }: SettingsSheetProps) {
   const [policyDraft, setPolicyDraft] = useState<SgaPolicy>(policy ?? DEFAULT_POLICY);
   const [connectionsDraft, setConnectionsDraft] = useState<ConnectionDraft[]>([]);
@@ -410,6 +414,10 @@ function SettingsSheet({
     setThrottleNormal(String(basePolicy.throttleRules.minMinutesBetweenCyclesNormal));
     setThrottleAlert(String(basePolicy.throttleRules.minMinutesBetweenCyclesAlert));
     setMaxCyclesPerDay(String(basePolicy.throttleRules.maxCyclesPerDay));
+    onCadenceDraftChange?.(
+      Number(basePolicy.throttleRules.minMinutesBetweenCyclesNormal) ||
+        DEFAULT_POLICY.throttleRules.minMinutesBetweenCyclesNormal
+    );
     setAllowedActions(basePolicy.allowedActions.join(", "));
     setForbiddenActions(basePolicy.forbiddenActions.join(", "));
     setApprovalActions(basePolicy.approvalRequiredActions.join(", "));
@@ -460,6 +468,12 @@ function SettingsSheet({
         maxCyclesPerDay: Number(maxCyclesPerDay) || 0,
       },
     };
+    // Apply locally so cadence honors user input even if persistence fails (e.g., Supabase offline).
+    onPolicySaved(nextPolicy);
+    if (nextPolicy.throttleRules?.minMinutesBetweenCyclesNormal !== undefined) {
+      const parsed = Number(nextPolicy.throttleRules.minMinutesBetweenCyclesNormal);
+      onPolicySavedCadence?.(Number.isFinite(parsed) && parsed > 0 ? parsed : null);
+    }
     try {
       const res = await fetch(`/api/sga/instances/${instanceId}`, {
         method: "PATCH",
@@ -475,7 +489,6 @@ function SettingsSheet({
         throw new Error(payload?.error || "Failed to save budgets");
       }
       setPolicyDraft(nextPolicy);
-      onPolicySaved(nextPolicy);
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : "Failed to save budgets");
     } finally {
@@ -492,6 +505,12 @@ function SettingsSheet({
       forbiddenActions: parseListInput(forbiddenActions),
       approvalRequiredActions: parseListInput(approvalActions),
     };
+    // Apply locally so runtime cadence and guards use the updated policy even if persistence fails.
+    onPolicySaved(nextPolicy);
+    if (nextPolicy.throttleRules?.minMinutesBetweenCyclesNormal !== undefined) {
+      const parsed = Number(nextPolicy.throttleRules.minMinutesBetweenCyclesNormal);
+      onPolicySavedCadence?.(Number.isFinite(parsed) && parsed > 0 ? parsed : null);
+    }
     try {
       const res = await fetch(`/api/sga/instances/${instanceId}`, {
         method: "PATCH",
@@ -503,7 +522,6 @@ function SettingsSheet({
         throw new Error(payload?.error || "Failed to save policy");
       }
       setPolicyDraft(nextPolicy);
-      onPolicySaved(nextPolicy);
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : "Failed to save policy");
     } finally {
@@ -727,7 +745,12 @@ function SettingsSheet({
                 <label className="text-xs text-muted-foreground">Min minutes between cycles (normal)</label>
                 <Input
                   value={throttleNormal}
-                  onChange={(event) => setThrottleNormal(event.target.value)}
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    setThrottleNormal(value);
+                    const parsed = Number(value);
+                    onCadenceDraftChange?.(Number.isFinite(parsed) && parsed > 0 ? parsed : null);
+                  }}
                   type="number"
                   min="0"
                   className="bg-white/5 border-white/10 text-sm"
@@ -974,6 +997,7 @@ export function SgaConsole({ instance, events, worldState }: SgaConsoleProps) {
   const [eventsState, setEventsState] = useState<SgaEvent[]>(events);
   const [worldStateState, setWorldStateState] = useState<SgaWorldState>(worldState);
   const [policyState, setPolicyState] = useState<SgaPolicy>(instance.policy ?? DEFAULT_POLICY);
+  const [cadenceOverrideMinutes, setCadenceOverrideMinutes] = useState<number | null>(null);
   const [lastRunAtState, setLastRunAtState] = useState<number | null>(null);
   const [nextRunLabel, setNextRunLabel] = useState<string>("--");
   const [runPhase, setRunPhase] = useState<RunPhase>("waiting");
@@ -996,7 +1020,17 @@ export function SgaConsole({ instance, events, worldState }: SgaConsoleProps) {
 
   useEffect(() => {
     setPolicyState(instance.policy ?? DEFAULT_POLICY);
+    const minNormal =
+      instance.policy?.throttleRules?.minMinutesBetweenCyclesNormal ??
+      DEFAULT_POLICY.throttleRules.minMinutesBetweenCyclesNormal;
+    setCadenceOverrideMinutes(Math.max(1, Number(minNormal) || DEFAULT_POLICY.throttleRules.minMinutesBetweenCyclesNormal));
   }, [instance.policy]);
+
+  const hasEverRun = useMemo(() => {
+    if (eventsState.length > 0) return true;
+    if (instance.lastDecisionAt && status !== "idle") return true;
+    return false;
+  }, [eventsState.length, instance.lastDecisionAt, status]);
 
   useEffect(() => {
     if (status === "paused" || status === "idle") {
@@ -1007,17 +1041,18 @@ export function SgaConsole({ instance, events, worldState }: SgaConsoleProps) {
   }, [status]);
 
   useEffect(() => {
+    if (lastRunAtRef.current !== null) return;
+    if (!hasEverRun) return;
     const fallback =
       instance.lastDecisionAt ??
-      worldStateState.lastUpdatedAt ??
-      null;
+      (eventsState.length > 0 ? worldStateState.lastUpdatedAt : null);
     if (!fallback) return;
     const ts = new Date(fallback).getTime();
     if (!Number.isNaN(ts)) {
       lastRunAtRef.current = ts;
       setLastRunAtState(ts);
     }
-  }, [instance.lastDecisionAt, worldStateState.lastUpdatedAt]);
+  }, [eventsState.length, hasEverRun, instance.lastDecisionAt, worldStateState.lastUpdatedAt]);
 
   useEffect(() => {
     timelineEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
@@ -1082,6 +1117,18 @@ export function SgaConsole({ instance, events, worldState }: SgaConsoleProps) {
   );
 
   const policyConfig = policyState;
+  const throttleRules = useMemo(() => {
+    const merged = { ...DEFAULT_POLICY.throttleRules, ...(policyConfig?.throttleRules ?? {}) };
+    const coerceMinutes = (value: unknown, fallback: number) => {
+      const parsed = Number(value);
+      return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+    };
+    return {
+      minMinutesBetweenCyclesNormal: coerceMinutes(merged.minMinutesBetweenCyclesNormal, 1),
+      minMinutesBetweenCyclesAlert: coerceMinutes(merged.minMinutesBetweenCyclesAlert, 1),
+      maxCyclesPerDay: coerceMinutes(merged.maxCyclesPerDay, DEFAULT_POLICY.throttleRules.maxCyclesPerDay),
+    };
+  }, [policyConfig?.throttleRules]);
 
   const mergeEvents = useCallback((prev: SgaEvent[], incoming: SgaEvent[]) => {
     const map = new Map<string, SgaEvent>();
@@ -1180,17 +1227,20 @@ export function SgaConsole({ instance, events, worldState }: SgaConsoleProps) {
     return 15;
   }, [status, highestRisk]);
   const cadenceMinutes = useMemo(() => {
+    const normal = cadenceOverrideMinutes ?? throttleRules.minMinutesBetweenCyclesNormal;
+    const alert = throttleRules.minMinutesBetweenCyclesAlert;
     if (highestRisk?.level === "high") {
-      return Math.max(1, policyConfig.throttleRules.minMinutesBetweenCyclesAlert || 2);
+      return Math.max(1, alert);
     }
-    return Math.max(1, policyConfig.throttleRules.minMinutesBetweenCyclesNormal || 15);
-  }, [highestRisk?.level, policyConfig.throttleRules.minMinutesBetweenCyclesAlert, policyConfig.throttleRules.minMinutesBetweenCyclesNormal]);
-  const cadenceReason = isStopped
-    ? "paused"
-    : highestRisk?.level === "high"
-      ? "alert cadence"
-      : "default cadence";
-  const nextCycleLabel = isStopped ? "Paused" : nextRunLabel;
+    return Math.max(1, normal);
+  }, [
+    cadenceOverrideMinutes,
+    highestRisk?.level,
+    throttleRules.minMinutesBetweenCyclesAlert,
+    throttleRules.minMinutesBetweenCyclesNormal,
+  ]);
+  const cadenceReason = highestRisk?.level === "high" ? "alert cadence" : null;
+  const nextCycleLabel = isStopped ? (hasEverRun ? "Paused" : "Never run") : nextRunLabel;
   const lastRunLabel = lastRunAtState
     ? formatTime(new Date(lastRunAtState).toISOString())
     : "Not yet";
@@ -1204,8 +1254,18 @@ export function SgaConsole({ instance, events, worldState }: SgaConsoleProps) {
     ? Math.round(worldStateState.budgets.dailyTimeBudgetHours * 60)
     : null;
 
+  const showRiskBadge = highestRisk && highestRisk.level !== "low";
+  const showBudgetAlert = budgetRemainingUsd !== null && budgetRemainingUsd <= 0;
+  const showTimeAlert = timeRemainingMinutes !== null && timeRemainingMinutes <= 0;
+
   const toggleSection = (key: keyof typeof openSections) => {
     setOpenSections((prev) => ({ ...prev, [key]: !prev[key] }));
+  };
+
+  const handlePolicySaved = (policy: SgaPolicy) => {
+    setPolicyState(policy);
+    const parsed = Number(policy.throttleRules?.minMinutesBetweenCyclesNormal);
+    setCadenceOverrideMinutes(Number.isFinite(parsed) && parsed > 0 ? parsed : null);
   };
 
   const runSgaCycle = useCallback(
@@ -1256,7 +1316,7 @@ export function SgaConsole({ instance, events, worldState }: SgaConsoleProps) {
       return;
     }
 
-    const effectiveCadence = Math.max(1, cadenceMinutes || 15);
+    const effectiveCadence = Math.max(1, cadenceMinutes ?? throttleRules.minMinutesBetweenCyclesNormal);
     const cadenceMs = effectiveCadence * 60 * 1000;
     if (pausedRemainingMsRef.current !== null) {
       const adjustedLastRun = Date.now() - (cadenceMs - pausedRemainingMsRef.current);
@@ -1308,7 +1368,7 @@ export function SgaConsole({ instance, events, worldState }: SgaConsoleProps) {
       return;
     }
 
-    const cadenceMs = cadenceMinutes * 60 * 1000;
+    const cadenceMs = (cadenceMinutes ?? throttleRules.minMinutesBetweenCyclesNormal) * 60 * 1000;
     const formatCountdown = (ms: number) => {
       if (ms <= 0) return "now";
       const totalSeconds = Math.ceil(ms / 1000);
@@ -1330,19 +1390,23 @@ export function SgaConsole({ instance, events, worldState }: SgaConsoleProps) {
   }, [cadenceMinutes, isStopped, lastRunAtState]);
 
   useEffect(() => {
-    if (!isStopped) return;
-    if (pausedRemainingMsRef.current !== null) return;
-    const cadenceMs = cadenceMinutes ? cadenceMinutes * 60 * 1000 : null;
-    if (cadenceMs) {
-      const lastRun = lastRunAtRef.current ?? Date.now();
-      const remaining = Math.max(0, cadenceMs - (Date.now() - lastRun));
-      pausedRemainingMsRef.current = remaining;
-      setPausedRemainingMsState(remaining);
-    } else {
+    if (!isStopped) {
       pausedRemainingMsRef.current = null;
       setPausedRemainingMsState(null);
+      return;
     }
-  }, [cadenceMinutes, isStopped]);
+    const cadenceMs = cadenceMinutes ? cadenceMinutes * 60 * 1000 : null;
+    if (!cadenceMs) {
+      pausedRemainingMsRef.current = null;
+      setPausedRemainingMsState(null);
+      return;
+    }
+    const lastRun = lastRunAtRef.current ?? Date.now();
+    // Treat an instance that has never run as having the full interval remaining.
+    const remaining = !hasEverRun ? cadenceMs : Math.max(0, cadenceMs - (Date.now() - lastRun));
+    pausedRemainingMsRef.current = remaining;
+    setPausedRemainingMsState(remaining);
+  }, [cadenceMinutes, hasEverRun, isStopped]);
 
   const handleToggleStatus = async () => {
     const nextStatus: SgaStatus = isStopped ? "coordinating" : "paused";
@@ -1360,6 +1424,38 @@ export function SgaConsole({ instance, events, worldState }: SgaConsoleProps) {
         throw new Error(payload?.error || "Failed to update status");
       }
       setStatus(nextStatus);
+      if (isStopped) {
+        if (!hasEverRun) {
+          try {
+            const scheduleRes = await fetch(`/api/sga/instances/${instance.id}/run`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ trigger: "manual", stage: "schedule_only" }),
+            });
+            const schedulePayload = await scheduleRes.json().catch(() => null);
+            if (!scheduleRes.ok) {
+              throw new Error(schedulePayload?.error || "Failed to schedule SGA cycle");
+            }
+          } catch (err) {
+            setRunError(err instanceof Error ? err.message : "Failed to schedule SGA cycle");
+          }
+        }
+        const now = Date.now();
+        const cadenceMs =
+          (cadenceMinutes ?? throttleRules.minMinutesBetweenCyclesNormal) * 60 * 1000;
+        const remaining =
+          pausedRemainingMsRef.current ?? pausedRemainingMsState ?? null;
+        if (remaining !== null && cadenceMs > 0) {
+          const adjustedLastRun = now - (cadenceMs - remaining);
+          lastRunAtRef.current = adjustedLastRun;
+          setLastRunAtState(adjustedLastRun);
+        } else {
+          lastRunAtRef.current = now;
+          setLastRunAtState(now);
+        }
+        pausedRemainingMsRef.current = null;
+        setPausedRemainingMsState(null);
+      }
     } catch (err) {
       setSettingsError(err instanceof Error ? err.message : "Unable to update status");
     } finally {
@@ -1532,39 +1628,49 @@ export function SgaConsole({ instance, events, worldState }: SgaConsoleProps) {
             </div>
           </div>
           <div className="flex-1 min-w-0 flex justify-center">
-            <div className="flex flex-wrap md:flex-nowrap items-center gap-x-8 gap-y-2 text-xs text-muted-foreground max-w-6xl">
+            <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-xs text-muted-foreground w-full max-w-[min(1100px,calc(100vw-380px))]">
               <div className="flex items-center gap-2 shrink-0">
                 <Activity className="h-4 w-4 shrink-0 text-sky-200" />
                 <span className="text-white/60">Mode</span>
                 <span className="font-semibold text-white">{modeTone}</span>
               </div>
-              <div className="flex min-w-0 flex-none w-fit max-w-[360px] items-center gap-2">
-                <Target className="h-4 w-4 shrink-0 text-sky-200" />
-                <span className="text-white/60">Focus</span>
-                <span className="min-w-0 truncate text-white">{focusThread}</span>
-              </div>
               <div className="flex items-center gap-2 shrink-0">
-                <ListChecks className="h-4 w-4 shrink-0 text-amber-200" />
-                <span className="text-white/60">Decision</span>
-                <Badge
-                  variant="outline"
-                  className={cn("border px-2 py-0.5 text-[11px] font-semibold uppercase", getDecisionTone(decisionStatus))}
-                >
-                  {decisionStatus}
-                </Badge>
-              </div>
-              <div className="flex items-center gap-2 shrink-0">
-                <ShieldAlert className="h-4 w-4 shrink-0 text-amber-200" />
-                <span className="text-white/60">Risk</span>
-                <span className="text-white">{riskPosture}</span>
-                <span className="text-white/50">- {confidenceLabel}</span>
+                {isStopped ? <Pause className="h-4 w-4 shrink-0 text-amber-200" /> : <Play className="h-4 w-4 shrink-0 text-emerald-200" />}
+                <span className="text-white/60">State</span>
+                <span className="font-semibold text-white">{isStopped ? (hasEverRun ? "Paused" : "Idle") : "Active"}</span>
               </div>
               <div className="flex items-center gap-2 shrink-0">
                 <Clock3 className="h-4 w-4 shrink-0 text-sky-200" />
                 <span className="text-white/60">Next</span>
                 <span className="text-white">{nextCycleLabel}</span>
-                <span className="text-white/50">({cadenceReason})</span>
+                {cadenceReason ? (
+                  <span className="text-white/50">({cadenceReason})</span>
+                ) : null}
               </div>
+              {showRiskBadge && highestRisk ? (
+                <div className="flex items-center gap-2 shrink-0">
+                  <ShieldAlert className="h-4 w-4 shrink-0 text-amber-200" />
+                  <span className="text-white/60">Risk</span>
+                  <Badge
+                    variant="outline"
+                    className={cn("border px-2 py-0.5 text-[11px] font-semibold uppercase", getRiskTone(highestRisk.level))}
+                  >
+                    {highestRisk.level} risk
+                  </Badge>
+                </div>
+              ) : null}
+              {showBudgetAlert ? (
+                <div className="flex items-center gap-2 shrink-0 text-amber-200">
+                  <AlertTriangle className="h-4 w-4 shrink-0" />
+                  <span className="font-semibold text-amber-100">Budget capped</span>
+                </div>
+              ) : null}
+              {showTimeAlert ? (
+                <div className="flex items-center gap-2 shrink-0 text-amber-200">
+                  <AlertTriangle className="h-4 w-4 shrink-0" />
+                  <span className="font-semibold text-amber-100">Active window exhausted</span>
+                </div>
+              ) : null}
             </div>
           </div>
         </div>
@@ -1577,7 +1683,7 @@ export function SgaConsole({ instance, events, worldState }: SgaConsoleProps) {
             disabled={statusSaving}
           >
             {isStopped ? <Play className="h-4 w-4" /> : <Pause className="h-4 w-4" />}
-            {isStopped ? "Start" : "Pause"}
+            {isStopped ? (hasEverRun ? "Resume" : "Start") : "Pause"}
           </Button>
           <Button
             variant="outline"
@@ -1725,7 +1831,9 @@ export function SgaConsole({ instance, events, worldState }: SgaConsoleProps) {
                         <div className="rounded-xl border border-border/70 bg-background/70 p-3">
                           <p className="text-xs text-muted-foreground">Next check</p>
                           <p className="text-sm font-semibold text-white">{nextCycleLabel}</p>
-                          <p className="text-xs text-muted-foreground">{cadenceReason}</p>
+                          {cadenceReason ? (
+                            <p className="text-xs text-muted-foreground">{cadenceReason}</p>
+                          ) : null}
                         </div>
                       </div>
                       <div className="mt-4 flex flex-wrap items-center gap-2">
@@ -2117,7 +2225,9 @@ export function SgaConsole({ instance, events, worldState }: SgaConsoleProps) {
       connections={instance.connections ?? []}
       onAssuranceChange={handleAssuranceChange}
       onAuthorityChange={handleAuthorityChange}
-      onPolicySaved={setPolicyState}
+      onPolicySaved={handlePolicySaved}
+      onPolicySavedCadence={setCadenceOverrideMinutes}
+      onCadenceDraftChange={setCadenceOverrideMinutes}
     />
     </>
   );
