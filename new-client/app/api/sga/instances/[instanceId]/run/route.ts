@@ -333,7 +333,14 @@ export async function POST(
       })
       .eq("id", instanceId);
 
-    const logs = [
+    const logs: Array<{
+      run_id: string;
+      instance_id: string;
+      log_type: string;
+      severity: string;
+      content: string;
+      metadata: Record<string, unknown>;
+    }> = [
       {
         run_id: runId,
         instance_id: instanceId,
