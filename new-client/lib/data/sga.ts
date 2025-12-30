@@ -882,7 +882,6 @@ export async function loadSgaEvents(instanceId: string, limit = 50): Promise<Sga
 
     const runRows = (runs ?? []) as RowRecord[];
     const runIds = runRows.map((run: any) => run.id).filter(Boolean);
-    const runEvents = buildObservationEventsFromRuns(runRows, instanceId);
 
     const { data: logsByInstance, error: logsByInstanceError } = await supabaseAny
       .from("governor_logs")
@@ -917,17 +916,13 @@ export async function loadSgaEvents(instanceId: string, limit = 50): Promise<Sga
       }
     }
 
-    const shouldAugmentFromRuns = logEvents.length < 3;
-    const merged = shouldAugmentFromRuns
-      ? mergeEventLists(logEvents, runEvents)
-      : logEvents;
-    if (merged.length === 0) {
+    if (logEvents.length === 0) {
       return [];
     }
-    if (merged.length <= limit) {
-      return merged;
+    if (logEvents.length <= limit) {
+      return logEvents;
     }
-    return merged.slice(merged.length - limit);
+    return logEvents.slice(logEvents.length - limit);
   } catch (error) {
     if (isMissingTableError(error)) {
       // TODO: Replace mock events with Supabase-backed data when governor_logs is ready.

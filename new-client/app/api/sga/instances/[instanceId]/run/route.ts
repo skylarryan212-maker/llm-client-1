@@ -244,6 +244,36 @@ export async function POST(
     }
 
     const runId = runningRow.id;
+    const logs: Array<{
+      run_id: string;
+      instance_id: string;
+      log_type: string;
+      severity: string;
+      content: string;
+      metadata: Record<string, unknown>;
+      created_at: string;
+    }> = [];
+    const addLog = (entry: Omit<(typeof logs)[number], "created_at">) => {
+      logs.push({ ...entry, created_at: new Date().toISOString() });
+    };
+
+    addLog({
+      run_id: runId,
+      instance_id: instanceId,
+      log_type: "cycle_trigger",
+      severity: "info",
+      content: `Cycle triggered via ${trigger}.`,
+      metadata: { trigger, phase: 0 },
+    });
+
+    addLog({
+      run_id: runId,
+      instance_id: instanceId,
+      log_type: "phase_start",
+      severity: "info",
+      content: "Phase 1 started (observe).",
+      metadata: { trigger, phase: 1 },
+    });
     const connections = instance.connections ?? [];
     const connectionReports: Array<Record<string, unknown>> = [];
     const errorSummaries: Array<Record<string, unknown>> = [];
@@ -326,6 +356,22 @@ export async function POST(
             error: result.preview,
           });
         }
+        addLog({
+          run_id: runId,
+          instance_id: instanceId,
+          log_type: "api_call",
+          severity: result.ok ? "info" : "medium",
+          content: `GET ${stripQuery(resolvedUrl)} -> ${result.status ?? "error"}`,
+          metadata: {
+            connection: connection.name,
+            endpoint,
+            url: stripQuery(resolvedUrl),
+            ok: result.ok,
+            status: result.status,
+            durationMs: result.durationMs,
+            preview: result.preview,
+          },
+        });
         endpointResults.push({
           endpoint,
           url: resolvedUrl,
@@ -429,32 +475,24 @@ export async function POST(
       })
       .eq("id", instanceId);
 
-    const logs: Array<{
-      run_id: string;
-      instance_id: string;
-      log_type: string;
-      severity: string;
-      content: string;
-      metadata: Record<string, unknown>;
-    }> = [
-      {
-        run_id: completedRow.id,
-        instance_id: instanceId,
-        log_type: "situation_scan",
-        severity,
-        content: summary,
-        metadata: {
-          trigger,
-          connectionsChecked: connectionReports.length,
-          endpointsChecked,
-          failures,
-        },
+    addLog({
+      run_id: completedRow.id,
+      instance_id: instanceId,
+      log_type: "phase_complete",
+      severity,
+      content: `Phase 1 completed. ${summary}`,
+      metadata: {
+        trigger,
+        phase: 1,
+        connectionsChecked: connectionReports.length,
+        endpointsChecked,
+        failures,
       },
-    ];
+    });
 
     if (errorSummaries.length > 0) {
-      logs.push({
-        run_id: runId,
+      addLog({
+        run_id: completedRow.id,
         instance_id: instanceId,
         log_type: "error",
         severity: failures > 3 ? "high" : "medium",
@@ -466,89 +504,9 @@ export async function POST(
       });
     }
 
-    let detailLogCount = 0;
-    const detailEvents: Array<Record<string, unknown>> = [];
-
-    const pushDetailLog = (entry: {
-      severity: string;
-      content: string;
-      metadata: Record<string, unknown>;
-    }) => {
-      if (detailLogCount >= MAX_DETAIL_LOGS) return;
-      detailLogCount += 1;
-      logs.push({
-        run_id: runId,
-        instance_id: instanceId,
-        log_type: "situation_scan",
-        severity: entry.severity,
-        content: entry.content,
-        metadata: entry.metadata,
-      });
-      detailEvents.push({
-        id: `${runId}-${detailLogCount}`,
-        instanceId,
-        kind: "situation_scan",
-        createdAt: runFinishedAt,
-        title: entry.content,
-        summary: entry.metadata.preview ?? "",
-        severity: entry.severity,
-        metadata: entry.metadata,
-      });
-    };
-
-    connectionReports.forEach((report) => {
-      if (detailLogCount >= MAX_DETAIL_LOGS) return;
-      if (report.skipped) {
-        pushDetailLog({
-          severity: "info",
-          content: `Connection ${report.name}: skipped (${report.reason})`,
-          metadata: report as Record<string, unknown>,
-        });
-        return;
-      }
-
-      const endpoints = Array.isArray(report.endpoints) ? report.endpoints : [];
-      const failuresForConnection = endpoints.filter((item: any) => !item.ok).length;
-      pushDetailLog({
-        severity: failuresForConnection > 0 ? "medium" : "info",
-        content: `Connection ${report.name}: ${endpoints.length} endpoints, ${failuresForConnection} failures`,
-        metadata: {
-          connection: report.name,
-          connectionId: report.id,
-          endpointsChecked: endpoints.length,
-          failures: failuresForConnection,
-        },
-      });
-
-      endpoints.forEach((endpointResult: any) => {
-        if (detailLogCount >= MAX_DETAIL_LOGS) return;
-        const endpointLabel = stripQuery(endpointResult.url ?? endpointResult.endpoint ?? "");
-        const statusLabel =
-          typeof endpointResult.status === "number"
-            ? String(endpointResult.status)
-            : endpointResult.ok
-              ? "ok"
-              : "error";
-        const durationLabel =
-          typeof endpointResult.durationMs === "number" ? `${endpointResult.durationMs}ms` : "n/a";
-        const preview = endpointResult.preview ? truncate(endpointResult.preview, 240) : "";
-        pushDetailLog({
-          severity: endpointResult.ok ? "info" : "medium",
-          content: `GET ${endpointLabel} -> ${statusLabel} (${durationLabel})`,
-          metadata: {
-            connection: report.name,
-            endpoint: endpointResult.endpoint,
-            url: endpointResult.url ? stripQuery(endpointResult.url) : null,
-            ok: endpointResult.ok,
-            status: endpointResult.status,
-            durationMs: endpointResult.durationMs,
-            preview,
-          },
-        });
-      });
-    });
-
-    await supabaseWrite.from("governor_logs").insert(logs);
+    if (logs.length > 0) {
+      await supabaseWrite.from("governor_logs").insert(logs);
+    }
 
     const waitingStartedAt = new Date().toISOString();
     await supabaseWrite
