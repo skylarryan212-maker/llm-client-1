@@ -248,6 +248,7 @@ export async function POST(
       run_id: string;
       instance_id: string;
       log_type: string;
+      phase: number;
       severity: string;
       content: string;
       metadata: Record<string, unknown>;
@@ -261,6 +262,7 @@ export async function POST(
       run_id: runId,
       instance_id: instanceId,
       log_type: "cycle_trigger",
+      phase: 0,
       severity: "info",
       content: `Cycle triggered via ${trigger}.`,
       metadata: { trigger, phase: 0 },
@@ -270,6 +272,7 @@ export async function POST(
       run_id: runId,
       instance_id: instanceId,
       log_type: "phase_start",
+      phase: 1,
       severity: "info",
       content: "Phase 1 started (observe).",
       metadata: { trigger, phase: 1 },
@@ -360,6 +363,7 @@ export async function POST(
           run_id: runId,
           instance_id: instanceId,
           log_type: "api_call",
+          phase: 1,
           severity: result.ok ? "info" : "medium",
           content: `GET ${stripQuery(resolvedUrl)} -> ${result.status ?? "error"}`,
           metadata: {
@@ -479,6 +483,7 @@ export async function POST(
       run_id: completedRow.id,
       instance_id: instanceId,
       log_type: "phase_complete",
+      phase: 1,
       severity,
       content: `Phase 1 completed. ${summary}`,
       metadata: {
@@ -495,6 +500,7 @@ export async function POST(
         run_id: completedRow.id,
         instance_id: instanceId,
         log_type: "error",
+        phase: 1,
         severity: failures > 3 ? "high" : "medium",
         content: "Connector errors detected during observation.",
         metadata: {
