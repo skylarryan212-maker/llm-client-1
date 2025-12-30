@@ -1,4 +1,4 @@
-import { supabaseServer } from "@/lib/supabase/server";
+import { supabaseServer, supabaseServerAdmin } from "@/lib/supabase/server";
 import { requireUserIdServer } from "@/lib/supabase/user";
 import type { Database, Json } from "@/lib/supabase/types";
 import type {
@@ -825,6 +825,41 @@ export async function loadSgaInstance(
     }
     return null;
   }
+}
+
+export async function loadSgaInstanceAdmin(
+  instanceId: string,
+  options?: { includeSecrets?: boolean }
+): Promise<SgaInstance | null> {
+  if (!instanceId) return null;
+  const supabase = await supabaseServerAdmin();
+  const supabaseAny = supabase as any;
+  const { data, error } = await supabaseAny
+    .from("governor_instances")
+    .select("*")
+    .eq("id", instanceId)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(`Failed to load SGA instance (admin): ${error.message}`);
+  }
+
+  return data ? mapInstanceRow(data as RowRecord, options) : null;
+}
+
+export async function listSgaInstancesAdmin(): Promise<SgaInstance[]> {
+  const supabase = await supabaseServerAdmin();
+  const supabaseAny = supabase as any;
+  const { data, error } = await supabaseAny
+    .from("governor_instances")
+    .select("*")
+    .order("updated_at", { ascending: false });
+
+  if (error) {
+    throw new Error(`Failed to load SGA instances (admin): ${error.message}`);
+  }
+
+  return (data ?? []).map((row: RowRecord) => mapInstanceRow(row));
 }
 
 export async function loadSgaEvents(instanceId: string, limit = 50): Promise<SgaEvent[]> {

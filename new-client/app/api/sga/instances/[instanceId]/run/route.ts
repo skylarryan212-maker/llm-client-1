@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { loadSgaInstance } from "@/lib/data/sga";
+import { loadSgaInstance, loadSgaInstanceAdmin } from "@/lib/data/sga";
 import { supabaseServer, supabaseServerAdmin } from "@/lib/supabase/server";
 import { requireUserIdServer } from "@/lib/supabase/user";
 import type { SgaConnection } from "@/lib/types/sga";
@@ -124,7 +124,14 @@ export async function POST(
   { params }: { params: Promise<{ instanceId: string }> }
 ) {
   try {
-    await requireUserIdServer();
+    const cronSecret = request.headers.get("x-sga-cron");
+    const isCron =
+      !!cronSecret &&
+      !!process.env.SGA_CRON_SECRET &&
+      cronSecret === process.env.SGA_CRON_SECRET;
+    if (!isCron) {
+      await requireUserIdServer();
+    }
     const { instanceId } = await params;
     if (!instanceId) {
       return NextResponse.json({ error: "Invalid instance id" }, { status: 400 });
@@ -137,7 +144,9 @@ export async function POST(
     const trigger = body?.trigger === "schedule" ? "schedule" : "manual";
     const stage = body?.stage === "schedule_only" ? "schedule_only" : "run";
 
-    const instance = await loadSgaInstance(instanceId, { includeSecrets: true });
+    const instance = isCron
+      ? await loadSgaInstanceAdmin(instanceId, { includeSecrets: true })
+      : await loadSgaInstance(instanceId, { includeSecrets: true });
     if (!instance) {
       return NextResponse.json({ error: "SGA instance not found" }, { status: 404 });
     }
