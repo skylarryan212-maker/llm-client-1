@@ -549,7 +549,7 @@ export async function POST(
       summary,
       severity,
     };
-    const eventsPayload = [eventPayload, ...detailEvents];
+    const eventsPayload = [eventPayload];
 
     return NextResponse.json({
       ok: true,
