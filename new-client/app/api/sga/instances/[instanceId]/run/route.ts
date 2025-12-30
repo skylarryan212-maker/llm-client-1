@@ -505,7 +505,10 @@ export async function POST(
     }
 
     if (logs.length > 0) {
-      await supabaseWrite.from("governor_logs").insert(logs);
+      const { error: logsError } = await supabaseWrite.from("governor_logs").insert(logs);
+      if (logsError) {
+        throw new Error(`Failed to write governor logs: ${logsError.message}`);
+      }
     }
 
     const waitingStartedAt = new Date().toISOString();
@@ -549,7 +552,19 @@ export async function POST(
       summary,
       severity,
     };
-    const eventsPayload = [eventPayload];
+    const eventsPayload = [
+      eventPayload,
+      ...logs.map((entry, index) => ({
+        id: `${completedRow.id}-${entry.log_type}-${index}`,
+        instanceId,
+        kind: entry.log_type === "error" ? "error" : "situation_scan",
+        createdAt: entry.created_at ?? runFinishedAt,
+        title: entry.content,
+        summary: (entry.metadata as any)?.preview ?? "",
+        severity: entry.severity as "info" | "low" | "medium" | "high",
+        metadata: entry.metadata,
+      })),
+    ];
 
     return NextResponse.json({
       ok: true,
