@@ -934,6 +934,46 @@ function dataUrlToBuffer(dataUrl: string): Buffer {
   return Buffer.from(base64, "base64");
 }
 
+function inferMimeFromDataUrl(dataUrl: string): string | null {
+  const match = dataUrl.match(/^data:([^;]+);/i);
+  if (!match || !match[1]) return null;
+  return match[1].toLowerCase();
+}
+
+function inferMimeFromPath(path: string): string | null {
+  const lower = path.toLowerCase();
+  if (lower.endsWith(".png")) return "image/png";
+  if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return "image/jpeg";
+  if (lower.endsWith(".webp")) return "image/webp";
+  if (lower.endsWith(".gif")) return "image/gif";
+  if (lower.endsWith(".bmp")) return "image/bmp";
+  if (lower.endsWith(".tiff") || lower.endsWith(".tif")) return "image/tiff";
+  if (lower.endsWith(".pdf")) return "application/pdf";
+  if (lower.endsWith(".txt")) return "text/plain";
+  if (lower.endsWith(".md")) return "text/markdown";
+  if (lower.endsWith(".csv")) return "text/csv";
+  if (lower.endsWith(".json")) return "application/json";
+  return null;
+}
+
+function resolveAttachmentMime(att: { mime?: string; dataUrl?: string; url?: string; name?: string }): string | null {
+  const raw = typeof att.mime === "string" ? att.mime.trim().toLowerCase() : "";
+  if (raw) return raw;
+  if (att.dataUrl) {
+    const fromData = inferMimeFromDataUrl(att.dataUrl);
+    if (fromData) return fromData;
+  }
+  if (att.name) {
+    const fromName = inferMimeFromPath(att.name);
+    if (fromName) return fromName;
+  }
+  if (att.url) {
+    const fromUrl = inferMimeFromPath(att.url);
+    if (fromUrl) return fromUrl;
+  }
+  return null;
+}
+
 async function attachmentToBuffer(att: { dataUrl?: string; url?: string; name?: string }) {
   if (att.dataUrl) return dataUrlToBuffer(att.dataUrl);
   if (att.url) {
@@ -3024,7 +3064,8 @@ export async function POST(request: NextRequest) {
         const buffer = await attachmentToBuffer(att);
         if (!buffer) continue;
         const fileSize = buffer.length;
-        const isImage = typeof att.mime === 'string' && att.mime.startsWith('image/');
+        const resolvedMime = resolveAttachmentMime(att);
+        const isImage = typeof resolvedMime === "string" && resolvedMime.startsWith("image/");
         const shouldUpload = !isImage || fileSize > 100 * 1024;
         const withinFileApiLimit = fileSize <= 50 * 1024 * 1024; // 50 MB per OpenAI file input
         // Upload to OpenAI for file_search when not a small image
@@ -3033,8 +3074,9 @@ export async function POST(request: NextRequest) {
             try {
               // Convert Buffer to Uint8Array for Blob compatibility
               const uint8Array = new Uint8Array(buffer);
-              const blob = new Blob([uint8Array], { type: att.mime || "application/octet-stream" });
-              const file = new File([blob], att.name || "file", { type: att.mime || "application/octet-stream" });
+              const contentType = resolvedMime || "application/octet-stream";
+              const blob = new Blob([uint8Array], { type: contentType });
+              const file = new File([blob], att.name || "file", { type: contentType });
 
               // Upload to OpenAI vector store directly (like legacy)
               if (!vectorStoreOpenAI) {
@@ -3072,7 +3114,7 @@ export async function POST(request: NextRequest) {
 
         // Upload to OpenAI Files API for direct input_file consumption (skip images; require <=50MB)
         const isPdf =
-          (typeof att.mime === "string" && att.mime.toLowerCase().includes("pdf")) ||
+          (typeof resolvedMime === "string" && resolvedMime.includes("pdf")) ||
           (typeof att.name === "string" && att.name.toLowerCase().endsWith(".pdf"));
         if (!isImage && withinFileApiLimit && isPdf) {
           try {
@@ -3085,7 +3127,7 @@ export async function POST(request: NextRequest) {
               );
             }
             const uploadable = await toFile(buffer, att.name || "file", {
-              type: att.mime || "application/octet-stream",
+              type: resolvedMime || "application/octet-stream",
             });
             const uploaded = await vectorStoreOpenAI.files.create({
               file: uploadable,
@@ -3254,7 +3296,8 @@ export async function POST(request: NextRequest) {
     // Include current-turn image attachments directly for vision
     if (Array.isArray(body.attachments)) {
       for (const att of body.attachments) {
-        const isImage = typeof att?.mime === "string" && att.mime.startsWith("image/");
+        const resolvedMime = resolveAttachmentMime(att);
+        const isImage = typeof resolvedMime === "string" && resolvedMime.startsWith("image/");
         const imageUrl = att?.dataUrl || att?.url;
         if (isImage && imageUrl) {
           userContentParts.push({ type: "input_image", image_url: imageUrl });
