@@ -4447,74 +4447,74 @@ export async function POST(request: NextRequest) {
             try {
               if (!assistantRowForMeta) {
                 console.warn("[artifacts] Skipping artifact write; missing assistant message row.");
-                throw new Error("Missing assistant message row");
-              }
-              const artifactsFromRouter = Array.isArray((modelConfig as any).artifactsToWrite)
-                ? (modelConfig as any).artifactsToWrite.filter(
-                    (a: any) =>
-                      a &&
-                      typeof a.type === "string" &&
-                      a.type.trim().length > 0 &&
-                      typeof a.title === "string" &&
-                      a.title.trim().length > 0 &&
-                      typeof a.content === "string" &&
-                      a.content.trim().length >= 1
-                  )
-                : [];
-              const topicIdForArtifacts =
-                assistantRowForMeta.topic_id ??
-                resolvedTopicDecision.primaryTopicId ??
-                userMessageRow?.topic_id ??
-                null;
-              const canWriteArtifacts = Boolean(topicIdForArtifacts) && artifactsFromRouter.length > 0;
-              if (canWriteArtifacts) {
-                if (assistantRowForMeta.topic_id !== topicIdForArtifacts) {
-                  try {
-                    await supabaseAny
-                      .from("messages")
-                      .update({ topic_id: topicIdForArtifacts })
-                      .eq("id", assistantRowForMeta.id);
-                    assistantRowForMeta = { ...assistantRowForMeta, topic_id: topicIdForArtifacts } as any;
-                  } catch (topicUpdateErr) {
-                    console.error("[artifacts] Failed to backfill assistant topic_id:", topicUpdateErr);
-                  }
-                }
-                const inserts = artifactsFromRouter.map((art: any) => {
-                  const content = String(art.content || "").trim();
-                  const title = String(art.title || "").trim().slice(0, 200) || "Artifact";
-                  const type = typeof art.type === "string" ? art.type : "other";
-                  const summary = content.replace(/\s+/g, " ").slice(0, 180);
-                  const tokenEstimate = Math.max(50, Math.round(Math.max(summary.length, content.length) / 4));
-                  const keywords = extractKeywords([title, summary, content].join(" "), undefined);
-                  return {
-                    conversation_id: assistantRowForMeta.conversation_id,
-                    topic_id: topicIdForArtifacts,
-                    created_by_message_id: assistantRowForMeta.id,
-                    type,
-                    title,
-                    summary,
-                    content,
-                    token_estimate: tokenEstimate,
-                    keywords,
-                  };
-                });
-
-                try {
-                  await supabaseAny.from("artifacts").insert(inserts);
-                  console.log(`[artifacts] Inserted ${inserts.length} artifacts from writer router`);
-                } catch (error: any) {
-                  console.error("[artifacts] Failed to insert artifacts:", error);
-                  if (String(error?.message || "").includes("keywords")) {
-                    const insertsNoKeywords = inserts.map((insert: any) => {
-                      const rest = { ...insert };
-                      delete (rest as any).keywords;
-                      return rest;
-                    });
+              } else {
+                const artifactsFromRouter = Array.isArray((modelConfig as any).artifactsToWrite)
+                  ? (modelConfig as any).artifactsToWrite.filter(
+                      (a: any) =>
+                        a &&
+                        typeof a.type === "string" &&
+                        a.type.trim().length > 0 &&
+                        typeof a.title === "string" &&
+                        a.title.trim().length > 0 &&
+                        typeof a.content === "string" &&
+                        a.content.trim().length >= 1
+                    )
+                  : [];
+                const topicIdForArtifacts =
+                  assistantRowForMeta.topic_id ??
+                  resolvedTopicDecision.primaryTopicId ??
+                  userMessageRow?.topic_id ??
+                  null;
+                const canWriteArtifacts = Boolean(topicIdForArtifacts) && artifactsFromRouter.length > 0;
+                if (canWriteArtifacts) {
+                  if (assistantRowForMeta.topic_id !== topicIdForArtifacts) {
                     try {
-                      await supabaseAny.from("artifacts").insert(insertsNoKeywords);
-                      console.log(`[artifacts] Inserted ${insertsNoKeywords.length} artifacts without keywords (keywords column missing)`);
-                    } catch (err2) {
-                      console.error("[artifacts] Retry insert without keywords failed:", err2);
+                      await supabaseAny
+                        .from("messages")
+                        .update({ topic_id: topicIdForArtifacts })
+                        .eq("id", assistantRowForMeta.id);
+                      assistantRowForMeta = { ...assistantRowForMeta, topic_id: topicIdForArtifacts } as any;
+                    } catch (topicUpdateErr) {
+                      console.error("[artifacts] Failed to backfill assistant topic_id:", topicUpdateErr);
+                    }
+                  }
+                  const inserts = artifactsFromRouter.map((art: any) => {
+                    const content = String(art.content || "").trim();
+                    const title = String(art.title || "").trim().slice(0, 200) || "Artifact";
+                    const type = typeof art.type === "string" ? art.type : "other";
+                    const summary = content.replace(/\s+/g, " ").slice(0, 180);
+                    const tokenEstimate = Math.max(50, Math.round(Math.max(summary.length, content.length) / 4));
+                    const keywords = extractKeywords([title, summary, content].join(" "), undefined);
+                    return {
+                      conversation_id: assistantRowForMeta.conversation_id,
+                      topic_id: topicIdForArtifacts,
+                      created_by_message_id: assistantRowForMeta.id,
+                      type,
+                      title,
+                      summary,
+                      content,
+                      token_estimate: tokenEstimate,
+                      keywords,
+                    };
+                  });
+
+                  try {
+                    await supabaseAny.from("artifacts").insert(inserts);
+                    console.log(`[artifacts] Inserted ${inserts.length} artifacts from writer router`);
+                  } catch (error: any) {
+                    console.error("[artifacts] Failed to insert artifacts:", error);
+                    if (String(error?.message || "").includes("keywords")) {
+                      const insertsNoKeywords = inserts.map((insert: any) => {
+                        const rest = { ...insert };
+                        delete (rest as any).keywords;
+                        return rest;
+                      });
+                      try {
+                        await supabaseAny.from("artifacts").insert(insertsNoKeywords);
+                        console.log(`[artifacts] Inserted ${insertsNoKeywords.length} artifacts without keywords (keywords column missing)`);
+                      } catch (err2) {
+                        console.error("[artifacts] Retry insert without keywords failed:", err2);
+                      }
                     }
                   }
                 }
