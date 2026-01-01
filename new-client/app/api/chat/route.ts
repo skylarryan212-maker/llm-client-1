@@ -4448,6 +4448,7 @@ export async function POST(request: NextRequest) {
               if (!assistantRowForMeta) {
                 console.warn("[artifacts] Skipping artifact write; missing assistant message row.");
               } else {
+                const assistantRow = assistantRowForMeta;
                 const artifactsFromRouter = Array.isArray((modelConfig as any).artifactsToWrite)
                   ? (modelConfig as any).artifactsToWrite.filter(
                       (a: any) =>
@@ -4461,18 +4462,18 @@ export async function POST(request: NextRequest) {
                     )
                   : [];
                 const topicIdForArtifacts =
-                  assistantRowForMeta.topic_id ??
+                  assistantRow.topic_id ??
                   resolvedTopicDecision.primaryTopicId ??
                   userMessageRow?.topic_id ??
                   null;
                 const canWriteArtifacts = Boolean(topicIdForArtifacts) && artifactsFromRouter.length > 0;
                 if (canWriteArtifacts) {
-                  if (assistantRowForMeta.topic_id !== topicIdForArtifacts) {
+                  if (assistantRow.topic_id !== topicIdForArtifacts) {
                     try {
                       await supabaseAny
                         .from("messages")
                         .update({ topic_id: topicIdForArtifacts })
-                        .eq("id", assistantRowForMeta.id);
+                        .eq("id", assistantRow.id);
                       assistantRowForMeta = { ...assistantRowForMeta, topic_id: topicIdForArtifacts } as any;
                     } catch (topicUpdateErr) {
                       console.error("[artifacts] Failed to backfill assistant topic_id:", topicUpdateErr);
@@ -4486,9 +4487,9 @@ export async function POST(request: NextRequest) {
                     const tokenEstimate = Math.max(50, Math.round(Math.max(summary.length, content.length) / 4));
                     const keywords = extractKeywords([title, summary, content].join(" "), undefined);
                     return {
-                      conversation_id: assistantRowForMeta.conversation_id,
+                      conversation_id: assistantRow.conversation_id,
                       topic_id: topicIdForArtifacts,
-                      created_by_message_id: assistantRowForMeta.id,
+                      created_by_message_id: assistantRow.id,
                       type,
                       title,
                       summary,
