@@ -718,6 +718,7 @@ async function buildSimpleContextMessages(
   messages: Array<{ role: "system" | "user" | "assistant"; content: string; type: "message" }>;
   source: "simple";
   includedTopicIds: string[];
+  includedMessageIds: string[];
   summaryCount: number;
   artifactCount: number;
   debug?: {
@@ -763,6 +764,7 @@ async function buildSimpleContextMessages(
       type: "message",
     };
   });
+  const includedMessageIds = selected.map((msg) => msg.id).filter((id): id is string => Boolean(id));
 
   let externalChatsIncluded = 0;
   let externalChatsConsidered = 0;
@@ -781,6 +783,7 @@ async function buildSimpleContextMessages(
         messages,
         source: "simple",
         includedTopicIds: [],
+        includedMessageIds,
         summaryCount: 0,
         artifactCount: 0,
         debug: {
@@ -908,6 +911,7 @@ async function buildSimpleContextMessages(
     messages,
     source: "simple",
     includedTopicIds: [],
+    includedMessageIds,
     summaryCount: 0,
     artifactCount: 0,
     debug: {
@@ -972,6 +976,44 @@ function resolveAttachmentMime(att: { mime?: string; dataUrl?: string; url?: str
     if (fromUrl) return fromUrl;
   }
   return null;
+}
+
+async function loadVectorStoreIdsForMessageIds(
+  supabase: any,
+  messageIds: string[]
+): Promise<string[]> {
+  if (!Array.isArray(messageIds) || messageIds.length === 0) {
+    return [];
+  }
+  const uniqueIds = Array.from(new Set(messageIds.filter(Boolean)));
+  if (!uniqueIds.length) return [];
+  const { data } = await supabase
+    .from("messages")
+    .select("id, metadata")
+    .in("id", uniqueIds);
+  if (!Array.isArray(data)) return [];
+  const order = new Map<string, number>();
+  uniqueIds.forEach((id, idx) => order.set(id, idx));
+  const sorted = [...data].sort((a: any, b: any) => {
+    const ai = order.get(a?.id) ?? 0;
+    const bi = order.get(b?.id) ?? 0;
+    return ai - bi;
+  });
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const row of sorted) {
+    const meta = row?.metadata as Record<string, unknown> | null | undefined;
+    const raw = meta && (meta as { vector_store_ids?: unknown }).vector_store_ids;
+    if (!Array.isArray(raw)) continue;
+    for (const id of raw) {
+      if (typeof id !== "string") continue;
+      const trimmed = id.trim();
+      if (!trimmed || seen.has(trimmed)) continue;
+      seen.add(trimmed);
+      out.push(trimmed);
+    }
+  }
+  return out;
 }
 
 async function attachmentToBuffer(att: { dataUrl?: string; url?: string; name?: string }) {
@@ -2795,6 +2837,7 @@ export async function POST(request: NextRequest) {
     let contextMessages;
     let contextSource: string;
     let includedTopicIds: string[] = [];
+    let contextMessageIds: string[] = [];
     let summaryCount = 0;
     let artifactMessagesCount = 0;
 	    if (effectiveSimpleContextMode && simpleContextPromise) {
@@ -2802,6 +2845,7 @@ export async function POST(request: NextRequest) {
 	      contextMessages = simpleContext.messages;
 	      contextSource = simpleContext.source;
 	      includedTopicIds = simpleContext.includedTopicIds;
+        contextMessageIds = simpleContext.includedMessageIds;
 	      summaryCount = simpleContext.summaryCount;
       artifactMessagesCount = simpleContext.artifactCount;
       console.log(
@@ -2862,6 +2906,7 @@ export async function POST(request: NextRequest) {
 	      contextMessages = contextResult.messages;
 	      contextSource = contextResult.source;
 	      includedTopicIds = contextResult.includedTopicIds;
+        contextMessageIds = contextResult.includedMessageIds;
 	      summaryCount = contextResult.summaryCount;
       artifactMessagesCount = contextResult.artifactCount;
       console.log(
@@ -3264,8 +3309,16 @@ export async function POST(request: NextRequest) {
     // Skipping server-side extraction; rely on OpenAI vector store/file inputs for content access.
   }
 
+  const vectorStoreIdsForRequest = await loadVectorStoreIdsForMessageIds(
+    supabaseAny,
+    contextMessageIds
+  );
   console.log(`[chatApi] Final message length: ${expandedMessageWithAttachments.length} chars`);
-  console.log(`[chatApi] Vector store ID: ${vectorStoreId || 'none'}`);
+  console.log(
+    `[chatApi] Vector store IDs (context): ${
+      vectorStoreIdsForRequest.length ? vectorStoreIdsForRequest.join(", ") : "none"
+    }`
+  );
 
   
   // Build instructions from system prompts with personalization and memories
@@ -3417,7 +3470,10 @@ export async function POST(request: NextRequest) {
 
     // Use generic Tool to avoid strict preview-only type union on WebSearchTool in SDK types
     const webSearchTool: Tool = { type: "web_search" as any };
-    const fileSearchTool = { type: "file_search" as const, ...(vectorStoreId ? { vector_store_ids: [vectorStoreId] } : {}) };
+    const fileSearchTool = {
+      type: "file_search" as const,
+      ...(vectorStoreIdsForRequest.length ? { vector_store_ids: vectorStoreIdsForRequest } : {}),
+    };
     
     // Memory management is now handled by the router model
     // No need for save_memory tool - router decides what to save based on user prompts
@@ -3489,7 +3545,7 @@ export async function POST(request: NextRequest) {
     if (allowWebSearch) {
       toolsForRequest.push(webSearchTool);
     }
-    if (vectorStoreId) {
+    if (vectorStoreIdsForRequest.length) {
       toolsForRequest.push(fileSearchTool as Tool);
     }
     toolsForRequest.push(codeInterpreterTool);

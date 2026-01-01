@@ -20,6 +20,11 @@ export type ContextMessage = {
   type: "message";
 };
 
+type ContextMessageWithId = {
+  message: ContextMessage;
+  messageId?: string | null;
+};
+
 export interface BuildContextParams {
   supabase: SupabaseClient<Database>;
   conversationId: string;
@@ -30,6 +35,7 @@ export interface BuildContextParams {
 
 export interface BuildContextResult {
   messages: ContextMessage[];
+  includedMessageIds: string[];
   source: "topic" | "manual" | "fallback";
   includedTopicIds: string[];
   summaryCount: number;
@@ -152,8 +158,16 @@ export async function buildContextForMainModel({
   if (!primaryTopic) {
     const fallbackMessages = await loadFallbackMessages(supabase, conversationId, maxContextTokens);
     const blockedNotices = buildBlockedTopicNotices(blockedTopics, conversationMeta, conversationId);
+    const combinedFallback = blockedNotices.length ? blockedNotices.concat(fallbackMessages) : fallbackMessages;
+    const trimmedFallback = trimContextMessagesWithIds(
+      combinedFallback,
+      Math.min(maxContextTokens, DEFAULT_MAX_TOKENS)
+    ).trimmed;
     return {
-      messages: blockedNotices.length ? blockedNotices.concat(fallbackMessages) : fallbackMessages,
+      messages: trimmedFallback.map((entry) => entry.message),
+      includedMessageIds: trimmedFallback
+        .map((entry) => entry.messageId)
+        .filter((id): id is string => Boolean(id)),
       source: "fallback",
       includedTopicIds: [],
       summaryCount: blockedNotices.length,
@@ -161,16 +175,16 @@ export async function buildContextForMainModel({
     };
   }
 
-  const summaryMessages: ContextMessage[] = [];
-  const artifactMessages: ContextMessage[] = [];
-  const conversationMessages: ContextMessage[] = [];
+  const summaryMessages: ContextMessageWithId[] = [];
+  const artifactMessages: ContextMessageWithId[] = [];
+  const conversationMessages: ContextMessageWithId[] = [];
   const includedTopics = new Set<string>([primaryTopic.id]);
   let summaryCount = 0;
   let artifactCount = 0;
 
   const blockedNotices = buildBlockedTopicNotices(blockedTopics, conversationMeta, conversationId);
   for (const notice of blockedNotices) {
-    summaryMessages.push(notice);
+    summaryMessages.push({ message: notice, messageId: null });
     summaryCount += 1;
   }
   const primaryOrigin = formatTopicOrigin(primaryTopic, conversationMeta, conversationId);
@@ -182,9 +196,12 @@ export async function buildContextForMainModel({
 
   if (primaryTopic.summary?.trim()) {
     summaryMessages.push({
-      role: "assistant",
-      content: `[Topic summary: ${primaryTopic.label} from ${primaryOrigin}] ${primaryTopic.summary.trim()}`,
-      type: "message",
+      message: {
+        role: "assistant",
+        content: `[Topic summary: ${primaryTopic.label} from ${primaryOrigin}] ${primaryTopic.summary.trim()}`,
+        type: "message",
+      },
+      messageId: null,
     });
     summaryCount += 1;
   }
@@ -216,9 +233,12 @@ export async function buildContextForMainModel({
       continue;
     }
     summaryMessages.push({
-      role: "assistant",
-      content: `[Reference summary: ${topic.label} from ${originLabel}] ${summaryParts.join(" | ")}`,
-      type: "message",
+      message: {
+        role: "assistant",
+        content: `[Reference summary: ${topic.label} from ${originLabel}] ${summaryParts.join(" | ")}`,
+        type: "message",
+      },
+      messageId: null,
     });
     summaryCount += 1;
   }
@@ -233,9 +253,12 @@ export async function buildContextForMainModel({
     for (const artifact of artifacts) {
       const label = artifact.title || "Unnamed artifact";
       artifactMessages.push({
-        role: "assistant",
-        content: `[Artifact: ${label}] ${artifact.content}`,
-        type: "message",
+        message: {
+          role: "assistant",
+          content: `[Artifact: ${label}] ${artifact.content}`,
+          type: "message",
+        },
+        messageId: null,
       });
       artifactCount += 1;
       if (artifact.topic_id) {
@@ -264,14 +287,17 @@ export async function buildContextForMainModel({
   if (totalTopicTokens + artifactTokens <= maxContextTokens) {
     // Load all messages (no summaries needed) and cap with artifacts if necessary
     if (crossChatPrimaryNotice) {
-      conversationMessages.push(crossChatPrimaryNotice);
+      conversationMessages.push({ message: crossChatPrimaryNotice, messageId: null });
     }
     allTopicMessages.forEach((msg) => {
       const originLabel =
         msg.conversation_id === conversationId
           ? null
           : formatConversationOrigin(conversationMeta, msg.conversation_id, conversationId);
-      conversationMessages.push(toContextMessage(msg, originLabel));
+      conversationMessages.push({
+        message: toContextMessage(msg, originLabel),
+        messageId: msg.id,
+      });
     });
     summaryMessages.length = 0;
     summaryCount = 0;
@@ -281,14 +307,17 @@ export async function buildContextForMainModel({
     const { trimmed } = trimMessagesToBudget(allTopicMessages, budgetForMessages);
     trimmedMessageCount = allTopicMessages.length - trimmed.length;
     if (crossChatPrimaryNotice) {
-      conversationMessages.push(crossChatPrimaryNotice);
+      conversationMessages.push({ message: crossChatPrimaryNotice, messageId: null });
     }
     trimmed.forEach((msg) => {
       const originLabel =
         msg.conversation_id === conversationId
           ? null
           : formatConversationOrigin(conversationMeta, msg.conversation_id, conversationId);
-      conversationMessages.push(toContextMessage(msg, originLabel));
+      conversationMessages.push({
+        message: toContextMessage(msg, originLabel),
+        messageId: msg.id,
+      });
     });
   }
 
@@ -298,7 +327,10 @@ export async function buildContextForMainModel({
   if (!combinedMessages.length) {
     const fallbackMessages = await loadFallbackMessages(supabase, conversationId, maxContextTokens);
     return {
-      messages: fallbackMessages,
+      messages: fallbackMessages.map((entry) => entry.message),
+      includedMessageIds: fallbackMessages
+        .map((entry) => entry.messageId)
+        .filter((id): id is string => Boolean(id)),
       source: "fallback",
       includedTopicIds: Array.from(includedTopics),
       summaryCount,
@@ -306,14 +338,17 @@ export async function buildContextForMainModel({
     };
   }
 
-  const finalMessages = trimContextMessages(
+  const finalMessages = trimContextMessagesWithIds(
     combinedMessages,
     Math.min(maxContextTokens, DEFAULT_MAX_TOKENS)
   ).trimmed;
   if (!finalMessages.length) {
     const fallbackMessages = await loadFallbackMessages(supabase, conversationId, maxContextTokens);
     return {
-      messages: fallbackMessages,
+      messages: fallbackMessages.map((entry) => entry.message),
+      includedMessageIds: fallbackMessages
+        .map((entry) => entry.messageId)
+        .filter((id): id is string => Boolean(id)),
       source: "fallback",
       includedTopicIds: Array.from(includedTopics),
       summaryCount,
@@ -322,7 +357,10 @@ export async function buildContextForMainModel({
   }
 
   return {
-    messages: finalMessages,
+    messages: finalMessages.map((entry) => entry.message),
+    includedMessageIds: finalMessages
+      .map((entry) => entry.messageId)
+      .filter((id): id is string => Boolean(id)),
     source: normalizedManualTopicIds.length ? "manual" : "topic",
     includedTopicIds: Array.from(includedTopics),
     summaryCount,
@@ -545,7 +583,7 @@ async function loadFallbackMessages(
   supabase: SupabaseClient<Database>,
   conversationId: string,
   maxContextTokens: number
-): Promise<ContextMessage[]> {
+): Promise<ContextMessageWithId[]> {
   const FALLBACK_LIMIT = 400;
 
   const { data, error } = await supabase
@@ -559,8 +597,11 @@ async function loadFallbackMessages(
     return [];
   }
 
-  const sanitized = data.map((msg) => toContextMessage(msg as MessageRow));
-  return trimContextMessages(
+  const sanitized = data.map((msg) => ({
+    message: toContextMessage(msg as MessageRow),
+    messageId: (msg as MessageRow).id,
+  }));
+  return trimContextMessagesWithIds(
     sanitized,
     Math.min(FALLBACK_TOKEN_CAP, maxContextTokens)
   ).trimmed;
@@ -595,19 +636,19 @@ function trimMessagesToBudget(
   return { trimmed: trimmed.reverse(), tokensUsed: consumed };
 }
 
-function trimContextMessages(
-  messages: ContextMessage[],
+function trimContextMessagesWithIds(
+  messages: ContextMessageWithId[],
   tokenCap: number
-): { trimmed: ContextMessage[]; tokensUsed: number } {
+): { trimmed: ContextMessageWithId[]; tokensUsed: number } {
   if (!messages.length || tokenCap <= 0) {
     return { trimmed: [], tokensUsed: 0 };
   }
   let remaining = tokenCap;
-  const trimmed: ContextMessage[] = [];
+  const trimmed: ContextMessageWithId[] = [];
   let consumed = 0;
   for (let i = messages.length - 1; i >= 0; i--) {
     const msg = messages[i];
-    const tokens = estimateTokens(msg.content);
+    const tokens = estimateTokens(msg.message.content);
     if (tokens > remaining) {
       break;
     }
