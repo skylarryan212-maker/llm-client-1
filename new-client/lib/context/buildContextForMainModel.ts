@@ -289,8 +289,14 @@ export async function buildContextForMainModel({
   ].sort((a, b) => (a.created_at || "").localeCompare(b.created_at || ""));
 
   const totalTopicTokens = estimateTopicMessagesTokens(allTopicMessages);
-  const summaryTokens = summaryMessages.reduce((sum, msg) => sum + estimateTokens(msg.content), 0);
-  const artifactTokens = artifactMessages.reduce((sum, msg) => sum + estimateTokens(msg.content), 0);
+  const summaryTokens = summaryMessages.reduce(
+    (sum, msg) => sum + estimateTokens(msg.message.content),
+    0
+  );
+  const artifactTokens = artifactMessages.reduce(
+    (sum, msg) => sum + estimateTokens(msg.message.content),
+    0
+  );
   let trimmedMessageCount = 0;
 
   if (totalTopicTokens + artifactTokens <= maxContextTokens) {
