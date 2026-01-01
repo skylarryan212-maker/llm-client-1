@@ -1016,6 +1016,57 @@ async function loadVectorStoreIdsForMessageIds(
   return out;
 }
 
+async function loadImageAttachmentsForMessageIds(
+  supabase: any,
+  messageIds: string[],
+  limit: number
+): Promise<Array<{ url: string }>> {
+  if (!Array.isArray(messageIds) || messageIds.length === 0 || limit <= 0) {
+    return [];
+  }
+  const uniqueIds = Array.from(new Set(messageIds.filter(Boolean)));
+  if (!uniqueIds.length) return [];
+  const { data } = await supabase
+    .from("messages")
+    .select("id, metadata, created_at")
+    .in("id", uniqueIds);
+  if (!Array.isArray(data)) return [];
+  const rows = [...data].sort((a: any, b: any) => {
+    const at = new Date(a?.created_at || 0).getTime();
+    const bt = new Date(b?.created_at || 0).getTime();
+    return at - bt;
+  });
+  const out: Array<{ url: string }> = [];
+  const seen = new Set<string>();
+  for (const row of rows) {
+    if (out.length >= limit) break;
+    const meta = row?.metadata as Record<string, any> | null | undefined;
+    const files: Array<{ url?: string; dataUrl?: string; mimeType?: string; name?: string }> = Array.isArray(meta?.files)
+      ? meta!.files
+      : [];
+    for (const f of files) {
+      if (out.length >= limit) break;
+      const url =
+        typeof f?.dataUrl === "string"
+          ? f.dataUrl
+          : typeof f?.url === "string"
+            ? f.url
+            : null;
+      if (!url || seen.has(url)) continue;
+      const resolvedMime = resolveAttachmentMime({
+        mime: f?.mimeType,
+        dataUrl: f?.dataUrl,
+        url: f?.url,
+        name: f?.name,
+      });
+      if (!resolvedMime?.startsWith("image/")) continue;
+      seen.add(url);
+      out.push({ url });
+    }
+  }
+  return out;
+}
+
 async function attachmentToBuffer(att: { dataUrl?: string; url?: string; name?: string }) {
   if (att.dataUrl) return dataUrlToBuffer(att.dataUrl);
   if (att.url) {
@@ -3375,6 +3426,7 @@ export async function POST(request: NextRequest) {
     const userContentParts: any[] = [
       { type: "input_text", text: expandedMessageWithAttachments },
     ];
+    const attachedImageUrls = new Set<string>();
     // Include current-turn image attachments directly for vision
     if (Array.isArray(body.attachments)) {
       for (const att of body.attachments) {
@@ -3383,42 +3435,26 @@ export async function POST(request: NextRequest) {
         const imageUrl = att?.dataUrl || att?.url;
         if (isImage && imageUrl) {
           userContentParts.push({ type: "input_image", image_url: imageUrl });
+          attachedImageUrls.add(imageUrl);
         }
       }
     }
     if (inputFileParts.length) {
       userContentParts.push(...inputFileParts);
     }
-    // If no current attachments, attempt to reuse the most recent user message with image attachments
+    // If no current attachments, reuse image attachments from messages included in context
     if (!Array.isArray(body.attachments) || body.attachments.length === 0) {
       try {
-        const recentUserMessages = (recentMessagesForRouting || []).filter((m: any) => m.role === "user");
-        let added = 0;
-        for (let i = recentUserMessages.length - 1; i >= 0 && added < 3; i -= 1) {
-          const candidate = recentUserMessages[i];
-          const meta = candidate ? (candidate.metadata as Record<string, any> | null) : null;
-          const priorFiles: Array<{ name?: string; mimeType?: string; dataUrl?: string; url?: string }> = Array.isArray(meta?.files)
-            ? meta!.files
-            : [];
-          for (const f of priorFiles) {
-            const priorImageUrl =
-              typeof f?.dataUrl === "string"
-                ? f.dataUrl
-                : typeof f?.url === "string"
-                  ? f.url
-                  : null;
-            const resolvedMime = resolveAttachmentMime({
-              mime: f?.mimeType,
-              dataUrl: f?.dataUrl,
-              url: f?.url,
-              name: f?.name,
-            });
-            if (resolvedMime?.startsWith("image/") && priorImageUrl) {
-              userContentParts.push({ type: "input_image", image_url: priorImageUrl });
-              added++;
-              if (added >= 3) break;
-            }
-          }
+        const maxContextImages = 10;
+        const contextImages = await loadImageAttachmentsForMessageIds(
+          supabaseAny,
+          contextMessageIds,
+          maxContextImages
+        );
+        for (const img of contextImages) {
+          if (attachedImageUrls.has(img.url)) continue;
+          userContentParts.push({ type: "input_image", image_url: img.url });
+          attachedImageUrls.add(img.url);
         }
       } catch {}
     }
