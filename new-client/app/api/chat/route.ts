@@ -2170,7 +2170,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Code Interpreter session tracking is stored in conversation.metadata so we can reuse the same container.
+    // Conversation metadata (used for CI sessions and vector store).
     let conversationMetadata: any =
       conversation.metadata && typeof conversation.metadata === "object" ? (conversation.metadata as any) : {};
     if (agentId === "market-agent" && marketAgentContext?.instanceId) {
@@ -3039,6 +3039,14 @@ export async function POST(request: NextRequest) {
   const inputFileParts: Array<{ type: "input_file"; file_id: string }> = [];
   const deferredAttachmentTasks: Promise<void>[] = []; // Run after stream starts to avoid delaying initial response
   try {
+    const convoVectorId =
+      typeof conversationMetadata?.vector_store_id === "string" &&
+      conversationMetadata.vector_store_id.trim().length > 0
+        ? conversationMetadata.vector_store_id.trim()
+        : null;
+    if (convoVectorId) {
+      vectorStoreId = convoVectorId;
+    }
     const priorVectorIds: string[] = [];
     for (const msg of (recentMessages || [])) {
       const meta = (msg as { metadata?: unknown }).metadata as Record<string, unknown> | null | undefined;
@@ -3174,6 +3182,27 @@ export async function POST(request: NextRequest) {
             console.warn("Failed to persist vector store id on user message:", updateErr);
           } else {
             userMessageRow = { ...latestUser, metadata: nextMeta } as MessageRow;
+          }
+          if (vectorStoreId && conversationMetadata?.vector_store_id !== vectorStoreId) {
+            try {
+              const convMeta: Record<string, unknown> =
+                conversationMetadata && typeof conversationMetadata === "object" && !Array.isArray(conversationMetadata)
+                  ? { ...(conversationMetadata as Record<string, unknown>) }
+                  : {};
+              const nextConvMeta = { ...convMeta, vector_store_id: vectorStoreId };
+              const { error: convErr } = await supabaseAny
+                .from("conversations")
+                .update({ metadata: nextConvMeta })
+                .eq("id", conversationId)
+                .eq("user_id", userId);
+              if (convErr) {
+                console.warn("Failed to persist vector store id on conversation:", convErr);
+              } else {
+                conversationMetadata = nextConvMeta;
+              }
+            } catch (convPersistErr) {
+              console.warn("Unable to persist vector store id on conversation:", convPersistErr);
+            }
           }
         }
       } catch (persistErr) {
