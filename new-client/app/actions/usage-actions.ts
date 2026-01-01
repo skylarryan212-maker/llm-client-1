@@ -70,8 +70,10 @@ export async function getMonthlySpending(): Promise<number> {
       .eq("is_active", true)
       .maybeSingle();
 
-    if (!planError && planData?.current_period_start) {
-      const candidateMs = new Date(planData.current_period_start).getTime();
+    const periodStartValue =
+      !planError && planData ? (planData as { current_period_start?: string | null }).current_period_start : null;
+    if (periodStartValue) {
+      const candidateMs = new Date(periodStartValue).getTime();
       if (!Number.isNaN(candidateMs)) {
         periodStartIso = new Date(candidateMs).toISOString();
         periodSource = "billing_period";
