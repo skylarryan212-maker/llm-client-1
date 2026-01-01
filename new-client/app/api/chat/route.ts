@@ -4358,7 +4358,7 @@ export async function POST(request: NextRequest) {
             }
           }
 
-          const assistantRowForMeta = persistedAssistantRow;
+          let assistantRowForMeta = persistedAssistantRow;
 
           if (!assistantRowForMeta) {
             enqueueJson({
@@ -4457,11 +4457,24 @@ export async function POST(request: NextRequest) {
                       a.content.trim().length >= 1
                   )
                 : [];
-              const canWriteArtifacts =
-                assistantRowForMeta.topic_id &&
-                artifactsFromRouter.length > 0 &&
-                (assistantRowForMeta.content || "").length >= 80;
+              const topicIdForArtifacts =
+                assistantRowForMeta.topic_id ??
+                resolvedTopicDecision.primaryTopicId ??
+                userMessageRow?.topic_id ??
+                null;
+              const canWriteArtifacts = Boolean(topicIdForArtifacts) && artifactsFromRouter.length > 0;
               if (canWriteArtifacts) {
+                if (assistantRowForMeta.topic_id !== topicIdForArtifacts) {
+                  try {
+                    await supabaseAny
+                      .from("messages")
+                      .update({ topic_id: topicIdForArtifacts })
+                      .eq("id", assistantRowForMeta.id);
+                    assistantRowForMeta = { ...assistantRowForMeta, topic_id: topicIdForArtifacts } as any;
+                  } catch (topicUpdateErr) {
+                    console.error("[artifacts] Failed to backfill assistant topic_id:", topicUpdateErr);
+                  }
+                }
                 const inserts = artifactsFromRouter.map((art: any) => {
                   const content = String(art.content || "").trim();
                   const title = String(art.title || "").trim().slice(0, 200) || "Artifact";
@@ -4471,7 +4484,7 @@ export async function POST(request: NextRequest) {
                   const keywords = extractKeywords([title, summary, content].join(" "), undefined);
                   return {
                     conversation_id: assistantRowForMeta.conversation_id,
-                    topic_id: assistantRowForMeta.topic_id,
+                    topic_id: topicIdForArtifacts,
                     created_by_message_id: assistantRowForMeta.id,
                     type,
                     title,

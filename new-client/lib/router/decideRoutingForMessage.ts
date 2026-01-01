@@ -460,17 +460,21 @@ Hard invariants:
    - Must be a list of existing topic ids, excluding the primaryTopicId.
    - At most 3 secondaryTopicIds.
 
-6) artifactsToLoad:
+6) Avoid duplicate topics:
+   - If the new request closely matches an existing topic label/summary, choose reopen_existing instead of creating a new topic.
+   - Only create a new topic when it is clearly distinct from all existing topics.
+
+7) artifactsToLoad:
    - Choose at most 3 artifact ids.
    - Prefer artifacts explicitly referenced by name or clearly tied to the chosen primaryTopicId or secondaryTopicIds.
    - Do NOT select artifacts “just in case.”
 
-7) Naming and summaries for new topics:
+8) Naming and summaries for new topics:
    - newTopicLabel: 3–5 words, title case, specific (<= 60 chars).
    - newTopicDescription: one concise sentence (<= 120 chars).
    - newTopicSummary: one or two sentences summarizing the topic so far (<= 160 chars).
 
-8) Output rules:
+9) Output rules:
    - Respond with ONE JSON object only.
    - No markdown, no surrounding text, no comments.
    - Do NOT answer the user’s question or generate any content besides the routing JSON.`;
@@ -499,12 +503,31 @@ async function ensureTopicAssignment({
   }
 
   if (needsNewTopic) {
+    const { data: existingTopics } = await supabase
+      .from("conversation_topics")
+      .select("id, label, parent_topic_id, description, summary")
+      .eq("conversation_id", conversationId)
+      .returns<ConversationTopic[]>();
+    const topicsList = Array.isArray(existingTopics) ? existingTopics : [];
+
     const rawLabel =
       working.newTopicLabel?.trim() || buildAutoTopicLabel(userMessage) || "Pending topic";
     const label = formatTopicLabel(rawLabel);
     const description =
       working.newTopicDescription?.trim() || buildAutoTopicDescription(userMessage);
-    const parentId = working.newParentTopicId ?? null;
+    const parentId = resolveParentTopicId(working.newParentTopicId ?? null, topicsList);
+
+    const duplicate = findSimilarTopic(topicsList, label, parentId);
+    if (duplicate) {
+      working.topicAction = "reopen_existing";
+      working.primaryTopicId = duplicate.id;
+      working.secondaryTopicIds = [];
+      working.newTopicLabel = "";
+      working.newTopicDescription = "";
+      working.newTopicSummary = "";
+      working.newParentTopicId = null;
+      return working;
+    }
 
     const topicInsert: ConversationTopicInsert = {
       conversation_id: conversationId,
@@ -625,6 +648,69 @@ function buildAutoTopicDescription(message: string): string | null {
   if (!clean) return null;
   const sentence = clean.slice(0, 280);
   return sentence.endsWith(".") ? sentence : `${sentence}.`;
+}
+
+function resolveParentTopicId(
+  candidateId: string | null,
+  topics: ConversationTopic[]
+): string | null {
+  if (!candidateId) return null;
+  const parent = topics.find((topic) => topic.id === candidateId) ?? null;
+  if (!parent) return null;
+  if (parent.parent_topic_id) return null;
+  const cleanedLabel = normalizeLabelTokens(parent.label);
+  if (cleanedLabel.length === 0) return null;
+  return parent.id;
+}
+
+function normalizeLabelTokens(label: string): string[] {
+  return (label || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .split(/\s+/)
+    .filter(Boolean)
+    .filter((word) => !LABEL_STOP_WORDS.has(word));
+}
+
+function labelSimilarity(a: string[], b: string[]): number {
+  if (!a.length || !b.length) return 0;
+  const setA = new Set(a);
+  const setB = new Set(b);
+  let intersect = 0;
+  for (const token of setA) {
+    if (setB.has(token)) intersect += 1;
+  }
+  const union = setA.size + setB.size - intersect;
+  return union === 0 ? 0 : intersect / union;
+}
+
+function findSimilarTopic(
+  topics: ConversationTopic[],
+  label: string,
+  parentId: string | null
+): ConversationTopic | null {
+  const targetTokens = normalizeLabelTokens(label);
+  const targetKey = targetTokens.join(" ");
+  if (!targetKey) return null;
+
+  const sameParent = parentId
+    ? topics.filter((topic) => topic.parent_topic_id === parentId)
+    : topics.filter((topic) => topic.parent_topic_id === null);
+  const candidates = sameParent.length ? sameParent : topics;
+
+  for (const topic of candidates) {
+    const tokens = normalizeLabelTokens(topic.label || "");
+    const key = tokens.join(" ");
+    if (!key) continue;
+    if (key === targetKey) return topic;
+    if (key.includes(targetKey) || targetKey.includes(key)) {
+      if (tokens.length >= 2 && targetTokens.length >= 2) {
+        return topic;
+      }
+    }
+    if (labelSimilarity(tokens, targetTokens) >= 0.8) return topic;
+  }
+  return null;
 }
 async function callRouterWithSchema(
   routerPrompt: string,
