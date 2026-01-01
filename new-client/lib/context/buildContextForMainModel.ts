@@ -111,7 +111,10 @@ export async function buildContextForMainModel({
   if (!primaryTopic) {
     const fallbackMessages = await loadFallbackMessages(supabase, conversationId, maxContextTokens);
     return {
-      messages: fallbackMessages,
+      messages: fallbackMessages.map((entry) => entry.message),
+      includedMessageIds: fallbackMessages
+        .map((entry) => entry.messageId)
+        .filter((id): id is string => Boolean(id)),
       source: "fallback",
       includedTopicIds: [],
       summaryCount: 0,
