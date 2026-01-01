@@ -161,7 +161,11 @@ export async function buildContextForMainModel({
   if (!primaryTopic) {
     const fallbackMessages = await loadFallbackMessages(supabase, conversationId, maxContextTokens);
     const blockedNotices = buildBlockedTopicNotices(blockedTopics, conversationMeta, conversationId);
-    const combinedFallback = blockedNotices.length ? blockedNotices.concat(fallbackMessages) : fallbackMessages;
+    const combinedFallback = blockedNotices.length
+      ? blockedNotices
+          .map((notice) => ({ message: notice, messageId: null as string | null }))
+          .concat(fallbackMessages)
+      : fallbackMessages;
     const trimmedFallback = trimContextMessagesWithIds(
       combinedFallback,
       Math.min(maxContextTokens, DEFAULT_MAX_TOKENS)
