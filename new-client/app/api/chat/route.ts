@@ -855,6 +855,7 @@ async function buildSimpleContextMessages(
       }
 
       const blocks: string[] = [];
+      const externalMessageIds: string[] = [];
       for (const cid of candidateIds) {
         const lastUsedIso = mostRecentByConversation.get(cid);
         if (!lastUsedIso) continue;
@@ -862,7 +863,7 @@ async function buildSimpleContextMessages(
 
         const { data: chatMessages } = await supabase
           .from("messages")
-          .select("role, content, created_at")
+          .select("id, role, content, created_at")
           .eq("conversation_id", cid)
           .order("created_at", { ascending: true });
 
@@ -871,6 +872,9 @@ async function buildSimpleContextMessages(
 
         let block = `\n=== Other chat (read-only) ===\nTitle: ${title}\nChat ID: ${cid}\nLast active: ${new Date(lastUsedIso).toISOString()}\n`;
         for (const m of chatRows) {
+          if (m?.id) {
+            externalMessageIds.push(String(m.id));
+          }
           const role = m?.role === "assistant" ? "Assistant" : "User";
           const content = (m?.content as string) ?? "";
           if (!content.trim()) continue;
@@ -907,15 +911,15 @@ async function buildSimpleContextMessages(
     }
   }
 
-  return {
-    messages,
-    source: "simple",
-    includedTopicIds: [],
-    includedMessageIds,
-    summaryCount: 0,
-    artifactCount: 0,
-    debug: {
-      keptMessages: selected.length,
+      return {
+        messages,
+        source: "simple",
+        includedTopicIds: [],
+        includedMessageIds: [...includedMessageIds, ...externalMessageIds],
+        summaryCount: 0,
+        artifactCount: 0,
+        debug: {
+          keptMessages: selected.length,
       totalMessages: rows.length,
       tokensUsed,
       budget: maxTokens,
