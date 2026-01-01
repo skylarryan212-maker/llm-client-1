@@ -3307,22 +3307,35 @@ export async function POST(request: NextRequest) {
     if (inputFileParts.length) {
       userContentParts.push(...inputFileParts);
     }
-    // If no current attachments, attempt to reuse the most recent user message's image attachments
+    // If no current attachments, attempt to reuse the most recent user message with image attachments
     if (!Array.isArray(body.attachments) || body.attachments.length === 0) {
       try {
         const recentUserMessages = (recentMessagesForRouting || []).filter((m: any) => m.role === "user");
-        const latestUser = recentUserMessages[recentUserMessages.length - 1];
-        const meta = latestUser ? (latestUser.metadata as Record<string, any> | null) : null;
-        const priorFiles: Array<{ name?: string; mimeType?: string; dataUrl?: string; url?: string }> = Array.isArray(meta?.files)
-          ? meta!.files
-          : [];
         let added = 0;
-        for (const f of priorFiles) {
-          const priorImageUrl = typeof f?.dataUrl === "string" ? f.dataUrl : typeof f?.url === "string" ? f.url : null;
-          if (typeof f?.mimeType === "string" && f.mimeType.startsWith("image/") && priorImageUrl) {
-            userContentParts.push({ type: "input_image", image_url: priorImageUrl });
-            added++;
-            if (added >= 3) break; // cap to avoid excessive payload
+        for (let i = recentUserMessages.length - 1; i >= 0 && added < 3; i -= 1) {
+          const candidate = recentUserMessages[i];
+          const meta = candidate ? (candidate.metadata as Record<string, any> | null) : null;
+          const priorFiles: Array<{ name?: string; mimeType?: string; dataUrl?: string; url?: string }> = Array.isArray(meta?.files)
+            ? meta!.files
+            : [];
+          for (const f of priorFiles) {
+            const priorImageUrl =
+              typeof f?.dataUrl === "string"
+                ? f.dataUrl
+                : typeof f?.url === "string"
+                  ? f.url
+                  : null;
+            const resolvedMime = resolveAttachmentMime({
+              mime: f?.mimeType,
+              dataUrl: f?.dataUrl,
+              url: f?.url,
+              name: f?.name,
+            });
+            if (resolvedMime?.startsWith("image/") && priorImageUrl) {
+              userContentParts.push({ type: "input_image", image_url: priorImageUrl });
+              added++;
+              if (added >= 3) break;
+            }
           }
         }
       } catch {}
