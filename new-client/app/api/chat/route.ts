@@ -4445,6 +4445,10 @@ export async function POST(request: NextRequest) {
 
             // Write artifacts chosen by writer router (using assistant reply as source).
             try {
+              if (!assistantRowForMeta) {
+                console.warn("[artifacts] Skipping artifact write; missing assistant message row.");
+                throw new Error("Missing assistant message row");
+              }
               const artifactsFromRouter = Array.isArray((modelConfig as any).artifactsToWrite)
                 ? (modelConfig as any).artifactsToWrite.filter(
                     (a: any) =>
