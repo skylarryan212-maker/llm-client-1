@@ -769,6 +769,7 @@ async function buildSimpleContextMessages(
   let externalChatsIncluded = 0;
   let externalChatsConsidered = 0;
   let externalTokensUsed = 0;
+  const externalMessageIds: string[] = [];
   const externalChatIdsIncluded: string[] = [];
 
   if (includeExternalChats) {
@@ -855,7 +856,6 @@ async function buildSimpleContextMessages(
       }
 
       const blocks: string[] = [];
-      const externalMessageIds: string[] = [];
       for (const cid of candidateIds) {
         const lastUsedIso = mostRecentByConversation.get(cid);
         if (!lastUsedIso) continue;
