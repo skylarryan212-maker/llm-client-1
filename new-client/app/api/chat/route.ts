@@ -4526,21 +4526,21 @@ export async function POST(request: NextRequest) {
 
             enqueueJson({
               meta: {
-                assistantMessageRowId: assistantRowForMeta.id,
+                assistantMessageRowId: assistantRowForMeta?.id ?? null,
                 userMessageRowId: userMessageRow?.id,
                 model: modelConfig.model,
                 reasoningEffort,
                 resolvedFamily: modelConfig.resolvedFamily,
                 speedModeUsed: speedMode,
-                finalContent: assistantRowForMeta.content ?? assistantContent,
+                finalContent: assistantRowForMeta?.content ?? assistantContent,
                 metadata:
-                  (assistantRowForMeta.metadata as AssistantMessageMetadata | null) ??
+                  (assistantRowForMeta?.metadata as AssistantMessageMetadata | null) ??
                   metadataPayload,
                 ...(contextUsage ? { contextUsage } : {}),
               },
             });
 
-            if (assistantRowForMeta.topic_id) {
+            if (assistantRowForMeta?.topic_id) {
               try {
                 await updateTopicSnapshot({
                   supabase: supabaseAny,
