@@ -55,14 +55,31 @@ export async function getMonthlySpending(): Promise<number> {
       return 0;
     }
 
-    // Get start of current month in UTC (not local timezone)
-    const now = new Date();
-    const startOfMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
-    
-    console.log("[monthlySpending] Querying for user:", userId);
-    console.log("[monthlySpending] Start of month (UTC):", startOfMonth.toISOString());
-
     const supabase = await supabaseServer();
+
+    // Prefer the current billing period start, fall back to calendar month.
+    const now = new Date();
+    const fallbackStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString();
+    let periodStartIso = fallbackStart;
+    let periodSource = "calendar";
+
+    const { data: planData, error: planError } = await supabase
+      .from("user_plans")
+      .select("current_period_start")
+      .eq("user_id", userId)
+      .eq("is_active", true)
+      .maybeSingle();
+
+    if (!planError && planData?.current_period_start) {
+      const candidateMs = new Date(planData.current_period_start).getTime();
+      if (!Number.isNaN(candidateMs)) {
+        periodStartIso = new Date(candidateMs).toISOString();
+        periodSource = "billing_period";
+      }
+    }
+
+    console.log("[monthlySpending] Querying for user:", userId);
+    console.log("[monthlySpending] Period start (UTC):", periodStartIso, "source:", periodSource);
 
     const pageSize = 1000;
     let from = 0;
@@ -74,7 +91,7 @@ export async function getMonthlySpending(): Promise<number> {
         .from("user_api_usage")
         .select("estimated_cost, created_at")
         .eq("user_id", userId)
-        .gte("created_at", startOfMonth.toISOString())
+        .gte("created_at", periodStartIso)
         .order("created_at", { ascending: true })
         .range(from, from + pageSize - 1);
 
