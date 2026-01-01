@@ -22,7 +22,7 @@ export type ContextMessage = {
 
 type ContextMessageWithId = {
   message: ContextMessage;
-  messageId?: string | null;
+  messageId: string | null;
 };
 
 export interface BuildContextParams {
@@ -163,7 +163,7 @@ export async function buildContextForMainModel({
     const blockedNotices = buildBlockedTopicNotices(blockedTopics, conversationMeta, conversationId);
     const combinedFallback = blockedNotices.length
       ? blockedNotices
-          .map((notice) => ({ message: notice, messageId: null as string | null }))
+          .map((notice) => ({ message: notice, messageId: null }))
           .concat(fallbackMessages)
       : fallbackMessages;
     const trimmedFallback = trimContextMessagesWithIds(
@@ -606,7 +606,7 @@ async function loadFallbackMessages(
 
   const sanitized = data.map((msg) => ({
     message: toContextMessage(msg as MessageRow),
-    messageId: (msg as MessageRow).id,
+    messageId: (msg as MessageRow).id ?? null,
   }));
   return trimContextMessagesWithIds(
     sanitized,
