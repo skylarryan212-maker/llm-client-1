@@ -2209,7 +2209,7 @@ export async function POST(request: NextRequest) {
       .select("*")
       .eq("conversation_id", conversationId)
       .order("created_at", { ascending: false })
-      .limit(6);
+      .limit(20);
 
     if (messagesError) {
       console.error("Failed to load messages:", messagesError);
