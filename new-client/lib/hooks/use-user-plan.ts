@@ -4,7 +4,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { getUserPlan, type PlanType } from "@/app/actions/plan-actions";
 
 const PLAN_CACHE_KEY = "user_plan_cache";
-const PLAN_CACHE_TTL_MS = 5 * 60 * 1000;
 
 type PlanCacheEntry = { plan: PlanType; timestamp: number };
 
@@ -49,12 +48,6 @@ export function useUserPlan() {
     if (cached) {
       cacheRef.current = cached;
       setPlan(cached.plan);
-      const stillValid = Date.now() - cached.timestamp < PLAN_CACHE_TTL_MS;
-      if (stillValid) {
-        setIsLoading(false);
-        setHydrated(true);
-        return;
-      }
     }
 
     async function loadPlan() {
