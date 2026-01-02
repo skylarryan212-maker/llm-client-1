@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "LLM Client",
+  title: "Quarry",
   description: "Custom ChatGPT-style LLM client (test mode)",
 };
 

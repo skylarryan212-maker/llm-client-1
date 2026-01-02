@@ -28,7 +28,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "LLM Client - AI Platform for Developers",
+  title: "Quarry",
   description: "A refined, modern AI platform built for developers",
   appleWebApp: {
     statusBarStyle: "black-translucent",

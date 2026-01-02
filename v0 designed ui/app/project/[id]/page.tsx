@@ -41,12 +41,12 @@ export default function ProjectPage() {
   const [messages, setMessages] = useState<Message[]>([])
 
   // Mock project data
-  const projectName = 'Skylar LLM Client'
+  const projectName = 'Skylar Quarry'
   const projectIcon = '💬'
   const projectChats: ProjectChat[] = [
     { id: '1', title: 'Unique features recap', preview: 'ok wait. we might have more info to this issue...', date: 'Nov 18' },
     { id: '2', title: 'Sources tab issue', preview: 'maybe your mis understand what i want...', date: 'Nov 17' },
-    { id: '3', title: 'Marketing LLM Client', preview: 'perfect. so here is how we will set the agent up...', date: 'Nov 17' },
+    { id: '3', title: 'Marketing Quarry', preview: 'perfect. so here is how we will set the agent up...', date: 'Nov 17' },
     { id: '4', title: 'Parsing citations in streaming', preview: '', date: 'Nov 17' },
     { id: '5', title: 'Fastest ChatGPT model', preview: 'will there be a 5.1 nano? also, how is nano...', date: 'Nov 16' },
   ]

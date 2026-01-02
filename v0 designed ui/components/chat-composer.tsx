@@ -12,7 +12,7 @@ interface ChatComposerProps {
   placeholder?: string
 }
 
-export function ChatComposer({ onSubmit, onSend, placeholder = "Message LLM Client..." }: ChatComposerProps) {
+export function ChatComposer({ onSubmit, onSend, placeholder = "Message Quarry..." }: ChatComposerProps) {
   const [message, setMessage] = useState('')
   const [isMenuOpen, setIsMenuOpen] = useState(false)
 

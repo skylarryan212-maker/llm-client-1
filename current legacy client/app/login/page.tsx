@@ -40,7 +40,7 @@ export default function LoginPage() {
     <div className="flex min-h-screen items-center justify-center bg-[#050509] px-4 py-8 text-zinc-100">
       <div className="w-full max-w-sm rounded-3xl border border-white/10 bg-[#0c0c13] p-6 shadow-2xl">
         <div className="mb-6 text-center">
-          <p className="text-xs uppercase tracking-[0.2em] text-white/40">LLM Client</p>
+          <p className="text-xs uppercase tracking-[0.2em] text-white/40">Quarry</p>
           <h1 className="mt-2 text-2xl font-semibold text-white">Sign in</h1>
           <p className="mt-1 text-sm text-white/60">
             Enter the access code to continue.

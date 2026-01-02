@@ -84,7 +84,7 @@ export function ChatSidebar({
           <div className={`flex h-[53px] items-center border-b border-sidebar-border px-4 ${isOpen ? 'justify-between' : 'lg:justify-center justify-between'}`}>
             {isOpen && (
               <div className="text-sm font-semibold text-sidebar-foreground">
-                LLM Client
+                Quarry
               </div>
             )}
             <Button 

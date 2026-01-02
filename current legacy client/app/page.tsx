@@ -4951,7 +4951,7 @@ type RetryOptions = {
       </div>
 
       <div className="border-t border-[#202123] px-3 py-3 text-xs text-zinc-500">
-        LLM Client · dev build
+        Quarry · dev build
       </div>
     </>
   );
@@ -5318,7 +5318,7 @@ type RetryOptions = {
                     headerModelMenuOpen ? "text-white" : ""
                   }`}
                 >
-                  <span className="text-white">LLM Client</span>
+                  <span className="text-white">Quarry</span>
                   <span className="text-white">{headerModelLabel}</span>
                   {headerSpeedDisplay && (
                     <span className="text-white">{headerSpeedDisplay}</span>
