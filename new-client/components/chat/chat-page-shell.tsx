@@ -526,7 +526,6 @@ export default function ChatPageShell({
   const [isStreaming, setIsStreaming] = useState(false);
   const NEW_CHAT_SELECTION_KEY = "__new_chat__";
   const [pendingNewChatMessages, setPendingNewChatMessages] = useState<StoredMessage[] | null>(null);
-  const [composerMovingToBottom, setComposerMovingToBottom] = useState(false);
   const [isMobileComposer, setIsMobileComposer] = useState(false);
   useEffect(() => {
     if (!speedModeEnabled) return;
@@ -1441,18 +1440,14 @@ export default function ChatPageShell({
   }, [messages]);
 
   const isRootRoute = pathname === "/";
-  const showEmptyConversation = !selectedChatId || messages.length === 0;
-  const shouldCenterComposer = isRootRoute && !selectedChatId && messages.length === 0;
+  const hasPendingNewChat = Boolean(pendingNewChatMessages && pendingNewChatMessages.length > 0);
+  const showEmptyConversation = !selectedChatId && messages.length === 0 && !hasPendingNewChat;
+  const shouldCenterComposer = isRootRoute && showEmptyConversation;
   const shouldUseCenteredComposer = shouldCenterComposer && !isMobileComposer;
-  const baseEmptyTransform = "calc(-5vh + 24px)";
-  const emptyStateTransform = shouldUseCenteredComposer
-    ? composerMovingToBottom
-      ? "translateY(0)"
-      : baseEmptyTransform
-    : undefined;
+  const baseEmptyTransform = "translateY(calc(-5vh + 72px))";
+  const emptyStateTransform = shouldUseCenteredComposer ? baseEmptyTransform : undefined;
   const emptyStateJustifyClass = shouldUseCenteredComposer ? "justify-start" : "justify-center";
-  const emptyStatePaddingTop =
-    shouldUseCenteredComposer && !composerMovingToBottom ? "calc(48vh - 180px)" : undefined;
+  const emptyStatePaddingTop = shouldUseCenteredComposer ? "calc(48vh - 180px)" : undefined;
   const isNewChatComposer = !selectedChatId && showEmptyConversation;
   const composerAlignmentClass = isNewChatComposer ? "items-start" : "items-end";
 
@@ -2028,7 +2023,6 @@ export default function ChatPageShell({
         metadata: { isPendingAssistant: true },
       };
       setPendingNewChatMessages([userMessage, assistantPlaceholder]);
-      setComposerMovingToBottom(true);
     }
 
     if (isGuest) {
@@ -2174,12 +2168,10 @@ export default function ChatPageShell({
         }
         newChatSuccess = true;
         setPendingNewChatMessages(null);
-        setComposerMovingToBottom(false);
         return;
       } finally {
         if (!newChatSuccess) {
           setPendingNewChatMessages(null);
-          setComposerMovingToBottom(false);
         }
       }
     }
@@ -3629,7 +3621,7 @@ export default function ChatPageShell({
         onPrefillUsed={() => setComposerPrefill(null)}
         selectedAgentId={selectedAgentId}
         onAgentChange={handleAgentChange}
-        shouldGrowDownward={shouldUseCenteredComposer && !composerMovingToBottom}
+        shouldGrowDownward={shouldUseCenteredComposer}
       />
     </>
   );
@@ -4124,29 +4116,39 @@ export default function ChatPageShell({
                     Where should we begin?
                   </h2>
                 </div>
-                {pendingNewChatMessages && (
-                  <div className="space-y-3">
-                    {pendingNewChatMessages.map((message) => (
-                      <ChatMessage
-                        key={message.id}
-                        {...message}
-                        messageId={message.id}
-                        enableEntryAnimation={false}
-                        showInsightChips={false}
-                        isStreaming={message.role === "assistant" && !(message.content?.trim())}
-                        suppressPreStreamAnimation
-                        modelTagClickable={false}
-                        forceFullWidth
-                        forceStaticBubble={message.role === "assistant"}
-                      />
-                    ))}
-                  </div>
-                )}
               </div>
               {shouldUseCenteredComposer && (
                 <div className="w-full max-w-3xl">{composerInner}</div>
               )}
             </div>
+          ) : hasPendingNewChat ? (
+            <ScrollArea
+              className="flex-1 min-h-0 overscroll-y-contain overflow-x-hidden"
+              viewportRef={scrollViewportRef}
+              viewportClassName="chat-scroll-viewport h-full overscroll-y-contain overscroll-contain overflow-x-hidden"
+              onViewportScroll={handleScroll}
+              style={{ minWidth: 0 }}
+            >
+              <div className="py-4 pb-20">
+                <div className="w-full space-y-3 overflow-x-hidden chat-message-list min-w-0 agent-chat-message-list agent-chat-scroll-area px-4 sm:px-6">
+                  {pendingNewChatMessages?.map((message) => (
+                    <ChatMessage
+                      key={message.id}
+                      {...message}
+                      messageId={message.id}
+                      enableEntryAnimation={false}
+                      showInsightChips={false}
+                      isStreaming={message.role === "assistant" && !(message.content?.trim())}
+                      suppressPreStreamAnimation
+                      modelTagClickable={false}
+                      forceFullWidth
+                      forceStaticBubble={message.role === "assistant"}
+                    />
+                  ))}
+                </div>
+                <div aria-hidden="true" style={{ height: `${bottomSpacerPx}px` }} />
+              </div>
+            </ScrollArea>
           ) : (
             <ScrollArea
               className="flex-1 min-h-0 overscroll-y-contain overflow-x-hidden"
