@@ -526,6 +526,9 @@ export default function ChatPageShell({
   const [isStreaming, setIsStreaming] = useState(false);
   const NEW_CHAT_SELECTION_KEY = "__new_chat__";
   const [pendingNewChatMessages, setPendingNewChatMessages] = useState<StoredMessage[] | null>(null);
+  const centeredComposerRef = useRef<HTMLDivElement | null>(null);
+  const stickyComposerRef = useRef<HTMLDivElement | null>(null);
+  const [composerDropOffsetPx, setComposerDropOffsetPx] = useState<number | null>(null);
   const [isMobileComposer, setIsMobileComposer] = useState(false);
   useEffect(() => {
     if (!speedModeEnabled) return;
@@ -1451,13 +1454,17 @@ export default function ChatPageShell({
   const emptyStatePaddingTop = shouldUseCenteredComposer ? "calc(48vh - 180px)" : undefined;
   const shouldAnimateComposerDrop = hasPendingNewChat && canAnimateComposerDrop;
   const [composerDropStage, setComposerDropStage] = useState<"idle" | "start" | "end">("idle");
-  const composerDropOffset = shouldAnimateComposerDrop && composerDropStage === "start" ? baseEmptyOffset : null;
+  const composerDropOffset =
+    shouldAnimateComposerDrop && composerDropStage === "start" && typeof composerDropOffsetPx === "number"
+      ? `${composerDropOffsetPx}px`
+      : null;
   const isNewChatComposer = !selectedChatId && showEmptyConversation;
   const composerAlignmentClass = isNewChatComposer ? "items-start" : "items-end";
 
   useEffect(() => {
     if (!shouldAnimateComposerDrop) {
       setComposerDropStage("idle");
+      setComposerDropOffsetPx(null);
       return;
     }
     setComposerDropStage("start");
@@ -2036,6 +2043,13 @@ export default function ChatPageShell({
         timestamp: new Date().toISOString(),
         metadata: { isPendingAssistant: true },
       };
+      if (canAnimateComposerDrop) {
+        const centeredRect = centeredComposerRef.current?.getBoundingClientRect() ?? null;
+        const stickyRect = stickyComposerRef.current?.getBoundingClientRect() ?? null;
+        if (centeredRect && stickyRect) {
+          setComposerDropOffsetPx(centeredRect.top - stickyRect.top);
+        }
+      }
       setPendingNewChatMessages([userMessage, assistantPlaceholder]);
       if (canAnimateComposerDrop) {
         setComposerDropStage("start");
@@ -4135,7 +4149,9 @@ export default function ChatPageShell({
                 </div>
               </div>
               {shouldUseCenteredComposer && (
-                <div className="w-full max-w-3xl">{composerInner}</div>
+                <div ref={centeredComposerRef} className="w-full max-w-3xl">
+                  {composerInner}
+                </div>
               )}
             </div>
           ) : hasPendingNewChat ? (
@@ -4315,9 +4331,12 @@ export default function ChatPageShell({
           </div>
         ) : null}
         {/* Composer: full-width bar, centered pill like ChatGPT */}
-        {!shouldUseCenteredComposer && (
+        {(!shouldUseCenteredComposer || shouldAnimateComposerDrop) && (
           <div
-            className={`bg-transparent px-4 sm:px-6 lg:px-12 py-3 sm:py-4 relative sticky bottom-0 z-30 pb-[max(env(safe-area-inset-bottom),0px)] transition-transform ${shouldAnimateComposerDrop ? "duration-300 ease-out" : "duration-200 ease-out"}`}
+            ref={stickyComposerRef}
+            className={`bg-transparent px-4 sm:px-6 lg:px-12 py-3 sm:py-4 ${
+              shouldUseCenteredComposer ? "fixed inset-x-0 bottom-0 pointer-events-none opacity-0" : "relative sticky"
+            } bottom-0 z-30 pb-[max(env(safe-area-inset-bottom),0px)] transition-transform ${shouldAnimateComposerDrop ? "duration-300 ease-out" : "duration-200 ease-out"}`}
             style={{
               transform: composerDropOffset
                 ? `translateY(calc(${-Math.max(0, composerLiftPx + 4)}px + ${composerDropOffset}))`
