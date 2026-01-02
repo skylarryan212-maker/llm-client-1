@@ -1429,6 +1429,10 @@ export default function ChatPageShell({
     return null;
   }, [messages]);
 
+  const isRootRoute = pathname === "/";
+  const showEmptyConversation = !selectedChatId || messages.length === 0;
+  const shouldCenterComposer = isRootRoute && !selectedChatId && messages.length === 0;
+
   const getEffectiveScrollBottom = useCallback(
     (viewport: HTMLDivElement) => {
       const extraSpacer = Math.max(0, bottomSpacerPx - baseBottomSpacerPx);
@@ -3553,6 +3557,40 @@ export default function ChatPageShell({
     }
   }, [isStreaming, shouldRenderRuntimeIndicatorSlot]);
 
+  const composerInner = (
+    <>
+      {isImageMode && (
+        <div className="mb-2 flex pl-2">
+          <button
+            type="button"
+            onClick={() => setIsImageMode(false)}
+            className="inline-flex max-w-full items-center gap-2 rounded-2xl border border-border bg-card/85 px-3 py-2 text-xs font-medium text-fuchsia-50 shadow-sm transition hover:bg-card/95 hover:shadow-md active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fuchsia-400/50 cursor-pointer"
+            aria-label="Exit image mode"
+            title="Click to exit image mode"
+          >
+            <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-fuchsia-500/20">
+              <ImageIcon className="h-3.5 w-3.5" />
+            </span>
+            <span className="truncate">Create image</span>
+            <span className="ml-1 text-[14px] leading-none text-fuchsia-50/80">x</span>
+          </button>
+        </div>
+      )}
+      <ChatComposer
+        conversationId={selectedChatId}
+        onSubmit={handleSubmit}
+        isStreaming={isStreaming}
+        onStop={handleStopGeneration}
+        onCreateImage={() => setIsImageMode(true)}
+        placeholder={isImageMode ? "Describe the image you want to generate..." : undefined}
+        prefillValue={composerPrefill}
+        onPrefillUsed={() => setComposerPrefill(null)}
+        selectedAgentId={selectedAgentId}
+        onAgentChange={handleAgentChange}
+      />
+    </>
+  );
+
   return (
     <div className="flex h-[100dvh] max-h-[100dvh] w-full min-w-0 bg-background text-foreground dark overflow-hidden overscroll-y-none">
       {/* Sidebar */}
@@ -4027,13 +4065,16 @@ export default function ChatPageShell({
           data-chat-body="true"
           className="flex-1 min-w-0 overflow-hidden flex flex-col min-h-0"
         >
-          {!selectedChatId || messages.length === 0 ? (
-            <div className="flex flex-1 items-center justify-center px-4">
-              <div className="text-center">
+          {showEmptyConversation ? (
+            <div className="flex flex-1 flex-col items-center justify-center gap-6 px-4 text-center">
+              <div>
                 <h2 className="text-xl sm:text-2xl font-semibold text-foreground mb-2">
                   Where should we begin?
                 </h2>
               </div>
+              {shouldCenterComposer && (
+                <div className="w-full max-w-3xl">{composerInner}</div>
+              )}
             </div>
           ) : (
             <ScrollArea
@@ -4059,7 +4100,7 @@ export default function ChatPageShell({
                     
                     // Show timing: stored from DB, or pending from first token, or live while thinking
                     const hasPendingTiming = Boolean(pendingThinkingInfoRef.current);
-                    
+
                     if (!hasStoredThinkingDuration && isStreamingMessage && hasPendingTiming) {
                       // Show pending timing from first token (triggered immediately when first token arrives)
                       const timing = pendingThinkingInfoRef.current!;
@@ -4181,65 +4222,37 @@ export default function ChatPageShell({
           </div>
         ) : null}
         {/* Composer: full-width bar, centered pill like ChatGPT */}
-        <div
-          className="bg-transparent px-4 sm:px-6 lg:px-12 py-3 sm:py-4 relative sticky bottom-0 z-30 pb-[max(env(safe-area-inset-bottom),0px)] transition-transform duration-200 ease-out"
-          style={{ transform: `translateY(${-Math.max(0, composerLiftPx + 4)}px)` }}
-        >
+        {!shouldCenterComposer && (
           <div
-            className={`scroll-tip pointer-events-none fixed inset-x-0 bottom-[calc(96px+env(safe-area-inset-bottom,0px))] z-30 transition-opacity duration-200 ${
-              showScrollToBottom ? "opacity-100 scroll-tip-visible" : "opacity-0"
-            }`}
+            className="bg-transparent px-4 sm:px-6 lg:px-12 py-3 sm:py-4 relative sticky bottom-0 z-30 pb-[max(env(safe-area-inset-bottom),0px)] transition-transform duration-200 ease-out"
+            style={{ transform: `translateY(${-Math.max(0, composerLiftPx + 4)}px)` }}
           >
-            <div className="flex w-full justify-center">
-              <Button
-                type="button"
-                size="icon"
-                className={`${showScrollToBottom ? "scroll-tip-button" : ""} pointer-events-auto h-10 w-10 rounded-full border border-border bg-card/90 text-foreground shadow-md backdrop-blur hover:bg-background`}
-                onClick={() => {
-                  scrollToBottom("smooth");
-                  // Re-enable autoscroll after scrolling to bottom
-                  setTimeout(() => {
-                    setIsAutoScroll(true);
-                    setShowScrollToBottom(false);
-                  }, 100);
-                }}
-              >
-                <ArrowDown className="h-4 w-4 text-foreground" />
-              </Button>
-            </div>
-          </div>
-          <div className="mx-auto w-full max-w-3xl">
-            {isImageMode && (
-              <div className="mb-2 flex pl-2">
-                <button
+            <div
+              className={`scroll-tip pointer-events-none fixed inset-x-0 bottom-[calc(96px+env(safe-area-inset-bottom,0px))] z-30 transition-opacity duration-200 ${
+                showScrollToBottom ? "opacity-100 scroll-tip-visible" : "opacity-0"
+              }`}
+            >
+              <div className="flex w-full justify-center">
+                <Button
                   type="button"
-                  onClick={() => setIsImageMode(false)}
-                  className="inline-flex max-w-full items-center gap-2 rounded-2xl border border-border bg-card/85 px-3 py-2 text-xs font-medium text-fuchsia-50 shadow-sm transition hover:bg-card/95 hover:shadow-md active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-fuchsia-400/50 cursor-pointer"
-                  aria-label="Exit image mode"
-                  title="Click to exit image mode"
+                  size="icon"
+                  className={`${showScrollToBottom ? "scroll-tip-button" : ""} pointer-events-auto h-10 w-10 rounded-full border border-border bg-card/90 text-foreground shadow-md backdrop-blur hover:bg-background`}
+                  onClick={() => {
+                    scrollToBottom("smooth");
+                    // Re-enable autoscroll after scrolling to bottom
+                    setTimeout(() => {
+                      setIsAutoScroll(true);
+                      setShowScrollToBottom(false);
+                    }, 100);
+                  }}
                 >
-                  <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-fuchsia-500/20">
-                    <ImageIcon className="h-3.5 w-3.5" />
-                  </span>
-                  <span className="truncate">Create image</span>
-                  <span className="ml-1 text-[14px] leading-none text-fuchsia-50/80">x</span>
-                </button>
+                  <ArrowDown className="h-4 w-4 text-foreground" />
+                </Button>
               </div>
-            )}
-            <ChatComposer
-              conversationId={selectedChatId}
-              onSubmit={handleSubmit}
-              isStreaming={isStreaming}
-              onStop={handleStopGeneration}
-              onCreateImage={() => setIsImageMode(true)}
-              placeholder={isImageMode ? "Describe the image you want to generate..." : undefined}
-              prefillValue={composerPrefill}
-              onPrefillUsed={() => setComposerPrefill(null)}
-              selectedAgentId={selectedAgentId}
-              onAgentChange={handleAgentChange}
-            />
+            </div>
+            <div className="mx-auto w-full max-w-3xl">{composerInner}</div>
           </div>
-        </div>
+        )}
       </div>
       {!isGuest && (
         <MarketFeedSidebar

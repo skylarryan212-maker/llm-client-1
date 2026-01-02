@@ -728,7 +728,7 @@ export function ChatComposer({
               onKeyDown={handleKeyDown}
               onPaste={handlePaste}
               title="Tip: paste images/files to attach"
-              placeholder={isTranscribing ? "Transcribing…" : placeholder ?? "Message Quarry..."}
+              placeholder={isTranscribing ? "Transcribing…" : placeholder ?? "Ask Quarry..."}
               rows={1}
               disabled={isRecording || isTranscribing}
               className="flex-1 min-h-[40px] max-h-[200px] border-0 bg-transparent dark:bg-transparent px-0 py-2.5 text-base leading-5 resize-none focus-visible:ring-0 focus-visible:ring-offset-0 shadow-none rounded-none"
