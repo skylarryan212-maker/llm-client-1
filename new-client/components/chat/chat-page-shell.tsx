@@ -544,22 +544,14 @@ export default function ChatPageShell({
     limit: number;
     planType: string;
   }>({ isOpen: false, currentSpending: 0, limit: 0, planType: 'free' });
-  const [isAutoScroll, setIsAutoScroll] = useState(true);
+  const [isHydrated, setIsHydrated] = useState(false);
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
-  const messageRefs = useRef<Record<string, HTMLDivElement | null>>({});
-  const alignNextUserMessageToTopRef = useRef<string | null>(null);
-  const [alignTrigger, setAlignTrigger] = useState(0);
   const [bottomSpacerPx, setBottomSpacerPx] = useState(baseBottomSpacerPx);
-  const bottomSpacerPxRef = useRef(bottomSpacerPx);
-  useEffect(() => {
-    bottomSpacerPxRef.current = bottomSpacerPx;
-  }, [bottomSpacerPx]);
   const [composerLiftPx, setComposerLiftPx] = useState(0);
   const [showOtherModels, setShowOtherModels] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
   const NEW_CHAT_SELECTION_KEY = "__new_chat__";
   const [pendingNewChatMessages, setPendingNewChatMessages] = useState<StoredMessage[] | null>(null);
-  const [isPinningPrompt, setIsPinningPrompt] = useState(false);
   const centeredComposerRef = useRef<HTMLDivElement | null>(null);
   const stickyComposerRef = useRef<HTMLDivElement | null>(null);
   const [composerDropOffsetPx, setComposerDropOffsetPx] = useState<number | null>(null);
@@ -568,8 +560,14 @@ export default function ChatPageShell({
   const pendingScrollStateRef = useRef<{ scrollTop: number; clientHeight: number; target: HTMLDivElement } | null>(
     null
   );
+  const streamingScrollRafRef = useRef<number | null>(null);
+  const autoScrollEnabledRef = useRef(true);
+  const userScrollIntentRef = useRef(false);
+  const isStreamingRef = useRef(false);
+  const autoScrollCooldownUntilRef = useRef(0);
+  const autoScrollLockedRef = useRef(false);
+  const isAutoScrollActionRef = useRef(false);
   const lastLoadOlderTsRef = useRef<number>(0);
-  const programmaticScrollTimeoutRef = useRef<number | null>(null);
   useEffect(() => {
     if (!speedModeEnabled) return;
     setCurrentModel((prev) => normalizeModelForSpeedMode(prev));
@@ -583,6 +581,12 @@ export default function ChatPageShell({
     window.addEventListener("resize", update);
     return () => window.removeEventListener("resize", update);
   }, []);
+  useEffect(() => {
+    setIsHydrated(true);
+  }, []);
+  useEffect(() => {
+    isStreamingRef.current = isStreaming;
+  }, [isStreaming]);
   const [contextUsageByChat, setContextUsageByChat] = useState<Record<string, ContextUsageSnapshot>>({});
   const [contextModeGlobal, setContextModeGlobal] = useState<"advanced" | "simple">(loadInitialContextModeGlobal);
   const [contextModeByChat, setContextModeByChat] = useState<Record<string, "advanced" | "simple">>(
@@ -808,10 +812,6 @@ export default function ChatPageShell({
   const [insightPreambles, setInsightPreambles] = useState<Record<string, string>>({});
   const scrollViewportRef = useRef<HTMLDivElement | null>(null);
   const virtuosoRef = useRef<VirtuosoHandle | null>(null);
-  const isProgrammaticScrollRef = useRef(false);
-  const pinToPromptRef = useRef(false);
-  const pinnedMessageIdRef = useRef<string | null>(null);
-  const pinnedScrollTopRef = useRef<number | null>(null);
   const conversationRenderKeyRef = useRef<string | null>(null);
   const animatedMessageIdsRef = useRef<Set<string>>(new Set());
   const lastCreatedConversationIdRef = useRef<string | null>(null);
@@ -927,8 +927,9 @@ export default function ChatPageShell({
           : currentModel === "Thinking"
             ? "GPT 5.2 Thinking"
             : currentModel === "Pro"
-              ? "GPT 5.2 Pro"
+            ? "GPT 5.2 Pro"
               : currentModel;
+  const modelTriggerLabelToRender = isHydrated ? modelTriggerLabel : "GPT 5.2";
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -1548,48 +1549,41 @@ export default function ChatPageShell({
 
   const getEffectiveScrollBottom = useCallback(
     (viewport: HTMLDivElement) => {
-      const maxExtra = Math.max(0, viewport.scrollHeight - baseBottomSpacerPx);
-      const extraSpacer = Math.min(Math.max(0, bottomSpacerPx - baseBottomSpacerPx), maxExtra);
-      return Math.max(0, viewport.scrollHeight - extraSpacer);
+      return Math.max(0, viewport.scrollHeight);
     },
-    [baseBottomSpacerPx, bottomSpacerPx]
+    []
   );
-
-  const scheduleProgrammaticScrollReset = useCallback(() => {
-    if (typeof window === "undefined") return;
-    if (programmaticScrollTimeoutRef.current) {
-      window.clearTimeout(programmaticScrollTimeoutRef.current);
-    }
-    programmaticScrollTimeoutRef.current = window.setTimeout(() => {
-      isProgrammaticScrollRef.current = false;
-      programmaticScrollTimeoutRef.current = null;
-    }, 160);
-  }, []);
-
-  const releasePromptPinning = useCallback(() => {
-    pinToPromptRef.current = false;
-    pinnedScrollTopRef.current = null;
-    alignNextUserMessageToTopRef.current = null;
-    setIsPinningPrompt(false);
-  }, []);
 
   const scrollToBottom = useCallback(
     (behavior: ScrollBehavior = "smooth") => {
       const viewport = scrollViewportRef.current;
       if (!viewport) return;
 
-      const bottom = getEffectiveScrollBottom(viewport);
-      const targetTop = Math.max(0, bottom - viewport.clientHeight);
-      isProgrammaticScrollRef.current = true;
-      viewport.scrollTo({ top: targetTop, behavior });
+      const performScroll = (nextBehavior: ScrollBehavior) => {
+        isAutoScrollActionRef.current = true;
+        const bottom = getEffectiveScrollBottom(viewport);
+        const targetTop = Math.max(0, bottom - viewport.clientHeight);
+        viewport.scrollTo({ top: targetTop, behavior: nextBehavior });
+      };
+
+      performScroll(behavior);
       if (typeof requestAnimationFrame !== "undefined") {
-        requestAnimationFrame(() =>
-          viewport.scrollTo({ top: targetTop, behavior: "auto" })
-        );
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => performScroll("auto"));
+        });
       }
-      scheduleProgrammaticScrollReset();
+      if (typeof setTimeout !== "undefined") {
+        setTimeout(() => performScroll("auto"), 120);
+      }
+      if (typeof setTimeout !== "undefined") {
+        setTimeout(() => {
+          isAutoScrollActionRef.current = false;
+        }, 180);
+      } else {
+        isAutoScrollActionRef.current = false;
+      }
     },
-    [getEffectiveScrollBottom, scheduleProgrammaticScrollReset]
+    [getEffectiveScrollBottom]
   );
 
   const handleLoadOlderMessages = useCallback(async () => {
@@ -1643,9 +1637,7 @@ export default function ChatPageShell({
           const nextScrollHeight = viewport.scrollHeight;
           const delta = nextScrollHeight - prevScrollHeight;
           if (delta > 0) {
-            isProgrammaticScrollRef.current = true;
             viewport.scrollTop += delta;
-            scheduleProgrammaticScrollReset();
           }
         });
       }
@@ -1661,202 +1653,7 @@ export default function ChatPageShell({
     isLoadingOlderMessages,
     oldestMessageTimestamp,
     prependMessages,
-    scheduleProgrammaticScrollReset,
   ]);
-
-  const computeRequiredSpacerForMessage = useCallback(
-    (messageId: string) => {
-      const viewport = scrollViewportRef.current;
-      const el = messageRefs.current[messageId];
-      if (!viewport || !el) return null;
-
-      const viewportRect = viewport.getBoundingClientRect();
-      const elRect = el.getBoundingClientRect();
-      const desiredPadding = 14;
-
-      const elContentTop = viewport.scrollTop + (elRect.top - viewportRect.top);
-      const requiredScrollTop = Math.max(0, Math.round(elContentTop - desiredPadding));
-
-      // Estimate max scroll if bottom spacer were reset to base.
-      const contentWithoutSpacer = viewport.scrollHeight - bottomSpacerPxRef.current;
-      const maxScrollTopWithBase = Math.max(
-        0,
-        contentWithoutSpacer + baseBottomSpacerPx - viewport.clientHeight
-      );
-      const extraNeeded = Math.max(0, requiredScrollTop - maxScrollTopWithBase);
-
-      return baseBottomSpacerPx + extraNeeded;
-    },
-    [baseBottomSpacerPx]
-  );
-
-  useEffect(() => {
-    const targetMessageId = alignNextUserMessageToTopRef.current;
-    if (!targetMessageId) return;
-
-    // The ref may not be mounted on the same tick as the message is appended.
-    // If we bail out here, the "align prompt to top" behavior can be delayed
-    // until the next unrelated state change (commonly seen on the first prompt
-    // that appears under an assistant message). Retry briefly until mounted.
-    let cancelled = false;
-    let retryRaf: number | null = null;
-    const startMs = typeof performance !== "undefined" ? performance.now() : Date.now();
-    const deadlineMs = startMs + 2500;
-
-    let scrollTimer: ReturnType<typeof setTimeout> | null = null;
-    let guardTimer: ReturnType<typeof setTimeout> | null = null;
-    let failSafeTimer: ReturnType<typeof setTimeout> | null = null;
-
-    const clearTimers = () => {
-      if (retryRaf && typeof cancelAnimationFrame !== "undefined") {
-        cancelAnimationFrame(retryRaf);
-      }
-      if (scrollTimer) clearTimeout(scrollTimer);
-      if (guardTimer) clearTimeout(guardTimer);
-      if (failSafeTimer) clearTimeout(failSafeTimer);
-    };
-
-    const finishPinning = () => {
-      isProgrammaticScrollRef.current = false;
-      releasePromptPinning();
-    };
-
-    const doScroll = () => {
-      if (cancelled) return;
-      const nowMs = typeof performance !== "undefined" ? performance.now() : Date.now();
-      if (nowMs > deadlineMs) {
-        finishPinning();
-        return;
-      }
-
-      const viewport = scrollViewportRef.current;
-      if (!viewport) return;
-
-      // Ensure there's always enough scrollable "runway" below the messages to
-      // bring the new user prompt up to the top immediately, even before the
-      // assistant placeholder/stream has added any height.
-      const currentBottomSpacer = bottomSpacerPxRef.current;
-      const minimumSpacerForAlign = baseBottomSpacerPx + viewport.clientHeight + 80;
-      if (currentBottomSpacer < minimumSpacerForAlign) {
-        setBottomSpacerPx((prev) => {
-          const next = Math.max(prev, minimumSpacerForAlign);
-          bottomSpacerPxRef.current = next;
-          return next;
-        });
-        if (typeof requestAnimationFrame !== "undefined") {
-          retryRaf = requestAnimationFrame(doScroll);
-        }
-        return;
-      }
-
-      const el = messageRefs.current[targetMessageId];
-      if (!el) {
-        const targetIndex = renderedMessagesRef.current.findIndex(
-          (msg) => msg.id === targetMessageId
-        );
-        if (targetIndex < 0) {
-          if (typeof requestAnimationFrame !== "undefined") {
-            retryRaf = requestAnimationFrame(doScroll);
-          }
-          return;
-        }
-
-        if (virtuosoRef.current) {
-          isProgrammaticScrollRef.current = true;
-          pinnedScrollTopRef.current = null;
-          setIsAutoScroll(false);
-          setShowScrollToBottom(true);
-          alignNextUserMessageToTopRef.current = null;
-          const behavior: ScrollBehavior = prefersReducedMotion ? "auto" : "smooth";
-          virtuosoRef.current.scrollToIndex({ index: targetIndex, align: "start", behavior });
-          guardTimer = setTimeout(() => {
-            finishPinning();
-          }, prefersReducedMotion ? 300 : 900);
-          return;
-        }
-
-        if (typeof requestAnimationFrame !== "undefined") {
-          retryRaf = requestAnimationFrame(doScroll);
-        }
-        return;
-      }
-
-      const viewportRect = viewport.getBoundingClientRect();
-      const elRect = el.getBoundingClientRect();
-      const desiredPadding = 14;
-      const nextTop = viewport.scrollTop + (elRect.top - viewportRect.top) - desiredPadding;
-      const targetTop = Math.max(0, Math.round(nextTop));
-      const maxScrollTop = Math.max(0, viewport.scrollHeight - viewport.clientHeight);
-
-      // If there's not enough scrollable space to bring this message to the top,
-      // expand the bottom spacer so we can scroll further without affecting the
-      // composer (which is outside the ScrollArea viewport).
-      if (targetTop > maxScrollTop) {
-        const desiredSpacer = computeRequiredSpacerForMessage(targetMessageId);
-        if (typeof desiredSpacer === "number") {
-          setBottomSpacerPx((prev) => Math.max(prev, desiredSpacer));
-        }
-        if (typeof requestAnimationFrame !== "undefined") {
-          requestAnimationFrame(doScroll);
-        }
-        return;
-      }
-
-      // Ensure programmatic scrolling doesn't toggle autoscroll state.
-      isProgrammaticScrollRef.current = true;
-      pinnedScrollTopRef.current = targetTop;
-      // Keep autoscroll disabled after pinning so streaming doesn't pull us away.
-      setIsAutoScroll(false);
-      {
-        const effectiveBottom = Math.max(
-          0,
-          viewport.scrollHeight - Math.max(0, currentBottomSpacer - baseBottomSpacerPx)
-        );
-        const distanceFromBottom = effectiveBottom - (targetTop + viewport.clientHeight);
-        const tolerance = Math.max(12, currentBottomSpacer / 3);
-        setShowScrollToBottom(!(distanceFromBottom <= tolerance));
-      }
-      alignNextUserMessageToTopRef.current = null;
-
-      // Let the new message render in place first, then smoothly scroll it to the top.
-      scrollTimer = setTimeout(() => {
-        viewport.scrollTo({ top: targetTop, behavior: "smooth" });
-      }, 80);
-
-      // Keep the programmatic scroll guard up long enough to ignore scroll events
-      // fired during the smooth scroll animation.
-      guardTimer = setTimeout(() => {
-        finishPinning();
-      }, 900);
-    };
-
-    failSafeTimer = setTimeout(() => {
-      if (alignNextUserMessageToTopRef.current === targetMessageId) {
-        finishPinning();
-      }
-    }, 2800);
-
-    // Double-RAF to ensure the viewport + message layout is settled.
-    requestAnimationFrame(() => requestAnimationFrame(doScroll));
-
-    return () => {
-      cancelled = true;
-      clearTimers();
-      isProgrammaticScrollRef.current = false;
-    };
-    // We intentionally omit computeRequiredSpacerForMessage/getEffectiveScrollBottom to avoid churn.
-  }, [alignTrigger, prefersReducedMotion, releasePromptPinning, computeRequiredSpacerForMessage]);
-
-  const recomputeScrollFlags = useCallback(() => {
-    const viewport = scrollViewportRef.current;
-    if (!viewport) return;
-    const { scrollTop, clientHeight } = viewport;
-    const effectiveBottom = getEffectiveScrollBottom(viewport);
-    const distanceFromBottom = effectiveBottom - (scrollTop + clientHeight);
-    const tolerance = Math.max(12, bottomSpacerPx / 3);
-    const atBottom = distanceFromBottom <= tolerance;
-    setShowScrollToBottom(!atBottom);
-  }, [bottomSpacerPx, getEffectiveScrollBottom]);
 
   // Dynamically size the bottom spacer to provide room below messages
   useEffect(() => {
@@ -1942,90 +1739,6 @@ export default function ChatPageShell({
       window.removeEventListener('usage-limit-exceeded', handleUsageLimitExceeded);
     };
   }, []);
-
-  // Auto-scroll during streaming when message content changes
-  useEffect(() => {
-    if (!isStreaming || !isAutoScroll) return;
-    if (pinToPromptRef.current) return;
-    
-    const viewport = scrollViewportRef.current;
-    if (!viewport) return;
-    
-    // Use requestAnimationFrame to ensure DOM is fully rendered before scrolling
-    // Double-RAF for better reliability with dynamic content
-    const scrollToEnd = () => {
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          if (viewport) {
-            const bottom = getEffectiveScrollBottom(viewport);
-            const targetTop = Math.max(0, bottom - viewport.clientHeight);
-            isProgrammaticScrollRef.current = true;
-            viewport.scrollTo({ top: targetTop, behavior: "auto" });
-            scheduleProgrammaticScrollReset();
-          }
-        });
-      });
-    };
-    
-    scrollToEnd();
-  }, [messages, isAutoScroll, isStreaming, getEffectiveScrollBottom, scheduleProgrammaticScrollReset]);
-
-  useEffect(() => {
-    if (pinToPromptRef.current) return;
-    setIsAutoScroll(true);
-    setShowScrollToBottom(false);
-    scrollToBottom("auto");
-  }, [selectedChatId, scrollToBottom]);
-
-  useEffect(() => {
-    if (pinToPromptRef.current) return;
-    pinnedScrollTopRef.current = null;
-
-    // Shrink any extra spacer once we have enough content below the pinned prompt.
-    if (runtimeIndicatorBubble) return;
-    const pinnedId = pinnedMessageIdRef.current;
-    if (!pinnedId) return;
-
-    const desiredSpacer = computeRequiredSpacerForMessage(pinnedId);
-    if (typeof desiredSpacer !== "number") return;
-
-    const nextSpacer = Math.max(baseBottomSpacerPx, desiredSpacer);
-    if (nextSpacer >= bottomSpacerPx) return;
-
-    const viewport = scrollViewportRef.current;
-    if (!viewport) return;
-
-    // If we're currently "down in the spacer", shrinking would cause the browser to clamp
-    // scrollTop, which can feel like a jump. Prefer shrinking anyway (to avoid huge empty
-    // scroll areas) and manually clamp to the new max in a controlled way.
-    const contentWithoutSpacer = viewport.scrollHeight - bottomSpacerPx;
-    const nextMaxScrollTop = Math.max(0, contentWithoutSpacer + nextSpacer - viewport.clientHeight);
-    const shouldClampScrollTop = viewport.scrollTop > nextMaxScrollTop + 1;
-
-    setBottomSpacerPx(nextSpacer);
-    if (shouldClampScrollTop && typeof requestAnimationFrame !== "undefined") {
-      requestAnimationFrame(() => {
-        const v = scrollViewportRef.current;
-        if (!v) return;
-        const maxTop = Math.max(0, v.scrollHeight - v.clientHeight);
-        if (v.scrollTop > maxTop) v.scrollTop = maxTop;
-      });
-    }
-
-    if (nextSpacer === baseBottomSpacerPx) {
-      pinnedMessageIdRef.current = null;
-    }
-  }, [messages.length, bottomSpacerPx, baseBottomSpacerPx, computeRequiredSpacerForMessage]);
-
-  useEffect(() => {
-    if (isPinningPrompt || reserveRuntimeIndicatorSpace) return;
-    const viewport = scrollViewportRef.current;
-    if (!viewport) return;
-    const maxSpacer = Math.max(baseBottomSpacerPx, Math.round(viewport.clientHeight * 0.6));
-    if (bottomSpacerPx > maxSpacer) {
-      setBottomSpacerPx(maxSpacer);
-    }
-  }, [baseBottomSpacerPx, bottomSpacerPx, isPinningPrompt, messages.length, reserveRuntimeIndicatorSpace]);
 
   useEffect(() => {
     if (currentChat?.projectId) {
@@ -2259,19 +1972,8 @@ export default function ChatPageShell({
       metadata: Object.keys(userMetadata).length ? userMetadata : undefined,
     };
 
-    // Align the newly-sent user message to the top of the viewport (instead of
-    // always jumping to the bottom). Also disable streaming auto-scroll so the
-    // alignment isn't immediately overwritten.
-    releasePromptPinning();
-    setIsAutoScroll(false);
     setReserveRuntimeIndicatorSpace(true);
     showThinkingIndicator();
-    pinToPromptRef.current = true;
-    setIsPinningPrompt(true);
-    pinnedMessageIdRef.current = userMessage.id;
-    pinnedScrollTopRef.current = null;
-    alignNextUserMessageToTopRef.current = userMessage.id;
-    setAlignTrigger((prev) => prev + 1);
 
     if (!selectedChatId) {
       const assistantPlaceholder: StoredMessage = {
@@ -2291,6 +1993,14 @@ export default function ChatPageShell({
       setPendingNewChatMessages([userMessage, assistantPlaceholder]);
       if (canAnimateComposerDrop) {
         setComposerDropStage("start");
+      }
+      autoScrollEnabledRef.current = true;
+      autoScrollLockedRef.current = false;
+      autoScrollCooldownUntilRef.current = 0;
+      if (typeof requestAnimationFrame !== "undefined") {
+        requestAnimationFrame(() => scrollToBottom("smooth"));
+      } else {
+        scrollToBottom("smooth");
       }
     }
 
@@ -2357,10 +2067,6 @@ export default function ChatPageShell({
             metadata: Object.keys(userMetadata).length ? userMetadata : undefined,
           };
 
-          pinnedMessageIdRef.current = mappedMessage.id;
-          pinnedScrollTopRef.current = null;
-          alignNextUserMessageToTopRef.current = mappedMessage.id;
-
           const newChatId = createChat({
             id: conversationId,
             projectId: targetProjectId,
@@ -2406,10 +2112,6 @@ export default function ChatPageShell({
             metadata: Object.keys(userMetadata).length ? userMetadata : undefined,
           };
 
-          pinnedMessageIdRef.current = mappedMessage.id;
-          pinnedScrollTopRef.current = null;
-          alignNextUserMessageToTopRef.current = mappedMessage.id;
-
           const newChatId = createChat({
             id: conversationId,
             initialMessages: [mappedMessage],
@@ -2449,6 +2151,14 @@ export default function ChatPageShell({
     // For existing chats, just append the user message to UI
     // (The /api/chat endpoint will persist it to the database)
     appendMessages(selectedChatId, [userMessage]);
+    autoScrollEnabledRef.current = true;
+    autoScrollLockedRef.current = false;
+    autoScrollCooldownUntilRef.current = 0;
+    if (typeof requestAnimationFrame !== "undefined") {
+      requestAnimationFrame(() => scrollToBottom("smooth"));
+    } else {
+      scrollToBottom("smooth");
+    }
     if (marketContext?.instanceId || currentMarketInstanceId) {
       setMarketInstanceByChat((prev) => ({
         ...prev,
@@ -3566,34 +3276,33 @@ export default function ChatPageShell({
     void navigateWithMainPanelFade(router, `/projects/${id}`);
   };
 
-  const handleScroll: React.UIEventHandler<HTMLDivElement> = (event) => {
-    if (isProgrammaticScrollRef.current) return;
+  const handleScroll = useCallback<React.UIEventHandler<HTMLDivElement>>(
+    (event) => {
+      const target = event.currentTarget;
+      const { scrollTop, clientHeight } = target;
 
-    const target = event.currentTarget;
-    const { scrollTop, clientHeight } = target;
+      pendingScrollStateRef.current = { scrollTop, clientHeight, target };
+      if (scrollRafRef.current !== null) return;
 
-    if (pinToPromptRef.current) {
-      releasePromptPinning();
-    }
+      scrollRafRef.current = requestAnimationFrame(() => {
+        scrollRafRef.current = null;
+        const pending = pendingScrollStateRef.current;
+        if (!pending) return;
 
-    pendingScrollStateRef.current = { scrollTop, clientHeight, target };
-    if (scrollRafRef.current !== null) return;
+        const effectiveBottom = getEffectiveScrollBottom(pending.target);
+        const distanceFromBottom = effectiveBottom - (pending.scrollTop + pending.clientHeight);
+        const tolerance = Math.max(16, bottomSpacerPx / 3);
+        const atBottom = distanceFromBottom <= tolerance;
 
-    scrollRafRef.current = requestAnimationFrame(() => {
-      scrollRafRef.current = null;
-      const pending = pendingScrollStateRef.current;
-      if (!pending) return;
-
-      const effectiveBottom = getEffectiveScrollBottom(pending.target);
-      const distanceFromBottom = effectiveBottom - (pending.scrollTop + pending.clientHeight);
-      const tolerance = Math.max(16, bottomSpacerPx / 3);
-      const atBottom = distanceFromBottom <= tolerance;
-
-      setShowScrollToBottom(!atBottom);
-      // Re-enable autoscroll when user scrolls back to bottom, disable when scrolling up
-      if (!pinToPromptRef.current) {
-        setIsAutoScroll(atBottom);
-      }
+        setShowScrollToBottom(!atBottom);
+        if (isStreamingRef.current && !isAutoScrollActionRef.current && !atBottom) {
+          autoScrollEnabledRef.current = false;
+          autoScrollLockedRef.current = true;
+        }
+        userScrollIntentRef.current = false;
+        if (atBottom) {
+          autoScrollCooldownUntilRef.current = 0;
+        }
 
       if (
         pending.scrollTop <= 120 &&
@@ -3608,22 +3317,27 @@ export default function ChatPageShell({
         }
       }
     });
-  };
+  },
+    [
+      activeConversationId,
+      bottomSpacerPx,
+      getEffectiveScrollBottom,
+      handleLoadOlderMessages,
+      hasMoreMessages,
+      isLoadingOlderMessages,
+    ]
+  );
 
   const handleAtBottomStateChange = useCallback(
     (atBottom: boolean) => {
-      if (pinToPromptRef.current) return;
       setShowScrollToBottom(!atBottom);
-      if (!pinToPromptRef.current) {
-        setIsAutoScroll(atBottom);
-      }
     },
-    [setIsAutoScroll]
+    []
   );
 
   const VirtuosoScroller = useMemo(() => {
     const Scroller = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(
-      ({ className, onScroll, ...rest }, ref) => {
+      ({ className, onScroll, onWheel, onTouchMove, onPointerDown, ...rest }, ref) => {
         return (
           <div
             {...rest}
@@ -3639,6 +3353,33 @@ export default function ChatPageShell({
               onScroll?.(event);
               handleScroll(event as React.UIEvent<HTMLDivElement>);
             }}
+            onWheel={(event) => {
+              onWheel?.(event);
+              if (isStreamingRef.current) {
+                autoScrollEnabledRef.current = false;
+              }
+              userScrollIntentRef.current = true;
+              autoScrollCooldownUntilRef.current = Date.now() + 600;
+              autoScrollLockedRef.current = true;
+            }}
+            onTouchMove={(event) => {
+              onTouchMove?.(event);
+              if (isStreamingRef.current) {
+                autoScrollEnabledRef.current = false;
+              }
+              userScrollIntentRef.current = true;
+              autoScrollCooldownUntilRef.current = Date.now() + 600;
+              autoScrollLockedRef.current = true;
+            }}
+            onPointerDown={(event) => {
+              onPointerDown?.(event);
+              userScrollIntentRef.current = true;
+              if (isStreamingRef.current) {
+                autoScrollEnabledRef.current = false;
+              }
+              autoScrollCooldownUntilRef.current = Date.now() + 600;
+              autoScrollLockedRef.current = true;
+            }}
             className={`h-full min-h-0 overflow-y-auto overflow-x-hidden overscroll-y-contain overscroll-contain chat-scroll-viewport agent-chat-scroll-area ${className ?? ""}`}
           />
         );
@@ -3647,19 +3388,6 @@ export default function ChatPageShell({
     Scroller.displayName = "ChatVirtuosoScroller";
     return Scroller;
   }, [handleScroll]);
-
-  useEffect(() => {
-    // Don't run this effect during streaming - let the streaming autoscroll handle it
-    if (isStreaming) return;
-    
-    if (isAutoScroll) {
-      // Only recompute flags, don't force scroll
-      setShowScrollToBottom(false);
-    } else {
-      // Recompute based on actual scroll position so the button state is always correct.
-      recomputeScrollFlags();
-    }
-  }, [isAutoScroll, isStreaming, recomputeScrollFlags]);
 
   useEffect(() => {
     return () => {
@@ -3676,12 +3404,39 @@ export default function ChatPageShell({
       cancelAnimationFrame(scrollRafRef.current);
       scrollRafRef.current = null;
     }
-    if (programmaticScrollTimeoutRef.current) {
-      clearTimeout(programmaticScrollTimeoutRef.current);
-      programmaticScrollTimeoutRef.current = null;
-    }
   };
 }, []);
+
+  useEffect(() => {
+    if (!isStreaming) {
+      if (streamingScrollRafRef.current !== null) {
+        cancelAnimationFrame(streamingScrollRafRef.current);
+        streamingScrollRafRef.current = null;
+      }
+      return;
+    }
+
+    let active = true;
+    const tick = () => {
+      if (!active) return;
+      if (
+        autoScrollEnabledRef.current &&
+        !autoScrollLockedRef.current &&
+        Date.now() >= autoScrollCooldownUntilRef.current
+      ) {
+        scrollToBottom("auto");
+      }
+      streamingScrollRafRef.current = requestAnimationFrame(tick);
+    };
+    streamingScrollRafRef.current = requestAnimationFrame(tick);
+    return () => {
+      active = false;
+      if (streamingScrollRafRef.current !== null) {
+        cancelAnimationFrame(streamingScrollRafRef.current);
+        streamingScrollRafRef.current = null;
+      }
+    };
+  }, [isStreaming, scrollToBottom]);
 
   const handleNewProject = () => {
     if (isGuest) {
@@ -3800,6 +3555,7 @@ export default function ChatPageShell({
     thinkingStatus,
   ]);
 
+
   const assistantShimmerRgb = useMemo(() => {
     if (fileReadingIndicator) return "83, 242, 199"; // green
     if (searchIndicator) return "75, 100, 255"; // darker blue
@@ -3814,97 +3570,6 @@ export default function ChatPageShell({
     (reserveRuntimeIndicatorSpace ||
       Boolean(thinkingStatus || searchIndicator || fileReadingIndicator || isAnalyzing));
 
-  // When we're intentionally not auto-scrolling (e.g., pinning the prompt near the top),
-  // prevent newly mounted runtime indicators from nudging the scroll position.
-  useEffect(() => {
-    if (isAutoScroll) return;
-    const viewport = scrollViewportRef.current;
-    if (!viewport) return;
-
-    const lockedTop = viewport.scrollTop;
-    const restore = () => {
-      viewport.scrollTop = lockedTop;
-    };
-
-    // Restore immediately and over the next two frames to cover layout/paint.
-    restore();
-    const raf1 = typeof requestAnimationFrame !== "undefined" ? requestAnimationFrame(() => {
-      restore();
-      if (typeof requestAnimationFrame !== "undefined") {
-        requestAnimationFrame(restore);
-      }
-    }) : null;
-
-    // If the viewport resizes while indicators are present, keep the same top.
-    const resizeObserver =
-      typeof ResizeObserver !== "undefined"
-        ? new ResizeObserver(restore)
-        : null;
-    if (resizeObserver) {
-      resizeObserver.observe(viewport);
-    }
-
-    return () => {
-      if (raf1 && typeof cancelAnimationFrame !== "undefined") {
-        cancelAnimationFrame(raf1);
-      }
-      if (resizeObserver) {
-        resizeObserver.disconnect();
-      }
-    };
-  }, [
-    isAutoScroll,
-    thinkingStatus,
-    searchIndicator,
-    fileReadingIndicator,
-    reserveRuntimeIndicatorSpace,
-  ]);
-
-  // Lock scroll position while runtime indicator is visible to avoid jumps from layout/anchor adjustments.
-  useEffect(() => {
-    if (!runtimeIndicatorBubble) return;
-    const viewport = scrollViewportRef.current;
-    if (!viewport) return;
-
-    const lockTop = viewport.scrollTop;
-    const effectiveBottom = getEffectiveScrollBottom(viewport);
-    const distanceFromBottom = effectiveBottom - (viewport.scrollTop + viewport.clientHeight);
-    if (distanceFromBottom > 8) {
-      setIsAutoScroll(false);
-    }
-
-    const restore = () => {
-      viewport.scrollTop = lockTop;
-    };
-
-    restore();
-    const raf1 =
-      typeof requestAnimationFrame !== "undefined"
-        ? requestAnimationFrame(() => {
-            restore();
-            if (typeof requestAnimationFrame !== "undefined") {
-              requestAnimationFrame(restore);
-            }
-          })
-        : null;
-
-    const resizeObserver =
-      typeof ResizeObserver !== "undefined"
-        ? new ResizeObserver(restore)
-        : null;
-    if (resizeObserver) {
-      resizeObserver.observe(viewport);
-    }
-
-    return () => {
-      if (raf1 && typeof cancelAnimationFrame !== "undefined") {
-        cancelAnimationFrame(raf1);
-      }
-      if (resizeObserver) {
-        resizeObserver.disconnect();
-      }
-    };
-  }, [runtimeIndicatorBubble, getEffectiveScrollBottom]);
 
   // Ensure we never shrink the bottom spacer while a runtime indicator is visible; keeps page height stable.
   useEffect(() => {
@@ -4037,7 +3702,7 @@ export default function ChatPageShell({
                 size="sm"
                 className="h-9 w-auto gap-1.5 border-0 px-2 text-base font-semibold focus-visible:bg-transparent focus-visible:outline-none focus-visible:ring-0"
               >
-                  {modelTriggerLabel}
+                  {modelTriggerLabelToRender}
                   <ChevronDown className="h-4 w-4 text-muted-foreground" />
                 </Button>
               </DropdownMenuTrigger>
@@ -4456,18 +4121,10 @@ export default function ChatPageShell({
                 ref={virtuosoRef}
                 style={{ height: "100%" }}
                 data={pendingNewChatMessages ?? []}
+                computeItemKey={(index, message) => `${message.id}-${index}`}
                 atBottomStateChange={handleAtBottomStateChange}
                 itemContent={(_, message) => (
-                  <div
-                    ref={(el) => {
-                      if (el) {
-                        messageRefs.current[message.id] = el;
-                      } else {
-                        delete messageRefs.current[message.id];
-                      }
-                    }}
-                    className="px-4 sm:px-6"
-                  >
+                  <div className="px-4 sm:px-6">
                     <div className="w-full max-w-[min(48rem,calc(100vw-32px))] min-w-0 mx-auto px-1.5 sm:px-0 overflow-hidden">
                       <ChatMessage
                         {...message}
@@ -4498,7 +4155,6 @@ export default function ChatPageShell({
                 overscan={200}
                 atTopThreshold={120}
                 atBottomStateChange={handleAtBottomStateChange}
-                followOutput={isAutoScroll ? "auto" : false}
                 startReached={() => {
                   if (
                     hasMoreMessages &&
@@ -4510,7 +4166,7 @@ export default function ChatPageShell({
                     void handleLoadOlderMessages();
                   }
                 }}
-                computeItemKey={(_, message) => message.id}
+                computeItemKey={(index, message) => `${message.id}-${index}`}
                 itemContent={(index, message) => {
                   const metadata = message.metadata as AssistantMessageMetadata | null;
                   const isStreamingMessage = message.id === activeIndicatorMessageId;
@@ -4579,16 +4235,8 @@ export default function ChatPageShell({
                   }
 
                   return (
-                    <React.Fragment key={message.id}>
-                      <div
-                        ref={(el) => {
-                          if (el) {
-                            messageRefs.current[message.id] = el;
-                          } else {
-                            delete messageRefs.current[message.id];
-                          }
-                        }}
-                      >
+                    <React.Fragment key={`${message.id}-${index}`}>
+                      <div>
                         {message.role === "assistant" && (
                           <div className="flex flex-col gap-2 pb-2 px-4 sm:px-6">
                             <div
@@ -4690,13 +4338,11 @@ export default function ChatPageShell({
                   size="icon"
                   className={`${showScrollToBottom ? "scroll-tip-button" : ""} pointer-events-auto h-10 w-10 rounded-full border border-border bg-card/90 text-foreground shadow-md backdrop-blur hover:bg-background`}
                   onClick={() => {
-                    releasePromptPinning();
                     scrollToBottom("smooth");
-                    // Re-enable autoscroll after scrolling to bottom
-                    setTimeout(() => {
-                      setIsAutoScroll(true);
-                      setShowScrollToBottom(false);
-                    }, 100);
+                    setShowScrollToBottom(false);
+                    autoScrollEnabledRef.current = true;
+                    autoScrollLockedRef.current = false;
+                    autoScrollCooldownUntilRef.current = 0;
                   }}
                 >
                   <ArrowDown className="h-4 w-4 text-foreground" />

@@ -171,6 +171,43 @@
     mix-blend-mode: screen;
   }
 
+  @keyframes assistant-streaming-fade-a {
+    0% {
+      opacity: 0;
+      filter: blur(1.2px);
+      transform: translateY(6px);
+    }
+    100% {
+      opacity: 1;
+      filter: blur(0);
+      transform: translateY(0);
+    }
+  }
+
+  @keyframes assistant-streaming-fade-b {
+    0% {
+      opacity: 0;
+      filter: blur(1.2px);
+      transform: translateY(6px);
+    }
+    100% {
+      opacity: 1;
+      filter: blur(0);
+      transform: translateY(0);
+    }
+  }
+
+  .assistant-streaming-text {
+    will-change: opacity, filter, transform;
+    display: inline-block;
+  }
+
+  .assistant-streaming-chunk {
+    display: inline-block;
+    animation: assistant-streaming-fade-a 0.6s cubic-bezier(0.16, 0.84, 0.44, 1) both;
+    will-change: opacity, filter, transform;
+  }
+
   @keyframes thinking-shimmer {
     0% {
       background-position: 0% 50%;

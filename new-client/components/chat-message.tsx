@@ -59,6 +59,11 @@ export const ChatMessage = memo(function ChatMessage({
   const [showFiles, setShowFiles] = useState(false)
   const [isAnimating, setIsAnimating] = useState(Boolean(enableEntryAnimation))
   const animationTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const streamTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const streamTargetRef = useRef('')
+  const streamBaseRef = useRef('')
+  const streamChunkRef = useRef('')
+  const [streamTick, setStreamTick] = useState(0)
 
   useEffect(() => {
     if (!enableEntryAnimation) {
@@ -87,6 +92,52 @@ export const ChatMessage = memo(function ChatMessage({
       }
     }
   }, [enableEntryAnimation, messageId])
+
+  useEffect(() => {
+    if (!isStreaming) {
+      if (streamTimerRef.current) {
+        clearInterval(streamTimerRef.current)
+        streamTimerRef.current = null
+      }
+      streamTargetRef.current = content
+      streamBaseRef.current = content
+      streamChunkRef.current = ''
+      return
+    }
+
+    streamTargetRef.current = content
+    if (streamTimerRef.current) return
+
+    streamTimerRef.current = setInterval(() => {
+      const target = streamTargetRef.current
+      const base = streamBaseRef.current
+      const chunk = streamChunkRef.current
+      const combined = base + chunk
+      if (combined === target) return
+
+      const remaining = target.slice(combined.length)
+      if (!remaining) return
+
+      const nextChunk = remaining.slice(0, 16)
+      streamBaseRef.current = base + chunk
+      streamChunkRef.current = nextChunk
+      // eslint-disable-next-line no-console
+      console.log("[streamAnim] chunk", {
+        messageId,
+        baseLength: streamBaseRef.current.length,
+        chunkLength: nextChunk.length,
+        targetLength: target.length,
+      })
+      setStreamTick((prev) => prev + 1)
+    }, 36)
+
+    return () => {
+      if (streamTimerRef.current) {
+        clearInterval(streamTimerRef.current)
+        streamTimerRef.current = null
+      }
+    }
+  }, [content, isStreaming, messageId])
 
   const animateClass = isAnimating ? 'chat-entry-animate' : ''
   const assistantStreamingClass =
@@ -239,6 +290,8 @@ export const ChatMessage = memo(function ChatMessage({
 }
 
   const shouldRenderMarkdown = !(role === "assistant" && isStreaming);
+  const streamingBaseText = isStreaming ? streamBaseRef.current : content
+  const streamingDeltaText = isStreaming ? streamChunkRef.current : ''
 
   return (
     <div {...rootAttributes} className={`py-0 ${animateClass} ${assistantStreamingClass}`}>
@@ -260,8 +313,16 @@ export const ChatMessage = memo(function ChatMessage({
               generatedFiles={typedMetadata?.generatedFiles}
             />
           ) : (
-            <div className="whitespace-pre-wrap break-words text-sm leading-relaxed text-foreground/90">
-              {content}
+            <div className="assistant-streaming-text whitespace-pre-wrap break-words text-sm leading-relaxed text-foreground/90">
+              {streamingBaseText}
+              {streamingDeltaText ? (
+                <span
+                  key={`chunk-${streamTick}`}
+                  className="assistant-streaming-chunk"
+                >
+                  {streamingDeltaText}
+                </span>
+              ) : null}
             </div>
           )}
 
