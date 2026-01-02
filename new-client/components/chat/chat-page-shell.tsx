@@ -4132,18 +4132,22 @@ export default function ChatPageShell({
               <div className="py-4 pb-20">
                 <div className="w-full space-y-3 overflow-x-hidden chat-message-list min-w-0 agent-chat-message-list agent-chat-scroll-area px-4 sm:px-6">
                   {pendingNewChatMessages?.map((message) => (
-                    <ChatMessage
+                    <div
                       key={message.id}
-                      {...message}
-                      messageId={message.id}
-                      enableEntryAnimation={false}
-                      showInsightChips={false}
-                      isStreaming={message.role === "assistant" && !(message.content?.trim())}
-                      suppressPreStreamAnimation
-                      modelTagClickable={false}
-                      forceFullWidth
-                      forceStaticBubble={message.role === "assistant"}
-                    />
+                      className="w-full max-w-[min(48rem,calc(100vw-32px))] min-w-0 mx-auto px-1.5 sm:px-0 overflow-hidden"
+                    >
+                      <ChatMessage
+                        {...message}
+                        messageId={message.id}
+                        enableEntryAnimation={false}
+                        showInsightChips={false}
+                        isStreaming={message.role === "assistant" && !(message.content?.trim())}
+                        suppressPreStreamAnimation
+                        modelTagClickable={false}
+                        forceFullWidth
+                        forceStaticBubble={message.role === "assistant"}
+                      />
+                    </div>
                   ))}
                 </div>
                 <div aria-hidden="true" style={{ height: `${bottomSpacerPx}px` }} />
