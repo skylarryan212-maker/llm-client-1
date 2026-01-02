@@ -131,10 +131,7 @@ Output shape:
 Rules:
 - Never invent placeholder strings like "none"/"null" for IDs.
 - If topicAction="new": primaryTopicId MUST be null.
-- If topicAction="continue_active": primaryTopicId MUST equal activeTopicId (if provided).
-- If topicAction="reopen_existing": primaryTopicId MUST be one of the provided topics.
-- How to choose topicAction (use recentMessages, topics, artifacts, and the userMessage):
-  * continue_active: when the user is clearly continuing the active topic (follow-up, same intent, direct references like "that", "this", "continue", or replies to the last turn) and there is no stronger match elsewhere.
+  * continue_active: when the user is clearly continuing the active topic (follow-up, same intent, direct references like "that", "this", "continue", or replies to the last turn) and there is no stronger match elsewhere. Consider semantic scores, recent messages, topic labels, and mention of shared entity/context.
   * reopen_existing: when the user intent best matches a past topic in the provided topics/artifacts (same subject/entity/task), but the active topic is different or stale. Pick the best-matching previous topic as primaryTopicId.
   * new: when the request starts a new subject/task not covered by the active topic or any prior topic (no strong match).
 - Use topic summaries/labels/descriptions plus artifacts to judge matching intent; prefer reuse when the fit is strong, otherwise start new.

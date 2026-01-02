@@ -4066,7 +4066,10 @@ export default function ChatPageShell({
           className="flex-1 min-w-0 overflow-hidden flex flex-col min-h-0"
         >
           {showEmptyConversation ? (
-            <div className="flex flex-1 flex-col items-center justify-center gap-6 px-4 text-center">
+            <div
+              className="flex flex-1 flex-col items-center justify-center gap-6 px-4 text-center"
+              style={{ transform: "translateY(calc(-5vh - 24px))" }}
+            >
               <div>
                 <h2 className="text-xl sm:text-2xl font-semibold text-foreground mb-2">
                   Where should we begin?
