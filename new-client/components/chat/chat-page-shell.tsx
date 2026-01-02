@@ -534,15 +534,6 @@ export default function ChatPageShell({
   }, [speedModeEnabled]);
 
   useEffect(() => {
-    if (!shouldAnimateComposerDrop) {
-      setComposerDropStage("idle");
-      return;
-    }
-    const raf = requestAnimationFrame(() => setComposerDropStage("end"));
-    return () => cancelAnimationFrame(raf);
-  }, [shouldAnimateComposerDrop]);
-
-  useEffect(() => {
     if (typeof window === "undefined") return;
     const update = () => setIsMobileComposer(window.innerWidth <= 768);
     update();
@@ -1463,6 +1454,16 @@ export default function ChatPageShell({
   const composerDropOffset = shouldAnimateComposerDrop && composerDropStage === "start" ? baseEmptyOffset : null;
   const isNewChatComposer = !selectedChatId && showEmptyConversation;
   const composerAlignmentClass = isNewChatComposer ? "items-start" : "items-end";
+
+  useEffect(() => {
+    if (!shouldAnimateComposerDrop) {
+      setComposerDropStage("idle");
+      return;
+    }
+    setComposerDropStage("start");
+    const raf = requestAnimationFrame(() => setComposerDropStage("end"));
+    return () => cancelAnimationFrame(raf);
+  }, [shouldAnimateComposerDrop]);
 
   const getEffectiveScrollBottom = useCallback(
     (viewport: HTMLDivElement) => {
