@@ -4686,7 +4686,13 @@ export async function POST(request: NextRequest) {
                   });
 
                   try {
-                    await supabaseAny.from("artifacts").insert(inserts);
+                    let artifactClient: any = supabaseAny;
+                    try {
+                      artifactClient = await supabaseServerAdmin();
+                    } catch (adminErr) {
+                      console.warn("[artifacts] Admin client unavailable; falling back to user client:", adminErr);
+                    }
+                    await artifactClient.from("artifacts").insert(inserts);
                     console.log(`[artifacts] Inserted ${inserts.length} artifacts from writer router`);
                   } catch (error: any) {
                     console.error("[artifacts] Failed to insert artifacts:", error);
@@ -4697,7 +4703,13 @@ export async function POST(request: NextRequest) {
                         return rest;
                       });
                       try {
-                        await supabaseAny.from("artifacts").insert(insertsNoKeywords);
+                        let artifactClient: any = supabaseAny;
+                        try {
+                          artifactClient = await supabaseServerAdmin();
+                        } catch (adminErr) {
+                          console.warn("[artifacts] Admin client unavailable; falling back to user client:", adminErr);
+                        }
+                        await artifactClient.from("artifacts").insert(insertsNoKeywords);
                         console.log(`[artifacts] Inserted ${insertsNoKeywords.length} artifacts without keywords (keywords column missing)`);
                       } catch (err2) {
                         console.error("[artifacts] Retry insert without keywords failed:", err2);

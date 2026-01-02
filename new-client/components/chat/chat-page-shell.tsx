@@ -1505,6 +1505,10 @@ export default function ChatPageShell({
 
   const isRootRoute = pathname === "/";
   const hasPendingNewChat = Boolean(pendingNewChatMessages && pendingNewChatMessages.length > 0);
+  const renderedMessages = useMemo(
+    () => (hasPendingNewChat ? pendingNewChatMessages ?? [] : messages),
+    [hasPendingNewChat, pendingNewChatMessages, messages]
+  );
   const showEmptyConversation = !selectedChatId && messages.length === 0 && !hasPendingNewChat;
   const shouldCenterComposer = isRootRoute && showEmptyConversation;
   const canAnimateComposerDrop = isRootRoute && !selectedChatId && !isMobileComposer;
@@ -1535,7 +1539,8 @@ export default function ChatPageShell({
 
   const getEffectiveScrollBottom = useCallback(
     (viewport: HTMLDivElement) => {
-      const extraSpacer = Math.max(0, bottomSpacerPx - baseBottomSpacerPx);
+      const maxExtra = Math.max(0, viewport.scrollHeight - baseBottomSpacerPx);
+      const extraSpacer = Math.min(Math.max(0, bottomSpacerPx - baseBottomSpacerPx), maxExtra);
       return Math.max(0, viewport.scrollHeight - extraSpacer);
     },
     [baseBottomSpacerPx, bottomSpacerPx]
@@ -1550,6 +1555,13 @@ export default function ChatPageShell({
       isProgrammaticScrollRef.current = false;
       programmaticScrollTimeoutRef.current = null;
     }, 160);
+  }, []);
+
+  const releasePromptPinning = useCallback(() => {
+    pinToPromptRef.current = false;
+    pinnedScrollTopRef.current = null;
+    alignNextUserMessageToTopRef.current = null;
+    setIsPinningPrompt(false);
   }, []);
 
   const scrollToBottom = useCallback(
@@ -1684,30 +1696,69 @@ export default function ChatPageShell({
 
     let scrollTimer: ReturnType<typeof setTimeout> | null = null;
     let guardTimer: ReturnType<typeof setTimeout> | null = null;
+    let failSafeTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const clearTimers = () => {
+      if (retryRaf && typeof cancelAnimationFrame !== "undefined") {
+        cancelAnimationFrame(retryRaf);
+      }
+      if (scrollTimer) clearTimeout(scrollTimer);
+      if (guardTimer) clearTimeout(guardTimer);
+      if (failSafeTimer) clearTimeout(failSafeTimer);
+    };
+
+    const finishPinning = () => {
+      isProgrammaticScrollRef.current = false;
+      releasePromptPinning();
+    };
 
     const doScroll = () => {
       if (cancelled) return;
       const nowMs = typeof performance !== "undefined" ? performance.now() : Date.now();
-      if (nowMs > deadlineMs) return;
+      if (nowMs > deadlineMs) {
+        finishPinning();
+        return;
+      }
 
       const viewport = scrollViewportRef.current;
       if (!viewport) return;
 
-      const el = messageRefs.current[targetMessageId];
-      if (!el) {
+      // Ensure there's always enough scrollable "runway" below the messages to
+      // bring the new user prompt up to the top immediately, even before the
+      // assistant placeholder/stream has added any height.
+      const minimumSpacerForAlign = baseBottomSpacerPx + viewport.clientHeight + 80;
+      if (bottomSpacerPx < minimumSpacerForAlign) {
+        setBottomSpacerPx((prev) => Math.max(prev, minimumSpacerForAlign));
         if (typeof requestAnimationFrame !== "undefined") {
           retryRaf = requestAnimationFrame(doScroll);
         }
         return;
       }
 
-      // Ensure there's always enough scrollable "runway" below the messages to
-      // bring the new user prompt up to the top immediately, even before the
-      // assistant placeholder/stream has added any height. This prevents the
-      // first prompt-under-assistant case from waiting until the response ends.
-      const minimumSpacerForAlign = baseBottomSpacerPx + viewport.clientHeight + 80;
-      if (bottomSpacerPx < minimumSpacerForAlign) {
-        setBottomSpacerPx((prev) => Math.max(prev, minimumSpacerForAlign));
+      const el = messageRefs.current[targetMessageId];
+      if (!el) {
+        const targetIndex = renderedMessages.findIndex((msg) => msg.id === targetMessageId);
+        if (targetIndex < 0) {
+          if (typeof requestAnimationFrame !== "undefined") {
+            retryRaf = requestAnimationFrame(doScroll);
+          }
+          return;
+        }
+
+        if (virtuosoRef.current) {
+          isProgrammaticScrollRef.current = true;
+          pinnedScrollTopRef.current = null;
+          setIsAutoScroll(false);
+          setShowScrollToBottom(true);
+          alignNextUserMessageToTopRef.current = null;
+          const behavior: ScrollBehavior = prefersReducedMotion ? "auto" : "smooth";
+          virtuosoRef.current.scrollToIndex({ index: targetIndex, align: "start", behavior });
+          guardTimer = setTimeout(() => {
+            finishPinning();
+          }, prefersReducedMotion ? 300 : 900);
+          return;
+        }
+
         if (typeof requestAnimationFrame !== "undefined") {
           retryRaf = requestAnimationFrame(doScroll);
         }
@@ -1756,30 +1807,26 @@ export default function ChatPageShell({
       // Keep the programmatic scroll guard up long enough to ignore scroll events
       // fired during the smooth scroll animation.
       guardTimer = setTimeout(() => {
-        isProgrammaticScrollRef.current = false;
-        // Once the "prompt to top" animation finishes, stop pinning/clamping scroll.
-        // The initial alignment is intentional, but after that the user should be
-        // able to scroll normally even while the model is streaming.
-        pinToPromptRef.current = false;
-        setIsPinningPrompt(false);
-        pinnedScrollTopRef.current = null;
+        finishPinning();
       }, 900);
     };
+
+    failSafeTimer = setTimeout(() => {
+      if (alignNextUserMessageToTopRef.current === targetMessageId) {
+        finishPinning();
+      }
+    }, 2800);
 
     // Double-RAF to ensure the viewport + message layout is settled.
     requestAnimationFrame(() => requestAnimationFrame(doScroll));
 
     return () => {
       cancelled = true;
-      if (retryRaf && typeof cancelAnimationFrame !== "undefined") {
-        cancelAnimationFrame(retryRaf);
-      }
-      if (scrollTimer) clearTimeout(scrollTimer);
-      if (guardTimer) clearTimeout(guardTimer);
+      clearTimers();
       isProgrammaticScrollRef.current = false;
     };
     // We intentionally omit computeRequiredSpacerForMessage/getEffectiveScrollBottom to avoid churn.
-  }, [messages.length, bottomSpacerPx]);
+  }, [bottomSpacerPx, renderedMessages]);
 
   const recomputeScrollFlags = useCallback(() => {
     const viewport = scrollViewportRef.current;
@@ -1805,6 +1852,16 @@ export default function ChatPageShell({
       return () => window.removeEventListener("resize", compute);
     }
   }, [baseBottomSpacerPx, messages.length]);
+
+  // Prevent body-level scrolling while the chat UI manages its own scroll areas.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const original = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = original;
+    };
+  }, []);
 
   // Lock body scroll when mobile sidebar is open so only sidebar scrolls
   useEffect(() => {
@@ -3494,16 +3551,8 @@ export default function ChatPageShell({
     const target = event.currentTarget;
     const { scrollTop, clientHeight } = target;
 
-    // While pinned-to-prompt, don't allow scrolling "past" the pinned position
-    // (which would reveal blank space created by the temporary spacer).
-    if (pinToPromptRef.current && pinnedScrollTopRef.current !== null) {
-      const maxAllowed = pinnedScrollTopRef.current;
-      if (scrollTop > maxAllowed + 2) {
-        isProgrammaticScrollRef.current = true;
-        target.scrollTop = maxAllowed;
-        scheduleProgrammaticScrollReset();
-        return;
-      }
+    if (pinToPromptRef.current) {
+      releasePromptPinning();
     }
 
     pendingScrollStateRef.current = { scrollTop, clientHeight, target };
@@ -3542,6 +3591,7 @@ export default function ChatPageShell({
 
   const handleAtBottomStateChange = useCallback(
     (atBottom: boolean) => {
+      if (pinToPromptRef.current) return;
       setShowScrollToBottom(!atBottom);
       if (!pinToPromptRef.current) {
         setIsAutoScroll(atBottom);
@@ -4387,7 +4437,16 @@ export default function ChatPageShell({
                 data={pendingNewChatMessages ?? []}
                 atBottomStateChange={handleAtBottomStateChange}
                 itemContent={(_, message) => (
-                  <div className="px-4 sm:px-6">
+                  <div
+                    ref={(el) => {
+                      if (el) {
+                        messageRefs.current[message.id] = el;
+                      } else {
+                        delete messageRefs.current[message.id];
+                      }
+                    }}
+                    className="px-4 sm:px-6"
+                  >
                     <div className="w-full max-w-[min(48rem,calc(100vw-32px))] min-w-0 mx-auto px-1.5 sm:px-0 overflow-hidden">
                       <ChatMessage
                         {...message}
@@ -4504,6 +4563,8 @@ export default function ChatPageShell({
                         ref={(el) => {
                           if (el) {
                             messageRefs.current[message.id] = el;
+                          } else {
+                            delete messageRefs.current[message.id];
                           }
                         }}
                       >
@@ -4608,6 +4669,7 @@ export default function ChatPageShell({
                   size="icon"
                   className={`${showScrollToBottom ? "scroll-tip-button" : ""} pointer-events-auto h-10 w-10 rounded-full border border-border bg-card/90 text-foreground shadow-md backdrop-blur hover:bg-background`}
                   onClick={() => {
+                    releasePromptPinning();
                     scrollToBottom("smooth");
                     // Re-enable autoscroll after scrolling to bottom
                     setTimeout(() => {
