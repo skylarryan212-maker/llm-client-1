@@ -2,6 +2,7 @@ import { getModelAndReasoningConfig } from "../modelConfig";
 import type { ReasoningEffort } from "../modelConfig";
 import { callDeepInfraLlama } from "../deepInfraLlama";
 import { computeTopicSemantics } from "../semantic/topicSimilarity";
+import { supabaseServer } from "../supabase/server";
 
 export type DecisionRouterInput = {
   userMessage: string;
@@ -266,6 +267,7 @@ Return only the "labels" object matching the output schema.`;
   }
 
   try {
+    let usedFallback = false;
     const runRouterAttempt = async () => {
       const llmStart = Date.now();
       const { text } = await callDeepInfraLlama({
@@ -321,6 +323,7 @@ Return only the "labels" object matching the output schema.`;
     }
 
     if (!validateLabels(labels)) {
+      usedFallback = true;
       return fallbackDecision;
     }
 
@@ -372,7 +375,7 @@ Return only the "labels" object matching the output schema.`;
       newParentTopicId = null;
     }
 
-    return {
+    const output: DecisionRouterOutput = {
       topicAction,
       primaryTopicId,
       secondaryTopicIds,
@@ -381,6 +384,15 @@ Return only the "labels" object matching the output schema.`;
       effort,
       memoryTypesToLoad: Array.isArray(labels.memoryTypesToLoad) ? labels.memoryTypesToLoad : [],
     };
+    void logDecisionRouterSample({
+      promptVersion: "v_current",
+      fallbackUsed: usedFallback,
+      semanticMs,
+      llmMs,
+      input: inputPayload.input,
+      output,
+    });
+    return output;
   } catch (err) {
     console.error("[decision-router] LLM routing failed, using fallback:", err);
     console.log("[decision-router] timing", {
@@ -399,5 +411,36 @@ Return only the "labels" object matching the output schema.`;
       totalMs: Date.now() - totalStart,
       allowLLM,
     });
+  }
+}
+
+type DecisionRouterSample = {
+  promptVersion: string;
+  fallbackUsed: boolean;
+  semanticMs: number;
+  llmMs: number | null;
+  input: any;
+  output: DecisionRouterOutput;
+};
+
+async function logDecisionRouterSample(sample: DecisionRouterSample) {
+  try {
+    if (typeof process === "undefined") return;
+    if (process.env.LOG_ROUTER_SAMPLES !== "1") return;
+    const supabase = await supabaseServer();
+    const payload = {
+      prompt_version: sample.promptVersion,
+      input: sample.input,
+      labels: sample.output,
+      meta: {
+        fallback: sample.fallbackUsed,
+        semantic_ms: sample.semanticMs,
+        llm_ms: sample.llmMs,
+        timestamp: new Date().toISOString(),
+      },
+    };
+    await supabase.from("decision_router_samples").insert(payload);
+  } catch (err) {
+    console.warn("[decision-router] sample log failed", err);
   }
 }

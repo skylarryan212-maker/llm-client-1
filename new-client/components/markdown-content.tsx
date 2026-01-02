@@ -398,8 +398,8 @@ export const MarkdownContent = memo(function MarkdownContent({ content, messageI
   return (
     <div className="prose prose-invert max-w-none prose-p:leading-relaxed prose-pre:p-0 prose-pre:bg-transparent w-full max-w-full min-w-0 break-words prose-a:break-words">
       <ReactMarkdown
-        remarkPlugins={[remarkGfm, remarkMath]}
-        rehypePlugins={[rehypeKatex, rehypeRaw]}
+        remarkPlugins={[remarkGfm, ...(enableMath ? [remarkMath] : [])]}
+        rehypePlugins={[rehypeRaw, ...(enableMath ? [rehypeKatex] : [])]}
         components={{
         // Headings
         h1: withoutNode((props) => (
@@ -638,8 +638,6 @@ export const MarkdownContent = memo(function MarkdownContent({ content, messageI
           return <input {...props} />
         }),
       }}
-      remarkPlugins={[remarkGfm, ...(enableMath ? [remarkMath] : [])]}
-      rehypePlugins={[rehypeRaw, ...(enableMath ? [rehypeKatex] : [])]}
     >
       {safeContent}
     </ReactMarkdown>
