@@ -548,7 +548,12 @@ export default function ChatPageShell({
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const messageRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const alignNextUserMessageToTopRef = useRef<string | null>(null);
+  const [alignTrigger, setAlignTrigger] = useState(0);
   const [bottomSpacerPx, setBottomSpacerPx] = useState(baseBottomSpacerPx);
+  const bottomSpacerPxRef = useRef(bottomSpacerPx);
+  useEffect(() => {
+    bottomSpacerPxRef.current = bottomSpacerPx;
+  }, [bottomSpacerPx]);
   const [composerLiftPx, setComposerLiftPx] = useState(0);
   const [showOtherModels, setShowOtherModels] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
@@ -1509,6 +1514,10 @@ export default function ChatPageShell({
     () => (hasPendingNewChat ? pendingNewChatMessages ?? [] : messages),
     [hasPendingNewChat, pendingNewChatMessages, messages]
   );
+  const renderedMessagesRef = useRef(renderedMessages);
+  useEffect(() => {
+    renderedMessagesRef.current = renderedMessages;
+  }, [renderedMessages]);
   const showEmptyConversation = !selectedChatId && messages.length === 0 && !hasPendingNewChat;
   const shouldCenterComposer = isRootRoute && showEmptyConversation;
   const canAnimateComposerDrop = isRootRoute && !selectedChatId && !isMobileComposer;
@@ -1669,7 +1678,7 @@ export default function ChatPageShell({
       const requiredScrollTop = Math.max(0, Math.round(elContentTop - desiredPadding));
 
       // Estimate max scroll if bottom spacer were reset to base.
-      const contentWithoutSpacer = viewport.scrollHeight - bottomSpacerPx;
+      const contentWithoutSpacer = viewport.scrollHeight - bottomSpacerPxRef.current;
       const maxScrollTopWithBase = Math.max(
         0,
         contentWithoutSpacer + baseBottomSpacerPx - viewport.clientHeight
@@ -1678,7 +1687,7 @@ export default function ChatPageShell({
 
       return baseBottomSpacerPx + extraNeeded;
     },
-    [baseBottomSpacerPx, bottomSpacerPx]
+    [baseBottomSpacerPx]
   );
 
   useEffect(() => {
@@ -1726,9 +1735,14 @@ export default function ChatPageShell({
       // Ensure there's always enough scrollable "runway" below the messages to
       // bring the new user prompt up to the top immediately, even before the
       // assistant placeholder/stream has added any height.
+      const currentBottomSpacer = bottomSpacerPxRef.current;
       const minimumSpacerForAlign = baseBottomSpacerPx + viewport.clientHeight + 80;
-      if (bottomSpacerPx < minimumSpacerForAlign) {
-        setBottomSpacerPx((prev) => Math.max(prev, minimumSpacerForAlign));
+      if (currentBottomSpacer < minimumSpacerForAlign) {
+        setBottomSpacerPx((prev) => {
+          const next = Math.max(prev, minimumSpacerForAlign);
+          bottomSpacerPxRef.current = next;
+          return next;
+        });
         if (typeof requestAnimationFrame !== "undefined") {
           retryRaf = requestAnimationFrame(doScroll);
         }
@@ -1737,7 +1751,9 @@ export default function ChatPageShell({
 
       const el = messageRefs.current[targetMessageId];
       if (!el) {
-        const targetIndex = renderedMessages.findIndex((msg) => msg.id === targetMessageId);
+        const targetIndex = renderedMessagesRef.current.findIndex(
+          (msg) => msg.id === targetMessageId
+        );
         if (targetIndex < 0) {
           if (typeof requestAnimationFrame !== "undefined") {
             retryRaf = requestAnimationFrame(doScroll);
@@ -1792,9 +1808,12 @@ export default function ChatPageShell({
       // Keep autoscroll disabled after pinning so streaming doesn't pull us away.
       setIsAutoScroll(false);
       {
-        const effectiveBottom = getEffectiveScrollBottom(viewport);
+        const effectiveBottom = Math.max(
+          0,
+          viewport.scrollHeight - Math.max(0, currentBottomSpacer - baseBottomSpacerPx)
+        );
         const distanceFromBottom = effectiveBottom - (targetTop + viewport.clientHeight);
-        const tolerance = Math.max(12, bottomSpacerPx / 3);
+        const tolerance = Math.max(12, currentBottomSpacer / 3);
         setShowScrollToBottom(!(distanceFromBottom <= tolerance));
       }
       alignNextUserMessageToTopRef.current = null;
@@ -1826,7 +1845,7 @@ export default function ChatPageShell({
       isProgrammaticScrollRef.current = false;
     };
     // We intentionally omit computeRequiredSpacerForMessage/getEffectiveScrollBottom to avoid churn.
-  }, [bottomSpacerPx, renderedMessages]);
+  }, [alignTrigger, prefersReducedMotion, releasePromptPinning, computeRequiredSpacerForMessage]);
 
   const recomputeScrollFlags = useCallback(() => {
     const viewport = scrollViewportRef.current;
@@ -2243,6 +2262,7 @@ export default function ChatPageShell({
     // Align the newly-sent user message to the top of the viewport (instead of
     // always jumping to the bottom). Also disable streaming auto-scroll so the
     // alignment isn't immediately overwritten.
+    releasePromptPinning();
     setIsAutoScroll(false);
     setReserveRuntimeIndicatorSpace(true);
     showThinkingIndicator();
@@ -2251,6 +2271,7 @@ export default function ChatPageShell({
     pinnedMessageIdRef.current = userMessage.id;
     pinnedScrollTopRef.current = null;
     alignNextUserMessageToTopRef.current = userMessage.id;
+    setAlignTrigger((prev) => prev + 1);
 
     if (!selectedChatId) {
       const assistantPlaceholder: StoredMessage = {
