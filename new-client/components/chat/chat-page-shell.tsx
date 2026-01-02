@@ -9,7 +9,6 @@ import { Virtuoso, VirtuosoHandle } from "react-virtuoso";
 import { ChatSidebar } from "@/components/chat-sidebar";
 import { ChatMessage } from "@/components/chat-message";
 import { ChatComposer } from "@/components/chat-composer";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
 import { ArrowDown, Check, ChevronDown, Image as ImageIcon, Menu, Plus, X } from "lucide-react";
 import dynamic from "next/dynamic";
@@ -555,6 +554,7 @@ export default function ChatPageShell({
   const [isStreaming, setIsStreaming] = useState(false);
   const NEW_CHAT_SELECTION_KEY = "__new_chat__";
   const [pendingNewChatMessages, setPendingNewChatMessages] = useState<StoredMessage[] | null>(null);
+  const [isPinningPrompt, setIsPinningPrompt] = useState(false);
   const centeredComposerRef = useRef<HTMLDivElement | null>(null);
   const stickyComposerRef = useRef<HTMLDivElement | null>(null);
   const [composerDropOffsetPx, setComposerDropOffsetPx] = useState<number | null>(null);
@@ -564,6 +564,7 @@ export default function ChatPageShell({
     null
   );
   const lastLoadOlderTsRef = useRef<number>(0);
+  const programmaticScrollTimeoutRef = useRef<number | null>(null);
   useEffect(() => {
     if (!speedModeEnabled) return;
     setCurrentModel((prev) => normalizeModelForSpeedMode(prev));
@@ -1540,6 +1541,17 @@ export default function ChatPageShell({
     [baseBottomSpacerPx, bottomSpacerPx]
   );
 
+  const scheduleProgrammaticScrollReset = useCallback(() => {
+    if (typeof window === "undefined") return;
+    if (programmaticScrollTimeoutRef.current) {
+      window.clearTimeout(programmaticScrollTimeoutRef.current);
+    }
+    programmaticScrollTimeoutRef.current = window.setTimeout(() => {
+      isProgrammaticScrollRef.current = false;
+      programmaticScrollTimeoutRef.current = null;
+    }, 160);
+  }, []);
+
   const scrollToBottom = useCallback(
     (behavior: ScrollBehavior = "smooth") => {
       const viewport = scrollViewportRef.current;
@@ -1547,14 +1559,16 @@ export default function ChatPageShell({
 
       const bottom = getEffectiveScrollBottom(viewport);
       const targetTop = Math.max(0, bottom - viewport.clientHeight);
+      isProgrammaticScrollRef.current = true;
       viewport.scrollTo({ top: targetTop, behavior });
       if (typeof requestAnimationFrame !== "undefined") {
         requestAnimationFrame(() =>
           viewport.scrollTo({ top: targetTop, behavior: "auto" })
         );
       }
+      scheduleProgrammaticScrollReset();
     },
-    [getEffectiveScrollBottom]
+    [getEffectiveScrollBottom, scheduleProgrammaticScrollReset]
   );
 
   const handleLoadOlderMessages = useCallback(async () => {
@@ -1608,7 +1622,9 @@ export default function ChatPageShell({
           const nextScrollHeight = viewport.scrollHeight;
           const delta = nextScrollHeight - prevScrollHeight;
           if (delta > 0) {
+            isProgrammaticScrollRef.current = true;
             viewport.scrollTop += delta;
+            scheduleProgrammaticScrollReset();
           }
         });
       }
@@ -1624,6 +1640,7 @@ export default function ChatPageShell({
     isLoadingOlderMessages,
     oldestMessageTimestamp,
     prependMessages,
+    scheduleProgrammaticScrollReset,
   ]);
 
   const computeRequiredSpacerForMessage = useCallback(
@@ -1744,6 +1761,7 @@ export default function ChatPageShell({
         // The initial alignment is intentional, but after that the user should be
         // able to scroll normally even while the model is streaming.
         pinToPromptRef.current = false;
+        setIsPinningPrompt(false);
         pinnedScrollTopRef.current = null;
       }, 900);
     };
@@ -1865,14 +1883,16 @@ export default function ChatPageShell({
           if (viewport) {
             const bottom = getEffectiveScrollBottom(viewport);
             const targetTop = Math.max(0, bottom - viewport.clientHeight);
+            isProgrammaticScrollRef.current = true;
             viewport.scrollTo({ top: targetTop, behavior: "auto" });
+            scheduleProgrammaticScrollReset();
           }
         });
       });
     };
     
     scrollToEnd();
-  }, [messages, isAutoScroll, isStreaming, getEffectiveScrollBottom]);
+  }, [messages, isAutoScroll, isStreaming, getEffectiveScrollBottom, scheduleProgrammaticScrollReset]);
 
   useEffect(() => {
     if (pinToPromptRef.current) return;
@@ -1920,6 +1940,16 @@ export default function ChatPageShell({
       pinnedMessageIdRef.current = null;
     }
   }, [messages.length, bottomSpacerPx, baseBottomSpacerPx, computeRequiredSpacerForMessage]);
+
+  useEffect(() => {
+    if (isPinningPrompt || reserveRuntimeIndicatorSpace) return;
+    const viewport = scrollViewportRef.current;
+    if (!viewport) return;
+    const maxSpacer = Math.max(baseBottomSpacerPx, Math.round(viewport.clientHeight * 0.6));
+    if (bottomSpacerPx > maxSpacer) {
+      setBottomSpacerPx(maxSpacer);
+    }
+  }, [baseBottomSpacerPx, bottomSpacerPx, isPinningPrompt, messages.length, reserveRuntimeIndicatorSpace]);
 
   useEffect(() => {
     if (currentChat?.projectId) {
@@ -2160,6 +2190,7 @@ export default function ChatPageShell({
     setReserveRuntimeIndicatorSpace(true);
     showThinkingIndicator();
     pinToPromptRef.current = true;
+    setIsPinningPrompt(true);
     pinnedMessageIdRef.current = userMessage.id;
     pinnedScrollTopRef.current = null;
     alignNextUserMessageToTopRef.current = userMessage.id;
@@ -3470,9 +3501,7 @@ export default function ChatPageShell({
       if (scrollTop > maxAllowed + 2) {
         isProgrammaticScrollRef.current = true;
         target.scrollTop = maxAllowed;
-        setTimeout(() => {
-          isProgrammaticScrollRef.current = false;
-        }, 150);
+        scheduleProgrammaticScrollReset();
         return;
       }
     }
@@ -3511,6 +3540,43 @@ export default function ChatPageShell({
     });
   };
 
+  const handleAtBottomStateChange = useCallback(
+    (atBottom: boolean) => {
+      setShowScrollToBottom(!atBottom);
+      if (!pinToPromptRef.current) {
+        setIsAutoScroll(atBottom);
+      }
+    },
+    [setIsAutoScroll]
+  );
+
+  const VirtuosoScroller = useMemo(() => {
+    const Scroller = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivElement>>(
+      ({ className, onScroll, ...rest }, ref) => {
+        return (
+          <div
+            {...rest}
+            ref={(node) => {
+              scrollViewportRef.current = node;
+              if (typeof ref === "function") {
+                ref(node);
+              } else if (ref) {
+                (ref as React.MutableRefObject<HTMLDivElement | null>).current = node;
+              }
+            }}
+            onScroll={(event) => {
+              onScroll?.(event);
+              handleScroll(event as React.UIEvent<HTMLDivElement>);
+            }}
+            className={`h-full min-h-0 overflow-y-auto overflow-x-hidden overscroll-y-contain overscroll-contain chat-scroll-viewport agent-chat-scroll-area ${className ?? ""}`}
+          />
+        );
+      }
+    );
+    Scroller.displayName = "ChatVirtuosoScroller";
+    return Scroller;
+  }, [handleScroll]);
+
   useEffect(() => {
     // Don't run this effect during streaming - let the streaming autoscroll handle it
     if (isStreaming) return;
@@ -3532,15 +3598,19 @@ export default function ChatPageShell({
       if (searchIndicatorTimerRef.current) {
         clearTimeout(searchIndicatorTimerRef.current);
       }
-      if (fileIndicatorTimerRef.current) {
-        clearTimeout(fileIndicatorTimerRef.current);
-      }
-      if (scrollRafRef.current !== null) {
-        cancelAnimationFrame(scrollRafRef.current);
-        scrollRafRef.current = null;
-      }
-    };
-  }, []);
+    if (fileIndicatorTimerRef.current) {
+      clearTimeout(fileIndicatorTimerRef.current);
+    }
+    if (scrollRafRef.current !== null) {
+      cancelAnimationFrame(scrollRafRef.current);
+      scrollRafRef.current = null;
+    }
+    if (programmaticScrollTimeoutRef.current) {
+      clearTimeout(programmaticScrollTimeoutRef.current);
+      programmaticScrollTimeoutRef.current = null;
+    }
+  };
+}, []);
 
   const handleNewProject = () => {
     if (isGuest) {
@@ -4310,11 +4380,12 @@ export default function ChatPageShell({
               )}
             </div>
           ) : hasPendingNewChat ? (
-            <div className="flex-1 min-h-0 overscroll-y-contain overflow-x-hidden">
+            <div className="flex-1 min-h-0 overflow-hidden">
               <Virtuoso
                 ref={virtuosoRef}
                 style={{ height: "100%" }}
                 data={pendingNewChatMessages ?? []}
+                atBottomStateChange={handleAtBottomStateChange}
                 itemContent={(_, message) => (
                   <div className="px-4 sm:px-6">
                     <div className="w-full max-w-[min(48rem,calc(100vw-32px))] min-w-0 mx-auto px-1.5 sm:px-0 overflow-hidden">
@@ -4333,18 +4404,21 @@ export default function ChatPageShell({
                   </div>
                 )}
                 components={{
+                  Scroller: VirtuosoScroller,
                   Footer: () => <div aria-hidden="true" style={{ height: `${bottomSpacerPx}px` }} />,
                 }}
               />
             </div>
           ) : (
-            <div className="flex-1 min-h-0 overscroll-y-contain overflow-x-hidden">
+            <div className="flex-1 min-h-0 overflow-hidden">
               <Virtuoso
                 ref={virtuosoRef}
                 style={{ height: "100%" }}
                 data={messages}
                 overscan={200}
                 atTopThreshold={120}
+                atBottomStateChange={handleAtBottomStateChange}
+                followOutput={isAutoScroll ? "auto" : false}
                 startReached={() => {
                   if (
                     hasMoreMessages &&
@@ -4478,6 +4552,7 @@ export default function ChatPageShell({
                   );
                 }}
                 components={{
+                  Scroller: VirtuosoScroller,
                   Header: () =>
                     hasMoreMessages ? (
                       <div className="flex justify-center px-4 sm:px-6 py-2">

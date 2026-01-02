@@ -2,7 +2,7 @@ import { getModelAndReasoningConfig } from "../modelConfig";
 import type { ReasoningEffort } from "../modelConfig";
 import { callDeepInfraLlama } from "../deepInfraLlama";
 import { computeTopicSemantics } from "../semantic/topicSimilarity";
-import { supabaseServer } from "../supabase/server";
+import { supabaseServerAdmin } from "../supabase/server";
 
 export type DecisionRouterInput = {
   userMessage: string;
@@ -263,7 +263,16 @@ Return only the "labels" object matching the output schema.`;
       totalMs: Date.now() - totalStart,
       allowLLM,
     });
-    return fallback();
+    const output = fallback();
+    void logDecisionRouterSample({
+      promptVersion: "v_current",
+      fallbackUsed: true,
+      semanticMs,
+      llmMs,
+      input: inputPayload.input,
+      output,
+    });
+    return output;
   }
 
   try {
@@ -324,6 +333,14 @@ Return only the "labels" object matching the output schema.`;
 
     if (!validateLabels(labels)) {
       usedFallback = true;
+      void logDecisionRouterSample({
+        promptVersion: "v_current",
+        fallbackUsed: true,
+        semanticMs,
+        llmMs,
+        input: inputPayload.input,
+        output: fallbackDecision,
+      });
       return fallbackDecision;
     }
 
@@ -401,7 +418,16 @@ Return only the "labels" object matching the output schema.`;
       totalMs: Date.now() - totalStart,
       allowLLM,
     });
-    return fallback();
+    const output = fallback();
+    void logDecisionRouterSample({
+      promptVersion: "v_current",
+      fallbackUsed: true,
+      semanticMs,
+      llmMs,
+      input: inputPayload.input,
+      output,
+    });
+    return output;
   }
   finally {
     // Log timing on successful path
@@ -426,8 +452,7 @@ type DecisionRouterSample = {
 async function logDecisionRouterSample(sample: DecisionRouterSample) {
   try {
     if (typeof process === "undefined") return;
-    if (process.env.LOG_ROUTER_SAMPLES !== "1") return;
-    const supabase = await supabaseServer();
+    const supabase = await supabaseServerAdmin();
     const payload = {
       prompt_version: sample.promptVersion,
       input: sample.input,

@@ -2234,11 +2234,12 @@ export async function POST(request: NextRequest) {
             const normalizedExternalChatIds = Array.isArray(simpleContextExternalChatIds)
               ? simpleContextExternalChatIds.filter((id) => typeof id === "string")
               : undefined;
+            const includeExternalChats = false;
             return buildSimpleContextMessages(
               supabaseAny,
               conversationId,
               userId,
-              Boolean(personalizationSettings?.referenceChatHistory),
+              includeExternalChats && Boolean(personalizationSettings?.referenceChatHistory),
               normalizedExternalChatIds,
               CONTEXT_LIMIT_TOKENS
             );
@@ -2344,13 +2345,17 @@ export async function POST(request: NextRequest) {
           is_cross_conversation: false,
         }))
       : [];
-    const crossChatTopicsForRouter = await loadCrossConversationTopicsForDecisionRouter({
-      supabase: supabaseAny,
-      conversationId,
-      projectId: conversation.project_id ?? null,
-      userId,
-    });
-    const topicsForRouter = [...baseTopicsForRouter, ...crossChatTopicsForRouter];
+    const crossChatTopicsForRouter = effectiveSimpleContextMode
+      ? []
+      : await loadCrossConversationTopicsForDecisionRouter({
+          supabase: supabaseAny,
+          conversationId,
+          projectId: conversation.project_id ?? null,
+          userId,
+        });
+    const topicsForRouter = effectiveSimpleContextMode
+      ? baseTopicsForRouter
+      : [...baseTopicsForRouter, ...crossChatTopicsForRouter];
 
     // Load artifacts for this conversation (used by decision router)
     const { data: artifactRows } = await supabaseAny
