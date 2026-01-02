@@ -21,9 +21,7 @@ interface MarkdownContentProps {
     fileId: string
     filename: string
   }>
-});
-
-MarkdownContent.displayName = "MarkdownContent";
+}
 
 const withoutNode = <P extends { node?: unknown }>(
   render: (props: Omit<P, "node">) => React.ReactNode
@@ -43,10 +41,17 @@ export const MarkdownContent = memo(function MarkdownContent({ content, messageI
   const [lightboxOriginalSrc, setLightboxOriginalSrc] = useState<string | null>(null)
   const tableRefs = useRef<Map<string, HTMLTableElement>>(new Map())
   const deferredContent = useDeferredValue(content)
-  const safeContent = useMemo(() => {
-    // Escape $ when immediately followed by a digit to avoid accidental math-mode rendering (pricing, counts).
-    return deferredContent.replace(/(^|[^\\])\$(\d)/g, '$1\\\\$$2')
-  }, [deferredContent])
+
+  const enableMath = useMemo(() => {
+    const text = deferredContent;
+    if (!text) return false;
+    const hasBlock = /\$\$[\s\S]*\$\$/.test(text) || /\\\[[\s\S]*?\\\]/.test(text);
+    const hasInlinePair = /(^|[^$])\$[^$\s][^$]*\$/.test(text);
+    const hasLatexEnv = /\\begin\{[^}]+\}/.test(text);
+    return hasBlock || hasInlinePair || hasLatexEnv;
+  }, [deferredContent]);
+
+  const safeContent = deferredContent;
 
   const handleCopyCode = async (code: string) => {
     await navigator.clipboard.writeText(code)
@@ -633,11 +638,15 @@ export const MarkdownContent = memo(function MarkdownContent({ content, messageI
           return <input {...props} />
         }),
       }}
+      remarkPlugins={[remarkGfm, ...(enableMath ? [remarkMath] : [])]}
+      rehypePlugins={[rehypeRaw, ...(enableMath ? [rehypeKatex] : [])]}
     >
       {safeContent}
     </ReactMarkdown>
 
-    {typeof document !== 'undefined' && lightboxNode ? createPortal(lightboxNode, document.body) : null}
+      {typeof document !== 'undefined' && lightboxNode ? createPortal(lightboxNode, document.body) : null}
     </div>
   )
-}
+});
+
+MarkdownContent.displayName = "MarkdownContent";

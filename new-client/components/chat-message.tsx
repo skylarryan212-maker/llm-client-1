@@ -33,9 +33,7 @@ interface ChatMessageProps {
   modelTagClickable?: boolean
   forceFullWidth?: boolean
   forceStaticBubble?: boolean
-});
-
-ChatMessage.displayName = "ChatMessage";
+}
 
 export const ChatMessage = memo(function ChatMessage({
   messageId,
@@ -451,4 +449,6 @@ export const ChatMessage = memo(function ChatMessage({
       </div>
     </div>
   )
-}
+});
+
+ChatMessage.displayName = "ChatMessage";
