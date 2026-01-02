@@ -534,6 +534,15 @@ export default function ChatPageShell({
   }, [speedModeEnabled]);
 
   useEffect(() => {
+    if (!shouldAnimateComposerDrop) {
+      setComposerDropStage("idle");
+      return;
+    }
+    const raf = requestAnimationFrame(() => setComposerDropStage("end"));
+    return () => cancelAnimationFrame(raf);
+  }, [shouldAnimateComposerDrop]);
+
+  useEffect(() => {
     if (typeof window === "undefined") return;
     const update = () => setIsMobileComposer(window.innerWidth <= 768);
     update();
@@ -1443,11 +1452,15 @@ export default function ChatPageShell({
   const hasPendingNewChat = Boolean(pendingNewChatMessages && pendingNewChatMessages.length > 0);
   const showEmptyConversation = !selectedChatId && messages.length === 0 && !hasPendingNewChat;
   const shouldCenterComposer = isRootRoute && showEmptyConversation;
+  const canAnimateComposerDrop = isRootRoute && !selectedChatId && !isMobileComposer;
   const shouldUseCenteredComposer = shouldCenterComposer && !isMobileComposer;
-  const baseEmptyTransform = "translateY(calc(-5vh + 72px))";
-  const emptyStateTransform = shouldUseCenteredComposer ? baseEmptyTransform : undefined;
+  const baseEmptyOffset = "calc(-5vh + 72px)";
+  const emptyStateTransform = shouldUseCenteredComposer ? `translateY(${baseEmptyOffset})` : undefined;
   const emptyStateJustifyClass = shouldUseCenteredComposer ? "justify-start" : "justify-center";
   const emptyStatePaddingTop = shouldUseCenteredComposer ? "calc(48vh - 180px)" : undefined;
+  const shouldAnimateComposerDrop = hasPendingNewChat && canAnimateComposerDrop;
+  const [composerDropStage, setComposerDropStage] = useState<"idle" | "start" | "end">("idle");
+  const composerDropOffset = shouldAnimateComposerDrop && composerDropStage === "start" ? baseEmptyOffset : null;
   const isNewChatComposer = !selectedChatId && showEmptyConversation;
   const composerAlignmentClass = isNewChatComposer ? "items-start" : "items-end";
 
@@ -2023,6 +2036,9 @@ export default function ChatPageShell({
         metadata: { isPendingAssistant: true },
       };
       setPendingNewChatMessages([userMessage, assistantPlaceholder]);
+      if (canAnimateComposerDrop) {
+        setComposerDropStage("start");
+      }
     }
 
     if (isGuest) {
@@ -4130,23 +4146,22 @@ export default function ChatPageShell({
               style={{ minWidth: 0 }}
             >
               <div className="py-4 pb-20">
-                <div className="w-full space-y-3 overflow-x-hidden chat-message-list min-w-0 agent-chat-message-list agent-chat-scroll-area px-4 sm:px-6">
+                <div className="w-full space-y-1 overflow-x-hidden chat-message-list min-w-0 agent-chat-message-list agent-chat-scroll-area">
                   {pendingNewChatMessages?.map((message) => (
-                    <div
-                      key={message.id}
-                      className="w-full max-w-[min(48rem,calc(100vw-32px))] min-w-0 mx-auto px-1.5 sm:px-0 overflow-hidden"
-                    >
-                      <ChatMessage
-                        {...message}
-                        messageId={message.id}
-                        enableEntryAnimation={false}
-                        showInsightChips={false}
-                        isStreaming={message.role === "assistant" && !(message.content?.trim())}
-                        suppressPreStreamAnimation
-                        modelTagClickable={false}
-                        forceFullWidth
-                        forceStaticBubble={message.role === "assistant"}
-                      />
+                    <div key={message.id} className="px-4 sm:px-6">
+                      <div className="w-full max-w-[min(48rem,calc(100vw-32px))] min-w-0 mx-auto px-1.5 sm:px-0 overflow-hidden">
+                        <ChatMessage
+                          {...message}
+                          messageId={message.id}
+                          enableEntryAnimation={false}
+                          showInsightChips={false}
+                          isStreaming={message.role === "assistant" && !(message.content?.trim())}
+                          suppressPreStreamAnimation
+                          modelTagClickable={false}
+                          forceFullWidth
+                          forceStaticBubble={message.role === "assistant"}
+                        />
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -4301,8 +4316,12 @@ export default function ChatPageShell({
         {/* Composer: full-width bar, centered pill like ChatGPT */}
         {!shouldUseCenteredComposer && (
           <div
-            className="bg-transparent px-4 sm:px-6 lg:px-12 py-3 sm:py-4 relative sticky bottom-0 z-30 pb-[max(env(safe-area-inset-bottom),0px)] transition-transform duration-200 ease-out"
-            style={{ transform: `translateY(${-Math.max(0, composerLiftPx + 4)}px)` }}
+            className={`bg-transparent px-4 sm:px-6 lg:px-12 py-3 sm:py-4 relative sticky bottom-0 z-30 pb-[max(env(safe-area-inset-bottom),0px)] transition-transform ${shouldAnimateComposerDrop ? "duration-300 ease-out" : "duration-200 ease-out"}`}
+            style={{
+              transform: composerDropOffset
+                ? `translateY(calc(${-Math.max(0, composerLiftPx + 4)}px + ${composerDropOffset}))`
+                : `translateY(${-Math.max(0, composerLiftPx + 4)}px)`,
+            }}
           >
             <div
               className={`scroll-tip pointer-events-none fixed inset-x-0 bottom-[calc(96px+env(safe-area-inset-bottom,0px))] z-30 transition-opacity duration-200 ${

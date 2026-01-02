@@ -116,6 +116,12 @@ export async function runDecisionRouter(params: {
 
   const systemPrompt = `You are a single decision router. All inputs are provided as JSON. You MUST output ONE JSON object with a "labels" field only, matching the schema below. Do not include the input in your response.
 
+Use the provided context to inform every rule:
+- Work through the input in this order: recentMessages (latest assistant/user turns), topic summaries (label, description), artifacts, and the current userMessage. 
+- Leverage semantic similarity scores and the "Closest non-active topic" hint to detect strong fits; these are high-priority indicators of reuse.
+- Use memories, context mode, and selections to understand what references the client expects. If memories or topic metadata mention entities that match the new touchpoint, prefer reuse.
+- Consider whether the user is referencing a previous assistant sentence, continuing a plan, or branching to something unrelated; recent assistant prompts and message history show whether continuation makes sense.
+
 Output shape:
 {
   "labels": {
