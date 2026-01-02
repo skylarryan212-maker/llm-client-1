@@ -46,6 +46,7 @@ type ChatComposerProps = {
   sendButtonStyle?: CSSProperties;
   disableAccentStyles?: boolean;
   showAttachmentButton?: boolean;
+  shouldGrowDownward?: boolean;
 };
 
 const RESTORE_FOCUS_KEY = "llm-client:composer:restore-focus";
@@ -75,6 +76,7 @@ export function ChatComposer({
   sendButtonStyle,
   disableAccentStyles = false,
   showAttachmentButton = true,
+  shouldGrowDownward = false,
 }: ChatComposerProps) {
   const [value, setValue] = useState("");
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -641,7 +643,9 @@ export function ChatComposer({
           ))}
         </div>
       )}
-      <div className="composer-shell relative z-10 flex items-end gap-1.5 sm:gap-2 rounded-3xl border border-border bg-card px-2 sm:px-3 lg:px-4 py-2 sm:py-2.5 transition-all focus-within:border-ring">
+      <div
+        className={`composer-shell relative z-10 flex ${shouldGrowDownward ? "items-start" : "items-end"} gap-1.5 sm:gap-2 rounded-3xl border border-border bg-card px-2 sm:px-3 lg:px-4 py-2 sm:py-2.5 transition-all focus-within:border-ring`}
+      >
         {isRecording ? (
           <div className="flex items-center gap-2 flex-1 w-full">
             <button

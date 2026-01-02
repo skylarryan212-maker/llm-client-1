@@ -525,6 +525,8 @@ export default function ChatPageShell({
   const [showOtherModels, setShowOtherModels] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
   const NEW_CHAT_SELECTION_KEY = "__new_chat__";
+  const [pendingNewChatMessages, setPendingNewChatMessages] = useState<StoredMessage[] | null>(null);
+  const [composerMovingToBottom, setComposerMovingToBottom] = useState(false);
   const [isMobileComposer, setIsMobileComposer] = useState(false);
   useEffect(() => {
     if (!speedModeEnabled) return;
@@ -1442,9 +1444,17 @@ export default function ChatPageShell({
   const showEmptyConversation = !selectedChatId || messages.length === 0;
   const shouldCenterComposer = isRootRoute && !selectedChatId && messages.length === 0;
   const shouldUseCenteredComposer = shouldCenterComposer && !isMobileComposer;
-  const emptyStateTransform = shouldUseCenteredComposer ? "translateY(calc(-5vh - 24px))" : undefined;
+  const baseEmptyTransform = "calc(-5vh + 24px)";
+  const emptyStateTransform = shouldUseCenteredComposer
+    ? composerMovingToBottom
+      ? "translateY(0)"
+      : baseEmptyTransform
+    : undefined;
   const emptyStateJustifyClass = shouldUseCenteredComposer ? "justify-start" : "justify-center";
-  const emptyStatePaddingTop = shouldUseCenteredComposer ? "calc(48vh - 180px)" : undefined;
+  const emptyStatePaddingTop =
+    shouldUseCenteredComposer && !composerMovingToBottom ? "calc(48vh - 180px)" : undefined;
+  const isNewChatComposer = !selectedChatId && showEmptyConversation;
+  const composerAlignmentClass = isNewChatComposer ? "items-start" : "items-end";
 
   const getEffectiveScrollBottom = useCallback(
     (viewport: HTMLDivElement) => {
@@ -2009,6 +2019,18 @@ export default function ChatPageShell({
     pinnedScrollTopRef.current = null;
     alignNextUserMessageToTopRef.current = userMessage.id;
 
+    if (!selectedChatId) {
+      const assistantPlaceholder: StoredMessage = {
+        id: `assistant-preview-${Date.now()}`,
+        role: "assistant",
+        content: "",
+        timestamp: new Date().toISOString(),
+        metadata: { isPendingAssistant: true },
+      };
+      setPendingNewChatMessages([userMessage, assistantPlaceholder]);
+      setComposerMovingToBottom(true);
+    }
+
     if (isGuest) {
       // Local-only guest chat; not persisted.
       let chatId = selectedChatId;
@@ -2047,140 +2069,147 @@ export default function ChatPageShell({
     }
 
     if (!selectedChatId) {
-      console.log("[chatDebug] Creating new conversation");
       const targetProjectId = selectedProjectId || projectId;
-      if (targetProjectId) {
-        const { conversationId, message: createdMessage, conversation } =
-          await startProjectConversationAction({
+      let newChatSuccess = false;
+      try {
+        if (targetProjectId) {
+          const { conversationId, message: createdMessage, conversation } =
+            await startProjectConversationAction({
+              projectId: targetProjectId,
+              firstMessageContent: message,
+              attachments,
+              conversationMetadata: conversationMetadata ?? null,
+              messageMetadata: Object.keys(userMetadata).length ? (userMetadata as any) : null,
+            });
+          saveAutoStreamPrefs(
+            conversationId,
+            isImageMode ? { generationMode: "image", imageModel: currentImageModel } : null
+          );
+
+          const mappedMessage: StoredMessage = {
+            id: createdMessage.id,
+            role: "user",
+            content: createdMessage.content ?? message,
+            timestamp: createdMessage.created_at ?? now,
+            metadata: Object.keys(userMetadata).length ? userMetadata : undefined,
+          };
+
+          pinnedMessageIdRef.current = mappedMessage.id;
+          pinnedScrollTopRef.current = null;
+          alignNextUserMessageToTopRef.current = mappedMessage.id;
+
+          const newChatId = createChat({
+            id: conversationId,
             projectId: targetProjectId,
-            firstMessageContent: message,
-            attachments,
-            conversationMetadata: conversationMetadata ?? null,
-            messageMetadata: Object.keys(userMetadata).length ? (userMetadata as any) : null,
+            initialMessages: [mappedMessage],
+            title: conversation.title ?? "New chat",
           });
-        saveAutoStreamPrefs(
-          conversationId,
-          isImageMode ? { generationMode: "image", imageModel: currentImageModel } : null
-        );
-
-        const mappedMessage: StoredMessage = {
-          id: createdMessage.id,
-          role: "user",
-          content: createdMessage.content ?? message,
-          timestamp: createdMessage.created_at ?? now,
-          metadata: Object.keys(userMetadata).length ? userMetadata : undefined,
-        };
-
-        pinnedMessageIdRef.current = mappedMessage.id;
-        pinnedScrollTopRef.current = null;
-        alignNextUserMessageToTopRef.current = mappedMessage.id;
-
-        const newChatId = createChat({
-          id: conversationId,
-          projectId: targetProjectId,
-          initialMessages: [mappedMessage],
-          title: conversation.title ?? "New chat",
-        });
-        if (selectedAgentId) {
-          setAgentSelectionByChat((prev) => ({ ...prev, [conversationId]: selectedAgentId }));
-        }
-        if (marketContext?.instanceId || currentMarketInstanceId) {
-          setMarketInstanceByChat((prev) => ({
-            ...prev,
-            [conversationId]: marketContext?.instanceId ?? currentMarketInstanceId,
-          }));
-        }
-        setSelectedChatId(newChatId);
-        setSelectedProjectId(targetProjectId);
-        lastCreatedConversationIdRef.current = conversationId;
-
-        // Trigger auto-naming immediately (in parallel with navigation/stream)
-        triggerAutoNaming(conversationId, message, conversation.title ?? undefined);
-
-        // Navigate immediately so the new chat page shows thinking/streaming
-        const targetUrl = `/projects/${targetProjectId}/c/${newChatId}`;
-        if (typeof window !== "undefined" && !window.location.pathname.includes(`/c/${newChatId}`)) {
-          persistModelSelection(currentModel);
-          void navigateWithMainPanelFade(router, targetUrl);
-        }
-      } else {
-        const { conversationId, message: createdMessage, conversation } =
-          await startGlobalConversationAction(message, attachments, {
-            conversationMetadata: conversationMetadata ?? null,
-            messageMetadata: Object.keys(userMetadata).length ? (userMetadata as any) : null,
-          });
-        saveAutoStreamPrefs(
-          conversationId,
-          isImageMode ? { generationMode: "image", imageModel: currentImageModel } : null
-        );
-
-        const mappedMessage: StoredMessage = {
-          id: createdMessage.id,
-          role: "user",
-          content: createdMessage.content ?? message,
-          timestamp: createdMessage.created_at ?? now,
-          metadata: Object.keys(userMetadata).length ? userMetadata : undefined,
-        };
-
-        pinnedMessageIdRef.current = mappedMessage.id;
-        pinnedScrollTopRef.current = null;
-        alignNextUserMessageToTopRef.current = mappedMessage.id;
-
-        const newChatId = createChat({
-          id: conversationId,
-          initialMessages: [mappedMessage],
-          title: conversation.title ?? "New chat",
-        });
-        if (selectedAgentId) {
-          setAgentSelectionByChat((prev) => ({ ...prev, [conversationId]: selectedAgentId }));
-        }
-        if (marketContext?.instanceId || currentMarketInstanceId) {
-          setMarketInstanceByChat((prev) => ({
-            ...prev,
-            [conversationId]: marketContext?.instanceId ?? currentMarketInstanceId,
-          }));
-        }
-        setSelectedChatId(newChatId);
-        setSelectedProjectId("");
-        lastCreatedConversationIdRef.current = conversationId;
-
-        // Trigger auto-naming immediately (in parallel with navigation/stream)
-        triggerAutoNaming(conversationId, message, conversation.title ?? undefined);
-
-        // Navigate immediately so the new chat page shows thinking/streaming
-        if (typeof window !== "undefined" && !window.location.pathname.includes(`/c/${newChatId}`)) {
-          persistModelSelection(currentModel);
-          void navigateWithMainPanelFade(router, `/c/${newChatId}`);
-        }
-      }
-    } else {
-      console.log("[chatDebug] Adding message to existing chat:", selectedChatId);
-      // For existing chats, just append the user message to UI
-      // (The /api/chat endpoint will persist it to the database)
-      appendMessages(selectedChatId, [userMessage]);
-      if (marketContext?.instanceId || currentMarketInstanceId) {
-        setMarketInstanceByChat((prev) => ({
-          ...prev,
-          [selectedChatId]: marketContext?.instanceId ?? currentMarketInstanceId,
-        }));
-      }
-      
-        // Stream the model response and insert the user message on server
-        await streamModelResponse(
-          selectedChatId,
-          selectedProjectId || undefined,
-          message,
-          selectedChatId,
-          false,
-          attachments,
-          undefined,
-          {
-            agentId: selectedAgentId,
-            marketAgentContext: marketContext ?? (currentMarketInstanceId ? { instanceId: currentMarketInstanceId } : null),
-            userMessageMetadata: Object.keys(userMetadata).length ? userMetadata : null,
+          if (selectedAgentId) {
+            setAgentSelectionByChat((prev) => ({ ...prev, [conversationId]: selectedAgentId }));
           }
-        );
+          if (marketContext?.instanceId || currentMarketInstanceId) {
+            setMarketInstanceByChat((prev) => ({
+              ...prev,
+              [conversationId]: marketContext?.instanceId ?? currentMarketInstanceId,
+            }));
+          }
+          setSelectedChatId(newChatId);
+          setSelectedProjectId(targetProjectId);
+          lastCreatedConversationIdRef.current = conversationId;
+
+          triggerAutoNaming(conversationId, message, conversation.title ?? undefined);
+
+          const targetUrl = `/projects/${targetProjectId}/c/${newChatId}`;
+          if (typeof window !== "undefined" && !window.location.pathname.includes(`/c/${newChatId}`)) {
+            persistModelSelection(currentModel);
+            void navigateWithMainPanelFade(router, targetUrl);
+          }
+        } else {
+          const { conversationId, message: createdMessage, conversation } =
+            await startGlobalConversationAction(message, attachments, {
+              conversationMetadata: conversationMetadata ?? null,
+              messageMetadata: Object.keys(userMetadata).length ? (userMetadata as any) : null,
+            });
+          saveAutoStreamPrefs(
+            conversationId,
+            isImageMode ? { generationMode: "image", imageModel: currentImageModel } : null
+          );
+
+          const mappedMessage: StoredMessage = {
+            id: createdMessage.id,
+            role: "user",
+            content: createdMessage.content ?? message,
+            timestamp: createdMessage.created_at ?? now,
+            metadata: Object.keys(userMetadata).length ? userMetadata : undefined,
+          };
+
+          pinnedMessageIdRef.current = mappedMessage.id;
+          pinnedScrollTopRef.current = null;
+          alignNextUserMessageToTopRef.current = mappedMessage.id;
+
+          const newChatId = createChat({
+            id: conversationId,
+            initialMessages: [mappedMessage],
+            title: conversation.title ?? "New chat",
+          });
+          if (selectedAgentId) {
+            setAgentSelectionByChat((prev) => ({ ...prev, [conversationId]: selectedAgentId }));
+          }
+          if (marketContext?.instanceId || currentMarketInstanceId) {
+            setMarketInstanceByChat((prev) => ({
+              ...prev,
+              [conversationId]: marketContext?.instanceId ?? currentMarketInstanceId,
+            }));
+          }
+          setSelectedChatId(newChatId);
+          setSelectedProjectId("");
+          lastCreatedConversationIdRef.current = conversationId;
+
+          triggerAutoNaming(conversationId, message, conversation.title ?? undefined);
+
+          if (typeof window !== "undefined" && !window.location.pathname.includes(`/c/${newChatId}`)) {
+            persistModelSelection(currentModel);
+            void navigateWithMainPanelFade(router, `/c/${newChatId}`);
+          }
+        }
+        newChatSuccess = true;
+        setPendingNewChatMessages(null);
+        setComposerMovingToBottom(false);
+        return;
+      } finally {
+        if (!newChatSuccess) {
+          setPendingNewChatMessages(null);
+          setComposerMovingToBottom(false);
+        }
+      }
     }
+
+    console.log("[chatDebug] Adding message to existing chat:", selectedChatId);
+    // For existing chats, just append the user message to UI
+    // (The /api/chat endpoint will persist it to the database)
+    appendMessages(selectedChatId, [userMessage]);
+    if (marketContext?.instanceId || currentMarketInstanceId) {
+      setMarketInstanceByChat((prev) => ({
+        ...prev,
+        [selectedChatId]: marketContext?.instanceId ?? currentMarketInstanceId,
+      }));
+    }
+    
+      // Stream the model response and insert the user message on server
+      await streamModelResponse(
+        selectedChatId,
+        selectedProjectId || undefined,
+        message,
+        selectedChatId,
+        false,
+        attachments,
+        undefined,
+        {
+          agentId: selectedAgentId,
+          marketAgentContext: marketContext ?? (currentMarketInstanceId ? { instanceId: currentMarketInstanceId } : null),
+          userMessageMetadata: Object.keys(userMetadata).length ? userMetadata : null,
+        }
+      );
     // Clear one-time follow-up context after use
     marketContextRef.current = null;
   };
@@ -3600,6 +3629,7 @@ export default function ChatPageShell({
         onPrefillUsed={() => setComposerPrefill(null)}
         selectedAgentId={selectedAgentId}
         onAgentChange={handleAgentChange}
+        shouldGrowDownward={shouldUseCenteredComposer && !composerMovingToBottom}
       />
     </>
   );
@@ -4082,16 +4112,36 @@ export default function ChatPageShell({
         >
           {showEmptyConversation ? (
             <div
-              className={`flex flex-1 flex-col items-center ${emptyStateJustifyClass} gap-6 px-4 text-center`}
+              className={`flex flex-1 flex-col items-center ${emptyStateJustifyClass} gap-6 px-4 text-center ${shouldUseCenteredComposer ? "transition-transform duration-300 ease-out" : ""}`}
               style={{
                 ...(emptyStateTransform ? { transform: emptyStateTransform } : {}),
                 ...(emptyStatePaddingTop ? { paddingTop: emptyStatePaddingTop } : {}),
               }}
             >
-              <div>
-                <h2 className="text-xl sm:text-2xl font-semibold text-foreground mb-2">
-                  Where should we begin?
-                </h2>
+              <div className="w-full max-w-3xl space-y-4">
+                <div>
+                  <h2 className="text-xl sm:text-2xl font-semibold text-foreground mb-2">
+                    Where should we begin?
+                  </h2>
+                </div>
+                {pendingNewChatMessages && (
+                  <div className="space-y-3">
+                    {pendingNewChatMessages.map((message) => (
+                      <ChatMessage
+                        key={message.id}
+                        {...message}
+                        messageId={message.id}
+                        enableEntryAnimation={false}
+                        showInsightChips={false}
+                        isStreaming={message.role === "assistant" && !(message.content?.trim())}
+                        suppressPreStreamAnimation
+                        modelTagClickable={false}
+                        forceFullWidth
+                        forceStaticBubble={message.role === "assistant"}
+                      />
+                    ))}
+                  </div>
+                )}
               </div>
               {shouldUseCenteredComposer && (
                 <div className="w-full max-w-3xl">{composerInner}</div>
