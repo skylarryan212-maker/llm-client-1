@@ -351,6 +351,7 @@ export default function ChatPageShell({
     eventId?: string | null;
   } | null>(null);
   const autoSendHandledRef = useRef(false);
+  const initialConversationsHydratedRef = useRef(initialConversations.length === 0);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -1012,6 +1013,11 @@ export default function ChatPageShell({
 
   // If the current chat/project disappears, redirect to a safe route.
   useEffect(() => {
+    const isWaitingForInitialConversations =
+      initialConversations.length > 0 && !initialConversationsHydratedRef.current;
+    if (isWaitingForInitialConversations) {
+      return;
+    }
     if (!pathname) return;
     const segments = pathname.split("/").filter(Boolean);
     const pathProjectId = segments[0] === "projects" ? segments[1] : null;
@@ -1395,7 +1401,12 @@ export default function ChatPageShell({
   ]);
 
   useEffect(() => {
-    if (!initialConversations.length) return;
+    if (!initialConversations.length) {
+      initialConversationsHydratedRef.current = true;
+      return;
+    }
+
+    initialConversationsHydratedRef.current = false;
 
     initialConversations.forEach((conversation) => {
       const isActive = conversation.id === activeConversationId;
@@ -1417,6 +1428,8 @@ export default function ChatPageShell({
         messages: messagesForConversation,
       });
     });
+
+    initialConversationsHydratedRef.current = true;
   }, [
     activeConversationId,
     ensureChat,

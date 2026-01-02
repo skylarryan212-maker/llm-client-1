@@ -122,6 +122,12 @@ Use the provided context to inform every rule:
 - Use memories, context mode, and selections to understand what references the client expects. If memories or topic metadata mention entities that match the new touchpoint, prefer reuse.
 - Consider whether the user is referencing a previous assistant sentence, continuing a plan, or branching to something unrelated; recent assistant prompts and message history show whether continuation makes sense.
 
+When consuming the input:
+- Scan the recentMessages list so you can tell whether the active assistant reply and the new user message are tightly linked; look for follow-up language ("that", "continue", "next") or explicit references to previous ideas.
+- Compare the active topic’s label, summary, and description against the incoming user message; matching entities or shared intent are strong cues to stay on that topic.
+- Check artifacts and the semantic similarity section, including the closest non-active topic hint, to see if the user is resuming work that lives elsewhere.
+- Use the current userMessage as the final tie-breaker: if nothing in the above context fits, emit topicAction "new" and start a fresh thread.
+
 Output shape:
 {
   "labels": {
