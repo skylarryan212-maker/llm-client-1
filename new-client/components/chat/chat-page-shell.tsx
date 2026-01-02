@@ -525,11 +525,20 @@ export default function ChatPageShell({
   const [showOtherModels, setShowOtherModels] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
   const NEW_CHAT_SELECTION_KEY = "__new_chat__";
+  const [isMobileComposer, setIsMobileComposer] = useState(false);
   useEffect(() => {
     if (!speedModeEnabled) return;
     setCurrentModel((prev) => normalizeModelForSpeedMode(prev));
     setShowOtherModels(false);
   }, [speedModeEnabled]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const update = () => setIsMobileComposer(window.innerWidth <= 768);
+    update();
+    window.addEventListener("resize", update);
+    return () => window.removeEventListener("resize", update);
+  }, []);
   const [contextUsageByChat, setContextUsageByChat] = useState<Record<string, ContextUsageSnapshot>>({});
   const [contextModeGlobal, setContextModeGlobal] = useState<"advanced" | "simple">(loadInitialContextModeGlobal);
   const [contextModeByChat, setContextModeByChat] = useState<Record<string, "advanced" | "simple">>(
@@ -1432,6 +1441,8 @@ export default function ChatPageShell({
   const isRootRoute = pathname === "/";
   const showEmptyConversation = !selectedChatId || messages.length === 0;
   const shouldCenterComposer = isRootRoute && !selectedChatId && messages.length === 0;
+  const shouldUseCenteredComposer = shouldCenterComposer && !isMobileComposer;
+  const emptyStateTransform = shouldUseCenteredComposer ? "translateY(calc(-5vh - 24px))" : undefined;
 
   const getEffectiveScrollBottom = useCallback(
     (viewport: HTMLDivElement) => {
@@ -3978,49 +3989,51 @@ export default function ChatPageShell({
           </div>
 
           <div className="flex items-center gap-3">
-	            <ContextUsageIndicator
-	              usage={currentContextUsage}
-	              contextMode={currentContextMode}
-	              availableChats={chats}
-	              activeChatId={effectiveChatId}
-	              simpleExternalChatIds={simpleExternalChatIdsForActiveChat}
-	              onChangeSimpleExternalChatIds={setSimpleExternalChatIdsForActiveChat}
-	              advancedTopicIds={advancedTopicIdsForActiveChat}
-	              onChangeAdvancedTopicIds={(next) => {
-	                setAdvancedTopicSelectionByChat((prev) => {
-	                  const key = selectionKeyForContext;
-	                  const current = typeof prev[key] === "undefined" ? null : prev[key];
-	                  const resolved = typeof next === "function" ? (next as any)(current) : next;
-	                  return { ...prev, [key]: resolved };
-	                });
-	              }}
-	              onToggleMode={(next) => {
+            {!isGuest && (
+              <ContextUsageIndicator
+                usage={currentContextUsage}
+                contextMode={currentContextMode}
+                availableChats={chats}
+                activeChatId={effectiveChatId}
+                simpleExternalChatIds={simpleExternalChatIdsForActiveChat}
+                onChangeSimpleExternalChatIds={setSimpleExternalChatIdsForActiveChat}
+                advancedTopicIds={advancedTopicIdsForActiveChat}
+                onChangeAdvancedTopicIds={(next) => {
+                  setAdvancedTopicSelectionByChat((prev) => {
+                    const key = selectionKeyForContext;
+                    const current = typeof prev[key] === "undefined" ? null : prev[key];
+                    const resolved = typeof next === "function" ? (next as any)(current) : next;
+                    return { ...prev, [key]: resolved };
+                  });
+                }}
+                onToggleMode={(next) => {
                   if (speedModeEnabled && next === "advanced") {
                     return;
                   }
-	                if (!effectiveChatId) {
-	                  setContextModeGlobal(next);
-	                  try {
-	                    window.localStorage.setItem("context-mode-global", next);
-                   } catch {}
-                  if (!isGuest) {
-                    saveContextModeGlobalPreference(next)
-                      .then((result) => {
-                        if (!result.success) {
-                          console.error("Failed to save context mode:", result.message);
-                        }
-                      })
-                      .catch(() => {});
+                  if (!effectiveChatId) {
+                    setContextModeGlobal(next);
+                    try {
+                      window.localStorage.setItem("context-mode-global", next);
+                    } catch {}
+                    if (!isGuest) {
+                      saveContextModeGlobalPreference(next)
+                        .then((result) => {
+                          if (!result.success) {
+                            console.error("Failed to save context mode:", result.message);
+                          }
+                        })
+                        .catch(() => {});
+                    }
+                    return;
                   }
-                   return;
-                 }
-	                  setContextModeByChat((prev) => ({
-	                    ...prev,
-	                    [effectiveChatId]: next,
-	                  }));
-	              }}
-	              speedModeEnabled={speedModeEnabled}
-	            />
+                  setContextModeByChat((prev) => ({
+                    ...prev,
+                    [effectiveChatId]: next,
+                  }));
+                }}
+                speedModeEnabled={speedModeEnabled}
+              />
+            )}
             {isGuest ? (
               <>
                 <Button
@@ -4068,14 +4081,14 @@ export default function ChatPageShell({
           {showEmptyConversation ? (
             <div
               className="flex flex-1 flex-col items-center justify-center gap-6 px-4 text-center"
-              style={{ transform: "translateY(calc(-5vh - 24px))" }}
+              style={emptyStateTransform ? { transform: emptyStateTransform } : undefined}
             >
               <div>
                 <h2 className="text-xl sm:text-2xl font-semibold text-foreground mb-2">
                   Where should we begin?
                 </h2>
               </div>
-              {shouldCenterComposer && (
+              {shouldUseCenteredComposer && (
                 <div className="w-full max-w-3xl">{composerInner}</div>
               )}
             </div>
@@ -4225,7 +4238,7 @@ export default function ChatPageShell({
           </div>
         ) : null}
         {/* Composer: full-width bar, centered pill like ChatGPT */}
-        {!shouldCenterComposer && (
+        {!shouldUseCenteredComposer && (
           <div
             className="bg-transparent px-4 sm:px-6 lg:px-12 py-3 sm:py-4 relative sticky bottom-0 z-30 pb-[max(env(safe-area-inset-bottom),0px)] transition-transform duration-200 ease-out"
             style={{ transform: `translateY(${-Math.max(0, composerLiftPx + 4)}px)` }}
