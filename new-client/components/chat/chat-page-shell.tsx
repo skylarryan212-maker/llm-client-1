@@ -1443,6 +1443,8 @@ export default function ChatPageShell({
   const shouldCenterComposer = isRootRoute && !selectedChatId && messages.length === 0;
   const shouldUseCenteredComposer = shouldCenterComposer && !isMobileComposer;
   const emptyStateTransform = shouldUseCenteredComposer ? "translateY(calc(-5vh - 24px))" : undefined;
+  const emptyStateJustifyClass = shouldUseCenteredComposer ? "justify-start" : "justify-center";
+  const emptyStatePaddingTop = shouldUseCenteredComposer ? "calc(48vh - 180px)" : undefined;
 
   const getEffectiveScrollBottom = useCallback(
     (viewport: HTMLDivElement) => {
@@ -4080,8 +4082,11 @@ export default function ChatPageShell({
         >
           {showEmptyConversation ? (
             <div
-              className="flex flex-1 flex-col items-center justify-center gap-6 px-4 text-center"
-              style={emptyStateTransform ? { transform: emptyStateTransform } : undefined}
+              className={`flex flex-1 flex-col items-center ${emptyStateJustifyClass} gap-6 px-4 text-center`}
+              style={{
+                ...(emptyStateTransform ? { transform: emptyStateTransform } : {}),
+                ...(emptyStatePaddingTop ? { paddingTop: emptyStatePaddingTop } : {}),
+              }}
             >
               <div>
                 <h2 className="text-xl sm:text-2xl font-semibold text-foreground mb-2">
