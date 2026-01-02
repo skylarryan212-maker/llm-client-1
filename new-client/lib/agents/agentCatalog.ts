@@ -45,14 +45,6 @@ export const AGENT_CATALOG: AgentCatalogItem[] = [
     gradient: "bg-gradient-to-br from-emerald-500 via-cyan-500 to-blue-600",
   },
   {
-    id: "automation-builder",
-    slug: "automation-builder",
-    icon: Workflow,
-    title: "Automation Builder",
-    description:
-      "Design and deploy intelligent workflows. Connect APIs, automate tasks, orchestrate complex processes, and streamline operations effortlessly.",
-  },
-  {
     id: "human-writing",
     slug: "human-writing",
     icon: PenLine,
@@ -61,6 +53,14 @@ export const AGENT_CATALOG: AgentCatalogItem[] = [
       "Produce clear, human-quality writing fast. Draft emails, docs, and narratives with tone control and structure that feels natural.",
     href: "/agents/human-writing",
     gradient: "bg-gradient-to-br from-amber-500 via-orange-500 to-rose-500",
+  },
+  {
+    id: "automation-builder",
+    slug: "automation-builder",
+    icon: Workflow,
+    title: "Automation Builder",
+    description:
+      "Design and deploy intelligent workflows. Connect APIs, automate tasks, orchestrate complex processes, and streamline operations effortlessly.",
   },
   {
     id: "data-interpreter",
