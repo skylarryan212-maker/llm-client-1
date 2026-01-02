@@ -2,7 +2,7 @@
 import { notFound } from "next/navigation";
 import ChatPageShell from "@/components/chat/chat-page-shell";
 import { getConversationById } from "@/lib/data/conversations";
-import { getMessagesForConversation } from "@/lib/data/messages";
+import { getMessagesForConversationPage } from "@/lib/data/messages";
 
 interface PageParams {
   projectId: string;
@@ -27,7 +27,8 @@ export default async function ProjectChatPage({
     return notFound();
   }
 
-  const messagesData = await getMessagesForConversation(chatId);
+  const messagesPage = await getMessagesForConversationPage(chatId);
+  const messagesData = messagesPage.messages;
 
   const conversations = [
     {
@@ -52,6 +53,8 @@ export default async function ProjectChatPage({
         conversations={conversations}
         activeConversationId={chatId}
         messages={messages}
+        hasMoreMessages={messagesPage.hasMore}
+        oldestMessageTimestamp={messagesPage.oldestTimestamp}
         searchParams={resolvedSearchParams}
         projectId={projectId}
       />

@@ -4,6 +4,7 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { useUserIdentity } from "@/components/user-identity-provider";
+import { Virtuoso, VirtuosoHandle } from "react-virtuoso";
 
 import { ChatSidebar } from "@/components/chat-sidebar";
 import { ChatMessage } from "@/components/chat-message";
@@ -11,11 +12,10 @@ import { ChatComposer } from "@/components/chat-composer";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
 import { ArrowDown, Check, ChevronDown, Image as ImageIcon, Menu, Plus, X } from "lucide-react";
-import { SettingsModal } from "@/components/settings-modal";
+import dynamic from "next/dynamic";
 import { StatusBubble } from "@/components/chat/status-bubble";
 import supabaseBrowserClient from "@/lib/supabase/browser-client";
 import { ApiUsageBadge } from "@/components/api-usage-badge";
-import { UsageLimitModal } from "@/components/usage-limit-modal";
 import {
   startGlobalConversationAction,
   startProjectConversationAction,
@@ -34,7 +34,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useProjects } from "@/components/projects/projects-provider";
-import { NewProjectModal } from "@/components/projects/new-project-modal";
 import { StoredMessage, type StoredChat, useChatStore } from "@/components/chat/chat-provider";
 import { usePersistentSidebarOpen } from "@/lib/hooks/use-sidebar-open";
 import { getModelAndReasoningConfig, getModelSettingsFromDisplayName } from "@/lib/modelConfig";
@@ -44,7 +43,6 @@ import { requestAutoNaming } from "@/lib/autoNaming";
 import type { AssistantMessageMetadata } from "@/lib/chatTypes";
 import { formatSearchedDomainsLine, formatThoughtDurationLabel } from "@/lib/metadata";
 import { MessageInsightChips } from "@/components/chat/message-insight-chips";
-import { MarketFeedSidebar } from "@/components/market-agent/market-feed-sidebar";
 import type { MarketAgentFeedEvent } from "@/lib/data/market-agent";
 import {
   navigateWithChatBodyFade,
@@ -52,6 +50,23 @@ import {
   runChatBodyEnterIfNeeded,
   runMainPanelEnterIfNeeded,
 } from "@/lib/view-transitions";
+
+const SettingsModal = dynamic(
+  () => import("@/components/settings-modal").then((mod) => mod.SettingsModal),
+  { ssr: false }
+);
+const UsageLimitModal = dynamic(
+  () => import("@/components/usage-limit-modal").then((mod) => mod.UsageLimitModal),
+  { ssr: false }
+);
+const NewProjectModal = dynamic(
+  () => import("@/components/projects/new-project-modal").then((mod) => mod.NewProjectModal),
+  { ssr: false }
+);
+const MarketFeedSidebar = dynamic(
+  () => import("@/components/market-agent/market-feed-sidebar").then((mod) => mod.MarketFeedSidebar),
+  { ssr: false }
+);
 
 interface ShellConversation {
   id: string;
@@ -94,6 +109,8 @@ interface ChatPageShellProps {
   conversations: ShellConversation[];
   activeConversationId: string | null; // allow null for "/"
   messages: ServerMessage[];
+  hasMoreMessages?: boolean;
+  oldestMessageTimestamp?: string | null;
   searchParams: Record<string, string | string[] | undefined>;
   projectId?: string;
 }
@@ -295,17 +312,27 @@ export default function ChatPageShell({
   conversations: initialConversations,
   activeConversationId,
   messages: initialMessages,
+  hasMoreMessages: initialHasMoreMessages = false,
+  oldestMessageTimestamp: initialOldestMessageTimestamp = null,
   projectId,
   searchParams,
 }: ChatPageShellProps) {
   const baseBottomSpacerPx = 28;
+  const MESSAGE_PAGE_SIZE = 200;
   const router = useRouter();
   const mainPanelRef = useRef<HTMLDivElement | null>(null);
   const chatBodyRef = useRef<HTMLDivElement | null>(null);
+  const prefersReducedMotion =
+    typeof window !== "undefined" &&
+    window.matchMedia &&
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
   useLayoutEffect(() => {
-    runMainPanelEnterIfNeeded(mainPanelRef.current);
-    runChatBodyEnterIfNeeded(chatBodyRef.current);
-  }, []);
+    if (!prefersReducedMotion) {
+      runMainPanelEnterIfNeeded(mainPanelRef.current);
+      runChatBodyEnterIfNeeded(chatBodyRef.current);
+    }
+  }, [prefersReducedMotion]);
 
   const { projects, addProject, refreshProjects } = useProjects();
   const {
@@ -313,6 +340,7 @@ export default function ChatPageShell({
     globalChats,
     createChat,
     appendMessages,
+    prependMessages,
     updateMessage,
     updateChatTitle,
     removeMessage,
@@ -531,6 +559,11 @@ export default function ChatPageShell({
   const stickyComposerRef = useRef<HTMLDivElement | null>(null);
   const [composerDropOffsetPx, setComposerDropOffsetPx] = useState<number | null>(null);
   const [isMobileComposer, setIsMobileComposer] = useState(false);
+  const scrollRafRef = useRef<number | null>(null);
+  const pendingScrollStateRef = useRef<{ scrollTop: number; clientHeight: number; target: HTMLDivElement } | null>(
+    null
+  );
+  const lastLoadOlderTsRef = useRef<number>(0);
   useEffect(() => {
     if (!speedModeEnabled) return;
     setCurrentModel((prev) => normalizeModelForSpeedMode(prev));
@@ -768,6 +801,7 @@ export default function ChatPageShell({
   const [isInsightSidebarOpen, setIsInsightSidebarOpen] = useState(false);
   const [insightPreambles, setInsightPreambles] = useState<Record<string, string>>({});
   const scrollViewportRef = useRef<HTMLDivElement | null>(null);
+  const virtuosoRef = useRef<VirtuosoHandle | null>(null);
   const isProgrammaticScrollRef = useRef(false);
   const pinToPromptRef = useRef(false);
   const pinnedMessageIdRef = useRef<string | null>(null);
@@ -1438,8 +1472,21 @@ export default function ChatPageShell({
     projectId,
   ]);
 
+  useEffect(() => {
+    setHasMoreMessages(Boolean(initialHasMoreMessages));
+    setOldestMessageTimestamp(
+      initialOldestMessageTimestamp ?? (initialMessages[0]?.timestamp ?? null)
+    );
+  }, [activeConversationId, initialHasMoreMessages, initialOldestMessageTimestamp, initialMessages]);
+
   const currentChat = chats.find((c) => c.id === selectedChatId);
   const messages = useMemo<StoredMessage[]>(() => currentChat?.messages ?? [], [currentChat]);
+  const disableEntryAnimations = messages.length > 200 || prefersReducedMotion;
+  const [hasMoreMessages, setHasMoreMessages] = useState(Boolean(initialHasMoreMessages));
+  const [oldestMessageTimestamp, setOldestMessageTimestamp] = useState<string | null>(
+    initialOldestMessageTimestamp
+  );
+  const [isLoadingOlderMessages, setIsLoadingOlderMessages] = useState(false);
   const lastUserMessageId = useMemo(() => {
     for (let i = messages.length - 1; i >= 0; i -= 1) {
       const candidate = messages[i];
@@ -1509,6 +1556,75 @@ export default function ChatPageShell({
     },
     [getEffectiveScrollBottom]
   );
+
+  const handleLoadOlderMessages = useCallback(async () => {
+    if (!activeConversationId || !hasMoreMessages || isLoadingOlderMessages) return;
+    setIsLoadingOlderMessages(true);
+    const viewport = scrollViewportRef.current;
+    const prevScrollHeight = viewport?.scrollHeight ?? null;
+
+    try {
+      const res = await fetch("/api/messages/load-older", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          conversationId: activeConversationId,
+          before: oldestMessageTimestamp,
+          limit: MESSAGE_PAGE_SIZE,
+        }),
+      });
+
+      const payload = (await res.json()) as {
+        messages?: Array<{
+          id: string;
+          role?: string | null;
+          content?: string | null;
+          created_at?: string | null;
+          metadata?: Record<string, unknown> | null;
+        }>;
+        hasMore?: boolean;
+        oldestTimestamp?: string | null;
+        error?: string;
+      };
+
+      if (!res.ok) {
+        throw new Error(payload?.error || "Failed to load older messages");
+      }
+
+      const incoming = (payload.messages ?? []).map((message) => ({
+        id: message.id,
+        role: (message.role ?? "assistant") as "user" | "assistant",
+        content: message.content ?? "",
+        timestamp: message.created_at ?? new Date().toISOString(),
+        metadata: message.metadata ?? null,
+      }));
+
+      prependMessages(activeConversationId, incoming);
+      setHasMoreMessages(Boolean(payload.hasMore));
+      setOldestMessageTimestamp(payload.oldestTimestamp ?? oldestMessageTimestamp);
+
+      if (viewport && typeof prevScrollHeight === "number") {
+        requestAnimationFrame(() => {
+          const nextScrollHeight = viewport.scrollHeight;
+          const delta = nextScrollHeight - prevScrollHeight;
+          if (delta > 0) {
+            viewport.scrollTop += delta;
+          }
+        });
+      }
+    } catch (error) {
+      console.error("Failed to load older messages:", error);
+    } finally {
+      setIsLoadingOlderMessages(false);
+    }
+  }, [
+    MESSAGE_PAGE_SIZE,
+    activeConversationId,
+    hasMoreMessages,
+    isLoadingOlderMessages,
+    oldestMessageTimestamp,
+    prependMessages,
+  ]);
 
   const computeRequiredSpacerForMessage = useCallback(
     (messageId: string) => {
@@ -3361,16 +3477,38 @@ export default function ChatPageShell({
       }
     }
 
-    const effectiveBottom = getEffectiveScrollBottom(target);
-    const distanceFromBottom = effectiveBottom - (scrollTop + clientHeight);
-    const tolerance = Math.max(16, bottomSpacerPx / 3);
-    const atBottom = distanceFromBottom <= tolerance;
+    pendingScrollStateRef.current = { scrollTop, clientHeight, target };
+    if (scrollRafRef.current !== null) return;
 
-    setShowScrollToBottom(!atBottom);
-    // Re-enable autoscroll when user scrolls back to bottom, disable when scrolling up
-    if (!pinToPromptRef.current) {
-      setIsAutoScroll(atBottom);
-    }
+    scrollRafRef.current = requestAnimationFrame(() => {
+      scrollRafRef.current = null;
+      const pending = pendingScrollStateRef.current;
+      if (!pending) return;
+
+      const effectiveBottom = getEffectiveScrollBottom(pending.target);
+      const distanceFromBottom = effectiveBottom - (pending.scrollTop + pending.clientHeight);
+      const tolerance = Math.max(16, bottomSpacerPx / 3);
+      const atBottom = distanceFromBottom <= tolerance;
+
+      setShowScrollToBottom(!atBottom);
+      // Re-enable autoscroll when user scrolls back to bottom, disable when scrolling up
+      if (!pinToPromptRef.current) {
+        setIsAutoScroll(atBottom);
+      }
+
+      if (
+        pending.scrollTop <= 120 &&
+        hasMoreMessages &&
+        !isLoadingOlderMessages &&
+        activeConversationId
+      ) {
+        const now = Date.now();
+        if (now - lastLoadOlderTsRef.current > 1500) {
+          lastLoadOlderTsRef.current = now;
+          void handleLoadOlderMessages();
+        }
+      }
+    });
   };
 
   useEffect(() => {
@@ -3396,6 +3534,10 @@ export default function ChatPageShell({
       }
       if (fileIndicatorTimerRef.current) {
         clearTimeout(fileIndicatorTimerRef.current);
+      }
+      if (scrollRafRef.current !== null) {
+        cancelAnimationFrame(scrollRafRef.current);
+        scrollRafRef.current = null;
       }
     };
   }, []);
@@ -4168,168 +4310,192 @@ export default function ChatPageShell({
               )}
             </div>
           ) : hasPendingNewChat ? (
-            <ScrollArea
-              className="flex-1 min-h-0 overscroll-y-contain overflow-x-hidden"
-              viewportRef={scrollViewportRef}
-              viewportClassName="chat-scroll-viewport h-full overscroll-y-contain overscroll-contain overflow-x-hidden"
-              onViewportScroll={handleScroll}
-              style={{ minWidth: 0 }}
-            >
-              <div className="py-4 pb-20">
-                <div className="w-full space-y-1 overflow-x-hidden chat-message-list min-w-0 agent-chat-message-list agent-chat-scroll-area">
-                  {pendingNewChatMessages?.map((message) => (
-                    <div key={message.id} className="px-4 sm:px-6">
-                      <div className="w-full max-w-[min(48rem,calc(100vw-32px))] min-w-0 mx-auto px-1.5 sm:px-0 overflow-hidden">
-                        <ChatMessage
-                          {...message}
-                          messageId={message.id}
-                          enableEntryAnimation={false}
-                          showInsightChips={false}
-                          isStreaming={message.role === "assistant" && !(message.content?.trim())}
-                          suppressPreStreamAnimation
-                          modelTagClickable={false}
-                          forceFullWidth
-                          forceStaticBubble={message.role === "assistant"}
-                        />
-                      </div>
+            <div className="flex-1 min-h-0 overscroll-y-contain overflow-x-hidden">
+              <Virtuoso
+                ref={virtuosoRef}
+                style={{ height: "100%" }}
+                data={pendingNewChatMessages ?? []}
+                itemContent={(_, message) => (
+                  <div className="px-4 sm:px-6">
+                    <div className="w-full max-w-[min(48rem,calc(100vw-32px))] min-w-0 mx-auto px-1.5 sm:px-0 overflow-hidden">
+                      <ChatMessage
+                        {...message}
+                        messageId={message.id}
+                        enableEntryAnimation={false}
+                        showInsightChips={false}
+                        isStreaming={message.role === "assistant" && !(message.content?.trim())}
+                        suppressPreStreamAnimation
+                        modelTagClickable={false}
+                        forceFullWidth
+                        forceStaticBubble={message.role === "assistant"}
+                      />
                     </div>
-                  ))}
-                </div>
-                <div aria-hidden="true" style={{ height: `${bottomSpacerPx}px` }} />
-              </div>
-            </ScrollArea>
+                  </div>
+                )}
+                components={{
+                  Footer: () => <div aria-hidden="true" style={{ height: `${bottomSpacerPx}px` }} />,
+                }}
+              />
+            </div>
           ) : (
-            <ScrollArea
-              className="flex-1 min-h-0 overscroll-y-contain overflow-x-hidden"
-              viewportRef={scrollViewportRef}
-              viewportClassName="chat-scroll-viewport h-full overscroll-y-contain overscroll-contain overflow-x-hidden"
-              onViewportScroll={handleScroll}
-              style={{ minWidth: 0 }}
-            >
-              <div className="py-4 pb-20">
-                {/* Wide desktop layout with padded container */}
-                <div className="w-full space-y-1 overflow-x-hidden chat-message-list min-w-0 agent-chat-message-list agent-chat-scroll-area">
-                  {messages.map((message, index) => {
-                    const metadata = message.metadata as AssistantMessageMetadata | null;
-                    const isStreamingMessage = message.id === activeIndicatorMessageId;
+            <div className="flex-1 min-h-0 overscroll-y-contain overflow-x-hidden">
+              <Virtuoso
+                ref={virtuosoRef}
+                style={{ height: "100%" }}
+                data={messages}
+                overscan={200}
+                atTopThreshold={120}
+                startReached={() => {
+                  if (
+                    hasMoreMessages &&
+                    !isLoadingOlderMessages &&
+                    activeConversationId &&
+                    Date.now() - lastLoadOlderTsRef.current > 1500
+                  ) {
+                    lastLoadOlderTsRef.current = Date.now();
+                    void handleLoadOlderMessages();
+                  }
+                }}
+                computeItemKey={(_, message) => message.id}
+                itemContent={(index, message) => {
+                  const metadata = message.metadata as AssistantMessageMetadata | null;
+                  const isStreamingMessage = message.id === activeIndicatorMessageId;
 
-                    // Build display metadata so we can show a live "Thought for xx" chip while waiting for first token
-                    let displayMetadata: AssistantMessageMetadata | null = metadata ? { ...metadata } : null;
-                    
-                    // If metadata already has thinking duration (from database), use it and skip live calculations
-                    const hasStoredThinkingDuration = metadata && 
-                      (typeof metadata.thinkingDurationMs === 'number' || typeof metadata.thinkingDurationSeconds === 'number');
-                    
-                    // Show timing: stored from DB, or pending from first token, or live while thinking
-                    const hasPendingTiming = Boolean(pendingThinkingInfoRef.current);
+                  // Build display metadata so we can show a live "Thought for xx" chip while waiting for first token
+                  let displayMetadata: AssistantMessageMetadata | null = metadata ? { ...metadata } : null;
+                  
+                  // If metadata already has thinking duration (from database), use it and skip live calculations
+                  const hasStoredThinkingDuration = metadata && 
+                    (typeof metadata.thinkingDurationMs === 'number' || typeof metadata.thinkingDurationSeconds === 'number');
+                  
+                  // Show timing: stored from DB, or pending from first token, or live while thinking
+                  const hasPendingTiming = Boolean(pendingThinkingInfoRef.current);
 
-                    if (!hasStoredThinkingDuration && isStreamingMessage && hasPendingTiming) {
-                      // Show pending timing from first token (triggered immediately when first token arrives)
-                      const timing = pendingThinkingInfoRef.current!;
-                      displayMetadata = {
-                        ...(displayMetadata || ({} as AssistantMessageMetadata)),
-                        thoughtDurationLabel: timing.label,
-                        thinkingDurationMs: timing.durationMs,
-                        thinkingDurationSeconds: timing.durationSeconds,
-                        thinking: {
-                          ...(displayMetadata?.thinking || {}),
-                          effort: timing.effort,
-                          durationMs: timing.durationMs,
-                          durationSeconds: timing.durationSeconds,
-                        },
-                      } as AssistantMessageMetadata;
+                  if (!hasStoredThinkingDuration && isStreamingMessage && hasPendingTiming) {
+                    // Show pending timing from first token (triggered immediately when first token arrives)
+                    const timing = pendingThinkingInfoRef.current!;
+                    displayMetadata = {
+                      ...(displayMetadata || ({} as AssistantMessageMetadata)),
+                      thoughtDurationLabel: timing.label,
+                      thinkingDurationMs: timing.durationMs,
+                      thinkingDurationSeconds: timing.durationSeconds,
+                      thinking: {
+                        ...(displayMetadata?.thinking || {}),
+                        effort: timing.effort,
+                        durationMs: timing.durationMs,
+                        durationSeconds: timing.durationSeconds,
+                      },
+                    } as AssistantMessageMetadata;
+                  }
+
+                  // Show insight chips for thinking duration and web search domains as soon as metadata arrives (or live during thinking)
+                  const metadataIndicators =
+                    Boolean(displayMetadata?.thoughtDurationLabel) ||
+                    Boolean(displayMetadata?.searchedDomains?.length);
+
+                  const hasFirstToken = messagesWithFirstToken.has(message.id);
+
+                  let shouldAnimateEntry = false;
+                  const isNewestMessage = index === messages.length - 1;
+                  const isOnlyMessageInThread = messages.length === 1;
+                  const alreadyAnimated = animatedMessageIdsRef.current.has(message.id);
+                  const isFirstMessageInConversation = conversationChanged && index === 0;
+
+                  if (message.role === "assistant") {
+                    if (
+                      !alreadyAnimated &&
+                      (isFirstMessageInConversation ||
+                        (allowAssistantHistoryAnimation && isNewestMessage))
+                    ) {
+                      shouldAnimateEntry = true;
+                      animatedMessageIdsRef.current.add(message.id);
                     }
-
-                    // Show insight chips for thinking duration and web search domains as soon as metadata arrives (or live during thinking)
-                    const metadataIndicators =
-                      Boolean(displayMetadata?.thoughtDurationLabel) ||
-                      Boolean(displayMetadata?.searchedDomains?.length);
-
-                    const hasFirstToken = messagesWithFirstToken.has(message.id);
-
-                    let shouldAnimateEntry = false;
-                    const isNewestMessage = index === messages.length - 1;
-                    const isOnlyMessageInThread = messages.length === 1;
-                    const alreadyAnimated = animatedMessageIdsRef.current.has(message.id);
-                    const isFirstMessageInConversation = conversationChanged && index === 0;
-
-                    if (message.role === "assistant") {
-                      if (
-                        !alreadyAnimated &&
-                        (isFirstMessageInConversation ||
-                          (allowAssistantHistoryAnimation && isNewestMessage))
-                      ) {
-                        shouldAnimateEntry = true;
-                        animatedMessageIdsRef.current.add(message.id);
-                      }
-                    } else {
-                      if (
-                        !alreadyAnimated &&
-                        (isFirstMessageInConversation || isNewestMessage || isOnlyMessageInThread)
-                      ) {
-                        shouldAnimateEntry = true;
-                        animatedMessageIdsRef.current.add(message.id);
-                      }
+                  } else {
+                    if (
+                      !alreadyAnimated &&
+                      (isFirstMessageInConversation || isNewestMessage || isOnlyMessageInThread)
+                    ) {
+                      shouldAnimateEntry = true;
+                      animatedMessageIdsRef.current.add(message.id);
                     }
+                  }
 
-                    return (
-                      <React.Fragment key={message.id}>
-                        <div
-                          ref={(el) => {
-                            if (el) {
-                              messageRefs.current[message.id] = el;
-                            }
-                          }}
-                        >
-                          {message.role === "assistant" && (
-                            <div className="flex flex-col gap-2 pb-2 px-4 sm:px-6">
-                              <div
-                                className="w-full max-w-[min(48rem,calc(100vw-32px))] min-w-0 mx-auto px-1.5 sm:px-0 overflow-hidden"
-                                style={{ minHeight: metadataIndicators ? "auto" : "0px" }}
-                              >
-                                <div className="flex flex-wrap items-center gap-1.5 pt-1">
-                                  {metadataIndicators && (
-                                    <MessageInsightChips
-                                      metadata={displayMetadata || undefined}
-                                      messageId={message.id}
-                                      animationScopeId={insightAnimationScopeId}
-                                      onOpenSidebar={openInsightSidebar}
-                                    />
-                                  )}
-                                </div>
+                  if (disableEntryAnimations) {
+                    shouldAnimateEntry = false;
+                  }
+
+                  return (
+                    <React.Fragment key={message.id}>
+                      <div
+                        ref={(el) => {
+                          if (el) {
+                            messageRefs.current[message.id] = el;
+                          }
+                        }}
+                      >
+                        {message.role === "assistant" && (
+                          <div className="flex flex-col gap-2 pb-2 px-4 sm:px-6">
+                            <div
+                              className="w-full max-w-[min(48rem,calc(100vw-32px))] min-w-0 mx-auto px-1.5 sm:px-0 overflow-hidden"
+                              style={{ minHeight: metadataIndicators ? "auto" : "0px" }}
+                            >
+                              <div className="flex flex-wrap items-center gap-1.5 pt-1">
+                                {metadataIndicators && (
+                                  <MessageInsightChips
+                                    metadata={displayMetadata || undefined}
+                                    messageId={message.id}
+                                    animationScopeId={insightAnimationScopeId}
+                                    onOpenSidebar={openInsightSidebar}
+                                  />
+                                )}
                               </div>
                             </div>
-                          )}
-                          <div className="px-4 sm:px-6">
-                            <div className="w-full max-w-[min(48rem,calc(100vw-32px))] min-w-0 mx-auto px-1.5 sm:px-0 overflow-hidden">
-                              <ChatMessage
-                                {...message}
-                                messageId={message.id}
-                                enableEntryAnimation={shouldAnimateEntry}
-                                showInsightChips={false}
-                                isStreaming={isStreamingMessage}
-                                suppressPreStreamAnimation={hasFirstToken}
-                                modelTagClickable={message.id === mostRecentAssistantMessageId}
-                                onRetry={
-                                  message.role === "assistant"
-                                    ? (model) => handleRetryWithModel(model, message.id)
-                                    : undefined
-                                }
-                                forceFullWidth
-                                forceStaticBubble={message.role === "assistant"}
-                              />
-                            </div>
+                          </div>
+                        )}
+                        <div className="px-4 sm:px-6">
+                          <div className="w-full max-w-[min(48rem,calc(100vw-32px))] min-w-0 mx-auto px-1.5 sm:px-0 overflow-hidden">
+                            <ChatMessage
+                              {...message}
+                              messageId={message.id}
+                              enableEntryAnimation={shouldAnimateEntry}
+                              showInsightChips={false}
+                              isStreaming={isStreamingMessage}
+                              suppressPreStreamAnimation={hasFirstToken}
+                              modelTagClickable={message.id === mostRecentAssistantMessageId}
+                              onRetry={
+                                message.role === "assistant"
+                                  ? (model) => handleRetryWithModel(model, message.id)
+                                  : undefined
+                              }
+                              forceFullWidth
+                              forceStaticBubble={message.role === "assistant"}
+                            />
                           </div>
                         </div>
-                        {/* Runtime indicator is rendered as a fixed overlay (not in flow) to avoid layout shifts */}
-                      </React.Fragment>
-                    );
-                })}
-                  {/* Bottom spacer for proper scrolling */}
-                  <div aria-hidden="true" style={{ height: `${bottomSpacerPx}px` }} />
-                </div>
-              </div>
-            </ScrollArea>
+                      </div>
+                      {/* Runtime indicator is rendered as a fixed overlay (not in flow) to avoid layout shifts */}
+                    </React.Fragment>
+                  );
+                }}
+                components={{
+                  Header: () =>
+                    hasMoreMessages ? (
+                      <div className="flex justify-center px-4 sm:px-6 py-2">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-xs text-muted-foreground hover:text-foreground"
+                          onClick={handleLoadOlderMessages}
+                          disabled={isLoadingOlderMessages}
+                        >
+                          {isLoadingOlderMessages ? "Loading..." : "Load earlier messages"}
+                        </Button>
+                      </div>
+                    ) : null,
+                  Footer: () => <div aria-hidden="true" style={{ height: `${bottomSpacerPx}px` }} />,
+                }}
+              />
+            </div>
           )}
         </div>
         {/* Runtime indicator overlay (fixed, out of document flow) */}

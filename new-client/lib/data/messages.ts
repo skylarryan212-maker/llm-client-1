@@ -11,6 +11,8 @@ function isValidUuid(value: string | null | undefined) {
   return typeof value === "string" && uuidPattern.test(value);
 }
 
+const DEFAULT_MESSAGE_PAGE_SIZE = 200;
+
 export async function getMessagesForConversation(conversationId: string) {
   if (!isValidUuid(conversationId)) {
     return [];
@@ -32,4 +34,44 @@ export async function getMessagesForConversation(conversationId: string) {
   }
 
   return data ?? [];
+}
+
+export async function getMessagesForConversationPage(
+  conversationId: string,
+  options?: { limit?: number; before?: string | null }
+) {
+  if (!isValidUuid(conversationId)) {
+    return { messages: [] as MessageRow[], hasMore: false, oldestTimestamp: null as string | null };
+  }
+
+  const limit = options?.limit ?? DEFAULT_MESSAGE_PAGE_SIZE;
+  const before = options?.before ?? null;
+
+  const supabase = await supabaseServer();
+  const userId = await requireUserIdServer();
+
+  let query = supabase
+    .from("messages")
+    .select("*")
+    .eq("conversation_id", conversationId)
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false })
+    .limit(limit + 1);
+
+  if (before) {
+    query = query.lt("created_at", before);
+  }
+
+  const { data, error } = await query.returns<MessageRow[]>();
+
+  if (error) {
+    throw new Error(`Failed to load messages: ${error.message}`);
+  }
+
+  const rows = data ?? [];
+  const hasMore = rows.length > limit;
+  const page = (hasMore ? rows.slice(0, limit) : rows).reverse();
+  const oldestTimestamp = page[0]?.created_at ?? null;
+
+  return { messages: page, hasMore, oldestTimestamp };
 }

@@ -37,6 +37,7 @@ type ChatContextValue = {
     initialMessages?: StoredMessage[];
   }) => string;
   appendMessages: (chatId: string, newMessages: StoredMessage[]) => void;
+  prependMessages: (chatId: string, newMessages: StoredMessage[]) => void;
   updateMessage: (chatId: string, messageId: string, updates: Partial<StoredMessage>) => void;
   updateChatTitle: (chatId: string, title: string) => void;
   ensureChat: (chat: StoredChat) => void;
@@ -218,6 +219,22 @@ export function ChatProvider({ children, initialChats = [], userId }: ChatProvid
             chat.messages.length === 0 && newMessages.length > 0
               ? getTitleFromMessages(newMessages, chat.title)
               : chat.title,
+        };
+      })
+    );
+  }, []);
+
+  const prependMessages = useCallback((chatId: string, newMessages: StoredMessage[]) => {
+    if (!newMessages.length) return;
+    setChats((prev) =>
+      prev.map((chat) => {
+        if (chat.id !== chatId) return chat;
+        const existingIds = new Set(chat.messages.map((msg) => msg.id));
+        const uniqueIncoming = newMessages.filter((msg) => !existingIds.has(msg.id));
+        if (!uniqueIncoming.length) return chat;
+        return {
+          ...chat,
+          messages: [...uniqueIncoming, ...chat.messages],
         };
       })
     );
@@ -609,12 +626,24 @@ export function ChatProvider({ children, initialChats = [], userId }: ChatProvid
       refreshChats,
       createChat,
       appendMessages,
+      prependMessages,
       updateMessage,
       updateChatTitle,
       ensureChat,
       removeMessage,
     }),
-    [appendMessages, chats, createChat, ensureChat, getProjectChats, refreshChats, updateMessage, updateChatTitle, removeMessage]
+    [
+      appendMessages,
+      prependMessages,
+      chats,
+      createChat,
+      ensureChat,
+      getProjectChats,
+      refreshChats,
+      updateMessage,
+      updateChatTitle,
+      removeMessage,
+    ]
   );
 
   return <ChatContext.Provider value={value}>{children}</ChatContext.Provider>;

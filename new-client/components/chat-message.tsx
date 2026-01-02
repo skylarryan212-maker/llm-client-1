@@ -10,7 +10,7 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Copy, ExternalLink, Check, Download } from 'lucide-react'
 import Image from 'next/image'
-import { useEffect, useRef, useState } from 'react'
+import { memo, useEffect, useRef, useState } from 'react'
 import type { AssistantMessageMetadata } from '@/lib/chatTypes'
 import { MessageInsightChips } from '@/components/chat/message-insight-chips'
 import { MarkdownContent } from '@/components/markdown-content'
@@ -33,9 +33,11 @@ interface ChatMessageProps {
   modelTagClickable?: boolean
   forceFullWidth?: boolean
   forceStaticBubble?: boolean
-}
+});
 
-export function ChatMessage({
+ChatMessage.displayName = "ChatMessage";
+
+export const ChatMessage = memo(function ChatMessage({
   messageId,
   role,
   content,
@@ -165,11 +167,11 @@ export function ChatMessage({
     : "accent-user-bubble inline-block max-w-full rounded-2xl px-3 sm:px-3 py-2 sm:py-2"
 
   if (role === 'user') {
-  return (
-    <div {...rootAttributes} className={`py-3 sm:py-4 ${animateClass}`}>
-    <div
-      className={`mx-auto w-full ${forceFullWidth ? "max-w-full" : "max-w-3xl"} min-w-0 flex flex-col items-end px-1.5 sm:px-0`}
-    >
+    return (
+      <div {...rootAttributes} className={`py-3 sm:py-4 ${animateClass}`}>
+        <div
+          className={`mx-auto w-full ${forceFullWidth ? "max-w-full" : "max-w-3xl"} min-w-0 flex flex-col items-end px-1.5 sm:px-0`}
+        >
           {Array.isArray((metadata as any)?.files) && (metadata as any).files.length > 0 && (
             <div className="mb-2 flex flex-wrap gap-2 justify-end max-w-[92%] sm:max-w-4xl lg:max-w-5xl xl:max-w-[1200px] 2xl:max-w-[1400px]">
               {((metadata as any).files as Array<{ name?: string; mimeType?: string; dataUrl?: string; url?: string }>).map((file, idx) => (
@@ -183,7 +185,13 @@ export function ChatMessage({
                   <div className="h-8 w-8 overflow-hidden rounded-lg bg-muted flex items-center justify-center">
                     {file.mimeType?.startsWith("image/") ? (
                       // eslint-disable-next-line @next/next/no-img-element
-                      <img src={file.url || file.dataUrl} alt={file.name || "Image"} className="h-full w-full object-cover" />
+                      <img
+                        src={file.url || file.dataUrl}
+                        alt={file.name || "Image"}
+                        loading="lazy"
+                        decoding="async"
+                        className="h-full w-full object-cover"
+                      />
                     ) : (
                       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={1.5}>
                         <path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9Z" />
@@ -232,7 +240,9 @@ export function ChatMessage({
   )
 }
 
-return (
+  const shouldRenderMarkdown = !(role === "assistant" && isStreaming);
+
+  return (
     <div {...rootAttributes} className={`py-0 ${animateClass} ${assistantStreamingClass}`}>
       <div
         className={`mx-auto w-full ${
@@ -245,11 +255,17 @@ return (
             : "space-y-3 sm:space-y-4"
         }`}
         >
-          <MarkdownContent
-            content={content}
-            messageId={messageId}
-            generatedFiles={typedMetadata?.generatedFiles}
-          />
+          {shouldRenderMarkdown ? (
+            <MarkdownContent
+              content={content}
+              messageId={messageId}
+              generatedFiles={typedMetadata?.generatedFiles}
+            />
+          ) : (
+            <div className="whitespace-pre-wrap break-words text-sm leading-relaxed text-foreground/90">
+              {content}
+            </div>
+          )}
 
           {showInsightChips && <MessageInsightChips metadata={typedMetadata} messageId={messageId} />}
 

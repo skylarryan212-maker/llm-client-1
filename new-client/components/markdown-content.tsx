@@ -9,7 +9,7 @@ import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import { ArrowLeft, Check, Copy, Download, Share2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import 'katex/dist/katex.min.css'
 
@@ -21,7 +21,9 @@ interface MarkdownContentProps {
     fileId: string
     filename: string
   }>
-}
+});
+
+MarkdownContent.displayName = "MarkdownContent";
 
 const withoutNode = <P extends { node?: unknown }>(
   render: (props: Omit<P, "node">) => React.ReactNode
@@ -32,7 +34,7 @@ const withoutNode = <P extends { node?: unknown }>(
   };
 };
 
-export function MarkdownContent({ content, messageId, generatedFiles }: MarkdownContentProps) {
+export const MarkdownContent = memo(function MarkdownContent({ content, messageId, generatedFiles }: MarkdownContentProps) {
   const [copiedCode, setCopiedCode] = useState<string | null>(null)
   const [copiedTableId, setCopiedTableId] = useState<string | null>(null)
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null)
@@ -40,10 +42,11 @@ export function MarkdownContent({ content, messageId, generatedFiles }: Markdown
   const [lightboxCopied, setLightboxCopied] = useState(false)
   const [lightboxOriginalSrc, setLightboxOriginalSrc] = useState<string | null>(null)
   const tableRefs = useRef<Map<string, HTMLTableElement>>(new Map())
+  const deferredContent = useDeferredValue(content)
   const safeContent = useMemo(() => {
     // Escape $ when immediately followed by a digit to avoid accidental math-mode rendering (pricing, counts).
-    return content.replace(/(^|[^\\])\$(\d)/g, '$1\\\\$$2')
-  }, [content])
+    return deferredContent.replace(/(^|[^\\])\$(\d)/g, '$1\\\\$$2')
+  }, [deferredContent])
 
   const handleCopyCode = async (code: string) => {
     await navigator.clipboard.writeText(code)

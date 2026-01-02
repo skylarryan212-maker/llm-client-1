@@ -2,7 +2,7 @@
 import { redirect } from "next/navigation";
 import ChatPageShell from "@/components/chat/chat-page-shell";
 import { getConversationById } from "@/lib/data/conversations";
-import { getMessagesForConversation } from "@/lib/data/messages";
+import { getMessagesForConversationPage } from "@/lib/data/messages";
 import type { Database } from "@/lib/supabase/types";
 import { getCurrentUserIdentity } from "@/lib/supabase/user";
 
@@ -30,9 +30,10 @@ export default async function ConversationPage({
 
   const conversation = await getConversationById(conversationId);
 
-  const messagesData = conversation
-    ? await getMessagesForConversation(conversationId)
-    : [];
+  const messagesPage = conversation
+    ? await getMessagesForConversationPage(conversationId)
+    : { messages: [], hasMore: false, oldestTimestamp: null };
+  const messagesData = messagesPage.messages;
 
   const conversations = conversation
     ? [
@@ -65,6 +66,8 @@ export default async function ConversationPage({
         conversations={conversations}
         activeConversationId={conversationId}
         messages={messages}
+        hasMoreMessages={messagesPage.hasMore}
+        oldestMessageTimestamp={messagesPage.oldestTimestamp}
         searchParams={resolvedSearchParams}
         projectId={conversation?.project_id ?? undefined}
       />
