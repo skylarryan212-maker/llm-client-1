@@ -3,7 +3,7 @@ import { convert } from "html-to-text";
 import { createOpenAIClient } from "@/lib/openai/client";
 import { extractDomainFromUrl } from "@/lib/metadata";
 import { supabaseServer } from "@/lib/supabase/server";
-import { fetchGoogleOrganicSerp } from "@/lib/search/dataforseo";
+import { fetchGoogleOrganicSerp } from "@/lib/search/brightdata-serp";
 import { runEvidenceGate, writeSearchQueries } from "@/lib/search/search-llm";
 import { calculateEmbeddingCost } from "@/lib/pricing";
 import { estimateTokens } from "@/lib/tokens/estimateTokens";
@@ -28,6 +28,7 @@ type PipelineOptions = {
   recentMessages?: Array<{ role: "user" | "assistant" | "system"; content: string }>;
   currentDate?: string;
   onProgress?: (event: { type: "page_fetch_progress"; searched: number }) => void;
+  retryOnGateFailure?: boolean;
 };
 
 export type WebPipelineChunk = {
@@ -51,15 +52,21 @@ export type WebPipelineResult = {
   sources: Array<{ title: string; url: string }>;
   gate: { enoughEvidence: boolean };
   expanded: boolean;
-  cost?: { serpRequests: number; estimatedUsd: number };
+  cost?: {
+    serpRequests: number;
+    serpEstimatedUsd: number;
+    brightdataUnlockerRequests: number;
+    brightdataUnlockerEstimatedUsd: number;
+  };
 };
 
 const EMBEDDING_MODEL = "text-embedding-3-small";
-const SERP_CACHE_PREFIX = "dataforseo:google:organic:";
+const SERP_CACHE_PREFIX = "brightdata:serp:google:";
 const PAGE_CACHE_PREFIX = "page:";
 const SERP_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const PAGE_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
-const DATAFORSEO_SERP_COST_USD = 0.002;
+const BRIGHTDATA_SERP_COST_USD = 0.0015;
+const BRIGHTDATA_UNLOCKER_COST_USD = 0.0015;
 const MAX_EMBED_CHUNKS = 80;
 const DEFAULTS = {
   queryCount: 2,
@@ -125,7 +132,7 @@ async function saveSerpCache(cacheKey: string, query: string, payload: unknown) 
     await supabase.from("web_search_serp_cache").upsert({
       cache_key: cacheKey,
       query,
-      provider: "dataforseo",
+      provider: "brightdata",
       payload,
     });
   } catch (error) {
@@ -258,7 +265,12 @@ async function embedTexts(inputs: string[]): Promise<number[][]> {
   return embeddings;
 }
 
-async function fetchPageHtml(url: string, timeoutMs: number, maxBytes: number) {
+async function fetchPageHtml(
+  url: string,
+  timeoutMs: number,
+  maxBytes: number,
+  options?: { onUnlockerUsed?: () => void }
+) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
@@ -331,6 +343,9 @@ async function fetchPageHtml(url: string, timeoutMs: number, maxBytes: number) {
       );
       if (unlockerHtml.length) {
         console.log("[web-pipeline] brightdata unlocker used", { url });
+        if (options?.onUnlockerUsed) {
+          options.onUnlockerUsed();
+        }
         return { html: unlockerHtml, truncated: unlockerHtml.length > maxBytes, status: 200 };
       }
     }
@@ -702,56 +717,9 @@ export async function runWebSearchPipeline(prompt: string, options: PipelineOpti
   logTiming("query_writer", queryStart, { queries: queryResult.queries.length });
   console.log("[web-pipeline] query writer output", queryResult.queries);
 
-  const serpStart = performance.now();
-  const serpResponses = await Promise.all(
-    queryResult.queries.map(async (query) => {
-      const cacheKey = `${SERP_CACHE_PREFIX}${normalizeUrlKey(query)}`;
-      const cached = await loadSerpCache(cacheKey);
-      if (cached) {
-        console.log("[web-pipeline] SERP cache hit", query);
-        return cached as any;
-      }
-      const response = await fetchGoogleOrganicSerp({
-        keyword: query,
-        depth: config.serpDepth,
-        locationName: config.locationName,
-        languageCode: config.languageCode,
-        device: config.device,
-      });
-      await saveSerpCache(cacheKey, query, response);
-      return response;
-    })
-  );
-  logTiming("serp_fetch", serpStart, { queries: queryResult.queries.length });
-
-  const mergeStart = performance.now();
-  const mergedMap = new Map<string, WebPipelineResult["results"][number]>();
-  for (let i = 0; i < serpResponses.length; i++) {
-    const response = serpResponses[i];
-    console.log("[web-pipeline] serp response", {
-      query: queryResult.queries[i],
-      results: response.results.length,
-      taskId: response.taskId,
-    });
-    for (const item of response.results) {
-      const key = normalizeUrlKey(item.url);
-      const existing = mergedMap.get(key);
-      if (!existing || (item.position ?? Infinity) < (existing.position ?? Infinity)) {
-        mergedMap.set(key, item);
-      }
-    }
-  }
-
-  const mergedResults = Array.from(mergedMap.values()).sort((a, b) => {
-    const aPos = a.position ?? Infinity;
-    const bPos = b.position ?? Infinity;
-    return aPos - bPos;
-  });
-  logTiming("merge_results", mergeStart, { results: mergedResults.length });
-  console.log("[web-pipeline] merged results", mergedResults.length);
-
-  const remainingResults = [...mergedResults];
-  const candidateResults = remainingResults.splice(0, config.fetchCandidateLimit);
+  let serpRequestsTotal = 0;
+  const retryOnGateFailure = options.retryOnGateFailure !== false;
+  let brightdataUnlockerRequests = 0;
   let searchedCount = 0;
   const reportProgress = () => {
     if (config.onProgress) {
@@ -759,7 +727,7 @@ export async function runWebSearchPipeline(prompt: string, options: PipelineOpti
     }
   };
 
-  const fetchPages = async (results: typeof candidateResults) => {
+  const fetchPages = async (results: WebPipelineResult["results"]) => {
     const pages = await Promise.all(
       results.map(async (result) => {
         const cacheKey = `${PAGE_CACHE_PREFIX}${normalizeUrlKey(result.url)}`;
@@ -782,7 +750,12 @@ export async function runWebSearchPipeline(prompt: string, options: PipelineOpti
         let { html, truncated, status } = await fetchPageHtml(
           result.url,
           config.pageTimeoutMs,
-          config.pageMaxBytes
+          config.pageMaxBytes,
+          {
+            onUnlockerUsed: () => {
+              brightdataUnlockerRequests += 1;
+            },
+          }
         );
         let text = extractTextFromHtml(html);
         const tableBlocks = extractTableBlocks(html);
@@ -837,7 +810,10 @@ export async function runWebSearchPipeline(prompt: string, options: PipelineOpti
         }
         const structuredText = extractStructuredDataText(html);
         if (structuredText) {
-          text = `${text}\n\nStructured data:\n${structuredText}`.trim();
+          text = `${text}
+
+Structured data:
+${structuredText}`.trim();
         }
         await savePageCache(cacheKey, result.url, {
           html,
@@ -869,7 +845,7 @@ export async function runWebSearchPipeline(prompt: string, options: PipelineOpti
   };
 
   const buildChunks = (
-    pages: Array<typeof candidateResults[number] & { text: string; tableBlocks?: string[]; listBlocks?: string[] }>
+    pages: Array<WebPipelineResult["results"][number] & { text: string; tableBlocks?: string[]; listBlocks?: string[] }>
   ) => {
     const chunks: RankedChunk[] = [];
     for (const page of pages) {
@@ -895,7 +871,8 @@ export async function runWebSearchPipeline(prompt: string, options: PipelineOpti
         const slices = chunkText(block, config.chunkSize, config.chunkOverlap);
         for (const slice of slices) {
           chunks.push({
-            text: `Table:\n${slice}`,
+            text: `Table:
+${slice}`,
             url: page.url,
             title: page.title,
             domain,
@@ -910,7 +887,8 @@ export async function runWebSearchPipeline(prompt: string, options: PipelineOpti
         const slices = chunkText(block, config.chunkSize, config.chunkOverlap);
         for (const slice of slices) {
           chunks.push({
-            text: `List:\n${slice}`,
+            text: `List:
+${slice}`,
             url: page.url,
             title: page.title,
             domain,
@@ -943,10 +921,10 @@ export async function runWebSearchPipeline(prompt: string, options: PipelineOpti
     return hits / tokens.length;
   };
 
-  const rankChunks = async (chunks: RankedChunk[]) => {
+  const rankChunks = async (chunks: RankedChunk[], queries: string[]) => {
     if (!chunks.length) return [];
     const overlapScored = chunks.map((chunk) => {
-      const overlap = keywordScore(chunk.text, queryResult.queries);
+      const overlap = keywordScore(chunk.text, queries);
       const boost = chunk.kind === "table" || chunk.kind === "list" ? 0.2 : 0;
       return { chunk, score: overlap + boost };
     });
@@ -955,7 +933,7 @@ export async function runWebSearchPipeline(prompt: string, options: PipelineOpti
         ? overlapScored.sort((a, b) => b.score - a.score).slice(0, MAX_EMBED_CHUNKS)
         : overlapScored;
     const prefilteredChunks = prefiltered.map((item) => item.chunk);
-    const queryEmbeddings = await embedTexts(queryResult.queries);
+    const queryEmbeddings = await embedTexts(queries);
     const chunkEmbeddings = await embedTexts(prefilteredChunks.map((c) => c.text));
     if (!queryEmbeddings.length || !chunkEmbeddings.length) {
       console.warn("[web-pipeline] embeddings unavailable; skipping semantic ranking.");
@@ -966,59 +944,80 @@ export async function runWebSearchPipeline(prompt: string, options: PipelineOpti
     return prefilteredChunks.map((chunk, index) => {
       const embedding = chunkEmbeddings[index] ?? [];
       const semantic = Math.max(...queryEmbeddings.map((q) => cosineSimilarity(q, embedding)));
-      const overlap = keywordScore(chunk.text, queryResult.queries);
+      const overlap = keywordScore(chunk.text, queries);
       const boost = chunk.kind === "table" || chunk.kind === "list" ? 0.2 : 0;
       const score = semantic + overlap * 0.15 + boost;
       return { ...chunk, score };
     });
   };
 
-  const fetchStart = performance.now();
-  const fetchesBefore = pageFetches;
-  const cacheHitsBefore = pageCacheHits;
-  const candidatePages = await fetchPages(candidateResults);
-  logTiming("page_fetch_initial", fetchStart, {
-    pages: candidatePages.length,
-    fetches: pageFetches - fetchesBefore,
-    cacheHits: pageCacheHits - cacheHitsBefore,
-  });
-  const allFetchedPages = [...candidatePages];
-  const filteredPages: Array<{ url: string; status: number; reason: string }> = [];
-  const filterStart = performance.now();
-  const goodPages = candidatePages.filter((page) => {
-    if (page.status !== 200) {
-      filteredPages.push({ url: page.url, status: page.status, reason: "status" });
-      return false;
-    }
-    const { textLength, ratio } = scorePageQuality(page);
-    if (textLength < config.minPageTextLength) {
-      filteredPages.push({ url: page.url, status: page.status, reason: "text_length" });
-      return false;
-    }
-    if (ratio < config.minContentRatio) {
-      filteredPages.push({ url: page.url, status: page.status, reason: "content_ratio" });
-      return false;
-    }
-    return true;
-  });
-  logTiming("quality_filter_initial", filterStart, { goodPages: goodPages.length });
-
-  let extraFetchMs = 0;
-  while (goodPages.length < config.pageLimit && remainingResults.length > 0) {
-    const batch = remainingResults.splice(0, Math.min(5, remainingResults.length));
-    console.log("[web-pipeline] fetching extra pages", batch.map((item) => item.url));
-    const extraStart = performance.now();
-    const extraFetchesBefore = pageFetches;
-    const extraCacheBefore = pageCacheHits;
-    const extraPages = await fetchPages(batch);
-    extraFetchMs += performance.now() - extraStart;
-    logTiming("page_fetch_extra_batch", extraStart, {
-      pages: extraPages.length,
-      fetches: pageFetches - extraFetchesBefore,
-      cacheHits: pageCacheHits - extraCacheBefore,
+  const runPass = async (queries: string[], stageLabel: "initial" | "retry") => {
+    const serpStart = performance.now();
+    const serpResponses = await Promise.all(
+      queries.map(async (query) => {
+        const cacheKey = `${SERP_CACHE_PREFIX}${normalizeUrlKey(query)}`;
+        const cached = await loadSerpCache(cacheKey);
+        if (cached) {
+          console.log("[web-pipeline] SERP cache hit", query);
+          return cached as any;
+        }
+        const response = await fetchGoogleOrganicSerp({
+          keyword: query,
+          depth: config.serpDepth,
+        });
+        await saveSerpCache(cacheKey, query, response);
+        return response;
+      })
+    );
+    serpRequestsTotal += queries.length;
+    logTiming(stageLabel === "retry" ? "serp_fetch_retry" : "serp_fetch", serpStart, {
+      queries: queries.length,
     });
-    allFetchedPages.push(...extraPages);
-    const extraGood = extraPages.filter((page) => {
+
+    const mergeStart = performance.now();
+    const mergedMap = new Map<string, WebPipelineResult["results"][number]>();
+    for (let i = 0; i < serpResponses.length; i++) {
+      const response = serpResponses[i];
+      console.log("[web-pipeline] serp response", {
+        query: queries[i],
+        results: response.results.length,
+        taskId: response.taskId,
+      });
+      for (const item of response.results) {
+        const key = normalizeUrlKey(item.url);
+        const existing = mergedMap.get(key);
+        if (!existing || (item.position ?? Infinity) < (existing.position ?? Infinity)) {
+          mergedMap.set(key, item);
+        }
+      }
+    }
+
+    const mergedResults = Array.from(mergedMap.values()).sort((a, b) => {
+      const aPos = a.position ?? Infinity;
+      const bPos = b.position ?? Infinity;
+      return aPos - bPos;
+    });
+    logTiming(stageLabel === "retry" ? "merge_results_retry" : "merge_results", mergeStart, {
+      results: mergedResults.length,
+    });
+    console.log("[web-pipeline] merged results", mergedResults.length);
+
+    const remainingResults = [...mergedResults];
+    const candidateResults = remainingResults.splice(0, config.fetchCandidateLimit);
+
+    const fetchStart = performance.now();
+    const fetchesBefore = pageFetches;
+    const cacheHitsBefore = pageCacheHits;
+    const candidatePages = await fetchPages(candidateResults);
+    logTiming(stageLabel === "retry" ? "page_fetch_retry" : "page_fetch_initial", fetchStart, {
+      pages: candidatePages.length,
+      fetches: pageFetches - fetchesBefore,
+      cacheHits: pageCacheHits - cacheHitsBefore,
+    });
+    const allFetchedPages = [...candidatePages];
+    const filteredPages: Array<{ url: string; status: number; reason: string }> = [];
+    const filterStart = performance.now();
+    const goodPages = candidatePages.filter((page) => {
       if (page.status !== 200) {
         filteredPages.push({ url: page.url, status: page.status, reason: "status" });
         return false;
@@ -1034,189 +1033,263 @@ export async function runWebSearchPipeline(prompt: string, options: PipelineOpti
       }
       return true;
     });
-    goodPages.push(...extraGood);
-  }
-  if (extraFetchMs > 0) {
-    console.log("[web-pipeline] timing", {
-      stage: "page_fetch_extra_total",
-      ms: Math.round(extraFetchMs),
-    });
-  }
-
-  if (goodPages.length < config.pageLimit) {
-    console.log("[web-pipeline] quality filter shortfall", {
+    logTiming(stageLabel === "retry" ? "quality_filter_retry" : "quality_filter_initial", filterStart, {
       goodPages: goodPages.length,
-      needed: config.pageLimit,
     });
-  }
-  if (filteredPages.length) {
-    console.log("[web-pipeline] filtered pages", filteredPages);
-  }
 
-  const fallbackPages = allFetchedPages
-    .filter((page) => page.status === 200)
-    .sort((a, b) => b.text.length - a.text.length);
+    let extraFetchMs = 0;
+    while (goodPages.length < config.pageLimit && remainingResults.length > 0) {
+      const batch = remainingResults.splice(0, Math.min(5, remainingResults.length));
+      console.log("[web-pipeline] fetching extra pages", batch.map((item) => item.url));
+      const extraStart = performance.now();
+      const extraFetchesBefore = pageFetches;
+      const extraCacheBefore = pageCacheHits;
+      const extraPages = await fetchPages(batch);
+      extraFetchMs += performance.now() - extraStart;
+      logTiming("page_fetch_extra_batch", extraStart, {
+        pages: extraPages.length,
+        fetches: pageFetches - extraFetchesBefore,
+        cacheHits: pageCacheHits - extraCacheBefore,
+      });
+      allFetchedPages.push(...extraPages);
+      const extraGood = extraPages.filter((page) => {
+        if (page.status !== 200) {
+          filteredPages.push({ url: page.url, status: page.status, reason: "status" });
+          return false;
+        }
+        const { textLength, ratio } = scorePageQuality(page);
+        if (textLength < config.minPageTextLength) {
+          filteredPages.push({ url: page.url, status: page.status, reason: "text_length" });
+          return false;
+        }
+        if (ratio < config.minContentRatio) {
+          filteredPages.push({ url: page.url, status: page.status, reason: "content_ratio" });
+          return false;
+        }
+        return true;
+      });
+      goodPages.push(...extraGood);
+    }
+    if (extraFetchMs > 0) {
+      console.log("[web-pipeline] timing", {
+        stage: "page_fetch_extra_total",
+        ms: Math.round(extraFetchMs),
+      });
+    }
 
-  const selectedPages: Array<typeof candidatePages[number]> = [];
-  for (const page of goodPages) {
-    if (selectedPages.length >= config.pageLimit) break;
-    selectedPages.push(page);
-  }
-  for (const page of fallbackPages) {
-    if (selectedPages.length >= config.pageLimit) break;
-    if (!selectedPages.includes(page)) {
+    if (goodPages.length < config.pageLimit) {
+      console.log("[web-pipeline] quality filter shortfall", {
+        goodPages: goodPages.length,
+        needed: config.pageLimit,
+      });
+    }
+    if (filteredPages.length) {
+      console.log("[web-pipeline] filtered pages", filteredPages);
+    }
+
+    const fallbackPages = allFetchedPages
+      .filter((page) => page.status === 200)
+      .sort((a, b) => b.text.length - a.text.length);
+
+    const selectedPages: Array<typeof candidatePages[number]> = [];
+    for (const page of goodPages) {
+      if (selectedPages.length >= config.pageLimit) break;
       selectedPages.push(page);
     }
-  }
-
-  console.log(
-    "[web-pipeline] selected pages",
-    selectedPages.map((page) => page.url)
-  );
-
-  const chunkStart = performance.now();
-  const initialPages = selectedPages;
-  const initialChunks = buildChunks(initialPages);
-  logTiming("chunk_build_initial", chunkStart, { chunks: initialChunks.length });
-  console.log("[web-pipeline] chunks built", initialChunks.length);
-
-  const rankStart = performance.now();
-  let rankedChunks = await rankChunks(initialChunks);
-  logTiming("rank_chunks_initial", rankStart, { chunks: rankedChunks.length });
-  rankedChunks = rankedChunks.sort((a, b) => b.score - a.score);
-  let selectedChunks = dedupeAndCapChunks(
-    rankedChunks,
-    config.topK,
-    config.maxChunksPerDomain,
-    config.maxChunksPerUrl
-  );
-  const tableListMin = 2;
-  const tableListCandidates = rankedChunks.filter((chunk) => chunk.kind !== "text");
-  if (tableListCandidates.length && selectedChunks.length) {
-    const currentTableListCount = selectedChunks.filter((chunk) => chunk.kind !== "text").length;
-    if (currentTableListCount < tableListMin) {
-      const needed = tableListMin - currentTableListCount;
-      const additions = tableListCandidates
-        .filter((chunk) => !selectedChunks.some((c) => c.urlKey === chunk.urlKey && c.text === chunk.text))
-        .sort((a, b) => b.score - a.score)
-        .slice(0, needed);
-      if (additions.length) {
-        const removable = [...selectedChunks]
-          .filter((chunk) => chunk.kind === "text")
-          .sort((a, b) => a.score - b.score);
-        for (const add of additions) {
-          if (removable.length) {
-            const drop = removable.shift();
-            if (drop) {
-              selectedChunks = selectedChunks.filter((c) => c !== drop);
-            }
-          }
-          selectedChunks.push(add);
-        }
+    for (const page of fallbackPages) {
+      if (selectedPages.length >= config.pageLimit) break;
+      if (!selectedPages.includes(page)) {
+        selectedPages.push(page);
       }
     }
-  }
-  console.log(
-    "[web-pipeline] top chunk scores",
-    selectedChunks.map((chunk) => ({
-      score: Number.isFinite(chunk.score) ? Number(chunk.score.toFixed(4)) : 0,
-      url: chunk.url,
-      title: chunk.title ?? null,
-      kind: chunk.kind,
-      preview: chunk.text.slice(0, 160),
-    }))
-  );
-  console.log("[web-pipeline] selected chunks", selectedChunks.length);
 
-  const gateStart = performance.now();
-  let gate = await runEvidenceGate({
-    prompt,
-    chunks: selectedChunks.map((chunk) => ({
-      text: chunk.text,
-      title: chunk.title,
-      url: chunk.url,
-    })),
-  });
-  logTiming("evidence_gate_initial", gateStart, { enough: gate.enoughEvidence });
-  console.log("[web-pipeline] gate decision", gate.enoughEvidence);
+    console.log(
+      "[web-pipeline] selected pages",
+      selectedPages.map((page) => page.url)
+    );
 
-  let expanded = false;
-  if (!gate.enoughEvidence && remainingResults.length > 0) {
-    const extra = remainingResults.splice(0, 1);
-    console.log("[web-pipeline] expansion fetch", extra[0]?.url);
-    const expansionFetchStart = performance.now();
-    const expansionFetchesBefore = pageFetches;
-    const expansionCacheBefore = pageCacheHits;
-    const extraPages = await fetchPages(extra);
-    logTiming("expansion_fetch", expansionFetchStart, {
-      pages: extraPages.length,
-      fetches: pageFetches - expansionFetchesBefore,
-      cacheHits: pageCacheHits - expansionCacheBefore,
+    const chunkStart = performance.now();
+    const initialChunks = buildChunks(selectedPages);
+    logTiming(stageLabel === "retry" ? "chunk_build_retry" : "chunk_build_initial", chunkStart, {
+      chunks: initialChunks.length,
     });
-    const extraEligible = extraPages.filter((page) => {
-      if (page.status !== 200) return false;
-      const { textLength, ratio } = scorePageQuality(page);
-      return textLength >= config.minPageTextLength && ratio >= config.minContentRatio;
+    console.log("[web-pipeline] chunks built", initialChunks.length);
+
+    const rankStart = performance.now();
+    let rankedChunks = await rankChunks(initialChunks, queries);
+    logTiming(stageLabel === "retry" ? "rank_chunks_retry" : "rank_chunks_initial", rankStart, {
+      chunks: rankedChunks.length,
     });
-    if (extraEligible.length === 0) {
-      console.log("[web-pipeline] expansion page filtered out for low quality");
-    }
-    const expansionChunkStart = performance.now();
-    const extraChunks = buildChunks(extraEligible.length ? extraEligible : extraPages);
-    const combined = [...initialChunks, ...extraChunks];
-    logTiming("expansion_chunk_build", expansionChunkStart, { chunks: combined.length });
-    const expansionRankStart = performance.now();
-    rankedChunks = await rankChunks(combined);
-    logTiming("expansion_rank", expansionRankStart, { chunks: rankedChunks.length });
     rankedChunks = rankedChunks.sort((a, b) => b.score - a.score);
-    selectedChunks = dedupeAndCapChunks(
+    let selectedChunks = dedupeAndCapChunks(
       rankedChunks,
       config.topK,
       config.maxChunksPerDomain,
       config.maxChunksPerUrl
     );
-    const expansionGateStart = performance.now();
-    gate = await runEvidenceGate({
+    const tableListMin = 2;
+    const tableListCandidates = rankedChunks.filter((chunk) => chunk.kind !== "text");
+    if (tableListCandidates.length && selectedChunks.length) {
+      const currentTableListCount = selectedChunks.filter((chunk) => chunk.kind !== "text").length;
+      if (currentTableListCount < tableListMin) {
+        const needed = tableListMin - currentTableListCount;
+        const additions = tableListCandidates
+          .filter((chunk) => !selectedChunks.some((c) => c.urlKey === chunk.urlKey && c.text === chunk.text))
+          .sort((a, b) => b.score - a.score)
+          .slice(0, needed);
+        if (additions.length) {
+          const removable = [...selectedChunks]
+            .filter((chunk) => chunk.kind === "text")
+            .sort((a, b) => a.score - b.score);
+          for (const add of additions) {
+            if (removable.length) {
+              const drop = removable.shift();
+              if (drop) {
+                selectedChunks = selectedChunks.filter((c) => c !== drop);
+              }
+            }
+            selectedChunks.push(add);
+          }
+        }
+      }
+    }
+    console.log(
+      "[web-pipeline] top chunk scores",
+      selectedChunks.map((chunk) => ({
+        score: Number.isFinite(chunk.score) ? Number(chunk.score.toFixed(4)) : 0,
+        url: chunk.url,
+        title: chunk.title ?? null,
+        kind: chunk.kind,
+        preview: chunk.text.slice(0, 160),
+      }))
+    );
+    console.log("[web-pipeline] selected chunks", selectedChunks.length);
+
+    const gateStart = performance.now();
+    let gate = await runEvidenceGate({
       prompt,
+      previousQueries: queries,
       chunks: selectedChunks.map((chunk) => ({
         text: chunk.text,
         title: chunk.title,
         url: chunk.url,
       })),
     });
-    logTiming("expansion_gate", expansionGateStart, { enough: gate.enoughEvidence });
-    expanded = true;
-    console.log("[web-pipeline] gate decision after expansion", gate.enoughEvidence);
+    logTiming(stageLabel === "retry" ? "evidence_gate_retry" : "evidence_gate_initial", gateStart, {
+      enough: gate.enoughEvidence,
+    });
+    console.log("[web-pipeline] gate decision", gate.enoughEvidence);
+
+    let expanded = false;
+    if (!gate.enoughEvidence && remainingResults.length > 0) {
+      const extra = remainingResults.splice(0, 1);
+      console.log("[web-pipeline] expansion fetch", extra[0]?.url);
+      const expansionFetchStart = performance.now();
+      const expansionFetchesBefore = pageFetches;
+      const expansionCacheBefore = pageCacheHits;
+      const extraPages = await fetchPages(extra);
+      logTiming("expansion_fetch", expansionFetchStart, {
+        pages: extraPages.length,
+        fetches: pageFetches - expansionFetchesBefore,
+        cacheHits: pageCacheHits - expansionCacheBefore,
+      });
+      const extraEligible = extraPages.filter((page) => {
+        if (page.status !== 200) return false;
+        const { textLength, ratio } = scorePageQuality(page);
+        return textLength >= config.minPageTextLength && ratio >= config.minContentRatio;
+      });
+      if (extraEligible.length === 0) {
+        console.log("[web-pipeline] expansion page filtered out for low quality");
+      }
+      const expansionChunkStart = performance.now();
+      const extraChunks = buildChunks(extraEligible.length ? extraEligible : extraPages);
+      const combined = [...initialChunks, ...extraChunks];
+      logTiming("expansion_chunk_build", expansionChunkStart, { chunks: combined.length });
+      const expansionRankStart = performance.now();
+      rankedChunks = await rankChunks(combined, queries);
+      logTiming("expansion_rank", expansionRankStart, { chunks: rankedChunks.length });
+      rankedChunks = rankedChunks.sort((a, b) => b.score - a.score);
+      selectedChunks = dedupeAndCapChunks(
+        rankedChunks,
+        config.topK,
+        config.maxChunksPerDomain,
+        config.maxChunksPerUrl
+      );
+      const expansionGateStart = performance.now();
+      gate = await runEvidenceGate({
+        prompt,
+        previousQueries: queries,
+        chunks: selectedChunks.map((chunk) => ({
+          text: chunk.text,
+          title: chunk.title,
+          url: chunk.url,
+        })),
+      });
+      logTiming("expansion_gate", expansionGateStart, { enough: gate.enoughEvidence });
+      expanded = true;
+      console.log("[web-pipeline] gate decision after expansion", gate.enoughEvidence);
+    }
+
+    const sources = Array.from(
+      new Map(
+        selectedChunks.map((chunk) => [chunk.url, { title: chunk.title ?? chunk.url, url: chunk.url }])
+      ).values()
+    );
+
+    return {
+      queries,
+      results: mergedResults,
+      chunks: selectedChunks,
+      sources,
+      gate,
+      expanded,
+      selectedPagesCount: selectedPages.length,
+    };
+  };
+
+  let usedQueries = [...queryResult.queries];
+  let pass = await runPass(queryResult.queries, "initial");
+  if (
+    !pass.gate.enoughEvidence &&
+    retryOnGateFailure &&
+    Array.isArray(pass.gate.suggestedQueries) &&
+    pass.gate.suggestedQueries.length
+  ) {
+    const retryQueries = pass.gate.suggestedQueries.slice(0, 2);
+    const retryPass = await runPass(retryQueries, "retry");
+    usedQueries = [...usedQueries, ...retryQueries];
+    if (retryPass.gate.enoughEvidence || retryPass.chunks.length >= pass.chunks.length) {
+      pass = { ...retryPass, expanded: pass.expanded || retryPass.expanded };
+    }
   }
 
-  const sources = Array.from(
-    new Map(
-      selectedChunks.map((chunk) => [chunk.url, { title: chunk.title ?? chunk.url, url: chunk.url }])
-    ).values()
-  );
-  const serpRequests = queryResult.queries.length;
-  const serpEstimatedUsd = serpRequests * DATAFORSEO_SERP_COST_USD;
+  const serpEstimatedUsd = serpRequestsTotal * BRIGHTDATA_SERP_COST_USD;
+  const brightdataEstimatedUsd = brightdataUnlockerRequests * BRIGHTDATA_UNLOCKER_COST_USD;
 
   console.log("[web-pipeline] cost summary", {
-    serpRequests,
+    serpRequests: serpRequestsTotal,
     serpEstimatedUsd: Number.isFinite(serpEstimatedUsd) ? serpEstimatedUsd : 0,
+    brightdataUnlockerRequests,
+    brightdataEstimatedUsd: Number.isFinite(brightdataEstimatedUsd) ? brightdataEstimatedUsd : 0,
     pageFetches,
     pageCacheHits,
-    pagesSelected: selectedPages.length,
-    chunksSelected: selectedChunks.length,
+    pagesSelected: pass.selectedPagesCount,
+    chunksSelected: pass.chunks.length,
   });
   logTiming("pipeline_total", pipelineStart);
 
   return {
-    queries: queryResult.queries,
-    results: mergedResults,
-    chunks: selectedChunks,
-    sources,
-    gate,
-    expanded,
+    queries: usedQueries,
+    results: pass.results,
+    chunks: pass.chunks,
+    sources: pass.sources,
+    gate: pass.gate,
+    expanded: pass.expanded,
     cost: {
-      serpRequests,
-      estimatedUsd: serpEstimatedUsd,
+      serpRequests: serpRequestsTotal,
+      serpEstimatedUsd: serpEstimatedUsd,
+      brightdataUnlockerRequests,
+      brightdataUnlockerEstimatedUsd: brightdataEstimatedUsd,
     },
   } satisfies WebPipelineResult;
 }

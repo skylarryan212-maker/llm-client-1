@@ -2139,7 +2139,8 @@ export async function POST(request: NextRequest) {
     const headerGeo = getApproximateLocationFromHeaders(request);
     const effectiveLocation = location ?? headerGeo.location ?? null;
     const effectiveTimezone = timezone ?? location?.timezone ?? headerGeo.timezone ?? null;
-    const useCustomWebSearch = process.env.USE_DATAFORSEO_WEB_SEARCH === "1";
+    const useCustomWebSearch =
+      process.env.USE_BRIGHTDATA_WEB_SEARCH === "1" || process.env.USE_DATAFORSEO_WEB_SEARCH === "1";
     const trimmedMessage = message?.trim() ?? "";
     let customWebSearchResult: WebPipelineResult | null = null;
     let customWebSearchInput:
@@ -4259,23 +4260,44 @@ export async function POST(request: NextRequest) {
 
         // Tool call costs
         if (userId && customWebSearchResult?.cost?.serpRequests) {
-          const serpCost = customWebSearchResult.cost.estimatedUsd ?? 0;
+          const serpCost = customWebSearchResult.cost.serpEstimatedUsd ?? 0;
           if (serpCost > 0) {
             try {
               await logUsageRecord({
                 userId,
                 conversationId,
-                model: "dataforseo:serp",
+                model: "brightdata:serp",
                 inputTokens: 0,
                 cachedTokens: 0,
                 outputTokens: 0,
                 estimatedCost: serpCost,
               });
               console.log(
-                `[usage] Logged dataforseo serp requests=${customWebSearchResult.cost.serpRequests} cost=$${serpCost.toFixed(6)}`
+                `[usage] Logged brightdata serp requests=${customWebSearchResult.cost.serpRequests} cost=$${serpCost.toFixed(6)}`
               );
             } catch (err) {
-              console.error("[usage] Failed to log dataforseo serp calls:", err);
+              console.error("[usage] Failed to log brightdata serp calls:", err);
+            }
+          }
+        }
+        if (userId && customWebSearchResult?.cost?.brightdataUnlockerRequests) {
+          const unlockerCost = customWebSearchResult.cost.brightdataUnlockerEstimatedUsd ?? 0;
+          if (unlockerCost > 0) {
+            try {
+              await logUsageRecord({
+                userId,
+                conversationId,
+                model: "brightdata:unlocker",
+                inputTokens: 0,
+                cachedTokens: 0,
+                outputTokens: 0,
+                estimatedCost: unlockerCost,
+              });
+              console.log(
+                `[usage] Logged brightdata unlocker requests=${customWebSearchResult.cost.brightdataUnlockerRequests} cost=$${unlockerCost.toFixed(6)}`
+              );
+            } catch (err) {
+              console.error("[usage] Failed to log brightdata unlocker calls:", err);
             }
           }
         }

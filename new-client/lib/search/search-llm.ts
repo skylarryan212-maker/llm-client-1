@@ -109,18 +109,21 @@ Rules:
 
 export type GateDecision = {
   enoughEvidence: boolean;
+  suggestedQueries?: string[];
 };
 
 export async function runEvidenceGate(params: {
   prompt: string;
   chunks: Array<{ text: string; title?: string | null; url?: string | null }>;
+  previousQueries?: string[];
 }): Promise<GateDecision> {
   const systemPrompt = `You are an evidence gate for a search pipeline.
 Return JSON only with:
-{ "enoughEvidence": boolean }
+{ "enoughEvidence": boolean, "suggestedQueries": string[] }
 Rules:
 - If the provided chunks contain enough evidence to answer the prompt, return true.
 - If the chunks are too thin, off-topic, or missing key details, return false.
+- If you return false, propose up to 2 concise alternative queries that try new angles and avoid the previous queries/sources.
 - No extra fields or commentary.`;
 
   const chunkSummary = params.chunks
@@ -138,7 +141,9 @@ Rules:
       { role: "system", content: systemPrompt },
       {
         role: "user",
-        content: `Prompt:\n${params.prompt}\n\nChunks:\n${chunkSummary}`,
+        content: `Prompt:\n${params.prompt}\n\nPrevious queries:\n${
+          params.previousQueries?.length ? params.previousQueries.join("\n") : "None"
+        }\n\nChunks:\n${chunkSummary}`,
       },
     ],
     schemaName: "evidence_gate",
@@ -147,8 +152,9 @@ Rules:
       additionalProperties: false,
       properties: {
         enoughEvidence: { type: "boolean" },
+        suggestedQueries: { type: "array", items: { type: "string" } },
       },
-      required: ["enoughEvidence"],
+      required: ["enoughEvidence", "suggestedQueries"],
     },
     temperature: 0.2,
     model: "openai/gpt-oss-20b",
@@ -164,11 +170,15 @@ Rules:
   try {
     const parsed = JSON.parse(text);
     if (typeof parsed?.enoughEvidence === "boolean") {
-      return { enoughEvidence: parsed.enoughEvidence };
+      const raw = Array.isArray(parsed?.suggestedQueries) ? parsed.suggestedQueries : [];
+      const cleaned = raw
+        .map((q: unknown) => (typeof q === "string" ? q.trim() : ""))
+        .filter(Boolean);
+      return { enoughEvidence: parsed.enoughEvidence, suggestedQueries: cleaned.slice(0, 2) };
     }
   } catch {
     // fall through
   }
 
-  return { enoughEvidence: false };
+  return { enoughEvidence: false, suggestedQueries: [] };
 }
