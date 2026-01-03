@@ -98,6 +98,19 @@ export async function fetchGoogleOrganicSerp(
   const task = Array.isArray(data?.tasks) ? data.tasks[0] : null;
   const taskId = typeof task?.id === "string" ? task.id : null;
   const items = Array.isArray(task?.result?.[0]?.items) ? task.result[0].items : [];
+  if (!items.length) {
+    console.warn("[dataforseo] SERP returned no items", {
+      keyword: request.keyword,
+      location: request.locationName ?? DEFAULT_LOCATION_NAME,
+      language: request.languageCode ?? DEFAULT_LANGUAGE_CODE,
+      device: request.device ?? DEFAULT_DEVICE,
+      depth: request.depth ?? DEFAULT_DEPTH,
+      taskId,
+      taskStatusCode: task?.result?.[0]?.status_code,
+      taskStatusMessage: task?.result?.[0]?.status_message,
+      raw: data,
+    });
+  }
   const results: DataForSeoOrganicResult[] = items
     .filter((item: any) => item && item.type === "organic" && typeof item.url === "string")
     .map((item: any) => ({
