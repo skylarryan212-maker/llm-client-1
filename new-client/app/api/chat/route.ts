@@ -4249,15 +4249,37 @@ export async function POST(request: NextRequest) {
               console.error("[usage] Failed to log usage:", usageErr);
             }
           } else {
-            console.warn("[usage] No tokens to log (both input and output are 0)");
-          }
+          console.warn("[usage] No tokens to log (both input and output are 0)");
+        }
 
-          // Tool call costs
-          if (userId) {
-            const webSearchCost = calculateToolCallCost("web_search", webSearchCallCount);
-            if (webSearchCallCount > 0 && webSearchCost > 0) {
-              try {
-                await logUsageRecord({
+        // Tool call costs
+        if (userId && customWebSearchResult?.cost?.serpRequests) {
+          const serpCost = customWebSearchResult.cost.estimatedUsd ?? 0;
+          if (serpCost > 0) {
+            try {
+              await logUsageRecord({
+                userId,
+                conversationId,
+                model: "dataforseo:serp",
+                inputTokens: 0,
+                cachedTokens: 0,
+                outputTokens: 0,
+                estimatedCost: serpCost,
+              });
+              console.log(
+                `[usage] Logged dataforseo serp requests=${customWebSearchResult.cost.serpRequests} cost=$${serpCost.toFixed(6)}`
+              );
+            } catch (err) {
+              console.error("[usage] Failed to log dataforseo serp calls:", err);
+            }
+          }
+        }
+
+        if (userId) {
+          const webSearchCost = calculateToolCallCost("web_search", webSearchCallCount);
+          if (webSearchCallCount > 0 && webSearchCost > 0) {
+            try {
+              await logUsageRecord({
                   userId,
                   conversationId,
                   model: "tool:web_search",

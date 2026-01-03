@@ -50,6 +50,7 @@ export type WebPipelineResult = {
   sources: Array<{ title: string; url: string }>;
   gate: { enoughEvidence: boolean };
   expanded: boolean;
+  cost?: { serpRequests: number; estimatedUsd: number };
 };
 
 const EMBEDDING_MODEL = "text-embedding-3-small";
@@ -57,6 +58,7 @@ const SERP_CACHE_PREFIX = "dataforseo:google:organic:";
 const PAGE_CACHE_PREFIX = "page:";
 const SERP_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const PAGE_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
+const DATAFORSEO_SERP_COST_USD = 0.002;
 const DEFAULTS = {
   queryCount: 2,
   serpDepth: 10,
@@ -1169,9 +1171,12 @@ export async function runWebSearchPipeline(prompt: string, options: PipelineOpti
       selectedChunks.map((chunk) => [chunk.url, { title: chunk.title ?? chunk.url, url: chunk.url }])
     ).values()
   );
+  const serpRequests = queryResult.queries.length;
+  const serpEstimatedUsd = serpRequests * DATAFORSEO_SERP_COST_USD;
 
   console.log("[web-pipeline] cost summary", {
-    serpRequests: queryResult.queries.length,
+    serpRequests,
+    serpEstimatedUsd: Number.isFinite(serpEstimatedUsd) ? serpEstimatedUsd : 0,
     pageFetches,
     pageCacheHits,
     pagesSelected: selectedPages.length,
@@ -1186,5 +1191,9 @@ export async function runWebSearchPipeline(prompt: string, options: PipelineOpti
     sources,
     gate,
     expanded,
+    cost: {
+      serpRequests,
+      estimatedUsd: serpEstimatedUsd,
+    },
   } satisfies WebPipelineResult;
 }
