@@ -3736,6 +3736,8 @@ export async function POST(request: NextRequest) {
         console.warn("[vectorStorage] daily logging skipped:", err);
       }
     };
+    const streamStartTimeoutMs = 20_000;
+    let streamStartMs: number | null = null;
     try {
       // Progressive flex processing: free users always, all users at 80%+ usage,
       // and GPT-5 Pro forces flex for non-Dev plans.

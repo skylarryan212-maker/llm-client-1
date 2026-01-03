@@ -78,6 +78,14 @@ const DEFAULTS = {
 
 let cachedOpenAIClient: ReturnType<typeof createOpenAIClient> | null = null;
 
+function toTimestamp(value: unknown): number {
+  if (typeof value === "string" || typeof value === "number" || value instanceof Date) {
+    const ms = new Date(value).getTime();
+    return Number.isFinite(ms) ? ms : 0;
+  }
+  return 0;
+}
+
 function getOpenAIClient() {
   if (cachedOpenAIClient) return cachedOpenAIClient;
   const apiKey = process.env.OPENAI_API_KEY;
@@ -98,7 +106,7 @@ async function loadSerpCache(cacheKey: string) {
       .eq("cache_key", cacheKey)
       .maybeSingle();
     if (error || !data) return null;
-    const createdAt = data.created_at ? new Date(data.created_at).getTime() : 0;
+    const createdAt = toTimestamp((data as { created_at?: unknown }).created_at);
     if (!createdAt || Date.now() - createdAt > SERP_CACHE_TTL_MS) return null;
     return data.payload as any;
   } catch (error) {
@@ -130,7 +138,7 @@ async function loadPageCache(cacheKey: string) {
       .eq("cache_key", cacheKey)
       .maybeSingle();
     if (error || !data) return null;
-    const createdAt = data.created_at ? new Date(data.created_at).getTime() : 0;
+    const createdAt = toTimestamp((data as { created_at?: unknown }).created_at);
     if (!createdAt || Date.now() - createdAt > PAGE_CACHE_TTL_MS) return null;
     return data;
   } catch (error) {
@@ -363,14 +371,15 @@ async function fetchJinaReaderText(url: string, timeoutMs: number) {
   }
 }
 
-let cachedPlaywright: typeof import("playwright") | null = null;
+let cachedPlaywright: any | null = null;
 let attemptedPlaywright = false;
 
 async function getPlaywright() {
   if (attemptedPlaywright) return cachedPlaywright;
   attemptedPlaywright = true;
   try {
-    const mod = await import("playwright");
+    const moduleName = process.env.PLAYWRIGHT_MODULE ?? "playwright";
+    const mod = await import(moduleName as string);
     cachedPlaywright = mod;
   } catch (error) {
     console.warn("[web-pipeline] Playwright not available", error);
