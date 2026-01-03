@@ -96,7 +96,6 @@ export async function fetchGoogleOrganicSerp(
     targetUrl.searchParams.set("q", keyword);
   }
   const depth = Math.min(Math.max(request.depth ?? DEFAULT_DEPTH, 1), 10);
-  targetUrl.searchParams.set("num", String(depth));
   if (request.searchEngine && request.searchEngine !== DEFAULT_ENGINE) {
     console.warn("[brightdata] Non-default search engine ignored; using google.com", {
       requested: request.searchEngine,
@@ -133,7 +132,20 @@ export async function fetchGoogleOrganicSerp(
     return { taskId: null, results: [], raw: data ?? bodyText };
   }
 
-  const results = data ? parseResults(data) : [];
+  const inner =
+    typeof data?.body === "string"
+      ? (() => {
+          try {
+            return JSON.parse(data.body);
+          } catch {
+            return null;
+          }
+        })()
+      : data?.body && typeof data.body === "object"
+        ? data.body
+        : data;
+
+  const results = inner ? parseResults(inner) : [];
   if (!results.length) {
     console.warn("[brightdata] SERP returned no items", {
       keyword: request.keyword,
