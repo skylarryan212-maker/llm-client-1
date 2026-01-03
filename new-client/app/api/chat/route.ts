@@ -2139,8 +2139,7 @@ export async function POST(request: NextRequest) {
     const headerGeo = getApproximateLocationFromHeaders(request);
     const effectiveLocation = location ?? headerGeo.location ?? null;
     const effectiveTimezone = timezone ?? location?.timezone ?? headerGeo.timezone ?? null;
-    const useCustomWebSearch =
-      process.env.USE_BRIGHTDATA_WEB_SEARCH === "1" || process.env.USE_DATAFORSEO_WEB_SEARCH === "1";
+    const useCustomWebSearch = process.env.USE_BRIGHTDATA_WEB_SEARCH !== "0";
     const trimmedMessage = message?.trim() ?? "";
     let customWebSearchResult: WebPipelineResult | null = null;
     let customWebSearchInput:
