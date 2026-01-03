@@ -2523,11 +2523,9 @@ export async function POST(request: NextRequest) {
           role: (m.role as "user" | "assistant" | "system") ?? "user",
           content: m.content ?? "",
         }));
-        const locationLabel = effectiveLocation?.city || undefined;
         customWebSearchPromise = runWebSearchPipeline(trimmedMessage, {
           recentMessages: recentMessagesForSearch,
           currentDate: currentDateForSearch,
-          ...(locationLabel ? { locationName: locationLabel } : {}),
         });
       }
 
