@@ -1222,7 +1222,7 @@ interface ChatRequestBody {
   simpleContextExternalChatIds?: string[];
   advancedContextTopicIds?: string[];
   attachments?: Array<{ name?: string; mime?: string; dataUrl?: string; url?: string }>;
-  location?: { lat: number; lng: number; city: string; timezone?: string };
+  location?: { lat: number; lng: number; city: string; countryCode?: string; timezone?: string };
   timezone?: string;
   clientNow?: number;
   agentId?: string | null;
@@ -1449,7 +1449,10 @@ function extractContainerIdFromCiEvent(event: any): string | null {
 
 function getApproximateLocationFromHeaders(
   request: NextRequest
-): { location: { lat: number; lng: number; city: string; timezone?: string } | null; timezone: string | null } {
+): {
+  location: { lat: number; lng: number; city: string; countryCode?: string; timezone?: string } | null;
+  timezone: string | null;
+} {
   const headers = request.headers;
   const cityHeader = headers.get("x-vercel-ip-city") || headers.get("cf-ipcity") || "";
   const regionHeader = headers.get("x-vercel-ip-country-region") || headers.get("cf-region") || "";
@@ -1471,6 +1474,7 @@ function getApproximateLocationFromHeaders(
           lat,
           lng,
           city: cityLabel,
+          countryCode: countryHeader || undefined,
           timezone: timezoneHeader || undefined,
         }
       : null;
@@ -2143,7 +2147,12 @@ export async function POST(request: NextRequest) {
     const trimmedMessage = message?.trim() ?? "";
     let customWebSearchResult: WebPipelineResult | null = null;
     let customWebSearchInput:
-      | { prompt: string; recentMessages: Array<{ role: "user" | "assistant" | "system"; content: string }>; currentDate: string }
+      | {
+          prompt: string;
+          recentMessages: Array<{ role: "user" | "assistant" | "system"; content: string }>;
+          currentDate: string;
+          location?: { city?: string; countryCode?: string; languageCode?: string };
+        }
       | null = null;
     const nowForSearch = typeof clientNow === "string" || typeof clientNow === "number"
       ? new Date(clientNow)
@@ -2526,10 +2535,22 @@ export async function POST(request: NextRequest) {
             role: (m.role as "user" | "assistant" | "system") ?? "user",
             content: m.content ?? "",
           }));
+        const acceptLanguage = request.headers.get("accept-language") || "";
+        const primaryLang = acceptLanguage.split(",")[0]?.split("-")[0]?.toLowerCase() || "en";
+        const countryCode =
+          effectiveLocation?.countryCode?.toLowerCase() ||
+          headerGeo.location?.countryCode?.toLowerCase() ||
+          (request.headers.get("x-vercel-ip-country") || request.headers.get("cf-ipcountry") || "").toLowerCase() ||
+          undefined;
         customWebSearchInput = {
           prompt: trimmedMessage,
           recentMessages: recentMessagesForSearch,
           currentDate: currentDateForSearch,
+          location: {
+            city: effectiveLocation?.city,
+            countryCode: countryCode ? countryCode.toLowerCase() : undefined,
+            languageCode: primaryLang || undefined,
+          },
         };
       }
 
@@ -3763,6 +3784,9 @@ export async function POST(request: NextRequest) {
             customWebSearchResult = await runWebSearchPipeline(customWebSearchInput.prompt, {
               recentMessages: customWebSearchInput.recentMessages,
               currentDate: customWebSearchInput.currentDate,
+              locationName: customWebSearchInput.location?.city ?? effectiveLocation?.city ?? undefined,
+              languageCode: customWebSearchInput.location?.languageCode ?? undefined,
+              countryCode: customWebSearchInput.location?.countryCode ?? undefined,
               onProgress: (event) => {
                 sendStatusUpdate({ type: "search-progress", count: event.searched });
               },

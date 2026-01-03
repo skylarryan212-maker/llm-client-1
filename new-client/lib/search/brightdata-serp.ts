@@ -4,6 +4,8 @@ export type BrightDataSerpRequest = {
   keyword: string;
   depth?: number;
   searchEngine?: string;
+  gl?: string;
+  hl?: string;
 };
 
 export type BrightDataOrganicResult = {
@@ -96,6 +98,12 @@ export async function fetchGoogleOrganicSerp(
     targetUrl.searchParams.set("q", keyword);
   }
   const depth = Math.min(Math.max(request.depth ?? DEFAULT_DEPTH, 1), 10);
+  if (request.gl) {
+    targetUrl.searchParams.set("gl", request.gl.toLowerCase());
+  }
+  if (request.hl) {
+    targetUrl.searchParams.set("hl", request.hl.toLowerCase());
+  }
   if (request.searchEngine && request.searchEngine !== DEFAULT_ENGINE) {
     console.warn("[brightdata] Non-default search engine ignored; using google.com", {
       requested: request.searchEngine,

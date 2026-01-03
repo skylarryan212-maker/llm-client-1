@@ -24,6 +24,7 @@ export async function writeSearchQueries(params: {
   count?: number;
   currentDate?: string;
   recentMessages?: Array<{ role: "user" | "assistant" | "system"; content: string }>;
+  location?: { city?: string; countryCode?: string };
 }): Promise<QueryWriterResult> {
   const count = params.count ?? 2;
   const systemPrompt = `You are a search query writer for a web search pipeline.
@@ -48,6 +49,11 @@ Rules:
 
   const userContent = [
     `Current date: ${params.currentDate ?? "Unknown"}`,
+    params.location?.city
+      ? `User location: ${params.location.city}${params.location.countryCode ? ` (${params.location.countryCode})` : ""}`
+      : params.location?.countryCode
+        ? `User country: ${params.location.countryCode}`
+        : "User location: Unknown",
     "Recent messages (for context only):",
     recentMessageBlock,
     "User prompt:",

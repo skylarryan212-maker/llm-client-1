@@ -24,6 +24,7 @@ type PipelineOptions = {
   maxChunksPerUrl?: number;
   locationName?: string;
   languageCode?: string;
+  countryCode?: string;
   device?: "desktop" | "mobile";
   recentMessages?: Array<{ role: "user" | "assistant" | "system"; content: string }>;
   currentDate?: string;
@@ -84,6 +85,7 @@ const DEFAULTS = {
   maxChunksPerUrl: 2,
   locationName: "United States",
   languageCode: "en",
+  countryCode: "us",
   device: "desktop" as const,
 };
 
@@ -713,6 +715,11 @@ export async function runWebSearchPipeline(prompt: string, options: PipelineOpti
     count: config.queryCount,
     currentDate: options.currentDate,
     recentMessages: options.recentMessages,
+    location: config.locationName
+      ? { city: config.locationName, countryCode: config.countryCode }
+      : config.countryCode
+        ? { countryCode: config.countryCode }
+        : undefined,
   });
   logTiming("query_writer", queryStart, { queries: queryResult.queries.length });
   console.log("[web-pipeline] query writer output", queryResult.queries);
@@ -964,6 +971,8 @@ ${slice}`,
         const response = await fetchGoogleOrganicSerp({
           keyword: query,
           depth: config.serpDepth,
+          gl: config.countryCode ? config.countryCode.toLowerCase() : undefined,
+          hl: config.languageCode ? config.languageCode.toLowerCase() : undefined,
         });
         await saveSerpCache(cacheKey, query, response);
         return response;
