@@ -59,6 +59,7 @@ const PAGE_CACHE_PREFIX = "page:";
 const SERP_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const PAGE_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
 const DATAFORSEO_SERP_COST_USD = 0.002;
+const MAX_EMBED_CHUNKS = 80;
 const DEFAULTS = {
   queryCount: 2,
   serpDepth: 10,
@@ -930,17 +931,25 @@ export async function runWebSearchPipeline(prompt: string, options: PipelineOpti
 
   const rankChunks = async (chunks: RankedChunk[]) => {
     if (!chunks.length) return [];
+    const overlapScored = chunks.map((chunk) => {
+      const overlap = keywordScore(chunk.text, queryResult.queries);
+      const boost = chunk.kind === "table" || chunk.kind === "list" ? 0.2 : 0;
+      return { chunk, score: overlap + boost };
+    });
+    const prefiltered =
+      overlapScored.length > MAX_EMBED_CHUNKS
+        ? overlapScored.sort((a, b) => b.score - a.score).slice(0, MAX_EMBED_CHUNKS)
+        : overlapScored;
+    const prefilteredChunks = prefiltered.map((item) => item.chunk);
     const queryEmbeddings = await embedTexts(queryResult.queries);
-    const chunkEmbeddings = await embedTexts(chunks.map((c) => c.text));
+    const chunkEmbeddings = await embedTexts(prefilteredChunks.map((c) => c.text));
     if (!queryEmbeddings.length || !chunkEmbeddings.length) {
       console.warn("[web-pipeline] embeddings unavailable; skipping semantic ranking.");
-      return chunks.map((chunk) => {
-        const overlap = keywordScore(chunk.text, queryResult.queries);
-        const boost = chunk.kind === "table" || chunk.kind === "list" ? 0.2 : 0;
-        return { ...chunk, score: overlap + boost };
-      });
+      return overlapScored
+        .sort((a, b) => b.score - a.score)
+        .map((item) => ({ ...item.chunk, score: item.score }));
     }
-    return chunks.map((chunk, index) => {
+    return prefilteredChunks.map((chunk, index) => {
       const embedding = chunkEmbeddings[index] ?? [];
       const semantic = Math.max(...queryEmbeddings.map((q) => cosineSimilarity(q, embedding)));
       const overlap = keywordScore(chunk.text, queryResult.queries);
