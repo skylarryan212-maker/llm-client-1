@@ -2517,15 +2517,17 @@ export async function POST(request: NextRequest) {
         : [];
 
       if (useCustomWebSearch && trimmedMessage) {
-        const recentMessagesForSearch = (recentMessagesForRouting || [])
-          .slice(-6)
-          .map((m: any) => ({
-            role: (m.role as "user" | "assistant" | "system") ?? "user",
-            content: m.content ?? "",
-          }));
+      const recentMessagesForSearch = (recentMessagesForRouting || [])
+        .slice(-6)
+        .map((m: any) => ({
+          role: (m.role as "user" | "assistant" | "system") ?? "user",
+          content: m.content ?? "",
+        }));
+        const locationLabel = effectiveLocation?.city || undefined;
         customWebSearchPromise = runWebSearchPipeline(trimmedMessage, {
           recentMessages: recentMessagesForSearch,
           currentDate: currentDateForSearch,
+          ...(locationLabel ? { locationName: locationLabel } : {}),
         });
       }
 
