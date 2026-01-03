@@ -97,7 +97,17 @@ export async function fetchGoogleOrganicSerp(
 
   const task = Array.isArray(data?.tasks) ? data.tasks[0] : null;
   const taskId = typeof task?.id === "string" ? task.id : null;
-  const items = Array.isArray(task?.result?.[0]?.items) ? task.result[0].items : [];
+  const taskResult = Array.isArray(task?.result) ? task.result[0] : null;
+  const items = Array.isArray(taskResult?.items) ? taskResult.items : [];
+  if (taskResult?.status_code && taskResult.status_code !== 20000) {
+    console.warn("[dataforseo] SERP task returned non-OK status", {
+      keyword: request.keyword,
+      statusCode: taskResult.status_code,
+      statusMessage: taskResult.status_message,
+      errors: taskResult?.errors,
+      warnings: taskResult?.warnings,
+    });
+  }
   if (!items.length) {
     console.warn("[dataforseo] SERP returned no items", {
       keyword: request.keyword,
@@ -106,8 +116,12 @@ export async function fetchGoogleOrganicSerp(
       device: request.device ?? DEFAULT_DEVICE,
       depth: request.depth ?? DEFAULT_DEPTH,
       taskId,
-      taskStatusCode: task?.result?.[0]?.status_code,
-      taskStatusMessage: task?.result?.[0]?.status_message,
+      taskStatusCode: taskResult?.status_code,
+      taskStatusMessage: taskResult?.status_message,
+      taskErrors: taskResult?.errors,
+      tasksErrorCount: typeof data?.tasks_error === "number" ? data.tasks_error : null,
+      taskStatus: task?.status_code,
+      taskStatusMessageTop: task?.status_message,
       raw: data,
     });
   }
