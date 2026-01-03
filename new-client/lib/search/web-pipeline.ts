@@ -397,18 +397,24 @@ async function fetchRenderedHtml(url: string, timeoutMs: number, maxBytes: numbe
   const proxyPass = process.env.BRIGHTDATA_PROXY_PASS;
   const proxyServer =
     proxyHost && proxyPort ? `${proxyHost.startsWith("http") ? "" : "http://"}${proxyHost}:${proxyPort}` : null;
-  const browser = await playwright.chromium.launch({
-    headless: true,
-    ...(proxyServer
-      ? {
-          proxy: {
-            server: proxyServer,
-            username: proxyUser || undefined,
-            password: proxyPass || undefined,
-          },
-        }
-      : {}),
-  });
+  let browser: any = null;
+  try {
+    browser = await playwright.chromium.launch({
+      headless: true,
+      ...(proxyServer
+        ? {
+            proxy: {
+              server: proxyServer,
+              username: proxyUser || undefined,
+              password: proxyPass || undefined,
+            },
+          }
+        : {}),
+    });
+  } catch (error) {
+    console.warn("[web-pipeline] Headless render unavailable (launch failed)", { url, error });
+    return { html: "", text: "" };
+  }
   try {
     const context = await browser.newContext({
       userAgent:
@@ -445,7 +451,9 @@ async function fetchRenderedHtml(url: string, timeoutMs: number, maxBytes: numbe
     console.warn("[web-pipeline] Headless render failed", { url, error });
     return { html: "", text: "" };
   } finally {
-    await browser.close();
+    if (browser) {
+      await browser.close();
+    }
   }
 }
 
