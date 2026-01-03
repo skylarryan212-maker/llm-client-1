@@ -27,6 +27,7 @@ type PipelineOptions = {
   device?: "desktop" | "mobile";
   recentMessages?: Array<{ role: "user" | "assistant" | "system"; content: string }>;
   currentDate?: string;
+  onProgress?: (event: { type: "page_fetch_progress"; searched: number }) => void;
 };
 
 export type WebPipelineChunk = {
@@ -751,6 +752,12 @@ export async function runWebSearchPipeline(prompt: string, options: PipelineOpti
 
   const remainingResults = [...mergedResults];
   const candidateResults = remainingResults.splice(0, config.fetchCandidateLimit);
+  let searchedCount = 0;
+  const reportProgress = () => {
+    if (config.onProgress) {
+      config.onProgress({ type: "page_fetch_progress", searched: searchedCount });
+    }
+  };
 
   const fetchPages = async (results: typeof candidateResults) => {
     const pages = await Promise.all(
@@ -760,6 +767,8 @@ export async function runWebSearchPipeline(prompt: string, options: PipelineOpti
         if (cached?.text_content) {
           pageCacheHits += 1;
           console.log("[web-pipeline] page cache hit", result.url);
+          searchedCount += 1;
+          reportProgress();
           return {
             ...result,
             text: cached.text_content as string,
@@ -843,6 +852,8 @@ export async function runWebSearchPipeline(prompt: string, options: PipelineOpti
           length: text.length,
           htmlLength: html.length,
         });
+        searchedCount += 1;
+        reportProgress();
         return {
           ...result,
           text,

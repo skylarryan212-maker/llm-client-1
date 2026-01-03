@@ -1232,6 +1232,7 @@ interface ChatRequestBody {
 type SearchStatusEvent =
   | { type: "search-start"; query: string }
   | { type: "search-complete"; query: string; results?: number }
+  | { type: "search-progress"; count: number }
   | { type: "search-error"; query: string; message?: string }
   | { type: "file-search-start"; query: string }
   | { type: "file-search-complete"; query: string }
@@ -2140,8 +2141,10 @@ export async function POST(request: NextRequest) {
     const effectiveTimezone = timezone ?? location?.timezone ?? headerGeo.timezone ?? null;
     const useCustomWebSearch = process.env.USE_DATAFORSEO_WEB_SEARCH === "1";
     const trimmedMessage = message?.trim() ?? "";
-    let customWebSearchPromise: Promise<WebPipelineResult> | null = null;
     let customWebSearchResult: WebPipelineResult | null = null;
+    let customWebSearchInput:
+      | { prompt: string; recentMessages: Array<{ role: "user" | "assistant" | "system"; content: string }>; currentDate: string }
+      | null = null;
     const nowForSearch = typeof clientNow === "string" || typeof clientNow === "number"
       ? new Date(clientNow)
       : new Date();
@@ -2517,16 +2520,17 @@ export async function POST(request: NextRequest) {
         : [];
 
       if (useCustomWebSearch && trimmedMessage) {
-      const recentMessagesForSearch = (recentMessagesForRouting || [])
-        .slice(-6)
-        .map((m: any) => ({
-          role: (m.role as "user" | "assistant" | "system") ?? "user",
-          content: m.content ?? "",
-        }));
-        customWebSearchPromise = runWebSearchPipeline(trimmedMessage, {
+        const recentMessagesForSearch = (recentMessagesForRouting || [])
+          .slice(-6)
+          .map((m: any) => ({
+            role: (m.role as "user" | "assistant" | "system") ?? "user",
+            content: m.content ?? "",
+          }));
+        customWebSearchInput = {
+          prompt: trimmedMessage,
           recentMessages: recentMessagesForSearch,
           currentDate: currentDateForSearch,
-        });
+        };
       }
 
       const resolvedMarketInstanceId =
@@ -3049,24 +3053,6 @@ export async function POST(request: NextRequest) {
       contextMessages = [...marketContextMessages, ...contextMessages];
     }
 
-    if (customWebSearchPromise) {
-      try {
-        customWebSearchResult = await customWebSearchPromise;
-        console.log("[web-pipeline] completed for prompt");
-      } catch (searchErr) {
-        console.error("[web-pipeline] failed", searchErr);
-        customWebSearchResult = null;
-      }
-    }
-    const pipelineGate = customWebSearchResult?.gate?.enoughEvidence === true;
-    const customWebSearchContext =
-      customWebSearchResult && pipelineGate ? formatWebPipelineContext(customWebSearchResult) : null;
-    const customWebSearchDomains =
-      customWebSearchResult && pipelineGate ? extractPipelineDomains(customWebSearchResult) : [];
-
-    const allowWebSearch = !useCustomWebSearch || !pipelineGate;
-    const requireWebSearch = forceWebSearch && (!useCustomWebSearch || !pipelineGate);
-
     const permanentInstructionWrites = (modelConfig as any).permanentInstructionsToWrite || [];
     let permanentInstructionDeletes = (modelConfig as any).permanentInstructionsToDelete || [];
 
@@ -3475,7 +3461,7 @@ export async function POST(request: NextRequest) {
     // saved-memory referencing (privacy). Only the memory blocks themselves are gated.
     const memoryReferenceEnabled = Boolean(personalizationSettings?.referenceSavedMemories);
 
-    const baseSystemInstructions = [
+    const baseSystemInstructionParts = [
       memoryReferenceEnabled
         ? BASE_SYSTEM_PROMPT
         : stripMemoryBehaviorBlock(BASE_SYSTEM_PROMPT),
@@ -3503,25 +3489,7 @@ export async function POST(request: NextRequest) {
             })()
           ]
         : []),
-      ...(useCustomWebSearch && pipelineGate
-        ? [
-            "Use the provided web search context for any live/factual claims. Do NOT call the web_search tool.",
-            "You must cite sources from the provided context using markdown links [text](url) and include a final 'Sources:' section listing all cited links.",
-            "Every factual claim must include an inline citation immediately after the claim (same sentence).",
-          ]
-        : []),
-      ...(customWebSearchContext ? [customWebSearchContext] : []),
-      ...(allowWebSearch && forceWebSearch ? [FORCE_WEB_SEARCH_PROMPT] : []),
-      ...(allowWebSearch && requireWebSearch && !forceWebSearch ? [EXPLICIT_WEB_SEARCH_PROMPT] : []),
-    ].join("\n\n");
-
-
-    const systemInstructions = buildSystemPromptWithPersonalization(
-      baseSystemInstructions,
-      personalizationSettings ?? {},
-      memoryReferenceEnabled ? relevantMemories : [],
-      permanentInstructions
-    );
+    ];
 
     // Build user content with native image inputs when available to leverage model vision
     const userContentParts: any[] = [
@@ -3614,12 +3582,6 @@ export async function POST(request: NextRequest) {
     
     // Memory management is now handled by the router model
     // No need for save_memory tool - router decides what to save based on user prompts
-    
-    const toolChoice: ToolChoiceOptions | undefined = allowWebSearch
-      ? requireWebSearch
-        ? "required"
-        : "auto"
-      : undefined;
     let responseStream: any;
     let webSearchCallCount = 0;
     let fileSearchCallCount = 0;
@@ -3678,15 +3640,6 @@ export async function POST(request: NextRequest) {
       ? { type: "code_interpreter", container: configuredCiContainerId }
       : { type: "code_interpreter", container: { type: "auto", memory_limit: "4g" } };
 
-    const toolsForRequest: any[] = [];
-    if (allowWebSearch) {
-      toolsForRequest.push(webSearchTool);
-    }
-    if (vectorStoreIdsForRequest.length) {
-      toolsForRequest.push(fileSearchTool as Tool);
-    }
-    toolsForRequest.push(codeInterpreterTool);
-
     const logVectorStorageDaily = async () => {
       if (!userId) return;
       try {
@@ -3738,136 +3691,7 @@ export async function POST(request: NextRequest) {
     };
     const streamStartTimeoutMs = 20_000;
     let streamStartMs: number | null = null;
-    try {
-      // Progressive flex processing: free users always, all users at 80%+ usage,
-      // and GPT-5 Pro forces flex for non-Dev plans.
-      const flexEligibleFamilies = ["gpt-5.2", "gpt-5.2-pro", "gpt-5-mini", "gpt-5-nano"];
-      const isPromptModel = flexEligibleFamilies.includes(modelConfig.resolvedFamily);
-      const forceProFlex = modelConfig.resolvedFamily === "gpt-5.2-pro" && userPlan !== "max";
-      const usageBasedFlex = (userPlan === "free" || usagePercentage >= 80) && isPromptModel;
-      const useFlex = (isPromptModel && forceProFlex) || usageBasedFlex;
-
-      if (useFlex && !forceProFlex && usagePercentage >= 80 && userPlan !== "free") {
-        console.log(`[usageLimit] User at ${usagePercentage.toFixed(1)}% usage - enabling flex processing`);
-      } else if (forceProFlex) {
-        console.log(`[usageLimit] Enforcing flex processing for GPT 5 Pro (${userPlan} plan)`);
-      }
-      
-      const rawPromptKey = `${conversationId}:${resolvedTopicDecision.primaryTopicId || "none"}`;
-      let promptCacheKey = rawPromptKey;
-      if (rawPromptKey.length > 64) {
-        promptCacheKey = (await sha256Hex(rawPromptKey)).slice(0, 64);
-      }
-      const extendedCacheModels = new Set([
-        "gpt-5.2",
-        "gpt-5.2-pro",
-        "gpt-5.2-chat-latest",
-        "gpt-5",
-        "gpt-5-codex",
-        "gpt-4.1",
-      ]);
-      const supportsExtendedCache = extendedCacheModels.has(modelConfig.model);
-
-      // Only include prompt_cache_retention for supported models (not gpt-5-nano)
-      const streamOptions: any = {
-        model: modelConfig.model,
-        instructions: systemInstructions,
-        input: messagesForAPI,
-        stream: true,
-        store: true,
-        prompt_cache_key: promptCacheKey,
-        // Only use chain when NOT doing enumeration (full strategy needs explicit messages)
-        metadata: {
-          user_id: userId,
-          conversation_id: conversationId,
-          ...(userMessageRow?.id ? { message_id: userMessageRow.id } : {}),
-        },
-      };
-      const styleTuning = getStyleTuning(personalizationSettings?.baseStyle);
-      if (styleTuning.textVerbosity) {
-        streamOptions.text = { format: { type: "text" }, verbosity: styleTuning.textVerbosity };
-      }
-      const supportsTemperature = !/^gpt-5(\b|[-.])/i.test(modelConfig.model);
-      if (supportsTemperature && typeof styleTuning.temperature === "number") {
-        streamOptions.temperature = styleTuning.temperature;
-      }
-      if (supportsExtendedCache) {
-        streamOptions.prompt_cache_retention = "24h";
-      }
-      // Add additional options to streamOptions
-      if (projectId) {
-        streamOptions.metadata.project_id = projectId;
-      }
-      if (toolsForRequest.length) {
-        streamOptions.tools = toolsForRequest;
-      }
-      if (toolChoice) {
-        streamOptions.tool_choice = toolChoice;
-      }
-      if (modelConfig.reasoning) {
-        streamOptions.reasoning = { effort: modelConfig.reasoning.effort };
-      }
-      if (typeof useFlex !== 'undefined' && useFlex) {
-        streamOptions.service_tier = "flex";
-      }
-      const streamStartPromise = (async () => {
-        responseStream = await openai.responses.stream(streamOptions);
-        streamStartMs = Date.now();
-        return "started" as const;
-      })();
-
-      const streamStartResult = await Promise.race([
-        streamStartPromise,
-        new Promise<"timeout">((resolve) =>
-          setTimeout(() => resolve("timeout"), streamStartTimeoutMs)
-        ),
-      ]);
-
-      if (streamStartResult === "timeout" || !responseStream) {
-        console.warn(
-          `[chatApi] OpenAI stream did not start within ${streamStartTimeoutMs}ms; returning graceful fallback`
-        );
-        const fallbackMessage =
-          "The model is taking unusually long to respond to this request (for example, when processing large or complex images). Please try again or simplify the request.";
-        const fallbackStream = new ReadableStream({
-          start(controller) {
-            const encoder = new TextEncoder();
-            const enqueueJson = (payload: Record<string, unknown>) => {
-              controller.enqueue(encoder.encode(`${JSON.stringify(payload)}\n`));
-            };
-            enqueueJson({
-              model_info: {
-                model: modelConfig.model,
-                resolvedFamily: modelConfig.resolvedFamily,
-                speedModeUsed: speedMode,
-                reasoningEffort,
-              },
-            });
-            enqueueJson({ token: fallbackMessage });
-            enqueueJson({ done: true });
-            controller.close();
-          },
-        });
-        return new Response(fallbackStream, {
-          headers: {
-            "Content-Type": "application/x-ndjson",
-            "Cache-Control": "no-cache",
-          },
-        });
-      }
-
-      console.log(
-        "OpenAI stream started for model:",
-        modelConfig.model,
-        useFlex ? "(flex)" : "(standard)"
-      );
-    } catch (streamErr) {
-      console.error("Failed to start OpenAI stream:", streamErr);
-      // ...existing code...
-      // (fallback error handling unchanged)
-    }
-
-    const requestStartMs = Date.now();
+    let requestStartMs = 0;
     let assistantContent = "";
     let preambleBuffer = "";
     let firstTokenAtMs: number | null = null;
@@ -3891,15 +3715,6 @@ export async function POST(request: NextRequest) {
             }
           });
         }
-        // Emit model info immediately so the UI can show effort badges before first token
-        enqueueJson({
-          model_info: {
-            model: modelConfig.model,
-            resolvedFamily: modelConfig.resolvedFamily,
-            speedModeUsed: speedMode,
-            reasoningEffort,
-          },
-        });
         const sendStatusUpdate = (status: SearchStatusEvent) => {
           enqueueJson({ status });
         };
@@ -3939,16 +3754,208 @@ export async function POST(request: NextRequest) {
             noteDomainsFromCall(entry as WebSearchCall);
           });
         };
-        if (customWebSearchResult) {
+        let pipelineGate = false;
+        let customWebSearchContext: string | null = null;
+        let customWebSearchDomains: string[] = [];
+        if (customWebSearchInput) {
+          sendStatusUpdate({ type: "search-start", query: customWebSearchInput.prompt });
+          try {
+            customWebSearchResult = await runWebSearchPipeline(customWebSearchInput.prompt, {
+              recentMessages: customWebSearchInput.recentMessages,
+              currentDate: customWebSearchInput.currentDate,
+              onProgress: (event) => {
+                sendStatusUpdate({ type: "search-progress", count: event.searched });
+              },
+            });
+            console.log("[web-pipeline] completed for prompt");
+          } catch (searchErr) {
+            console.error("[web-pipeline] failed", searchErr);
+            customWebSearchResult = null;
+            sendStatusUpdate({
+              type: "search-error",
+              query: customWebSearchInput.prompt,
+              message: "Web search failed",
+            });
+          }
+          pipelineGate = customWebSearchResult?.gate?.enoughEvidence === true;
+          customWebSearchContext =
+            customWebSearchResult && pipelineGate
+              ? formatWebPipelineContext(customWebSearchResult)
+              : null;
+          customWebSearchDomains =
+            customWebSearchResult && pipelineGate
+              ? extractPipelineDomains(customWebSearchResult)
+              : [];
+          if (pipelineGate) {
+            customWebSearchDomains.forEach((domain) => recordLiveSearchDomain(domain));
+          }
           const queryLabel =
-            customWebSearchResult.queries?.join(" | ")?.trim() || "web search";
-          sendStatusUpdate({ type: "search-start", query: queryLabel });
-          customWebSearchDomains.forEach((domain) => recordLiveSearchDomain(domain));
+            customWebSearchResult?.queries?.join(" | ")?.trim() || customWebSearchInput.prompt;
           sendStatusUpdate({
             type: "search-complete",
             query: queryLabel,
-            results: customWebSearchResult.results?.length ?? 0,
+            results: customWebSearchResult?.results?.length ?? 0,
           });
+        }
+
+        const allowWebSearch = !useCustomWebSearch || !pipelineGate;
+        const requireWebSearch = forceWebSearch && (!useCustomWebSearch || !pipelineGate);
+        const webSearchInstructionParts = [
+          ...(useCustomWebSearch && pipelineGate
+            ? [
+                "Use the provided web search context for any live/factual claims. Do NOT call the web_search tool.",
+                "You must cite sources from the provided context using markdown links [text](url) and include a final 'Sources:' section listing all cited links.",
+                "Every factual claim must include an inline citation immediately after the claim (same sentence).",
+              ]
+            : []),
+          ...(customWebSearchContext ? [customWebSearchContext] : []),
+          ...(allowWebSearch && forceWebSearch ? [FORCE_WEB_SEARCH_PROMPT] : []),
+          ...(allowWebSearch && requireWebSearch && !forceWebSearch ? [EXPLICIT_WEB_SEARCH_PROMPT] : []),
+        ];
+        const systemInstructions = buildSystemPromptWithPersonalization(
+          [...baseSystemInstructionParts, ...webSearchInstructionParts].join("\n\n"),
+          personalizationSettings ?? {},
+          memoryReferenceEnabled ? relevantMemories : [],
+          permanentInstructions
+        );
+
+        const toolsForRequest: any[] = [];
+        if (allowWebSearch) {
+          toolsForRequest.push(webSearchTool);
+        }
+        if (vectorStoreIdsForRequest.length) {
+          toolsForRequest.push(fileSearchTool as Tool);
+        }
+        toolsForRequest.push(codeInterpreterTool);
+        const toolChoice: ToolChoiceOptions | undefined = allowWebSearch
+          ? requireWebSearch
+            ? "required"
+            : "auto"
+          : undefined;
+
+        // Progressive flex processing: free users always, all users at 80%+ usage,
+        // and GPT-5 Pro forces flex for non-Dev plans.
+        const flexEligibleFamilies = ["gpt-5.2", "gpt-5.2-pro", "gpt-5-mini", "gpt-5-nano"];
+        const isPromptModel = flexEligibleFamilies.includes(modelConfig.resolvedFamily);
+        const forceProFlex = modelConfig.resolvedFamily === "gpt-5.2-pro" && userPlan !== "max";
+        const usageBasedFlex = (userPlan === "free" || usagePercentage >= 80) && isPromptModel;
+        const useFlex = (isPromptModel && forceProFlex) || usageBasedFlex;
+
+        if (useFlex && !forceProFlex && usagePercentage >= 80 && userPlan !== "free") {
+          console.log(`[usageLimit] User at ${usagePercentage.toFixed(1)}% usage - enabling flex processing`);
+        } else if (forceProFlex) {
+          console.log(`[usageLimit] Enforcing flex processing for GPT 5 Pro (${userPlan} plan)`);
+        }
+
+        const rawPromptKey = `${conversationId}:${resolvedTopicDecision.primaryTopicId || "none"}`;
+        let promptCacheKey = rawPromptKey;
+        if (rawPromptKey.length > 64) {
+          promptCacheKey = (await sha256Hex(rawPromptKey)).slice(0, 64);
+        }
+        const extendedCacheModels = new Set([
+          "gpt-5.2",
+          "gpt-5.2-pro",
+          "gpt-5.2-chat-latest",
+          "gpt-5",
+          "gpt-5-codex",
+          "gpt-4.1",
+        ]);
+        const supportsExtendedCache = extendedCacheModels.has(modelConfig.model);
+
+        const streamOptions: any = {
+          model: modelConfig.model,
+          instructions: systemInstructions,
+          input: messagesForAPI,
+          stream: true,
+          store: true,
+          prompt_cache_key: promptCacheKey,
+          metadata: {
+            user_id: userId,
+            conversation_id: conversationId,
+            ...(userMessageRow?.id ? { message_id: userMessageRow.id } : {}),
+          },
+        };
+        const styleTuning = getStyleTuning(personalizationSettings?.baseStyle);
+        if (styleTuning.textVerbosity) {
+          streamOptions.text = { format: { type: "text" }, verbosity: styleTuning.textVerbosity };
+        }
+        const supportsTemperature = !/^gpt-5(\b|[-.])/i.test(modelConfig.model);
+        if (supportsTemperature && typeof styleTuning.temperature === "number") {
+          streamOptions.temperature = styleTuning.temperature;
+        }
+        if (supportsExtendedCache) {
+          streamOptions.prompt_cache_retention = "24h";
+        }
+        if (projectId) {
+          streamOptions.metadata.project_id = projectId;
+        }
+        if (toolsForRequest.length) {
+          streamOptions.tools = toolsForRequest;
+        }
+        if (toolChoice) {
+          streamOptions.tool_choice = toolChoice;
+        }
+        if (modelConfig.reasoning) {
+          streamOptions.reasoning = { effort: modelConfig.reasoning.effort };
+        }
+        if (typeof useFlex !== "undefined" && useFlex) {
+          streamOptions.service_tier = "flex";
+        }
+
+        try {
+          const streamStartPromise = (async () => {
+            responseStream = await openai.responses.stream(streamOptions);
+            streamStartMs = Date.now();
+            return "started" as const;
+          })();
+          const streamStartResult = await Promise.race([
+            streamStartPromise,
+            new Promise<"timeout">((resolve) =>
+              setTimeout(() => resolve("timeout"), streamStartTimeoutMs)
+            ),
+          ]);
+          if (streamStartResult === "timeout" || !responseStream) {
+            console.warn(
+              `[chatApi] OpenAI stream did not start within ${streamStartTimeoutMs}ms; returning graceful fallback`
+            );
+            const fallbackMessage =
+              "The model is taking unusually long to respond to this request (for example, when processing large or complex images). Please try again or simplify the request.";
+            enqueueJson({
+              model_info: {
+                model: modelConfig.model,
+                resolvedFamily: modelConfig.resolvedFamily,
+                speedModeUsed: speedMode,
+                reasoningEffort,
+              },
+            });
+            enqueueJson({ token: fallbackMessage });
+            enqueueJson({ done: true });
+            controller.close();
+            return;
+          }
+          console.log(
+            "OpenAI stream started for model:",
+            modelConfig.model,
+            useFlex ? "(flex)" : "(standard)"
+          );
+          requestStartMs = Date.now();
+
+          // Emit model info immediately so the UI can show effort badges before first token
+          enqueueJson({
+            model_info: {
+              model: modelConfig.model,
+              resolvedFamily: modelConfig.resolvedFamily,
+              speedModeUsed: speedMode,
+              reasoningEffort,
+            },
+          });
+        } catch (streamErr) {
+          console.error("Failed to start OpenAI stream:", streamErr);
+          enqueueJson({ error: "stream_start_failed" });
+          enqueueJson({ token: "Failed to start the model stream. Please retry." });
+          enqueueJson({ done: true });
+          controller.close();
+          return;
         }
         let doneSent = false;
         let contextUsage:

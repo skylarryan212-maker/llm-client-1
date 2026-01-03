@@ -85,6 +85,7 @@ interface ServerMessage {
 type SearchStatusEvent =
   | { type: "search-start"; query: string }
   | { type: "search-complete"; query: string; results?: number }
+  | { type: "search-progress"; count: number }
   | { type: "search-error"; query: string; message?: string }
   | { type: "file-search-start"; query: string }
   | { type: "file-search-complete"; query: string }
@@ -1316,6 +1317,14 @@ export default function ChatPageShell({
             variant: "running",
             domains: [],
           });
+          break;
+        case "search-progress":
+          setSearchIndicator((prev) => ({
+            message: `Searched ${status.count} sites...`,
+            variant: "running",
+            domains: prev?.domains ?? [],
+            subtext: prev?.subtext,
+          }));
           break;
         case "search-complete":
           showSearchCompleteIndicator(searchDomainListRef.current);
