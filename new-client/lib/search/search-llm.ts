@@ -1,3 +1,4 @@
+import { performance } from "perf_hooks";
 import { callDeepInfraLlama } from "@/lib/deepInfraLlama";
 import { calculateCost } from "@/lib/pricing";
 
@@ -53,6 +54,7 @@ Rules:
     params.prompt,
   ].join("\n");
 
+  const start = performance.now();
   const { text, usage } = await callDeepInfraLlama({
     messages: [
       { role: "system", content: systemPrompt },
@@ -72,6 +74,9 @@ Rules:
     enforceJson: true,
     maxTokens: 200,
     extraParams: { reasoning_effort: "low" },
+  });
+  console.log("[search-llm] query-writer timing", {
+    ms: Math.round(performance.now() - start),
   });
   logDeepInfraUsage("query-writer", "openai/gpt-oss-20b", usage);
 
@@ -127,6 +132,7 @@ Rules:
     })
     .join("\n\n");
 
+  const start = performance.now();
   const { text, usage } = await callDeepInfraLlama({
     messages: [
       { role: "system", content: systemPrompt },
@@ -149,6 +155,9 @@ Rules:
     enforceJson: true,
     maxTokens: 120,
     extraParams: { reasoning_effort: "low" },
+  });
+  console.log("[search-llm] evidence-gate timing", {
+    ms: Math.round(performance.now() - start),
   });
   logDeepInfraUsage("evidence-gate", "openai/gpt-oss-20b", usage);
 

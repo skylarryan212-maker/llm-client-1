@@ -141,6 +141,8 @@ async function fetchWithRedirectChecks(url: URL): Promise<Response> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), ASSISTANT_IMAGE_FETCH_TIMEOUT_MS);
     let res: Response;
+    const streamStartTimeoutMs = 20_000;
+    let streamStartMs: number | null = null;
     try {
       res = await fetch(current.toString(), {
         redirect: "manual",
@@ -1725,7 +1727,7 @@ const FORCE_WEB_SEARCH_PROMPT =
   "The user explicitly requested live web search. Ensure you call the `web_search` tool for this turn unless it would clearly be redundant.";
 
 const EXPLICIT_WEB_SEARCH_PROMPT =
-  "The user asked for live sources or links. You must call the `web_search` tool, base your answer on those results, and cite them using markdown links [text](url). Do not fabricate sources.";
+  "The user asked for live sources or links. You must call the `web_search` tool, base your answer on those results, and cite them using markdown links [text](url). Do not fabricate sources. Every factual claim must include an inline citation immediately after the claim.";
 
 // ============================================================================
 // OLD WEB SEARCH HEURISTICS (DEPRECATED - NOW USING LLM ROUTER)
@@ -2099,6 +2101,7 @@ function safeJsonParse(value: string) {
 }
 
 export async function POST(request: NextRequest) {
+  const requestStartMs = Date.now();
   try {
     const body = (await request.json()) as ChatRequestBody;
     console.log("[chatApi] POST received", {
@@ -3504,6 +3507,7 @@ export async function POST(request: NextRequest) {
         ? [
             "Use the provided web search context for any live/factual claims. Do NOT call the web_search tool.",
             "You must cite sources from the provided context using markdown links [text](url) and include a final 'Sources:' section listing all cited links.",
+            "Every factual claim must include an inline citation immediately after the claim (same sentence).",
           ]
         : []),
       ...(customWebSearchContext ? [customWebSearchContext] : []),
@@ -3804,9 +3808,9 @@ export async function POST(request: NextRequest) {
       if (typeof useFlex !== 'undefined' && useFlex) {
         streamOptions.service_tier = "flex";
       }
-      const streamStartTimeoutMs = 20_000;
       const streamStartPromise = (async () => {
         responseStream = await openai.responses.stream(streamOptions);
+        streamStartMs = Date.now();
         return "started" as const;
       })();
 
@@ -4120,6 +4124,13 @@ export async function POST(request: NextRequest) {
           }
 
           const finalResponse = await responseStream.finalResponse();
+          const endMs = Date.now();
+          console.log("[chatApi] timing", {
+            totalMs: endMs - requestStartMs,
+            streamStartMs: streamStartMs ? streamStartMs - requestStartMs : null,
+            firstTokenMs: firstTokenAtMs ? firstTokenAtMs - requestStartMs : null,
+            streamDurationMs: streamStartMs ? endMs - streamStartMs : null,
+          });
           if (finalResponse.output_text) {
             assistantContent = finalResponse.output_text;
           }

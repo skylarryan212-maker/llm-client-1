@@ -1,3 +1,4 @@
+import { performance } from "perf_hooks";
 import { convert } from "html-to-text";
 import { createOpenAIClient } from "@/lib/openai/client";
 import { extractDomainFromUrl } from "@/lib/metadata";
@@ -303,6 +304,24 @@ async function fetchPageHtml(url: string, timeoutMs: number, maxBytes: number) {
       console.log("[web-pipeline] fetch retry", { url, status: result.status });
       result = await attempt("firefox");
     }
+    const useBrightData = process.env.BRIGHTDATA_WEB_UNLOCKER_API_KEY;
+    const zoneName = process.env.BRIGHTDATA_WEB_UNLOCKER_ZONE;
+    if (
+      useBrightData &&
+      zoneName &&
+      (result.status === 403 || result.status === 429 || result.status === 503 || result.status === 0)
+    ) {
+      const unlockerHtml = await fetchViaBrightDataUnlocker(
+        url,
+        timeoutMs,
+        useBrightData,
+        zoneName
+      );
+      if (unlockerHtml.length) {
+        console.log("[web-pipeline] brightdata unlocker used", { url });
+        return { html: unlockerHtml, truncated: unlockerHtml.length > maxBytes, status: 200 };
+      }
+    }
     return result;
   } catch (error) {
     console.warn("[web-pipeline] Fetch page failed", { url, error });
@@ -363,13 +382,31 @@ async function getPlaywright() {
 async function fetchRenderedHtml(url: string, timeoutMs: number, maxBytes: number) {
   const playwright = await getPlaywright();
   if (!playwright) return { html: "", text: "" };
-  const browser = await playwright.chromium.launch({ headless: true });
+  const proxyHost = process.env.BRIGHTDATA_PROXY_HOST;
+  const proxyPort = process.env.BRIGHTDATA_PROXY_PORT;
+  const proxyUser = process.env.BRIGHTDATA_PROXY_USER;
+  const proxyPass = process.env.BRIGHTDATA_PROXY_PASS;
+  const proxyServer =
+    proxyHost && proxyPort ? `${proxyHost.startsWith("http") ? "" : "http://"}${proxyHost}:${proxyPort}` : null;
+  const browser = await playwright.chromium.launch({
+    headless: true,
+    ...(proxyServer
+      ? {
+          proxy: {
+            server: proxyServer,
+            username: proxyUser || undefined,
+            password: proxyPass || undefined,
+          },
+        }
+      : {}),
+  });
   try {
     const context = await browser.newContext({
       userAgent:
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
       locale: "en-US",
       viewport: { width: 1366, height: 768 },
+      ...(proxyServer ? { ignoreHTTPSErrors: true } : {}),
     });
     await context.addInitScript(() => {
       Object.defineProperty(navigator, "webdriver", { get: () => undefined });
@@ -403,9 +440,72 @@ async function fetchRenderedHtml(url: string, timeoutMs: number, maxBytes: numbe
   }
 }
 
+function computeJsLikelihood(html: string): number {
+  if (!html) return 0;
+  const lower = html.toLowerCase();
+  let score = 0;
+  if (lower.includes("__next_data__") || lower.includes("data-reactroot")) score += 2;
+  if (lower.includes("webpackjson") || lower.includes("vite")) score += 1;
+  if (/<noscript>[\s\S]*?javascript[\s\S]*?<\/noscript>/i.test(html)) score += 2;
+  if (/<body[^>]*>\s*<\/body>/i.test(html)) score += 2;
+  const scriptCount = (html.match(/<script[\s\S]*?<\/script>/gi) ?? []).length;
+  if (scriptCount >= 8) score += 1;
+  return score;
+}
+
+async function fetchViaBrightDataUnlocker(
+  url: string,
+  timeoutMs: number,
+  apiKey: string,
+  zoneName: string
+): Promise<string> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch("https://api.brightdata.com/request", {
+      method: "POST",
+      signal: controller.signal,
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        zone: zoneName,
+        url,
+        format: "raw",
+      }),
+    });
+    if (!response.ok) {
+      console.warn("[web-pipeline] brightdata unlocker failed", {
+        url,
+        status: response.status,
+      });
+      return "";
+    }
+    const text = await response.text();
+    return text;
+  } catch (error) {
+    console.warn("[web-pipeline] brightdata unlocker error", { url, error });
+    return "";
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function stripBoilerplateHtml(html: string): string {
+  if (!html) return "";
+  return html
+    .replace(/<nav[\s\S]*?<\/nav>/gi, "")
+    .replace(/<footer[\s\S]*?<\/footer>/gi, "")
+    .replace(/<header[\s\S]*?<\/header>/gi, "")
+    .replace(/<aside[\s\S]*?<\/aside>/gi, "");
+}
+
 function extractTextFromHtml(html: string): string {
   if (!html) return "";
-  const cleaned = html.replace(/<script[\s\S]*?<\/script>/gi, "").replace(/<style[\s\S]*?<\/style>/gi, "");
+  const cleaned = stripBoilerplateHtml(
+    html.replace(/<script[\s\S]*?<\/script>/gi, "").replace(/<style[\s\S]*?<\/style>/gi, "")
+  );
   const text = convert(cleaned, {
     wordwrap: false,
     selectors: [
@@ -418,6 +518,46 @@ function extractTextFromHtml(html: string): string {
     ],
   });
   return normalizeWhitespace(text);
+}
+
+function extractTableBlocks(html: string): string[] {
+  if (!html) return [];
+  const tables = html.match(/<table[\s\S]*?<\/table>/gi) ?? [];
+  const blocks: string[] = [];
+  for (const table of tables) {
+    const rows = table.match(/<tr[\s\S]*?<\/tr>/gi) ?? [];
+    const lines: string[] = [];
+    for (const row of rows) {
+      const cells = row.match(/<(td|th)[\s\S]*?<\/(td|th)>/gi) ?? [];
+      const cellText = cells
+        .map((cell) =>
+          normalizeWhitespace(cell.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim())
+        )
+        .filter(Boolean);
+      if (cellText.length) {
+        lines.push(cellText.join(" | "));
+      }
+    }
+    const block = normalizeWhitespace(lines.join("\n"));
+    if (block) blocks.push(block);
+  }
+  return blocks;
+}
+
+function extractListBlocks(html: string): string[] {
+  if (!html) return [];
+  const lists = html.match(/<(ul|ol)[\s\S]*?<\/(ul|ol)>/gi) ?? [];
+  const blocks: string[] = [];
+  for (const list of lists) {
+    const items = list.match(/<li[\s\S]*?<\/li>/gi) ?? [];
+    const lines = items
+      .map((item) => normalizeWhitespace(item.replace(/<[^>]+>/g, " ").trim()))
+      .filter(Boolean)
+      .map((line) => `- ${line}`);
+    const block = normalizeWhitespace(lines.join("\n"));
+    if (block) blocks.push(block);
+  }
+  return blocks;
 }
 
 function extractStructuredDataText(html: string): string {
@@ -461,6 +601,7 @@ function extractStructuredDataText(html: string): string {
 
 type RankedChunk = WebPipelineChunk & {
   urlKey: string;
+  kind: "text" | "table" | "list";
 };
 
 function dedupeAndCapChunks(
@@ -510,6 +651,15 @@ export async function runWebSearchPipeline(prompt: string, options: PipelineOpti
   const config = { ...DEFAULTS, ...options };
   let pageFetches = 0;
   let pageCacheHits = 0;
+  const pipelineStart = performance.now();
+  const logTiming = (stage: string, start: number, extra?: Record<string, unknown>) => {
+    console.log("[web-pipeline] timing", {
+      stage,
+      ms: Math.round(performance.now() - start),
+      ...extra,
+    });
+    return performance.now();
+  };
   console.log("[web-pipeline] start", {
     queryCount: config.queryCount,
     serpDepth: config.serpDepth,
@@ -518,14 +668,17 @@ export async function runWebSearchPipeline(prompt: string, options: PipelineOpti
     topK: config.topK,
   });
 
+  const queryStart = performance.now();
   const queryResult = await writeSearchQueries({
     prompt,
     count: config.queryCount,
     currentDate: options.currentDate,
     recentMessages: options.recentMessages,
   });
+  logTiming("query_writer", queryStart, { queries: queryResult.queries.length });
   console.log("[web-pipeline] query writer output", queryResult.queries);
 
+  const serpStart = performance.now();
   const serpResponses = await Promise.all(
     queryResult.queries.map(async (query) => {
       const cacheKey = `${SERP_CACHE_PREFIX}${normalizeUrlKey(query)}`;
@@ -545,7 +698,9 @@ export async function runWebSearchPipeline(prompt: string, options: PipelineOpti
       return response;
     })
   );
+  logTiming("serp_fetch", serpStart, { queries: queryResult.queries.length });
 
+  const mergeStart = performance.now();
   const mergedMap = new Map<string, WebPipelineResult["results"][number]>();
   for (let i = 0; i < serpResponses.length; i++) {
     const response = serpResponses[i];
@@ -568,6 +723,7 @@ export async function runWebSearchPipeline(prompt: string, options: PipelineOpti
     const bPos = b.position ?? Infinity;
     return aPos - bPos;
   });
+  logTiming("merge_results", mergeStart, { results: mergedResults.length });
   console.log("[web-pipeline] merged results", mergedResults.length);
 
   const remainingResults = [...mergedResults];
@@ -597,9 +753,15 @@ export async function runWebSearchPipeline(prompt: string, options: PipelineOpti
           config.pageMaxBytes
         );
         let text = extractTextFromHtml(html);
+        const tableBlocks = extractTableBlocks(html);
+        const listBlocks = extractListBlocks(html);
+        const jsLikelihood = computeJsLikelihood(html);
         const useHeadlessRender = process.env.USE_HEADLESS_RENDER !== "0";
         const shouldTryHeadless =
-          useHeadlessRender && (status === 200 ? text.length < 80 : status === 403 || status === 429);
+          useHeadlessRender &&
+          ((status === 200 && text.length < 80 && jsLikelihood >= 2) ||
+            status === 403 ||
+            status === 429);
         if (shouldTryHeadless) {
           const rendered = await fetchRenderedHtml(
             result.url,
@@ -609,6 +771,10 @@ export async function runWebSearchPipeline(prompt: string, options: PipelineOpti
           if (rendered.html.length || rendered.text.length) {
             html = rendered.html || html;
             text = rendered.text.length ? rendered.text : extractTextFromHtml(rendered.html);
+            const renderedTables = extractTableBlocks(html);
+            const renderedLists = extractListBlocks(html);
+            if (renderedTables.length) tableBlocks.push(...renderedTables);
+            if (renderedLists.length) listBlocks.push(...renderedLists);
             if (text.length > 0) {
               status = 200;
             }
@@ -619,7 +785,8 @@ export async function runWebSearchPipeline(prompt: string, options: PipelineOpti
           }
         }
         const useJinaFallback = process.env.USE_JINA_READER_FALLBACK !== "0";
-        const shouldTryJina = useJinaFallback && status === 200 && text.length < 80;
+        const shouldTryJina =
+          useJinaFallback && status === 200 && text.length < 80 && jsLikelihood < 2;
         if (shouldTryJina) {
           const fallbackText = await fetchJinaReaderText(result.url, config.pageTimeoutMs);
           if (fallbackText.length > text.length) {
@@ -656,6 +823,8 @@ export async function runWebSearchPipeline(prompt: string, options: PipelineOpti
         return {
           ...result,
           text,
+          tableBlocks,
+          listBlocks,
           htmlLength: html.length,
           status,
           truncated,
@@ -665,22 +834,57 @@ export async function runWebSearchPipeline(prompt: string, options: PipelineOpti
     return pages;
   };
 
-  const buildChunks = (pages: Array<typeof candidateResults[number] & { text: string }>) => {
+  const buildChunks = (
+    pages: Array<typeof candidateResults[number] & { text: string; tableBlocks?: string[]; listBlocks?: string[] }>
+  ) => {
     const chunks: RankedChunk[] = [];
     for (const page of pages) {
-      if (!page.text) continue;
+      if (!page.text && !(page.tableBlocks?.length || page.listBlocks?.length)) continue;
       const urlKey = normalizeUrlKey(page.url);
       const domain = page.domain ?? extractDomainFromUrl(page.url);
-      const slices = chunkText(page.text, config.chunkSize, config.chunkOverlap);
-      for (const slice of slices) {
-        chunks.push({
-          text: slice,
-          url: page.url,
-          title: page.title,
-          domain,
-          score: 0,
-          urlKey,
-        });
+      if (page.text) {
+        const slices = chunkText(page.text, config.chunkSize, config.chunkOverlap);
+        for (const slice of slices) {
+          chunks.push({
+            text: slice,
+            url: page.url,
+            title: page.title,
+            domain,
+            score: 0,
+            urlKey,
+            kind: "text",
+          });
+        }
+      }
+      const tableBlocks = page.tableBlocks ?? [];
+      for (const block of tableBlocks) {
+        const slices = chunkText(block, config.chunkSize, config.chunkOverlap);
+        for (const slice of slices) {
+          chunks.push({
+            text: `Table:\n${slice}`,
+            url: page.url,
+            title: page.title,
+            domain,
+            score: 0,
+            urlKey,
+            kind: "table",
+          });
+        }
+      }
+      const listBlocks = page.listBlocks ?? [];
+      for (const block of listBlocks) {
+        const slices = chunkText(block, config.chunkSize, config.chunkOverlap);
+        for (const slice of slices) {
+          chunks.push({
+            text: `List:\n${slice}`,
+            url: page.url,
+            title: page.title,
+            domain,
+            score: 0,
+            urlKey,
+            kind: "list",
+          });
+        }
       }
     }
     return chunks;
@@ -692,24 +896,53 @@ export async function runWebSearchPipeline(prompt: string, options: PipelineOpti
     return { textLength, ratio };
   };
 
+  const keywordScore = (text: string, queries: string[]) => {
+    const tokens = queries
+      .flatMap((q) => q.toLowerCase().split(/[^a-z0-9]+/g))
+      .filter((t) => t.length >= 4);
+    if (!tokens.length) return 0;
+    const lower = text.toLowerCase();
+    let hits = 0;
+    for (const token of tokens) {
+      if (lower.includes(token)) hits += 1;
+    }
+    return hits / tokens.length;
+  };
+
   const rankChunks = async (chunks: RankedChunk[]) => {
     if (!chunks.length) return [];
     const queryEmbeddings = await embedTexts(queryResult.queries);
     const chunkEmbeddings = await embedTexts(chunks.map((c) => c.text));
     if (!queryEmbeddings.length || !chunkEmbeddings.length) {
       console.warn("[web-pipeline] embeddings unavailable; skipping semantic ranking.");
-      return chunks;
+      return chunks.map((chunk) => {
+        const overlap = keywordScore(chunk.text, queryResult.queries);
+        const boost = chunk.kind === "table" || chunk.kind === "list" ? 0.2 : 0;
+        return { ...chunk, score: overlap + boost };
+      });
     }
     return chunks.map((chunk, index) => {
       const embedding = chunkEmbeddings[index] ?? [];
-      const score = Math.max(...queryEmbeddings.map((q) => cosineSimilarity(q, embedding)));
+      const semantic = Math.max(...queryEmbeddings.map((q) => cosineSimilarity(q, embedding)));
+      const overlap = keywordScore(chunk.text, queryResult.queries);
+      const boost = chunk.kind === "table" || chunk.kind === "list" ? 0.2 : 0;
+      const score = semantic + overlap * 0.15 + boost;
       return { ...chunk, score };
     });
   };
 
+  const fetchStart = performance.now();
+  const fetchesBefore = pageFetches;
+  const cacheHitsBefore = pageCacheHits;
   const candidatePages = await fetchPages(candidateResults);
+  logTiming("page_fetch_initial", fetchStart, {
+    pages: candidatePages.length,
+    fetches: pageFetches - fetchesBefore,
+    cacheHits: pageCacheHits - cacheHitsBefore,
+  });
   const allFetchedPages = [...candidatePages];
   const filteredPages: Array<{ url: string; status: number; reason: string }> = [];
+  const filterStart = performance.now();
   const goodPages = candidatePages.filter((page) => {
     if (page.status !== 200) {
       filteredPages.push({ url: page.url, status: page.status, reason: "status" });
@@ -726,11 +959,22 @@ export async function runWebSearchPipeline(prompt: string, options: PipelineOpti
     }
     return true;
   });
+  logTiming("quality_filter_initial", filterStart, { goodPages: goodPages.length });
 
+  let extraFetchMs = 0;
   while (goodPages.length < config.pageLimit && remainingResults.length > 0) {
     const batch = remainingResults.splice(0, Math.min(5, remainingResults.length));
     console.log("[web-pipeline] fetching extra pages", batch.map((item) => item.url));
+    const extraStart = performance.now();
+    const extraFetchesBefore = pageFetches;
+    const extraCacheBefore = pageCacheHits;
     const extraPages = await fetchPages(batch);
+    extraFetchMs += performance.now() - extraStart;
+    logTiming("page_fetch_extra_batch", extraStart, {
+      pages: extraPages.length,
+      fetches: pageFetches - extraFetchesBefore,
+      cacheHits: pageCacheHits - extraCacheBefore,
+    });
     allFetchedPages.push(...extraPages);
     const extraGood = extraPages.filter((page) => {
       if (page.status !== 200) {
@@ -749,6 +993,12 @@ export async function runWebSearchPipeline(prompt: string, options: PipelineOpti
       return true;
     });
     goodPages.push(...extraGood);
+  }
+  if (extraFetchMs > 0) {
+    console.log("[web-pipeline] timing", {
+      stage: "page_fetch_extra_total",
+      ms: Math.round(extraFetchMs),
+    });
   }
 
   if (goodPages.length < config.pageLimit) {
@@ -782,11 +1032,15 @@ export async function runWebSearchPipeline(prompt: string, options: PipelineOpti
     selectedPages.map((page) => page.url)
   );
 
+  const chunkStart = performance.now();
   const initialPages = selectedPages;
   const initialChunks = buildChunks(initialPages);
+  logTiming("chunk_build_initial", chunkStart, { chunks: initialChunks.length });
   console.log("[web-pipeline] chunks built", initialChunks.length);
 
+  const rankStart = performance.now();
   let rankedChunks = await rankChunks(initialChunks);
+  logTiming("rank_chunks_initial", rankStart, { chunks: rankedChunks.length });
   rankedChunks = rankedChunks.sort((a, b) => b.score - a.score);
   let selectedChunks = dedupeAndCapChunks(
     rankedChunks,
@@ -794,17 +1048,45 @@ export async function runWebSearchPipeline(prompt: string, options: PipelineOpti
     config.maxChunksPerDomain,
     config.maxChunksPerUrl
   );
+  const tableListMin = 2;
+  const tableListCandidates = rankedChunks.filter((chunk) => chunk.kind !== "text");
+  if (tableListCandidates.length && selectedChunks.length) {
+    const currentTableListCount = selectedChunks.filter((chunk) => chunk.kind !== "text").length;
+    if (currentTableListCount < tableListMin) {
+      const needed = tableListMin - currentTableListCount;
+      const additions = tableListCandidates
+        .filter((chunk) => !selectedChunks.some((c) => c.urlKey === chunk.urlKey && c.text === chunk.text))
+        .sort((a, b) => b.score - a.score)
+        .slice(0, needed);
+      if (additions.length) {
+        const removable = [...selectedChunks]
+          .filter((chunk) => chunk.kind === "text")
+          .sort((a, b) => a.score - b.score);
+        for (const add of additions) {
+          if (removable.length) {
+            const drop = removable.shift();
+            if (drop) {
+              selectedChunks = selectedChunks.filter((c) => c !== drop);
+            }
+          }
+          selectedChunks.push(add);
+        }
+      }
+    }
+  }
   console.log(
     "[web-pipeline] top chunk scores",
     selectedChunks.map((chunk) => ({
       score: Number.isFinite(chunk.score) ? Number(chunk.score.toFixed(4)) : 0,
       url: chunk.url,
       title: chunk.title ?? null,
+      kind: chunk.kind,
       preview: chunk.text.slice(0, 160),
     }))
   );
   console.log("[web-pipeline] selected chunks", selectedChunks.length);
 
+  const gateStart = performance.now();
   let gate = await runEvidenceGate({
     prompt,
     chunks: selectedChunks.map((chunk) => ({
@@ -813,13 +1095,22 @@ export async function runWebSearchPipeline(prompt: string, options: PipelineOpti
       url: chunk.url,
     })),
   });
+  logTiming("evidence_gate_initial", gateStart, { enough: gate.enoughEvidence });
   console.log("[web-pipeline] gate decision", gate.enoughEvidence);
 
   let expanded = false;
   if (!gate.enoughEvidence && remainingResults.length > 0) {
     const extra = remainingResults.splice(0, 1);
     console.log("[web-pipeline] expansion fetch", extra[0]?.url);
+    const expansionFetchStart = performance.now();
+    const expansionFetchesBefore = pageFetches;
+    const expansionCacheBefore = pageCacheHits;
     const extraPages = await fetchPages(extra);
+    logTiming("expansion_fetch", expansionFetchStart, {
+      pages: extraPages.length,
+      fetches: pageFetches - expansionFetchesBefore,
+      cacheHits: pageCacheHits - expansionCacheBefore,
+    });
     const extraEligible = extraPages.filter((page) => {
       if (page.status !== 200) return false;
       const { textLength, ratio } = scorePageQuality(page);
@@ -828,9 +1119,13 @@ export async function runWebSearchPipeline(prompt: string, options: PipelineOpti
     if (extraEligible.length === 0) {
       console.log("[web-pipeline] expansion page filtered out for low quality");
     }
+    const expansionChunkStart = performance.now();
     const extraChunks = buildChunks(extraEligible.length ? extraEligible : extraPages);
     const combined = [...initialChunks, ...extraChunks];
+    logTiming("expansion_chunk_build", expansionChunkStart, { chunks: combined.length });
+    const expansionRankStart = performance.now();
     rankedChunks = await rankChunks(combined);
+    logTiming("expansion_rank", expansionRankStart, { chunks: rankedChunks.length });
     rankedChunks = rankedChunks.sort((a, b) => b.score - a.score);
     selectedChunks = dedupeAndCapChunks(
       rankedChunks,
@@ -838,6 +1133,7 @@ export async function runWebSearchPipeline(prompt: string, options: PipelineOpti
       config.maxChunksPerDomain,
       config.maxChunksPerUrl
     );
+    const expansionGateStart = performance.now();
     gate = await runEvidenceGate({
       prompt,
       chunks: selectedChunks.map((chunk) => ({
@@ -846,6 +1142,7 @@ export async function runWebSearchPipeline(prompt: string, options: PipelineOpti
         url: chunk.url,
       })),
     });
+    logTiming("expansion_gate", expansionGateStart, { enough: gate.enoughEvidence });
     expanded = true;
     console.log("[web-pipeline] gate decision after expansion", gate.enoughEvidence);
   }
@@ -863,6 +1160,7 @@ export async function runWebSearchPipeline(prompt: string, options: PipelineOpti
     pagesSelected: selectedPages.length,
     chunksSelected: selectedChunks.length,
   });
+  logTiming("pipeline_total", pipelineStart);
 
   return {
     queries: queryResult.queries,
