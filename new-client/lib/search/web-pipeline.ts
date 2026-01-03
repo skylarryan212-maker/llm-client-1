@@ -381,6 +381,9 @@ async function getPlaywright() {
   if (attemptedPlaywright) return cachedPlaywright;
   attemptedPlaywright = true;
   try {
+    if (!process.env.PLAYWRIGHT_BROWSERS_PATH) {
+      process.env.PLAYWRIGHT_BROWSERS_PATH = "0";
+    }
     const moduleName = process.env.PLAYWRIGHT_MODULE ?? "playwright";
     const mod = await import(moduleName as string);
     cachedPlaywright = mod;
