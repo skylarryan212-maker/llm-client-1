@@ -42,6 +42,7 @@ import { toFile } from "openai";
 import { buildOpenAIClientOptions } from "@/lib/openai/client";
 import { runDecisionRouter } from "@/lib/router/decision-router";
 import { runWriterRouter } from "@/lib/router/write-router";
+import { runWebSearchPipeline, type WebPipelineResult } from "@/lib/search/web-pipeline";
 import { estimateTokens } from "@/lib/tokens/estimateTokens";
 import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
@@ -62,6 +63,35 @@ const ALLOWED_ASSISTANT_IMAGE_MIME_TYPES = new Set([
 const CROSS_CHAT_TOPIC_TOKEN_LIMIT = 200_000;
 const MAX_FOREIGN_CONVERSATIONS = 12;
 const MAX_FOREIGN_TOPICS = 50;
+
+function formatWebPipelineContext(result: WebPipelineResult) {
+  const queriesLine = result.queries.length ? `Queries: ${result.queries.join(" | ")}` : "";
+  const sources = result.sources
+    .map((source, index) => `[${index + 1}] ${source.title} - ${source.url}`)
+    .join("\n");
+  const chunkLines = result.chunks.map((chunk, index) => {
+    const excerpt = chunk.text.length > 900 ? `${chunk.text.slice(0, 900)}...` : chunk.text;
+    return `Chunk ${index + 1} (${chunk.url}): ${excerpt}`;
+  });
+  const evidence = chunkLines.join("\n\n");
+  return [
+    "Web search results (internal pipeline; do not call web_search tool):",
+    queriesLine,
+    sources ? `Sources:\n${sources}` : "",
+    evidence ? `Evidence:\n${evidence}` : "",
+  ]
+    .filter((line) => line && line.trim().length > 0)
+    .join("\n\n");
+}
+
+function extractPipelineDomains(result: WebPipelineResult): string[] {
+  const domains = new Set<string>();
+  for (const source of result.sources) {
+    const domain = extractDomainFromUrl(source.url);
+    if (domain) domains.add(domain);
+  }
+  return Array.from(domains);
+}
 
 function isPrivateIpAddress(ip: string): boolean {
   // IPv4
@@ -2101,10 +2131,32 @@ export async function POST(request: NextRequest) {
 	      advancedContextTopicIds,
         agentId = null,
         marketAgentContext = null,
-	    } = body;
+    } = body;
     const headerGeo = getApproximateLocationFromHeaders(request);
     const effectiveLocation = location ?? headerGeo.location ?? null;
     const effectiveTimezone = timezone ?? location?.timezone ?? headerGeo.timezone ?? null;
+    const useCustomWebSearch = process.env.USE_DATAFORSEO_WEB_SEARCH === "1";
+    const trimmedMessage = message?.trim() ?? "";
+    let customWebSearchPromise: Promise<WebPipelineResult> | null = null;
+    let customWebSearchResult: WebPipelineResult | null = null;
+    const nowForSearch = typeof clientNow === "string" || typeof clientNow === "number"
+      ? new Date(clientNow)
+      : new Date();
+    const currentDateForSearch = (() => {
+      try {
+        if (effectiveTimezone) {
+          return new Intl.DateTimeFormat("en-CA", {
+            timeZone: effectiveTimezone,
+            year: "numeric",
+            month: "2-digit",
+            day: "2-digit",
+          }).format(nowForSearch);
+        }
+      } catch {
+        // fall through
+      }
+      return nowForSearch.toISOString().slice(0, 10);
+    })();
 
     const extractReasoningText = (reasoning: any): string => {
       if (!reasoning) return "";
@@ -2223,6 +2275,7 @@ export async function POST(request: NextRequest) {
         { status: 404 }
       );
     }
+
     const effectiveSimpleContextMode = forceSpeedMode ? true : simpleContextMode;
     const effectiveAdvancedContextTopicIds = forceSpeedMode ? [] : advancedContextTopicIds;
 
@@ -2456,12 +2509,25 @@ export async function POST(request: NextRequest) {
     }
 
     // Exclude the current user prompt from router contexts to avoid duplication.
-    const recentMessagesForRouting: MessageRow[] = Array.isArray(recentMessages)
-      ? recentMessages.filter((m: MessageRow) => m.id !== userMessageRow?.id)
-      : [];
+      const recentMessagesForRouting: MessageRow[] = Array.isArray(recentMessages)
+        ? recentMessages.filter((m: MessageRow) => m.id !== userMessageRow?.id)
+        : [];
 
-    const resolvedMarketInstanceId =
-      (marketAgentContext as any)?.instanceId ??
+      if (useCustomWebSearch && trimmedMessage) {
+        const recentMessagesForSearch = (recentMessagesForRouting || [])
+          .slice(-6)
+          .map((m: any) => ({
+            role: (m.role as "user" | "assistant" | "system") ?? "user",
+            content: m.content ?? "",
+          }));
+        customWebSearchPromise = runWebSearchPipeline(trimmedMessage, {
+          recentMessages: recentMessagesForSearch,
+          currentDate: currentDateForSearch,
+        });
+      }
+
+      const resolvedMarketInstanceId =
+        (marketAgentContext as any)?.instanceId ??
       ((userMessageRow?.metadata as any)?.market_agent_instance_id as string | null) ??
       (conversationMetadata && typeof conversationMetadata.market_agent_instance_id === "string"
         ? (conversationMetadata.market_agent_instance_id as string)
@@ -2980,8 +3046,23 @@ export async function POST(request: NextRequest) {
       contextMessages = [...marketContextMessages, ...contextMessages];
     }
 
-    const allowWebSearch = true;
-    const requireWebSearch = forceWebSearch;
+    if (customWebSearchPromise) {
+      try {
+        customWebSearchResult = await customWebSearchPromise;
+        console.log("[web-pipeline] completed for prompt");
+      } catch (searchErr) {
+        console.error("[web-pipeline] failed", searchErr);
+        customWebSearchResult = null;
+      }
+    }
+    const pipelineGate = customWebSearchResult?.gate?.enoughEvidence === true;
+    const customWebSearchContext =
+      customWebSearchResult && pipelineGate ? formatWebPipelineContext(customWebSearchResult) : null;
+    const customWebSearchDomains =
+      customWebSearchResult && pipelineGate ? extractPipelineDomains(customWebSearchResult) : [];
+
+    const allowWebSearch = !useCustomWebSearch || !pipelineGate;
+    const requireWebSearch = forceWebSearch && (!useCustomWebSearch || !pipelineGate);
 
     const permanentInstructionWrites = (modelConfig as any).permanentInstructionsToWrite || [];
     let permanentInstructionDeletes = (modelConfig as any).permanentInstructionsToDelete || [];
@@ -3419,7 +3500,14 @@ export async function POST(request: NextRequest) {
             })()
           ]
         : []),
-      ...(forceWebSearch ? [FORCE_WEB_SEARCH_PROMPT] : []),
+      ...(useCustomWebSearch && pipelineGate
+        ? [
+            "Use the provided web search context for any live/factual claims. Do NOT call the web_search tool.",
+            "You must cite sources from the provided context using markdown links [text](url) and include a final 'Sources:' section listing all cited links.",
+          ]
+        : []),
+      ...(customWebSearchContext ? [customWebSearchContext] : []),
+      ...(allowWebSearch && forceWebSearch ? [FORCE_WEB_SEARCH_PROMPT] : []),
       ...(allowWebSearch && requireWebSearch && !forceWebSearch ? [EXPLICIT_WEB_SEARCH_PROMPT] : []),
     ].join("\n\n");
 
@@ -3845,6 +3933,17 @@ export async function POST(request: NextRequest) {
             noteDomainsFromCall(entry as WebSearchCall);
           });
         };
+        if (customWebSearchResult) {
+          const queryLabel =
+            customWebSearchResult.queries?.join(" | ")?.trim() || "web search";
+          sendStatusUpdate({ type: "search-start", query: queryLabel });
+          customWebSearchDomains.forEach((domain) => recordLiveSearchDomain(domain));
+          sendStatusUpdate({
+            type: "search-complete",
+            query: queryLabel,
+            results: customWebSearchResult.results?.length ?? 0,
+          });
+        }
         let doneSent = false;
         let contextUsage:
           | {
