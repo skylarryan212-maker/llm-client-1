@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import path from "node:path";
 import { chromium as playwrightChromium } from "playwright-core";
 import chromium from "@sparticuz/chromium";
 
@@ -29,9 +30,12 @@ async function renderWithPlaywright(url: string, timeoutMs: number, maxBytes: nu
     const executablePath = await chromium.executablePath();
     const args = chromium.args ?? [];
     const headless = chromium.headless === "shell" ? true : chromium.headless ?? true;
+    const libraryPath = executablePath ? path.dirname(executablePath) : undefined;
     const env = {
       ...process.env,
-      LD_LIBRARY_PATH: (chromium as any).libraryPath ?? process.env.LD_LIBRARY_PATH,
+      LD_LIBRARY_PATH: [libraryPath, (chromium as any).libPath, process.env.LD_LIBRARY_PATH]
+        .filter(Boolean)
+        .join(":") || undefined,
     };
     browser = await playwrightChromium.launch({
       headless,
