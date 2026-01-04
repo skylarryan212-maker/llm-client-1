@@ -28,7 +28,7 @@ async function renderWithPlaywright(url: string, timeoutMs: number, maxBytes: nu
   try {
     const executablePath = await chromium.executablePath();
     const args = chromium.args ?? [];
-    const headless = chromium.headless !== undefined ? chromium.headless : true;
+    const headless = chromium.headless === "shell" ? true : chromium.headless ?? true;
     const env = {
       ...process.env,
       LD_LIBRARY_PATH: (chromium as any).libraryPath ?? process.env.LD_LIBRARY_PATH,
