@@ -245,6 +245,30 @@ const NON_HTML_EXTENSIONS = new Set([
   "atom",
 ]);
 
+const PATH_KEYWORD_SKIP = [
+  "privacy",
+  "terms",
+  "tos",
+  "cookie",
+  "cookies",
+  "policy",
+  "legal",
+  "gdpr",
+  "ccpa",
+  "careers",
+  "jobs",
+  "about",
+  "contact",
+  "press",
+  "advert",
+  "sitemap",
+  "login",
+  "signup",
+  "register",
+  "account",
+  "subscribe",
+];
+
 function isHtmlContentType(contentType: string): boolean {
   const normalized = contentType.toLowerCase();
   return normalized.includes("text/html") || normalized.includes("application/xhtml+xml");
@@ -254,6 +278,10 @@ function isLikelyHtmlUrl(value: string): boolean {
   try {
     const parsed = new URL(value);
     if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return false;
+    const pathLower = parsed.pathname.toLowerCase();
+    for (const keyword of PATH_KEYWORD_SKIP) {
+      if (pathLower.includes(keyword)) return false;
+    }
     const pathname = parsed.pathname.toLowerCase();
     if (!pathname || pathname.endsWith("/")) return true;
     const lastSegment = pathname.split("/").pop() ?? "";
@@ -1117,6 +1145,12 @@ ${slice}`,
     return { textLength, ratio };
   };
 
+  const isHighQualityPage = (page: { text: string; htmlLength: number; status?: number }) => {
+    if (page.status !== undefined && page.status !== 200) return false;
+    const { textLength, ratio } = scorePageQuality(page);
+    return textLength >= config.minPageTextLength && ratio >= config.minContentRatio;
+  };
+
   type LinkQueueItem = {
     url: string;
     depth: number;
@@ -1167,6 +1201,7 @@ ${slice}`,
     };
 
     seedPages.forEach((page, index) => {
+      if (!isHighQualityPage(page)) return;
       enqueueLinks(index, 1, page.links ?? []);
     });
 
@@ -1246,6 +1281,7 @@ ${slice}`,
       fetched.forEach((page, index) => {
         const meta = batchItems[index];
         if (!meta) return;
+        if (!isHighQualityPage(page)) return;
         enqueueLinks(meta.rootId, meta.depth + 1, page.links ?? []);
       });
     }
