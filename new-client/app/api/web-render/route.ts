@@ -41,11 +41,17 @@ async function renderWithPlaywright(url: string, timeoutMs: number, maxBytes: nu
     const args = chromium.args ?? [];
     const headless = chromium.headless === "shell" ? true : chromium.headless ?? true;
     const libraryPath = executablePath ? path.dirname(executablePath) : undefined;
+    const bundledLibPath = libraryPath ? path.join(libraryPath, "lib") : undefined;
     const env: Record<string, string | number | boolean> = {};
     for (const [k, v] of Object.entries(process.env)) {
       if (v !== undefined) env[k] = v;
     }
-    const ldPath = [libraryPath, (chromium as any).libPath, process.env.LD_LIBRARY_PATH]
+    const ldPath = [
+      bundledLibPath,
+      libraryPath,
+      (chromium as any).libPath,
+      process.env.LD_LIBRARY_PATH,
+    ]
       .filter(Boolean)
       .join(":");
     if (ldPath) {

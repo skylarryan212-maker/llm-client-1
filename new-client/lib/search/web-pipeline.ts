@@ -78,7 +78,7 @@ const DEFAULTS = {
   pageMaxBytes: 8 * 1024 * 1024,
   minPageTextLength: 2000,
   minContentRatio: 0.02,
-  chunkSize: 1200,
+  chunkSize: 1000,
   chunkOverlap: 200,
   topK: 12,
   maxChunksPerDomain: 3,
@@ -189,12 +189,54 @@ function normalizeWhitespace(text: string): string {
   return text.replace(/\s+/g, " ").trim();
 }
 
+function splitByTokens(text: string, maxTokens: number): string[] {
+  const words = text.split(/\s+/).filter(Boolean);
+  if (!words.length) return [];
+  const chunks: string[] = [];
+  let current: string[] = [];
+  let currentTokens = 0;
+
+  for (const word of words) {
+    const wordTokens = Math.max(estimateTokens(word), 1);
+    if (currentTokens + wordTokens > maxTokens && current.length > 0) {
+      chunks.push(current.join(" "));
+      current = [word];
+      currentTokens = wordTokens;
+      continue;
+    }
+    current.push(word);
+    currentTokens += wordTokens;
+  }
+  if (current.length) {
+    chunks.push(current.join(" "));
+  }
+  return chunks;
+}
+
+function takeTailByTokens(text: string, targetTokens: number): string {
+  if (targetTokens <= 0) return "";
+  const words = text.split(/\s+/).filter(Boolean);
+  if (!words.length) return "";
+  const tokenCounts = words.map((word) => Math.max(estimateTokens(word), 1));
+  let total = 0;
+  let start = words.length;
+  for (let i = words.length - 1; i >= 0; i -= 1) {
+    total += tokenCounts[i];
+    if (total >= targetTokens) {
+      start = i;
+      break;
+    }
+  }
+  return words.slice(start).join(" ");
+}
+
 function chunkText(text: string, chunkSize: number, overlap: number): string[] {
   const normalized = text.replace(/\r/g, "").trim();
   if (!normalized) return [];
   const paragraphs = normalized.split(/\n{2,}/g).map((p) => p.trim()).filter(Boolean);
   const chunks: string[] = [];
   let current = "";
+  let currentTokens = 0;
 
   const pushChunk = () => {
     const trimmed = current.trim();
@@ -204,16 +246,37 @@ function chunkText(text: string, chunkSize: number, overlap: number): string[] {
   };
 
   for (const para of paragraphs) {
-    if ((current + " " + para).length <= chunkSize) {
+    const paraTokens = estimateTokens(para);
+    if (paraTokens > chunkSize) {
+      const splitParas = splitByTokens(para, chunkSize);
+      for (const splitPara of splitParas) {
+        const splitTokens = estimateTokens(splitPara);
+        if (currentTokens + splitTokens <= chunkSize) {
+          current = current ? `${current}\n\n${splitPara}` : splitPara;
+          currentTokens += splitTokens;
+        } else {
+          pushChunk();
+          const overlapText = overlap > 0 ? takeTailByTokens(current, overlap) : "";
+          current = overlapText ? `${overlapText}\n\n${splitPara}` : splitPara;
+          currentTokens = (overlapText ? estimateTokens(overlapText) : 0) + splitTokens;
+        }
+      }
+      continue;
+    }
+
+    if (currentTokens + paraTokens <= chunkSize) {
       current = current ? `${current}\n\n${para}` : para;
+      currentTokens += paraTokens;
       continue;
     }
     if (current) {
       pushChunk();
-      const overlapText = current.slice(Math.max(0, current.length - overlap));
+      const overlapText = overlap > 0 ? takeTailByTokens(current, overlap) : "";
       current = overlapText ? `${overlapText}\n\n${para}` : para;
+      currentTokens = (overlapText ? estimateTokens(overlapText) : 0) + paraTokens;
     } else {
       current = para;
+      currentTokens = paraTokens;
     }
   }
   pushChunk();
