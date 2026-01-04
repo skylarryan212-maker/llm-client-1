@@ -27,11 +27,18 @@ async function renderWithPlaywright(url: string, timeoutMs: number, maxBytes: nu
   let browser: any = null;
   try {
     const executablePath = await chromium.executablePath();
+    const args = chromium.args ?? [];
+    const headless = chromium.headless !== undefined ? chromium.headless : true;
+    const env = {
+      ...process.env,
+      LD_LIBRARY_PATH: chromium.libraryPath ?? process.env.LD_LIBRARY_PATH,
+    };
     browser = await playwrightChromium.launch({
-      headless: true,
-      args: chromium.args,
+      headless,
+      args,
       executablePath: executablePath || undefined,
       chromiumSandbox: false,
+      env,
       ...(proxyServer
         ? {
             proxy: {
