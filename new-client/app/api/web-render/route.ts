@@ -40,22 +40,28 @@ async function renderWithPlaywright(url: string, timeoutMs: number, maxBytes: nu
     }
     const args = chromium.args ?? [];
     const headless = chromium.headless === "shell" ? true : chromium.headless ?? true;
-    const libraryPath = executablePath ? path.dirname(executablePath) : undefined;
-    const bundledLibPath = libraryPath ? path.join(libraryPath, "lib") : undefined;
+    const execDir = executablePath ? path.dirname(executablePath) : undefined;
+    const parentDir = execDir ? path.dirname(execDir) : undefined;
+    const chromiumLibPath = (chromium as { libPath?: string; libraryPath?: string }).libPath
+      ?? (chromium as { libPath?: string; libraryPath?: string }).libraryPath;
+    const bundledLibPath = execDir ? path.join(execDir, "lib") : undefined;
     const env: Record<string, string | number | boolean> = {};
     for (const [k, v] of Object.entries(process.env)) {
       if (v !== undefined) env[k] = v;
     }
     const ldPath = [
       bundledLibPath,
-      libraryPath,
-      (chromium as any).libPath,
+      execDir,
+      parentDir ? path.join(parentDir, "lib") : undefined,
+      parentDir,
+      chromiumLibPath,
       process.env.LD_LIBRARY_PATH,
     ]
       .filter(Boolean)
       .join(":");
     if (ldPath) {
       env.LD_LIBRARY_PATH = ldPath;
+      process.env.LD_LIBRARY_PATH = ldPath;
     }
     browser = await playwrightChromium.launch({
       headless,
@@ -84,7 +90,7 @@ async function renderWithPlaywright(url: string, timeoutMs: number, maxBytes: nu
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
       locale: "en-US",
       viewport: { width: 1366, height: 768 },
-      ...(proxyServer ? { ignoreHTTPSErrors: true } : {}),
+      ignoreHTTPSErrors: true,
     });
     await context.addInitScript(() => {
       Object.defineProperty(navigator, "webdriver", { get: () => undefined });

@@ -30,6 +30,7 @@ type PipelineOptions = {
   currentDate?: string;
   onProgress?: (event: { type: "page_fetch_progress"; searched: number }) => void;
   retryOnGateFailure?: boolean;
+  allowSkip?: boolean;
 };
 
 export type WebPipelineChunk = {
@@ -53,6 +54,8 @@ export type WebPipelineResult = {
   sources: Array<{ title: string; url: string }>;
   gate: { enoughEvidence: boolean };
   expanded: boolean;
+  skipped?: boolean;
+  skipReason?: string;
   cost?: {
     serpRequests: number;
     serpEstimatedUsd: number;
@@ -564,29 +567,56 @@ function extractTextFromHtml(html: string): string {
   const cleaned = stripBoilerplateHtml(
     html.replace(/<script[\s\S]*?<\/script>/gi, "").replace(/<style[\s\S]*?<\/style>/gi, "")
   );
-  const text = convert(cleaned, {
-    wordwrap: false,
-    selectors: [
-      { selector: "a", options: { ignoreHref: true } },
-      { selector: "img", format: "skip" },
-      { selector: "svg", format: "skip" },
-      { selector: "script", format: "skip" },
-      { selector: "style", format: "skip" },
-      { selector: "noscript", format: "skip" },
-    ],
-  });
-  return normalizeWhitespace(text);
+  try {
+    const text = convert(cleaned, {
+      wordwrap: false,
+      selectors: [
+        { selector: "a", options: { ignoreHref: true } },
+        { selector: "img", format: "skip" },
+        { selector: "svg", format: "skip" },
+        { selector: "script", format: "skip" },
+        { selector: "style", format: "skip" },
+        { selector: "noscript", format: "skip" },
+      ],
+    });
+    return normalizeWhitespace(text);
+  } catch (error) {
+    console.warn("[web-pipeline] html-to-text failed", { error });
+    const stripped = cleaned.replace(/<[^>]+>/g, " ");
+    return normalizeWhitespace(stripped);
+  }
 }
 
 function extractTableBlocks(html: string): string[] {
   if (!html) return [];
-  const tables = html.match(/<table[\s\S]*?<\/table>/gi) ?? [];
+  let tables: RegExpMatchArray | null = null;
+  try {
+    tables = html.match(/<table[\s\S]*?<\/table>/gi);
+  } catch (error) {
+    console.warn("[web-pipeline] table parse failed", { error });
+    tables = null;
+  }
+  if (!tables) return [];
   const blocks: string[] = [];
   for (const table of tables) {
-    const rows = table.match(/<tr[\s\S]*?<\/tr>/gi) ?? [];
+    let rows: RegExpMatchArray | null = null;
+    try {
+      rows = table.match(/<tr[\s\S]*?<\/tr>/gi);
+    } catch (error) {
+      console.warn("[web-pipeline] table row parse failed", { error });
+      rows = null;
+    }
+    if (!rows) continue;
     const lines: string[] = [];
     for (const row of rows) {
-      const cells = row.match(/<(td|th)[\s\S]*?<\/(td|th)>/gi) ?? [];
+      let cells: RegExpMatchArray | null = null;
+      try {
+        cells = row.match(/<(td|th)[\s\S]*?<\/(td|th)>/gi);
+      } catch (error) {
+        console.warn("[web-pipeline] table cell parse failed", { error });
+        cells = null;
+      }
+      if (!cells) continue;
       const cellText = cells
         .map((cell) =>
           normalizeWhitespace(cell.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim())
@@ -604,10 +634,24 @@ function extractTableBlocks(html: string): string[] {
 
 function extractListBlocks(html: string): string[] {
   if (!html) return [];
-  const lists = html.match(/<(ul|ol)[\s\S]*?<\/(ul|ol)>/gi) ?? [];
+  let lists: RegExpMatchArray | null = null;
+  try {
+    lists = html.match(/<(ul|ol)[\s\S]*?<\/(ul|ol)>/gi);
+  } catch (error) {
+    console.warn("[web-pipeline] list parse failed", { error });
+    lists = null;
+  }
+  if (!lists) return [];
   const blocks: string[] = [];
   for (const list of lists) {
-    const items = list.match(/<li[\s\S]*?<\/li>/gi) ?? [];
+    let items: RegExpMatchArray | null = null;
+    try {
+      items = list.match(/<li[\s\S]*?<\/li>/gi);
+    } catch (error) {
+      console.warn("[web-pipeline] list item parse failed", { error });
+      items = null;
+    }
+    if (!items) continue;
     const lines = items
       .map((item) => normalizeWhitespace(item.replace(/<[^>]+>/g, " ").trim()))
       .filter(Boolean)
@@ -740,6 +784,28 @@ export async function runWebSearchPipeline(prompt: string, options: PipelineOpti
   });
   logTiming("query_writer", queryStart, { queries: queryResult.queries.length });
   console.log("[web-pipeline] query writer output", queryResult.queries);
+  if (queryResult.useWebSearch === false && config.allowSkip !== false) {
+    console.log("[web-pipeline] query writer skipped search", {
+      reason: queryResult.reason ?? "Not needed",
+    });
+    logTiming("pipeline_total", pipelineStart);
+    return {
+      queries: [],
+      results: [],
+      chunks: [],
+      sources: [],
+      gate: { enoughEvidence: false },
+      expanded: false,
+      skipped: true,
+      skipReason: queryResult.reason,
+      cost: {
+        serpRequests: 0,
+        serpEstimatedUsd: 0,
+        brightdataUnlockerRequests: 0,
+        brightdataUnlockerEstimatedUsd: 0,
+      },
+    } satisfies WebPipelineResult;
+  }
 
   let serpRequestsTotal = 0;
   const retryOnGateFailure = options.retryOnGateFailure !== false;
@@ -754,115 +820,130 @@ export async function runWebSearchPipeline(prompt: string, options: PipelineOpti
   const fetchPages = async (results: WebPipelineResult["results"]) => {
     const pages = await Promise.all(
       results.map(async (result) => {
-        const cacheKey = `${PAGE_CACHE_PREFIX}${normalizeUrlKey(result.url)}`;
-        const cached = await loadPageCache(cacheKey);
-        if (cached?.text_content) {
-          pageCacheHits += 1;
-          console.log("[web-pipeline] page cache hit", result.url);
+        try {
+          const cacheKey = `${PAGE_CACHE_PREFIX}${normalizeUrlKey(result.url)}`;
+          const cached = await loadPageCache(cacheKey);
+          if (cached?.text_content) {
+            pageCacheHits += 1;
+            console.log("[web-pipeline] page cache hit", result.url);
+            searchedCount += 1;
+            reportProgress();
+            return {
+              ...result,
+              text: cached.text_content as string,
+              htmlLength: typeof cached.html === "string" ? cached.html.length : 0,
+              status: typeof cached.status === "number" ? cached.status : 0,
+              truncated: Boolean(cached.truncated),
+            };
+          }
+          pageFetches += 1;
+          console.log("[web-pipeline] fetching page", result.url);
+          let { html, truncated, status } = await fetchPageHtml(
+            result.url,
+            config.pageTimeoutMs,
+            config.pageMaxBytes,
+            {
+              onUnlockerUsed: () => {
+                brightdataUnlockerRequests += 1;
+              },
+            }
+          );
+          let text = extractTextFromHtml(html);
+          const tableBlocks = extractTableBlocks(html);
+          const listBlocks = extractListBlocks(html);
+          const jsLikelihood = computeJsLikelihood(html);
+          const useHeadlessRender = process.env.USE_HEADLESS_RENDER !== "0";
+          const shouldTryHeadless =
+            useHeadlessRender &&
+            ((status === 200 && text.length < 80 && jsLikelihood >= 2) ||
+              status === 403 ||
+              status === 429);
+          if (shouldTryHeadless) {
+            const rendered = await fetchRenderedHtmlViaService(
+              result.url,
+              config.pageTimeoutMs,
+              config.pageMaxBytes
+            );
+            if (rendered.html.length || rendered.text.length) {
+              html = rendered.html || html;
+              text = rendered.text.length ? rendered.text : extractTextFromHtml(rendered.html);
+              const renderedTables = extractTableBlocks(html);
+              const renderedLists = extractListBlocks(html);
+              if (renderedTables.length) tableBlocks.push(...renderedTables);
+              if (renderedLists.length) listBlocks.push(...renderedLists);
+              if (text.length > 0) {
+                status = 200;
+              }
+              console.log("[web-pipeline] headless render used", {
+                url: result.url,
+                renderedLength: text.length,
+              });
+            }
+          }
+          const useJinaFallback = process.env.USE_JINA_READER_FALLBACK !== "0";
+          const shouldTryJina =
+            useJinaFallback && status === 200 && text.length < 80 && jsLikelihood < 2;
+          if (shouldTryJina) {
+            const fallbackText = await fetchJinaReaderText(result.url, config.pageTimeoutMs);
+            if (fallbackText.length > text.length) {
+              text = fallbackText;
+              console.log("[web-pipeline] jina fallback used", {
+                url: result.url,
+                fallbackLength: fallbackText.length,
+              });
+            } else if (html.length > 2000) {
+              console.log("[web-pipeline] js shell/blocked suspected", {
+                url: result.url,
+                htmlLength: html.length,
+                textLength: text.length,
+              });
+            }
+          }
+          const structuredText = extractStructuredDataText(html);
+          if (structuredText) {
+            text = `${text}
+
+Structured data:
+${structuredText}`.trim();
+          }
+          await savePageCache(cacheKey, result.url, {
+            html,
+            text,
+            truncated,
+            status,
+          });
+          console.log("[web-pipeline] page extracted", {
+            url: result.url,
+            status,
+            truncated,
+            length: text.length,
+            htmlLength: html.length,
+          });
           searchedCount += 1;
           reportProgress();
           return {
             ...result,
-            text: cached.text_content as string,
-            htmlLength: typeof cached.html === "string" ? cached.html.length : 0,
-            status: typeof cached.status === "number" ? cached.status : 0,
-            truncated: Boolean(cached.truncated),
+            text,
+            tableBlocks,
+            listBlocks,
+            htmlLength: html.length,
+            status,
+            truncated,
+          };
+        } catch (error) {
+          console.warn("[web-pipeline] page processing failed", { url: result.url, error });
+          searchedCount += 1;
+          reportProgress();
+          return {
+            ...result,
+            text: "",
+            tableBlocks: [],
+            listBlocks: [],
+            htmlLength: 0,
+            status: 0,
+            truncated: false,
           };
         }
-        pageFetches += 1;
-        console.log("[web-pipeline] fetching page", result.url);
-        let { html, truncated, status } = await fetchPageHtml(
-          result.url,
-          config.pageTimeoutMs,
-          config.pageMaxBytes,
-          {
-            onUnlockerUsed: () => {
-              brightdataUnlockerRequests += 1;
-            },
-          }
-        );
-        let text = extractTextFromHtml(html);
-        const tableBlocks = extractTableBlocks(html);
-        const listBlocks = extractListBlocks(html);
-        const jsLikelihood = computeJsLikelihood(html);
-        const useHeadlessRender = process.env.USE_HEADLESS_RENDER !== "0";
-        const shouldTryHeadless =
-          useHeadlessRender &&
-          ((status === 200 && text.length < 80 && jsLikelihood >= 2) ||
-            status === 403 ||
-            status === 429);
-        if (shouldTryHeadless) {
-          const rendered = await fetchRenderedHtmlViaService(
-            result.url,
-            config.pageTimeoutMs,
-            config.pageMaxBytes
-          );
-          if (rendered.html.length || rendered.text.length) {
-            html = rendered.html || html;
-            text = rendered.text.length ? rendered.text : extractTextFromHtml(rendered.html);
-            const renderedTables = extractTableBlocks(html);
-            const renderedLists = extractListBlocks(html);
-            if (renderedTables.length) tableBlocks.push(...renderedTables);
-            if (renderedLists.length) listBlocks.push(...renderedLists);
-            if (text.length > 0) {
-              status = 200;
-            }
-            console.log("[web-pipeline] headless render used", {
-              url: result.url,
-              renderedLength: text.length,
-            });
-          }
-        }
-        const useJinaFallback = process.env.USE_JINA_READER_FALLBACK !== "0";
-        const shouldTryJina =
-          useJinaFallback && status === 200 && text.length < 80 && jsLikelihood < 2;
-        if (shouldTryJina) {
-          const fallbackText = await fetchJinaReaderText(result.url, config.pageTimeoutMs);
-          if (fallbackText.length > text.length) {
-            text = fallbackText;
-            console.log("[web-pipeline] jina fallback used", {
-              url: result.url,
-              fallbackLength: fallbackText.length,
-            });
-          } else if (html.length > 2000) {
-            console.log("[web-pipeline] js shell/blocked suspected", {
-              url: result.url,
-              htmlLength: html.length,
-              textLength: text.length,
-            });
-          }
-        }
-        const structuredText = extractStructuredDataText(html);
-        if (structuredText) {
-          text = `${text}
-
-Structured data:
-${structuredText}`.trim();
-        }
-        await savePageCache(cacheKey, result.url, {
-          html,
-          text,
-          truncated,
-          status,
-        });
-        console.log("[web-pipeline] page extracted", {
-          url: result.url,
-          status,
-          truncated,
-          length: text.length,
-          htmlLength: html.length,
-        });
-        searchedCount += 1;
-        reportProgress();
-        return {
-          ...result,
-          text,
-          tableBlocks,
-          listBlocks,
-          htmlLength: html.length,
-          status,
-          truncated,
-        };
       })
     );
     return pages;

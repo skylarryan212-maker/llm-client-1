@@ -4,6 +4,8 @@ import { calculateCost } from "@/lib/pricing";
 
 export type QueryWriterResult = {
   queries: string[];
+  useWebSearch: boolean;
+  reason?: string;
 };
 
 function logDeepInfraUsage(label: string, model: string, usage?: { input_tokens: number; output_tokens: number }) {
@@ -29,15 +31,18 @@ export async function writeSearchQueries(params: {
   const count = params.count ?? 2;
   const systemPrompt = `You are a search query writer for a web search pipeline.
 Return JSON only with this shape:
-{ "queries": string[] }
+{ "useWebSearch": boolean, "queries": string[], "reason": string }
 Rules:
-- Produce ${count} concise queries.
+- Decide whether web search will materially help answer the prompt.
+- If web search will NOT help (e.g., purely conversational, personal preference, creative writing, general advice, or internal app help without external facts), set "useWebSearch": false and return an empty queries array.
+- If web search WILL help (facts, stats, current events, prices, schedules, citations), set "useWebSearch": true and produce ${count} concise queries.
 - Use the prompt as the primary signal. Use recent messages only to disambiguate.
 - If the prompt implies recency, use the provided current date to anchor queries.
 - Prefer breadth across queries: cover different angles of the same question.
 - For technical questions about extraction/pipelines (e.g., non-HTML, PDF, JS rendering, OCR, indexing),
   include method-specific queries (JavaScript rendering/indexing, PDF/OCR, and search engine indexing).
 - Queries should be short, specific, and not include quotes.
+- If "useWebSearch" is false, include a short reason in "reason" (max 12 words).
 - Do not include commentary or extra fields.`;
 
   const recentMessageBlock = Array.isArray(params.recentMessages) && params.recentMessages.length
@@ -71,9 +76,11 @@ Rules:
       type: "object",
       additionalProperties: false,
       properties: {
+        useWebSearch: { type: "boolean" },
         queries: { type: "array", items: { type: "string" } },
+        reason: { type: "string" },
       },
-      required: ["queries"],
+      required: ["useWebSearch", "queries"],
     },
     temperature: 0.2,
     model: "openai/gpt-oss-20b",
@@ -93,7 +100,16 @@ Rules:
     parsed = null;
   }
 
-  const rawQueries = Array.isArray(parsed?.queries) ? parsed!.queries : [];
+  const shouldUseWebSearch = typeof parsed?.useWebSearch === "boolean" ? parsed.useWebSearch : true;
+  if (!shouldUseWebSearch) {
+    return {
+      queries: [],
+      useWebSearch: false,
+      reason: typeof parsed?.reason === "string" ? parsed.reason.trim() : "Not needed",
+    };
+  }
+
+  const rawQueries = Array.isArray(parsed?.queries) ? parsed.queries : [];
   const cleaned = rawQueries
     .map((q) => (typeof q === "string" ? q.trim() : ""))
     .filter((q) => q.length > 0);
@@ -110,7 +126,7 @@ Rules:
     finalQueries.push(params.prompt.trim());
   }
 
-  return { queries: finalQueries };
+  return { queries: finalQueries, useWebSearch: true };
 }
 
 export type GateDecision = {

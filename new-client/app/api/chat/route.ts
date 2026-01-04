@@ -3787,6 +3787,7 @@ export async function POST(request: NextRequest) {
               locationName: customWebSearchInput.location?.city ?? effectiveLocation?.city ?? undefined,
               languageCode: customWebSearchInput.location?.languageCode ?? undefined,
               countryCode: customWebSearchInput.location?.countryCode ?? undefined,
+              allowSkip: !forceWebSearch,
               onProgress: (event) => {
                 sendStatusUpdate({ type: "search-progress", count: event.searched });
               },
@@ -3801,15 +3802,16 @@ export async function POST(request: NextRequest) {
               message: "Web search failed",
             });
           }
-          pipelineGate = customWebSearchResult?.gate?.enoughEvidence === true;
-          customWebSearchContext =
-            customWebSearchResult && pipelineGate
-              ? formatWebPipelineContext(customWebSearchResult)
-              : null;
-          customWebSearchDomains =
-            customWebSearchResult && pipelineGate
-              ? extractPipelineDomains(customWebSearchResult)
-              : [];
+        pipelineGate = customWebSearchResult?.gate?.enoughEvidence === true;
+        const pipelineSkipped = customWebSearchResult?.skipped === true;
+        customWebSearchContext =
+          customWebSearchResult && pipelineGate
+            ? formatWebPipelineContext(customWebSearchResult)
+            : null;
+        customWebSearchDomains =
+          customWebSearchResult && pipelineGate
+            ? extractPipelineDomains(customWebSearchResult)
+            : [];
           if (pipelineGate) {
             customWebSearchDomains.forEach((domain) => recordLiveSearchDomain(domain));
           }
@@ -3822,7 +3824,7 @@ export async function POST(request: NextRequest) {
           });
         }
 
-        const allowWebSearch = !useCustomWebSearch || !pipelineGate;
+        const allowWebSearch = !useCustomWebSearch || (!pipelineGate && !pipelineSkipped);
         const requireWebSearch = forceWebSearch && (!useCustomWebSearch || !pipelineGate);
         const webSearchInstructionParts = [
           ...(useCustomWebSearch && pipelineGate

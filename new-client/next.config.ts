@@ -16,6 +16,11 @@ const nextConfig: NextConfig = {
       "@napi-rs/canvas": canvasStubPath,
     },
   },
+  experimental: {
+    outputFileTracingIncludes: {
+      "/api/web-render": ["./node_modules/@sparticuz/chromium/**"],
+    },
+  },
   webpack: (config, { isServer }) => {
     if (isServer) {
       // Alias @napi-rs/canvas to a lightweight stub to silence pdfjs warnings in Lambda/edge
