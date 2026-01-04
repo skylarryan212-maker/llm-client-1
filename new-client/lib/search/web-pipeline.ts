@@ -459,49 +459,6 @@ async function fetchJinaReaderText(url: string, timeoutMs: number) {
   }
 }
 
-let headlessUnavailable = false;
-
-function resolveWebRenderBaseUrl() {
-  const raw =
-    process.env.INTERNAL_WEB_RENDER_BASE_URL ??
-    process.env.NEXT_PUBLIC_SITE_URL ??
-    process.env.NEXTAUTH_URL ??
-    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null);
-  if (!raw) return null;
-  return raw.replace(/\/$/, "");
-}
-
-async function fetchRenderedHtmlViaService(url: string, timeoutMs: number, maxBytes: number) {
-  if (headlessUnavailable) return { html: "", text: "" };
-  const baseUrl = resolveWebRenderBaseUrl();
-  if (!baseUrl) {
-    console.warn("[web-pipeline] web render base URL missing; skipping headless.");
-    headlessUnavailable = true;
-    return { html: "", text: "" };
-  }
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const response = await fetch(`${baseUrl}/api/web-render`, {
-      method: "POST",
-      signal: controller.signal,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url, timeoutMs, maxBytes }),
-    });
-    if (!response.ok) {
-      console.warn("[web-pipeline] web render failed", { url, status: response.status });
-      return { html: "", text: "" };
-    }
-    const payload = (await response.json()) as { html?: string; text?: string };
-    return { html: payload.html ?? "", text: payload.text ?? "" };
-  } catch (error) {
-    console.warn("[web-pipeline] web render error", { url, error });
-    return { html: "", text: "" };
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
 function computeJsLikelihood(html: string): number {
   if (!html) return 0;
   const lower = html.toLowerCase();
@@ -858,34 +815,6 @@ export async function runWebSearchPipeline(prompt: string, options: PipelineOpti
           const tableBlocks = extractTableBlocks(html);
           const listBlocks = extractListBlocks(html);
           const jsLikelihood = computeJsLikelihood(html);
-          const useHeadlessRender = process.env.USE_HEADLESS_RENDER !== "0";
-          const shouldTryHeadless =
-            useHeadlessRender &&
-            ((status === 200 && text.length < 80 && jsLikelihood >= 2) ||
-              status === 403 ||
-              status === 429);
-          if (shouldTryHeadless) {
-            const rendered = await fetchRenderedHtmlViaService(
-              result.url,
-              config.pageTimeoutMs,
-              config.pageMaxBytes
-            );
-            if (rendered.html.length || rendered.text.length) {
-              html = rendered.html || html;
-              text = rendered.text.length ? rendered.text : extractTextFromHtml(rendered.html);
-              const renderedTables = extractTableBlocks(html);
-              const renderedLists = extractListBlocks(html);
-              if (renderedTables.length) tableBlocks.push(...renderedTables);
-              if (renderedLists.length) listBlocks.push(...renderedLists);
-              if (text.length > 0) {
-                status = 200;
-              }
-              console.log("[web-pipeline] headless render used", {
-                url: result.url,
-                renderedLength: text.length,
-              });
-            }
-          }
           const useJinaFallback = process.env.USE_JINA_READER_FALLBACK !== "0";
           const shouldTryJina =
             useJinaFallback && status === 200 && text.length < 80 && jsLikelihood < 2;
