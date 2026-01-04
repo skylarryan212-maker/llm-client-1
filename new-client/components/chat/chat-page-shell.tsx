@@ -1835,6 +1835,8 @@ export default function ChatPageShell({
     promoteThinkingIndicator(guestPreviewConfig.reasoning?.effort ?? guestReasoningEffort);
     let flushGuestUpdate: (() => void) | null = null;
 
+    let flushRetryUpdate: (() => void) | null = null;
+
     try {
       const response = await fetch("/api/guest-chat", {
         method: "POST",
@@ -3224,7 +3226,7 @@ export default function ChatPageShell({
       } | null = null;
       let updateTimer: ReturnType<typeof setTimeout> | null = null;
 
-      const flushRetryUpdate = () => {
+      flushRetryUpdate = () => {
         if (updateTimer) {
           clearTimeout(updateTimer);
           updateTimer = null;
@@ -3388,7 +3390,9 @@ export default function ChatPageShell({
     } catch (error) {
       console.error("Error retrying with model:", error);
     } finally {
-      flushRetryUpdate();
+      if (flushRetryUpdate) {
+        flushRetryUpdate();
+      }
       resetThinkingIndicator();
       // Clear active indicator so buttons appear after streaming completes
       setActiveIndicatorMessageId(null);
