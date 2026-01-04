@@ -31,7 +31,7 @@ async function renderWithPlaywright(url: string, timeoutMs: number, maxBytes: nu
     const headless = chromium.headless !== undefined ? chromium.headless : true;
     const env = {
       ...process.env,
-      LD_LIBRARY_PATH: chromium.libraryPath ?? process.env.LD_LIBRARY_PATH,
+      LD_LIBRARY_PATH: (chromium as any).libraryPath ?? process.env.LD_LIBRARY_PATH,
     };
     browser = await playwrightChromium.launch({
       headless,
