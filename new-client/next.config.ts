@@ -9,8 +9,7 @@ const nextConfig: NextConfig = {
   // Keep file tracing root aligned with `turbopack.root` to avoid Next.js warnings on Vercel.
   outputFileTracingRoot: __dirname,
   outputFileTracingIncludes: {
-    "/api/*": ["./node_modules/playwright-core/.local-browsers/**"],
-    "/api/**": ["./node_modules/playwright-core/.local-browsers/**"],
+    "/api/web-render": ["./node_modules/playwright-core/.local-browsers/**"],
   },
   // Turbopack is default in Next 16; mirror the webpack alias so builds on Vercel do not fail.
   turbopack: {

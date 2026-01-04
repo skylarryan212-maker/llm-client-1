@@ -392,98 +392,46 @@ async function fetchJinaReaderText(url: string, timeoutMs: number) {
   }
 }
 
-let cachedPlaywright: any | null = null;
-let attemptedPlaywright = false;
 let headlessUnavailable = false;
 
-async function getPlaywright() {
-  if (attemptedPlaywright) return cachedPlaywright;
-  attemptedPlaywright = true;
-  try {
-    if (!process.env.PLAYWRIGHT_BROWSERS_PATH) {
-      process.env.PLAYWRIGHT_BROWSERS_PATH = "0";
-    }
-    const moduleName = process.env.PLAYWRIGHT_MODULE ?? "playwright";
-    const mod = await import(moduleName as string);
-    cachedPlaywright = mod;
-  } catch (error) {
-    console.warn("[web-pipeline] Playwright not available", error);
-    cachedPlaywright = null;
-  }
-  return cachedPlaywright;
+function resolveWebRenderBaseUrl() {
+  const raw =
+    process.env.INTERNAL_WEB_RENDER_BASE_URL ??
+    process.env.NEXT_PUBLIC_SITE_URL ??
+    process.env.NEXTAUTH_URL ??
+    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null);
+  if (!raw) return null;
+  return raw.replace(/\/$/, "");
 }
 
-async function fetchRenderedHtml(url: string, timeoutMs: number, maxBytes: number) {
+async function fetchRenderedHtmlViaService(url: string, timeoutMs: number, maxBytes: number) {
   if (headlessUnavailable) return { html: "", text: "" };
-  const playwright = await getPlaywright();
-  if (!playwright) {
+  const baseUrl = resolveWebRenderBaseUrl();
+  if (!baseUrl) {
+    console.warn("[web-pipeline] web render base URL missing; skipping headless.");
     headlessUnavailable = true;
     return { html: "", text: "" };
   }
-  const proxyHost = process.env.BRIGHTDATA_PROXY_HOST;
-  const proxyPort = process.env.BRIGHTDATA_PROXY_PORT;
-  const proxyUser = process.env.BRIGHTDATA_PROXY_USER;
-  const proxyPass = process.env.BRIGHTDATA_PROXY_PASS;
-  const proxyServer =
-    proxyHost && proxyPort ? `${proxyHost.startsWith("http") ? "" : "http://"}${proxyHost}:${proxyPort}` : null;
-  let browser: any = null;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    browser = await playwright.chromium.launch({
-      headless: true,
-      ...(proxyServer
-        ? {
-            proxy: {
-              server: proxyServer,
-              username: proxyUser || undefined,
-              password: proxyPass || undefined,
-            },
-          }
-        : {}),
+    const response = await fetch(`${baseUrl}/api/web-render`, {
+      method: "POST",
+      signal: controller.signal,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url, timeoutMs, maxBytes }),
     });
-  } catch (error) {
-    console.warn("[web-pipeline] Headless render unavailable (launch failed)", { url, error });
-    headlessUnavailable = true;
-    return { html: "", text: "" };
-  }
-  try {
-    const context = await browser.newContext({
-      userAgent:
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-      locale: "en-US",
-      viewport: { width: 1366, height: 768 },
-      ...(proxyServer ? { ignoreHTTPSErrors: true } : {}),
-    });
-    await context.addInitScript(() => {
-      Object.defineProperty(navigator, "webdriver", { get: () => undefined });
-    });
-    const page = await context.newPage();
-    await page.setExtraHTTPHeaders({
-      "user-agent":
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-      accept:
-        "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-      "accept-language": "en-US,en;q=0.9",
-    });
-    await page.goto(url, { waitUntil: "networkidle", timeout: timeoutMs });
-    await page.waitForTimeout(500);
-    const html = await page.content();
-    let text = "";
-    try {
-      text = await page.evaluate(() => document.body?.innerText ?? "");
-    } catch {
-      text = "";
+    if (!response.ok) {
+      console.warn("[web-pipeline] web render failed", { url, status: response.status });
+      return { html: "", text: "" };
     }
-    await context.close();
-    const slicedHtml = html.length > maxBytes ? html.slice(0, maxBytes) : html;
-    const slicedText = text.length > maxBytes ? text.slice(0, maxBytes) : text;
-    return { html: slicedHtml, text: normalizeWhitespace(slicedText) };
+    const payload = (await response.json()) as { html?: string; text?: string };
+    return { html: payload.html ?? "", text: payload.text ?? "" };
   } catch (error) {
-    console.warn("[web-pipeline] Headless render failed", { url, error });
+    console.warn("[web-pipeline] web render error", { url, error });
     return { html: "", text: "" };
   } finally {
-    if (browser) {
-      await browser.close();
-    }
+    clearTimeout(timeout);
   }
 }
 
@@ -781,7 +729,7 @@ export async function runWebSearchPipeline(prompt: string, options: PipelineOpti
             status === 403 ||
             status === 429);
         if (shouldTryHeadless) {
-          const rendered = await fetchRenderedHtml(
+          const rendered = await fetchRenderedHtmlViaService(
             result.url,
             config.pageTimeoutMs,
             config.pageMaxBytes
