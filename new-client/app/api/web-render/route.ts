@@ -31,12 +31,15 @@ async function renderWithPlaywright(url: string, timeoutMs: number, maxBytes: nu
     const args = chromium.args ?? [];
     const headless = chromium.headless === "shell" ? true : chromium.headless ?? true;
     const libraryPath = executablePath ? path.dirname(executablePath) : undefined;
-    const env = {
+    const env: Record<string, string | number | boolean> = {
       ...process.env,
-      LD_LIBRARY_PATH: [libraryPath, (chromium as any).libPath, process.env.LD_LIBRARY_PATH]
-        .filter(Boolean)
-        .join(":") || undefined,
     };
+    const ldPath = [libraryPath, (chromium as any).libPath, process.env.LD_LIBRARY_PATH]
+      .filter(Boolean)
+      .join(":");
+    if (ldPath) {
+      env.LD_LIBRARY_PATH = ldPath;
+    }
     browser = await playwrightChromium.launch({
       headless,
       args,
