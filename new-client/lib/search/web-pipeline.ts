@@ -394,6 +394,7 @@ async function fetchJinaReaderText(url: string, timeoutMs: number) {
 
 let cachedPlaywright: any | null = null;
 let attemptedPlaywright = false;
+let headlessUnavailable = false;
 
 async function getPlaywright() {
   if (attemptedPlaywright) return cachedPlaywright;
@@ -413,8 +414,12 @@ async function getPlaywright() {
 }
 
 async function fetchRenderedHtml(url: string, timeoutMs: number, maxBytes: number) {
+  if (headlessUnavailable) return { html: "", text: "" };
   const playwright = await getPlaywright();
-  if (!playwright) return { html: "", text: "" };
+  if (!playwright) {
+    headlessUnavailable = true;
+    return { html: "", text: "" };
+  }
   const proxyHost = process.env.BRIGHTDATA_PROXY_HOST;
   const proxyPort = process.env.BRIGHTDATA_PROXY_PORT;
   const proxyUser = process.env.BRIGHTDATA_PROXY_USER;
@@ -437,6 +442,7 @@ async function fetchRenderedHtml(url: string, timeoutMs: number, maxBytes: numbe
     });
   } catch (error) {
     console.warn("[web-pipeline] Headless render unavailable (launch failed)", { url, error });
+    headlessUnavailable = true;
     return { html: "", text: "" };
   }
   try {
