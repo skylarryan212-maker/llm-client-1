@@ -22,6 +22,9 @@ type PipelineOptions = {
   topK?: number;
   maxChunksPerDomain?: number;
   maxChunksPerUrl?: number;
+  maxTotalPages?: number;
+  linkDepth?: number;
+  includeLinkedPages?: boolean;
   locationName?: string;
   languageCode?: string;
   countryCode?: string;
@@ -87,6 +90,9 @@ const DEFAULTS = {
   topK: 12,
   maxChunksPerDomain: 3,
   maxChunksPerUrl: 2,
+  maxTotalPages: 150,
+  linkDepth: 20,
+  includeLinkedPages: true,
   locationName: "United States",
   languageCode: "en",
   countryCode: "us",
@@ -187,6 +193,109 @@ function normalizeUrlKey(value: string): string {
   } catch {
     return value.trim().toLowerCase();
   }
+}
+
+const NON_HTML_EXTENSIONS = new Set([
+  "pdf",
+  "jpg",
+  "jpeg",
+  "png",
+  "gif",
+  "webp",
+  "svg",
+  "ico",
+  "bmp",
+  "tif",
+  "tiff",
+  "mp3",
+  "wav",
+  "m4a",
+  "flac",
+  "ogg",
+  "mp4",
+  "mov",
+  "avi",
+  "wmv",
+  "mkv",
+  "webm",
+  "zip",
+  "rar",
+  "7z",
+  "tar",
+  "gz",
+  "tgz",
+  "bz2",
+  "xz",
+  "dmg",
+  "iso",
+  "exe",
+  "msi",
+  "apk",
+  "doc",
+  "docx",
+  "xls",
+  "xlsx",
+  "ppt",
+  "pptx",
+  "csv",
+  "tsv",
+  "json",
+  "xml",
+  "rss",
+  "atom",
+]);
+
+function isHtmlContentType(contentType: string): boolean {
+  const normalized = contentType.toLowerCase();
+  return normalized.includes("text/html") || normalized.includes("application/xhtml+xml");
+}
+
+function isLikelyHtmlUrl(value: string): boolean {
+  try {
+    const parsed = new URL(value);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return false;
+    const pathname = parsed.pathname.toLowerCase();
+    if (!pathname || pathname.endsWith("/")) return true;
+    const lastSegment = pathname.split("/").pop() ?? "";
+    if (!lastSegment || !lastSegment.includes(".")) return true;
+    const ext = lastSegment.split(".").pop() ?? "";
+    if (!ext) return true;
+    return !NON_HTML_EXTENSIONS.has(ext);
+  } catch {
+    return false;
+  }
+}
+
+function extractLinksFromHtml(html: string, baseUrl: string): string[] {
+  if (!html) return [];
+  const links = new Set<string>();
+  const hrefRegex = /<a\s[^>]*href\s*=\s*(?:"([^"]+)"|'([^']+)'|([^'"\s>]+))/gi;
+  let match: RegExpExecArray | null;
+  while ((match = hrefRegex.exec(html)) !== null) {
+    const raw = (match[1] ?? match[2] ?? match[3] ?? "").trim();
+    if (!raw) continue;
+    const cleaned = raw.replace(/&amp;/g, "&");
+    const lower = cleaned.toLowerCase();
+    if (
+      lower.startsWith("#") ||
+      lower.startsWith("mailto:") ||
+      lower.startsWith("javascript:") ||
+      lower.startsWith("tel:") ||
+      lower.startsWith("sms:") ||
+      lower.startsWith("data:")
+    ) {
+      continue;
+    }
+    try {
+      const resolved = new URL(cleaned, baseUrl);
+      if (resolved.protocol !== "http:" && resolved.protocol !== "https:") continue;
+      resolved.hash = "";
+      links.add(resolved.toString());
+    } catch {
+      continue;
+    }
+  }
+  return Array.from(links);
 }
 
 function normalizeWhitespace(text: string): string {
@@ -338,7 +447,7 @@ async function fetchPageHtml(
   url: string,
   timeoutMs: number,
   maxBytes: number,
-  options?: { onUnlockerUsed?: () => void }
+  options?: { onUnlockerUsed?: () => void; allowUnlocker?: boolean; requireHtml?: boolean }
 ) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
@@ -364,8 +473,12 @@ async function fetchPageHtml(
         signal: controller.signal,
         headers: buildHeaders(variant),
       });
+      const contentType = response.headers.get("content-type") ?? "";
       if (!response.ok || !response.body) {
-        return { html: "", truncated: false, status: response.status };
+        return { html: "", truncated: false, status: response.status, contentType };
+      }
+      if (options?.requireHtml && contentType && !isHtmlContentType(contentType)) {
+        return { html: "", truncated: false, status: 415, contentType };
       }
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
@@ -383,7 +496,7 @@ async function fetchPageHtml(
         }
         html += decoder.decode(value, { stream: true });
       }
-      return { html, truncated, status: response.status };
+      return { html, truncated, status: response.status, contentType };
     };
 
     let result = await attempt("chrome");
@@ -400,6 +513,7 @@ async function fetchPageHtml(
     const useBrightData = process.env.BRIGHTDATA_WEB_UNLOCKER_API_KEY;
     const zoneName = process.env.BRIGHTDATA_WEB_UNLOCKER_ZONE;
     if (
+      options?.allowUnlocker !== false &&
       useBrightData &&
       zoneName &&
       (result.status === 403 || result.status === 429 || result.status === 503 || result.status === 0)
@@ -415,13 +529,18 @@ async function fetchPageHtml(
         if (options?.onUnlockerUsed) {
           options.onUnlockerUsed();
         }
-        return { html: unlockerHtml, truncated: unlockerHtml.length > maxBytes, status: 200 };
+        return {
+          html: unlockerHtml,
+          truncated: unlockerHtml.length > maxBytes,
+          status: 200,
+          contentType: "text/html",
+        };
       }
     }
     return result;
   } catch (error) {
     console.warn("[web-pipeline] Fetch page failed", { url, error });
-    return { html: "", truncated: false, status: 0 };
+    return { html: "", truncated: false, status: 0, contentType: "" };
   } finally {
     clearTimeout(timeout);
   }
@@ -659,6 +778,27 @@ function extractStructuredDataText(html: string): string {
   return merged.length > 2000 ? merged.slice(0, 2000) : merged;
 }
 
+type FetchPolicy = {
+  allowUnlocker?: boolean;
+  allowJinaFallback?: boolean;
+  allowJinaOnFailure?: boolean;
+  requireHtml?: boolean;
+};
+
+type FetchTask = WebPipelineResult["results"][number] & {
+  fetchPolicy?: FetchPolicy;
+};
+
+type FetchedPage = WebPipelineResult["results"][number] & {
+  text: string;
+  tableBlocks?: string[];
+  listBlocks?: string[];
+  htmlLength: number;
+  status: number;
+  truncated: boolean;
+  links?: string[];
+};
+
 type RankedChunk = WebPipelineChunk & {
   urlKey: string;
   kind: "text" | "table" | "list";
@@ -725,6 +865,8 @@ export async function runWebSearchPipeline(prompt: string, options: PipelineOpti
     serpDepth: config.serpDepth,
     fetchCandidateLimit: config.fetchCandidateLimit,
     pageLimit: config.pageLimit,
+    maxTotalPages: config.maxTotalPages,
+    linkDepth: config.linkDepth,
     topK: config.topK,
   });
 
@@ -780,13 +922,29 @@ export async function runWebSearchPipeline(prompt: string, options: PipelineOpti
     }
   };
 
-  const fetchPages = async (results: WebPipelineResult["results"]) => {
+  const defaultFetchPolicy: Required<FetchPolicy> = {
+    allowUnlocker: true,
+    allowJinaFallback: true,
+    allowJinaOnFailure: false,
+    requireHtml: false,
+  };
+
+  const resolveFetchPolicy = (policy?: FetchPolicy) => ({
+    ...defaultFetchPolicy,
+    ...policy,
+  });
+
+  const shouldExtractLinks = config.includeLinkedPages !== false;
+
+  const fetchPages = async (results: FetchTask[]): Promise<FetchedPage[]> => {
     const pages = await Promise.all(
       results.map(async (result) => {
         try {
+          const policy = resolveFetchPolicy(result.fetchPolicy);
           const cacheKey = `${PAGE_CACHE_PREFIX}${normalizeUrlKey(result.url)}`;
           const cached = await loadPageCache(cacheKey);
-          if (cached?.text_content) {
+          const cachedHtml = typeof cached?.html === "string" ? cached.html : "";
+          if (cached?.text_content && (!policy.requireHtml || cachedHtml)) {
             pageCacheHits += 1;
             console.log("[web-pipeline] page cache hit", result.url);
             searchedCount += 1;
@@ -794,9 +952,13 @@ export async function runWebSearchPipeline(prompt: string, options: PipelineOpti
             return {
               ...result,
               text: cached.text_content as string,
-              htmlLength: typeof cached.html === "string" ? cached.html.length : 0,
+              htmlLength: cachedHtml.length,
               status: typeof cached.status === "number" ? cached.status : 0,
               truncated: Boolean(cached.truncated),
+              links:
+                shouldExtractLinks && cachedHtml
+                  ? extractLinksFromHtml(cachedHtml, result.url)
+                  : [],
             };
           }
           pageFetches += 1;
@@ -809,6 +971,8 @@ export async function runWebSearchPipeline(prompt: string, options: PipelineOpti
               onUnlockerUsed: () => {
                 brightdataUnlockerRequests += 1;
               },
+              allowUnlocker: policy.allowUnlocker,
+              requireHtml: policy.requireHtml,
             }
           );
           let text = extractTextFromHtml(html);
@@ -816,8 +980,12 @@ export async function runWebSearchPipeline(prompt: string, options: PipelineOpti
           const listBlocks = extractListBlocks(html);
           const jsLikelihood = computeJsLikelihood(html);
           const useJinaFallback = process.env.USE_JINA_READER_FALLBACK !== "0";
+          const canTryJina = policy.allowJinaFallback && useJinaFallback && status !== 415;
           const shouldTryJina =
-            useJinaFallback && status === 200 && text.length < 80 && jsLikelihood < 2;
+            canTryJina &&
+            (policy.allowJinaOnFailure
+              ? status !== 200 || (status === 200 && text.length < 80 && jsLikelihood < 2)
+              : status === 200 && text.length < 80 && jsLikelihood < 2);
           if (shouldTryJina) {
             const fallbackText = await fetchJinaReaderText(result.url, config.pageTimeoutMs);
             if (fallbackText.length > text.length) {
@@ -847,6 +1015,7 @@ ${structuredText}`.trim();
             truncated,
             status,
           });
+          const links = shouldExtractLinks && html ? extractLinksFromHtml(html, result.url) : [];
           console.log("[web-pipeline] page extracted", {
             url: result.url,
             status,
@@ -864,6 +1033,7 @@ ${structuredText}`.trim();
             htmlLength: html.length,
             status,
             truncated,
+            links,
           };
         } catch (error) {
           console.warn("[web-pipeline] page processing failed", { url: result.url, error });
@@ -877,6 +1047,7 @@ ${structuredText}`.trim();
             htmlLength: 0,
             status: 0,
             truncated: false,
+            links: [],
           };
         }
       })
@@ -884,9 +1055,7 @@ ${structuredText}`.trim();
     return pages;
   };
 
-  const buildChunks = (
-    pages: Array<WebPipelineResult["results"][number] & { text: string; tableBlocks?: string[]; listBlocks?: string[] }>
-  ) => {
+  const buildChunks = (pages: FetchedPage[]) => {
     const chunks: RankedChunk[] = [];
     for (const page of pages) {
       if (!page.text && !(page.tableBlocks?.length || page.listBlocks?.length)) continue;
@@ -946,6 +1115,142 @@ ${slice}`,
     const textLength = page.text.length;
     const ratio = page.htmlLength > 0 ? textLength / page.htmlLength : 0;
     return { textLength, ratio };
+  };
+
+  type LinkQueueItem = {
+    url: string;
+    depth: number;
+    rootId: number;
+    rootDomain: string | null;
+  };
+
+  const expandLinkedPages = async (
+    seedPages: FetchedPage[],
+    pageBudget: number,
+    maxDepth: number
+  ): Promise<FetchedPage[]> => {
+    if (config.includeLinkedPages === false || pageBudget <= 0 || maxDepth < 1) {
+      return [];
+    }
+    const seenUrlKeys = new Set<string>();
+    for (const page of seedPages) {
+      seenUrlKeys.add(normalizeUrlKey(page.url));
+    }
+    const rootDomains = seedPages.map((page) => page.domain ?? extractDomainFromUrl(page.url));
+    const rootQueues = new Map<number, LinkQueueItem[]>();
+    const rootOrder = rootDomains.map((_, index) => index);
+
+    const enqueueLinks = (rootId: number, depth: number, urls: string[]) => {
+      if (depth > maxDepth || urls.length === 0) return;
+      const rootDomain = rootDomains[rootId] ?? null;
+      const queue = rootQueues.get(rootId) ?? [];
+      const cross: LinkQueueItem[] = [];
+      const same: LinkQueueItem[] = [];
+      for (const url of urls) {
+        if (!isLikelyHtmlUrl(url)) continue;
+        const urlKey = normalizeUrlKey(url);
+        if (!urlKey || seenUrlKeys.has(urlKey)) continue;
+        seenUrlKeys.add(urlKey);
+        const linkDomain = extractDomainFromUrl(url);
+        const isCrossDomain = Boolean(rootDomain && linkDomain && linkDomain !== rootDomain);
+        const item = { url, depth, rootId, rootDomain };
+        if (isCrossDomain) {
+          cross.push(item);
+        } else {
+          same.push(item);
+        }
+      }
+      if (cross.length || same.length) {
+        queue.push(...cross, ...same);
+        rootQueues.set(rootId, queue);
+      }
+    };
+
+    seedPages.forEach((page, index) => {
+      enqueueLinks(index, 1, page.links ?? []);
+    });
+
+    const linkedPages: FetchedPage[] = [];
+    let remaining = pageBudget;
+    let rootCursor = 0;
+
+    const takeNextBatch = (batchSize: number) => {
+      const batch: LinkQueueItem[] = [];
+      if (!rootOrder.length) return batch;
+      let sweeps = 0;
+      while (batch.length < batchSize) {
+        let addedThisSweep = 0;
+        let rootsVisited = 0;
+        while (rootsVisited < rootOrder.length && batch.length < batchSize) {
+          const rootId = rootOrder[rootCursor % rootOrder.length];
+          rootCursor = (rootCursor + 1) % rootOrder.length;
+          rootsVisited += 1;
+          const queue = rootQueues.get(rootId);
+          if (!queue || queue.length === 0) continue;
+          const item = queue.shift();
+          if (!item || item.depth > maxDepth) continue;
+          batch.push(item);
+          addedThisSweep += 1;
+        }
+        if (addedThisSweep === 0) break;
+        sweeps += 1;
+        if (sweeps >= 4) break;
+      }
+      return batch;
+    };
+
+    const appendLinkedPages = (pages: FetchedPage[]) => {
+      if (remaining <= 0) return;
+      const eligible: FetchedPage[] = [];
+      const fallback: FetchedPage[] = [];
+      for (const page of pages) {
+        if (page.status !== 200) continue;
+        const { textLength, ratio } = scorePageQuality(page);
+        if (textLength >= config.minPageTextLength && ratio >= config.minContentRatio) {
+          eligible.push(page);
+        } else {
+          fallback.push(page);
+        }
+      }
+      const ordered = [
+        ...eligible,
+        ...fallback.sort((a, b) => b.text.length - a.text.length),
+      ];
+      for (const page of ordered) {
+        if (remaining <= 0) break;
+        linkedPages.push(page);
+        remaining -= 1;
+      }
+    };
+
+    while (remaining > 0) {
+      const batchSize = Math.min(8, remaining);
+      const batchItems = takeNextBatch(batchSize);
+      if (!batchItems.length) break;
+      const fetchTasks: FetchTask[] = batchItems.map((item) => {
+        const domain = extractDomainFromUrl(item.url);
+        const isCrossDomain = Boolean(item.rootDomain && domain && domain !== item.rootDomain);
+        return {
+          url: item.url,
+          title: item.url,
+          domain: domain ?? undefined,
+          fetchPolicy: {
+            allowUnlocker: !isCrossDomain,
+            allowJinaOnFailure: isCrossDomain,
+            requireHtml: true,
+          },
+        };
+      });
+      const fetched = await fetchPages(fetchTasks);
+      appendLinkedPages(fetched);
+      fetched.forEach((page, index) => {
+        const meta = batchItems[index];
+        if (!meta) return;
+        enqueueLinks(meta.rootId, meta.depth + 1, page.links ?? []);
+      });
+    }
+
+    return linkedPages;
   };
 
   const keywordScore = (text: string, queries: string[]) => {
@@ -1140,7 +1445,7 @@ ${slice}`,
       .filter((page) => page.status === 200)
       .sort((a, b) => b.text.length - a.text.length);
 
-    const selectedPages: Array<typeof candidatePages[number]> = [];
+    const selectedPages: FetchedPage[] = [];
     for (const page of goodPages) {
       if (selectedPages.length >= config.pageLimit) break;
       selectedPages.push(page);
@@ -1157,8 +1462,28 @@ ${slice}`,
       selectedPages.map((page) => page.url)
     );
 
+    const maxTotalPages = Math.max(config.pageLimit, config.maxTotalPages ?? config.pageLimit);
+    const cappedSelectedPages =
+      selectedPages.length > maxTotalPages ? selectedPages.slice(0, maxTotalPages) : selectedPages;
+    const remainingBudget = Math.max(0, maxTotalPages - cappedSelectedPages.length);
+    const linkExpansionStart = performance.now();
+    const linkedPages =
+      remainingBudget > 0 && config.linkDepth > 0
+        ? await expandLinkedPages(cappedSelectedPages, remainingBudget, config.linkDepth)
+        : [];
+    if (linkedPages.length) {
+      logTiming("link_expand", linkExpansionStart, {
+        added: linkedPages.length,
+        totalPages: cappedSelectedPages.length + linkedPages.length,
+        maxTotalPages,
+      });
+    }
+    const combinedPages = linkedPages.length
+      ? [...cappedSelectedPages, ...linkedPages]
+      : cappedSelectedPages;
+
     const chunkStart = performance.now();
-    const initialChunks = buildChunks(selectedPages);
+    const initialChunks = buildChunks(combinedPages);
     logTiming(stageLabel === "retry" ? "chunk_build_retry" : "chunk_build_initial", chunkStart, {
       chunks: initialChunks.length,
     });
@@ -1292,7 +1617,7 @@ ${slice}`,
       sources,
       gate,
       expanded,
-      selectedPagesCount: selectedPages.length,
+      selectedPagesCount: combinedPages.length,
     };
   };
 
