@@ -3779,8 +3779,8 @@ export async function POST(request: NextRequest) {
         let customWebSearchContext: string | null = null;
         let customWebSearchDomains: string[] = [];
         let pipelineSkipped = false;
+        let searchStarted = false;
         if (customWebSearchInput) {
-          sendStatusUpdate({ type: "search-start", query: customWebSearchInput.prompt });
           try {
             customWebSearchResult = await runWebSearchPipeline(customWebSearchInput.prompt, {
               recentMessages: customWebSearchInput.recentMessages,
@@ -3789,7 +3789,14 @@ export async function POST(request: NextRequest) {
               languageCode: customWebSearchInput.location?.languageCode ?? undefined,
               countryCode: customWebSearchInput.location?.countryCode ?? undefined,
               allowSkip: !forceWebSearch,
+              onSearchStart: ({ query }) => {
+                searchStarted = true;
+                sendStatusUpdate({ type: "search-start", query });
+              },
               onProgress: (event) => {
+                if (!searchStarted) {
+                  return;
+                }
                 sendStatusUpdate({ type: "search-progress", count: event.searched });
               },
             });
@@ -3797,11 +3804,13 @@ export async function POST(request: NextRequest) {
           } catch (searchErr) {
             console.error("[web-pipeline] failed", searchErr);
             customWebSearchResult = null;
-            sendStatusUpdate({
-              type: "search-error",
-              query: customWebSearchInput.prompt,
-              message: "Web search failed",
-            });
+            if (searchStarted) {
+              sendStatusUpdate({
+                type: "search-error",
+                query: customWebSearchInput.prompt,
+                message: "Web search failed",
+              });
+            }
           }
           pipelineGate = customWebSearchResult?.gate?.enoughEvidence === true;
           pipelineSkipped = customWebSearchResult?.skipped === true;
@@ -3816,13 +3825,15 @@ export async function POST(request: NextRequest) {
           if (pipelineGate) {
             customWebSearchDomains.forEach((domain) => recordLiveSearchDomain(domain));
           }
-          const queryLabel =
-            customWebSearchResult?.queries?.join(" | ")?.trim() || customWebSearchInput.prompt;
-          sendStatusUpdate({
-            type: "search-complete",
-            query: queryLabel,
-            results: customWebSearchResult?.results?.length ?? 0,
-          });
+          if (searchStarted) {
+            const queryLabel =
+              customWebSearchResult?.queries?.join(" | ")?.trim() || customWebSearchInput.prompt;
+            sendStatusUpdate({
+              type: "search-complete",
+              query: queryLabel,
+              results: customWebSearchResult?.results?.length ?? 0,
+            });
+          }
         }
 
         const allowWebSearch = !useCustomWebSearch || (!pipelineGate && !pipelineSkipped);

@@ -28,6 +28,7 @@ type PipelineOptions = {
   device?: "desktop" | "mobile";
   recentMessages?: Array<{ role: "user" | "assistant" | "system"; content: string }>;
   currentDate?: string;
+  onSearchStart?: (event: { query: string; queries: string[] }) => void;
   onProgress?: (event: { type: "page_fetch_progress"; searched: number }) => void;
   retryOnGateFailure?: boolean;
   allowSkip?: boolean;
@@ -807,6 +808,11 @@ export async function runWebSearchPipeline(prompt: string, options: PipelineOpti
     } satisfies WebPipelineResult;
   }
 
+  if (config.onSearchStart) {
+    const queryLabel = queryResult.queries.join(" | ").trim() || prompt;
+    config.onSearchStart({ query: queryLabel, queries: queryResult.queries });
+  }
+
   let serpRequestsTotal = 0;
   const retryOnGateFailure = options.retryOnGateFailure !== false;
   let brightdataUnlockerRequests = 0;
@@ -1014,9 +1020,16 @@ ${slice}`,
   };
 
   const keywordScore = (text: string, queries: string[]) => {
-    const tokens = queries
-      .flatMap((q) => q.toLowerCase().split(/[^a-z0-9]+/g))
-      .filter((t) => t.length >= 4);
+    const tokens: string[] = [];
+    for (const query of queries) {
+      const parts = query.toLowerCase().split(/[^a-z0-9]+/g);
+      for (const part of parts) {
+        if (part.length >= 4) {
+          tokens.push(part);
+        }
+      }
+      if (tokens.length > 200) break;
+    }
     if (!tokens.length) return 0;
     const lower = text.toLowerCase();
     let hits = 0;
