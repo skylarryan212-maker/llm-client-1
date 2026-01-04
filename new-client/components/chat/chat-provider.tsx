@@ -249,9 +249,18 @@ export function ChatProvider({ children, initialChats = [], userId }: ChatProvid
           const messageIndex = chat.messages.findIndex((m) => m.id === messageId);
           if (messageIndex < 0) return chat;
 
+          const updateKeys = Object.keys(updates);
+          if (updateKeys.length === 0) return chat;
+
+          const currentMessage = chat.messages[messageIndex];
+          const hasChanges = updateKeys.some(
+            (key) => (currentMessage as Record<string, unknown>)[key] !== (updates as Record<string, unknown>)[key]
+          );
+          if (!hasChanges) return chat;
+
           const updatedMessages = [...chat.messages];
           updatedMessages[messageIndex] = {
-            ...updatedMessages[messageIndex],
+            ...currentMessage,
             ...updates,
           };
 

@@ -149,6 +149,8 @@ const ADVANCED_CONTEXT_TOPIC_SELECTION_KEY =
   "llm-client:advanced-context-topic-ids-by-chat";
 const STREAMING_ACTIVE_STORAGE_KEY = "llm-client:streaming-active";
 const STREAMING_CHAT_ID_STORAGE_KEY = "llm-client:streaming-chat-id";
+const STREAM_UPDATE_INTERVAL_MS = 50;
+const SEARCH_PROGRESS_THROTTLE_MS = 120;
 
 function persistModelSelection(displayName: string) {
   if (typeof window === "undefined") return;
@@ -852,6 +854,8 @@ export default function ChatPageShell({
     >
   >({});
   const searchIndicatorTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const searchProgressTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const searchProgressCountRef = useRef(0);
   const fileIndicatorTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   const openInsightSidebar = useCallback(() => setIsInsightSidebarOpen(true), []);
@@ -1220,6 +1224,11 @@ export default function ChatPageShell({
       clearTimeout(searchIndicatorTimerRef.current);
     }
     searchIndicatorTimerRef.current = null;
+    if (searchProgressTimerRef.current) {
+      clearTimeout(searchProgressTimerRef.current);
+    }
+    searchProgressTimerRef.current = null;
+    searchProgressCountRef.current = 0;
     setSearchIndicator(null);
     searchDomainSetRef.current.clear();
     searchDomainListRef.current = [];
@@ -1242,6 +1251,11 @@ export default function ChatPageShell({
       if (!message && !siteLabel) {
         return;
       }
+      if (searchProgressTimerRef.current) {
+        clearTimeout(searchProgressTimerRef.current);
+      }
+      searchProgressTimerRef.current = null;
+      searchProgressCountRef.current = 0;
       if (searchIndicatorTimerRef.current) {
         clearTimeout(searchIndicatorTimerRef.current);
       }
@@ -1258,6 +1272,21 @@ export default function ChatPageShell({
     },
     []
   );
+
+  const scheduleSearchProgress = useCallback((count: number) => {
+    searchProgressCountRef.current = count;
+    if (searchProgressTimerRef.current) return;
+    searchProgressTimerRef.current = setTimeout(() => {
+      searchProgressTimerRef.current = null;
+      const latestCount = searchProgressCountRef.current;
+      setSearchIndicator((prev) => ({
+        message: `Searched ${latestCount} sites...`,
+        variant: "running",
+        domains: prev?.domains ?? [],
+        subtext: prev?.subtext,
+      }));
+    }, SEARCH_PROGRESS_THROTTLE_MS);
+  }, []);
 
   const addSearchDomain = useCallback((domain?: string | null) => {
     const label = domain?.trim();
@@ -1312,6 +1341,11 @@ export default function ChatPageShell({
     (status: SearchStatusEvent) => {
       switch (status.type) {
         case "search-start":
+          if (searchProgressTimerRef.current) {
+            clearTimeout(searchProgressTimerRef.current);
+          }
+          searchProgressTimerRef.current = null;
+          searchProgressCountRef.current = 0;
           setSearchIndicator({
             message: "Searching the web...",
             variant: "running",
@@ -1319,12 +1353,7 @@ export default function ChatPageShell({
           });
           break;
         case "search-progress":
-          setSearchIndicator((prev) => ({
-            message: `Searched ${status.count} sites...`,
-            variant: "running",
-            domains: prev?.domains ?? [],
-            subtext: prev?.subtext,
-          }));
+          scheduleSearchProgress(status.count);
           break;
         case "search-complete":
           showSearchCompleteIndicator(searchDomainListRef.current);
@@ -1361,7 +1390,7 @@ export default function ChatPageShell({
           break;
       }
     },
-    [clearFileReadingIndicator, showFileReadingIndicator, showSearchCompleteIndicator]
+    [clearFileReadingIndicator, scheduleSearchProgress, showFileReadingIndicator, showSearchCompleteIndicator]
   );
 
   useEffect(() => {
@@ -1839,6 +1868,43 @@ export default function ChatPageShell({
 	      let messageMetadata: AssistantMessageMetadata | null = { isGuest: true } as AssistantMessageMetadata;
 	      let firstTokenSeen = false;
         let ndjsonBuffer = "";
+	      let pendingUpdate: {
+	        content: string;
+	        metadata: AssistantMessageMetadata | null;
+	      } | null = null;
+	      let updateTimer: ReturnType<typeof setTimeout> | null = null;
+
+	      const flushGuestUpdate = () => {
+	        if (updateTimer) {
+	          clearTimeout(updateTimer);
+	          updateTimer = null;
+	        }
+	        if (!pendingUpdate) return;
+	        const { content, metadata } = pendingUpdate;
+	        pendingUpdate = null;
+	        updateMessage(chatId, assistantId, {
+	          content,
+	          ...(metadata ? { metadata } : {}),
+	        });
+	      };
+
+	      const scheduleGuestUpdate = (
+	        content: string,
+	        metadata: AssistantMessageMetadata | null
+	      ) => {
+	        pendingUpdate = { content, metadata };
+	        if (updateTimer) return;
+	        updateTimer = setTimeout(() => {
+	          updateTimer = null;
+	          if (!pendingUpdate) return;
+	          const { content, metadata } = pendingUpdate;
+	          pendingUpdate = null;
+	          updateMessage(chatId, assistantId, {
+	            content,
+	            ...(metadata ? { metadata } : {}),
+	          });
+	        }, STREAM_UPDATE_INTERVAL_MS);
+	      };
 	      while (true) {
 	        const { done, value } = await reader.read();
 	        if (done) break;
@@ -1875,10 +1941,7 @@ export default function ChatPageShell({
               }
               const mergedMeta = mergeThinkingTimingIntoMetadata(messageMetadata, pendingThinkingInfoRef.current as ThinkingTimingInfo | null);
               messageMetadata = mergedMeta ?? messageMetadata;
-              updateMessage(chatId, assistantId, {
-                content: assistantContent,
-                metadata: messageMetadata,
-              });
+              scheduleGuestUpdate(assistantContent, messageMetadata);
             }
 	            if (parsed.done) {
 	              if (assistantContent.length > 0) {
@@ -1887,10 +1950,8 @@ export default function ChatPageShell({
                   pendingThinkingInfoRef.current as ThinkingTimingInfo | null
                 );
                 messageMetadata = finalMeta ?? messageMetadata;
-                updateMessage(chatId, assistantId, {
-                  content: assistantContent,
-                  metadata: messageMetadata,
-                });
+                pendingUpdate = { content: assistantContent, metadata: messageMetadata };
+                flushGuestUpdate();
               }
 	              setIsStreaming(false);
 	              setActiveIndicatorMessageId(null);
@@ -1901,10 +1962,11 @@ export default function ChatPageShell({
 	          }
           }
 	      }
-	    } catch (e) {
+    } catch (e) {
       console.error("guest chat error", e);
       setGuestWarning("Guest mode: model call failed. Please sign in.");
     } finally {
+      flushGuestUpdate();
       resetThinkingIndicator();
       setIsStreaming(false);
       setActiveIndicatorMessageId(null);
@@ -2378,6 +2440,45 @@ export default function ChatPageShell({
       placeholderMessageId: assistantMessageId,
       minContentLength: 0,
     };
+    let pendingUpdate: {
+      messageId: string;
+      content: string;
+      metadata: AssistantMessageMetadata | null;
+    } | null = null;
+    let updateTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const flushStreamUpdate = () => {
+      if (updateTimer) {
+        clearTimeout(updateTimer);
+        updateTimer = null;
+      }
+      if (!pendingUpdate) return;
+      const { messageId, content, metadata } = pendingUpdate;
+      pendingUpdate = null;
+      updateMessage(chatId, messageId, {
+        content,
+        ...(metadata ? { metadata } : {}),
+      });
+    };
+
+    const scheduleStreamUpdate = (
+      messageId: string,
+      content: string,
+      metadata: AssistantMessageMetadata | null
+    ) => {
+      pendingUpdate = { messageId, content, metadata };
+      if (updateTimer) return;
+      updateTimer = setTimeout(() => {
+        updateTimer = null;
+        if (!pendingUpdate) return;
+        const { messageId, content, metadata } = pendingUpdate;
+        pendingUpdate = null;
+        updateMessage(chatId, messageId, {
+          content,
+          ...(metadata ? { metadata } : {}),
+        });
+      }, STREAM_UPDATE_INTERVAL_MS);
+    };
 
     try {
       // Create the placeholder assistant message immediately so the pre-stream shimmer shows with no network delay.
@@ -2586,10 +2687,7 @@ export default function ChatPageShell({
                   messageMetadata = updatedMetadata;
                 }
                 // Update the assistant message with new content and metadata
-                updateMessage(chatId, currentMessageId, {
-                  content: assistantContent,
-                  metadata: messageMetadata,
-                });
+                scheduleStreamUpdate(currentMessageId, assistantContent, messageMetadata);
               } else if (typeof parsed.preamble_delta === "string") {
                 appendPreambleDelta(assistantMessageId, parsed.preamble_delta);
               } else if (typeof parsed.preamble === "string") {
@@ -2607,9 +2705,7 @@ export default function ChatPageShell({
                     searchedDomains: [...searchDomainListRef.current],
                   };
                   messageMetadata = updatedMetadata;
-                  updateMessage(chatId, currentMessageId, {
-                    metadata: messageMetadata,
-                  });
+                  scheduleStreamUpdate(currentMessageId, assistantContent, messageMetadata);
                 }
               } else if (parsed.model_info) {
                 // Update model metadata early so model tag switches from unknown immediately
@@ -2633,9 +2729,7 @@ export default function ChatPageShell({
                     promoteThinkingIndicator(parsed.model_info.reasoningEffort as ReasoningEffort);
                   }
                   messageMetadata = updatedMetadata;
-                  updateMessage(chatId, currentMessageId, {
-                    metadata: messageMetadata,
-                  });
+                  scheduleStreamUpdate(currentMessageId, assistantContent, messageMetadata);
                 }
 		              } else if (parsed.meta) {
 		                sawMeta = true;
@@ -2697,10 +2791,11 @@ export default function ChatPageShell({
                 if (finalContent) {
                   assistantContent = finalContent;
                 }
-	                setActiveIndicatorMessageId(newId);
+                setActiveIndicatorMessageId(newId);
                 // Clear thinking indicator when metadata arrives
                 resetThinkingIndicator();
                 // Replace the temporary ID with the persisted row ID and store metadata
+                flushStreamUpdate();
                 updateMessage(chatId, assistantMessageId, {
                   id: newId,
                   metadata: metadataWithTiming,
@@ -2771,6 +2866,7 @@ export default function ChatPageShell({
 	        streamAbortControllerRef.current = null;
 	      }
 	      inFlightRequests.current.delete(requestKey);
+	      flushStreamUpdate();
 
 	      const wasStopRequested = stopRequestedRef.current;
 	      stopRequestedRef.current = false;
@@ -3112,11 +3208,50 @@ export default function ChatPageShell({
         return;
       }
 
-	      const decoder = new TextDecoder();
-	      let assistantContent = "";
-	      // assistantMessageId already generated and set above
-	      let messageMetadata: AssistantMessageMetadata | null = {};
+      const decoder = new TextDecoder();
+      let assistantContent = "";
+      // assistantMessageId already generated and set above
+      let messageMetadata: AssistantMessageMetadata | null = {};
         let ndjsonBuffer = "";
+      let pendingUpdate: {
+        messageId: string;
+        content: string;
+        metadata: AssistantMessageMetadata | null;
+      } | null = null;
+      let updateTimer: ReturnType<typeof setTimeout> | null = null;
+
+      const flushRetryUpdate = () => {
+        if (updateTimer) {
+          clearTimeout(updateTimer);
+          updateTimer = null;
+        }
+        if (!pendingUpdate) return;
+        const { messageId, content, metadata } = pendingUpdate;
+        pendingUpdate = null;
+        updateMessage(selectedChatId, messageId, {
+          content,
+          ...(metadata ? { metadata } : {}),
+        });
+      };
+
+      const scheduleRetryUpdate = (
+        messageId: string,
+        content: string,
+        metadata: AssistantMessageMetadata | null
+      ) => {
+        pendingUpdate = { messageId, content, metadata };
+        if (updateTimer) return;
+        updateTimer = setTimeout(() => {
+          updateTimer = null;
+          if (!pendingUpdate) return;
+          const { messageId, content, metadata } = pendingUpdate;
+          pendingUpdate = null;
+          updateMessage(selectedChatId, messageId, {
+            content,
+            ...(metadata ? { metadata } : {}),
+          });
+        }, STREAM_UPDATE_INTERVAL_MS);
+      };
 
       // Add the initial empty assistant message
       appendMessages(selectedChatId, [
@@ -3156,9 +3291,7 @@ export default function ChatPageShell({
                   messageMetadata?.reasoningEffort ?? null
                 );
                 // Update the assistant message with new content
-                updateMessage(selectedChatId, currentMessageId, {
-                  content: assistantContent,
-                });
+                scheduleRetryUpdate(currentMessageId, assistantContent, messageMetadata);
               } else if (parsed.status) {
                 handleStatusEvent(parsed.status as SearchStatusEvent);
               } else if (parsed.type === "web_search_domain" && typeof parsed.domain === "string") {
@@ -3172,9 +3305,7 @@ export default function ChatPageShell({
                     searchedDomains: [...searchDomainListRef.current],
                   };
                   messageMetadata = updatedMetadata;
-                  updateMessage(selectedChatId, currentMessageId, {
-                    metadata: messageMetadata,
-                  });
+                  scheduleRetryUpdate(currentMessageId, assistantContent, messageMetadata);
                 }
               } else if (parsed.model_info) {
                 // Update model metadata early so model tag switches from unknown immediately
@@ -3192,9 +3323,7 @@ export default function ChatPageShell({
                     promoteThinkingIndicator(parsed.model_info.reasoningEffort as ReasoningEffort);
                   }
                   messageMetadata = updatedMetadata;
-                  updateMessage(selectedChatId, currentMessageId, {
-                    metadata: messageMetadata,
-                  });
+                  scheduleRetryUpdate(currentMessageId, assistantContent, messageMetadata);
                 }
               } else if (parsed.meta) {
                 const fallbackMeta: AssistantMessageMetadata = {
@@ -3233,6 +3362,7 @@ export default function ChatPageShell({
                   assistantContent = finalContent;
                 }
                 // Replace the temporary ID with the persisted row ID and store metadata
+                flushRetryUpdate();
                 updateMessage(selectedChatId, assistantMessageId, {
                   id: newId,
                   metadata: metadataWithTiming,
@@ -3254,6 +3384,7 @@ export default function ChatPageShell({
     } catch (error) {
       console.error("Error retrying with model:", error);
     } finally {
+      flushRetryUpdate();
       resetThinkingIndicator();
       // Clear active indicator so buttons appear after streaming completes
       setActiveIndicatorMessageId(null);
@@ -4130,7 +4261,7 @@ export default function ChatPageShell({
                 ref={virtuosoRef}
                 style={{ height: "100%" }}
                 data={pendingNewChatMessages ?? []}
-                computeItemKey={(index, message) => `${message.id}-${index}`}
+                computeItemKey={(index, message) => message.id ?? String(index)}
                 atBottomStateChange={handleAtBottomStateChange}
                 itemContent={(_, message) => (
                   <div className="px-4 sm:px-6">
@@ -4161,7 +4292,7 @@ export default function ChatPageShell({
                 ref={virtuosoRef}
                 style={{ height: "100%" }}
                 data={messages}
-                overscan={200}
+                overscan={80}
                 atTopThreshold={120}
                 atBottomStateChange={handleAtBottomStateChange}
                 startReached={() => {
@@ -4175,7 +4306,7 @@ export default function ChatPageShell({
                     void handleLoadOlderMessages();
                   }
                 }}
-                computeItemKey={(index, message) => `${message.id}-${index}`}
+                computeItemKey={(index, message) => message.id ?? String(index)}
                 itemContent={(index, message) => {
                   const metadata = message.metadata as AssistantMessageMetadata | null;
                   const isStreamingMessage = message.id === activeIndicatorMessageId;
