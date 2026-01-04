@@ -33,7 +33,13 @@ async function renderWithPlaywright(url: string, timeoutMs: number, maxBytes: nu
     if (!originalAwsEnv) {
       process.env.AWS_EXECUTION_ENV = "AWS_Lambda_nodejs20.x";
     }
-    const executablePath = await chromium.executablePath();
+    const rawExecutablePath = await chromium.executablePath();
+    const executablePath = typeof rawExecutablePath === "string" ? rawExecutablePath : undefined;
+    if (!executablePath) {
+      console.warn("[web-render] chromium executablePath unavailable", {
+        value: rawExecutablePath,
+      });
+    }
     if (!originalAwsEnv) {
       delete process.env.AWS_EXECUTION_ENV;
     } else {
@@ -43,12 +49,18 @@ async function renderWithPlaywright(url: string, timeoutMs: number, maxBytes: nu
     const headless = chromium.headless === "shell" ? true : chromium.headless ?? true;
     const execDir = executablePath ? path.dirname(executablePath) : undefined;
     const parentDir = execDir ? path.dirname(execDir) : undefined;
-    const require = createRequire(import.meta.url);
-    const chromiumPackageRoot = path.dirname(
-      require.resolve("@sparticuz/chromium/package.json")
-    );
-    const packageLibPath = path.join(chromiumPackageRoot, "lib");
-    const packageBinPath = path.join(chromiumPackageRoot, "bin");
+    let chromiumPackageRoot: string | null = null;
+    try {
+      const require = createRequire(import.meta.url);
+      const resolved = require.resolve("@sparticuz/chromium/package.json");
+      if (typeof resolved === "string") {
+        chromiumPackageRoot = path.dirname(resolved);
+      }
+    } catch {
+      chromiumPackageRoot = null;
+    }
+    const packageLibPath = chromiumPackageRoot ? path.join(chromiumPackageRoot, "lib") : undefined;
+    const packageBinPath = chromiumPackageRoot ? path.join(chromiumPackageRoot, "bin") : undefined;
     const chromiumLibPath = (chromium as { libPath?: string; libraryPath?: string }).libPath
       ?? (chromium as { libPath?: string; libraryPath?: string }).libraryPath;
     const bundledLibPath = execDir ? path.join(execDir, "lib") : undefined;
@@ -77,7 +89,7 @@ async function renderWithPlaywright(url: string, timeoutMs: number, maxBytes: nu
     browser = await playwrightChromium.launch({
       headless,
       args,
-      executablePath: executablePath || undefined,
+      executablePath,
       chromiumSandbox: false,
       env,
       ...(proxyServer
