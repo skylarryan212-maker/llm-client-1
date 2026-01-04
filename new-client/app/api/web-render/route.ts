@@ -27,7 +27,17 @@ async function renderWithPlaywright(url: string, timeoutMs: number, maxBytes: nu
 
   let browser: any = null;
   try {
+    const originalAwsEnv = process.env.AWS_EXECUTION_ENV;
+    // Force Lambda-like env so Sparticuz extracts bundled system libs (nss, etc.)
+    if (!originalAwsEnv) {
+      process.env.AWS_EXECUTION_ENV = "AWS_Lambda_nodejs20.x";
+    }
     const executablePath = await chromium.executablePath();
+    if (!originalAwsEnv) {
+      delete process.env.AWS_EXECUTION_ENV;
+    } else {
+      process.env.AWS_EXECUTION_ENV = originalAwsEnv;
+    }
     const args = chromium.args ?? [];
     const headless = chromium.headless === "shell" ? true : chromium.headless ?? true;
     const libraryPath = executablePath ? path.dirname(executablePath) : undefined;
