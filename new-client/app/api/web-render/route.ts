@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { chromium } from "playwright";
+import { chromium as playwrightChromium } from "playwright-core";
+import chromium from "@sparticuz/chromium";
 
 export const runtime = "nodejs";
 
@@ -14,9 +15,6 @@ function normalizeWhitespace(text: string): string {
 }
 
 async function renderWithPlaywright(url: string, timeoutMs: number, maxBytes: number) {
-  if (!process.env.PLAYWRIGHT_BROWSERS_PATH) {
-    process.env.PLAYWRIGHT_BROWSERS_PATH = "0";
-  }
   const proxyHost = process.env.BRIGHTDATA_PROXY_HOST;
   const proxyPort = process.env.BRIGHTDATA_PROXY_PORT;
   const proxyUser = process.env.BRIGHTDATA_PROXY_USER;
@@ -28,8 +26,12 @@ async function renderWithPlaywright(url: string, timeoutMs: number, maxBytes: nu
 
   let browser: Awaited<ReturnType<typeof chromium.launch>> | null = null;
   try {
-    browser = await chromium.launch({
+    const executablePath = await chromium.executablePath();
+    browser = await playwrightChromium.launch({
       headless: true,
+      args: chromium.args,
+      executablePath: executablePath || undefined,
+      chromiumSandbox: false,
       ...(proxyServer
         ? {
             proxy: {

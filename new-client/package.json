@@ -4,12 +4,13 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "node scripts/install-playwright.js && next build",
+    "build": "next build",
     "start": "next start",
     "lint": "eslint"
   },
   "dependencies": {
     "@ffmpeg/ffmpeg": "^0.12.10",
+    "@sparticuz/chromium": "^127.0.0",
     "@iarna/toml": "^2.2.5",
     "@napi-rs/canvas": "^0.1.86",
     "@radix-ui/react-dropdown-menu": "^2.1.16",
@@ -39,7 +40,7 @@
     "openai": "^6.15.0",
     "pako": "^2.1.0",
     "pdfjs-dist": "^5.4.449",
-    "playwright": "^1.57.0",
+    "playwright-core": "^1.57.0",
     "react": "^19.2.3",
     "react-dom": "^19.2.3",
     "react-markdown": "^10.1.0",

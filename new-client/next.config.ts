@@ -8,9 +8,6 @@ const nextConfig: NextConfig = {
   reactCompiler: true,
   // Keep file tracing root aligned with `turbopack.root` to avoid Next.js warnings on Vercel.
   outputFileTracingRoot: __dirname,
-  outputFileTracingIncludes: {
-    "/api/web-render": ["./node_modules/playwright-core/.local-browsers/**"],
-  },
   // Turbopack is default in Next 16; mirror the webpack alias so builds on Vercel do not fail.
   turbopack: {
     // Explicitly pin the workspace root to this package to avoid picking the parent lockfile.
