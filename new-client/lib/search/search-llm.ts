@@ -6,6 +6,7 @@ export type QueryWriterResult = {
   queries: string[];
   useWebSearch: boolean;
   reason?: string;
+  targetDepth?: number;
 };
 
 function logDeepInfraUsage(label: string, model: string, usage?: { input_tokens: number; output_tokens: number }) {
@@ -31,7 +32,7 @@ export async function writeSearchQueries(params: {
   const count = params.count ?? 2;
   const systemPrompt = `You are a search query writer for a web search pipeline.
 Return JSON only with this shape:
-{ "useWebSearch": boolean, "queries": string[], "reason": string }
+{ "useWebSearch": boolean, "queries": string[], "reason": string, "targetDepth": number }
 Rules:
 - Decide whether web search will materially help answer the prompt.
 - If web search will NOT help (e.g., purely conversational, personal preference, creative writing, general advice, or internal app help without external facts), set "useWebSearch": false and return an empty queries array.
@@ -43,6 +44,7 @@ Rules:
   include method-specific queries (JavaScript rendering/indexing, PDF/OCR, and search engine indexing).
 - Queries should be short, specific, and not include quotes.
 - If "useWebSearch" is false, include a short reason in "reason" (max 12 words).
+- Choose a "targetDepth" from [15, 30, 50, 100] to signal how many URLs to fetch overall (including any crawl). Use lower for narrow/urgent/local questions; higher for broad research or long-tail topics. If unsure, pick 30.
 - Do not include commentary or extra fields.`;
 
   const recentMessageBlock = Array.isArray(params.recentMessages) && params.recentMessages.length
@@ -79,6 +81,7 @@ Rules:
         useWebSearch: { type: "boolean" },
         queries: { type: "array", items: { type: "string" } },
         reason: { type: "string" },
+        targetDepth: { type: "number" },
       },
       required: ["useWebSearch", "queries"],
     },
@@ -126,7 +129,11 @@ Rules:
     finalQueries.push(params.prompt.trim());
   }
 
-  return { queries: finalQueries, useWebSearch: true };
+  const allowedDepths = [15, 30, 50, 100];
+  const parsedDepth = typeof parsed?.targetDepth === "number" ? Math.round(parsed.targetDepth) : NaN;
+  const targetDepth = allowedDepths.find((d) => d === parsedDepth);
+
+  return { queries: finalQueries, useWebSearch: true, targetDepth };
 }
 
 export type GateDecision = {

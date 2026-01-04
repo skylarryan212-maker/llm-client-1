@@ -76,6 +76,8 @@ const PAGE_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
 const BRIGHTDATA_SERP_COST_USD = 0.0015;
 const BRIGHTDATA_UNLOCKER_COST_USD = 0.0015;
 const MAX_EMBED_CHUNKS = 80;
+const VERBOSE_WEB_LOG = process.env.WEB_PIPELINE_VERBOSE === "1";
+const LOG_LIST_CAP = VERBOSE_WEB_LOG ? Number.MAX_SAFE_INTEGER : 20;
 const DEFAULTS = {
   queryCount: 2,
   serpDepth: 10,
@@ -87,7 +89,7 @@ const DEFAULTS = {
   minContentRatio: 0.02,
   chunkSize: 1000,
   chunkOverlap: 200,
-  topK: 12,
+  topK: 50,
   maxChunksPerDomain: 3,
   maxChunksPerUrl: 2,
   maxTotalPages: 150,
@@ -107,6 +109,15 @@ function toTimestamp(value: unknown): number {
     return Number.isFinite(ms) ? ms : 0;
   }
   return 0;
+}
+
+function logCapped(label: string, items: unknown[]) {
+  if (!Array.isArray(items)) return console.log(label, items);
+  if (items.length <= LOG_LIST_CAP) {
+    console.log(label, items);
+  } else {
+    console.log(label, items.slice(0, LOG_LIST_CAP), { truncated: items.length - LOG_LIST_CAP });
+  }
 }
 
 function getOpenAIClient() {
@@ -832,19 +843,32 @@ type RankedChunk = WebPipelineChunk & {
   kind: "text" | "table" | "list";
 };
 
+type ChunkBudgetOptions = {
+  tokenBudget?: number;
+  hardCapTokens?: number;
+  minSources?: number;
+};
+
 function dedupeAndCapChunks(
   chunks: RankedChunk[],
   topK: number,
   maxPerDomain: number,
-  maxPerUrl: number
+  maxPerUrl: number,
+  budget?: ChunkBudgetOptions
 ): RankedChunk[] {
   const selected: RankedChunk[] = [];
   const domainCounts = new Map<string, number>();
   const urlCounts = new Map<string, number>();
   const seen = new Set<string>();
+  let totalTokens = 0;
+  const tokenBudget = budget?.tokenBudget;
+  const hardCap = budget?.hardCapTokens ?? budget?.tokenBudget;
+  const minSources = budget?.minSources ?? 1;
+  const chunkLimit = Math.max(1, topK || 1);
 
   for (const chunk of chunks) {
-    if (selected.length >= topK) break;
+    if (tokenBudget && totalTokens >= tokenBudget && selected.length >= minSources) break;
+    if (!tokenBudget && selected.length >= chunkLimit) break;
     const domainKey = chunk.domain ?? "unknown";
     const domainCount = domainCounts.get(domainKey) ?? 0;
     if (domainCount >= maxPerDomain) continue;
@@ -866,10 +890,14 @@ function dedupeAndCapChunks(
     }
     if (duplicate) continue;
 
+    const chunkTokens = Math.max(estimateTokens(chunk.text), 1);
     seen.add(signature);
     selected.push(chunk);
+    totalTokens += chunkTokens;
     domainCounts.set(domainKey, domainCount + 1);
     urlCounts.set(chunk.urlKey, urlCount + 1);
+
+    if (tokenBudget && hardCap && totalTokens >= hardCap && selected.length >= minSources) break;
   }
 
   return selected;
@@ -877,6 +905,15 @@ function dedupeAndCapChunks(
 
 export async function runWebSearchPipeline(prompt: string, options: PipelineOptions = {}) {
   const config = { ...DEFAULTS, ...options };
+  const budgetByDepth: Record<
+    number,
+    { tokenBudget: number; minSources: number; hardCapTokens?: number }
+  > = {
+    15: { tokenBudget: 6000, minSources: 4 },
+    30: { tokenBudget: 10_000, minSources: 6 },
+    50: { tokenBudget: 15_000, minSources: 8 },
+    100: { tokenBudget: 20_000, minSources: 10, hardCapTokens: 24_000 },
+  };
   let pageFetches = 0;
   let pageCacheHits = 0;
   const pipelineStart = performance.now();
@@ -934,6 +971,31 @@ export async function runWebSearchPipeline(prompt: string, options: PipelineOpti
       },
     } satisfies WebPipelineResult;
   }
+
+  const allowedDepths = [15, 30, 50, 100];
+  const targetDepthHint = allowedDepths.includes(queryResult.targetDepth ?? 0)
+    ? (queryResult.targetDepth as number)
+    : 30;
+  const chunkBudget =
+    budgetByDepth[targetDepthHint] ??
+    budgetByDepth[30] ?? { tokenBudget: 10_000, minSources: 6, hardCapTokens: 20_000 };
+  const effectiveMaxPages = Math.max(
+    config.pageLimit,
+    Math.min(config.maxTotalPages ?? DEFAULTS.maxTotalPages, targetDepthHint)
+  );
+  const effectiveFetchCandidateLimit = Math.max(
+    1,
+    Math.min(config.fetchCandidateLimit ?? DEFAULTS.fetchCandidateLimit, effectiveMaxPages)
+  );
+  config.maxTotalPages = effectiveMaxPages;
+  config.fetchCandidateLimit = effectiveFetchCandidateLimit;
+  console.log("[web-pipeline] budgets", {
+    targetDepthHint,
+    maxTotalPages: config.maxTotalPages,
+    fetchCandidateLimit: config.fetchCandidateLimit,
+    chunkTokenBudget: chunkBudget.tokenBudget,
+    chunkMinSources: chunkBudget.minSources,
+  });
 
   if (config.onSearchStart) {
     const queryLabel = queryResult.queries.join(" | ").trim() || prompt;
@@ -1474,7 +1536,7 @@ ${slice}`,
       });
     }
     if (filteredPages.length) {
-      console.log("[web-pipeline] filtered pages", filteredPages);
+      logCapped("[web-pipeline] filtered pages", filteredPages);
     }
 
     const fallbackPages = allFetchedPages
@@ -1493,7 +1555,7 @@ ${slice}`,
       }
     }
 
-    console.log(
+    logCapped(
       "[web-pipeline] selected pages",
       selectedPages.map((page) => page.url)
     );
@@ -1535,7 +1597,8 @@ ${slice}`,
       rankedChunks,
       config.topK,
       config.maxChunksPerDomain,
-      config.maxChunksPerUrl
+      config.maxChunksPerUrl,
+      chunkBudget
     );
     const tableListMin = 2;
     const tableListCandidates = rankedChunks.filter((chunk) => chunk.kind !== "text");
@@ -1563,14 +1626,14 @@ ${slice}`,
         }
       }
     }
-    console.log(
+    logCapped(
       "[web-pipeline] top chunk scores",
       selectedChunks.map((chunk) => ({
         score: Number.isFinite(chunk.score) ? Number(chunk.score.toFixed(4)) : 0,
         url: chunk.url,
         title: chunk.title ?? null,
         kind: chunk.kind,
-        preview: chunk.text.slice(0, 160),
+        preview: chunk.text.slice(0, 120),
       }))
     );
     console.log("[web-pipeline] selected chunks", selectedChunks.length);
@@ -1623,7 +1686,8 @@ ${slice}`,
         rankedChunks,
         config.topK,
         config.maxChunksPerDomain,
-        config.maxChunksPerUrl
+        config.maxChunksPerUrl,
+        chunkBudget
       );
       const expansionGateStart = performance.now();
       gate = await runEvidenceGate({
