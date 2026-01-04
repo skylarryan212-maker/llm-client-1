@@ -3152,6 +3152,8 @@ export default function ChatPageShell({
     // Wait for React to process the removal before adding new message
     await new Promise(resolve => setTimeout(resolve, 0));
 
+    let flushRetryUpdate: (() => void) | null = null;
+
     // Re-stream with the specific retry model (not changing currentModel)
     try {
       // Get location data if available
