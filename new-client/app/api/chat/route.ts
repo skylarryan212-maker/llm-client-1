@@ -3778,6 +3778,7 @@ export async function POST(request: NextRequest) {
         let pipelineGate = false;
         let customWebSearchContext: string | null = null;
         let customWebSearchDomains: string[] = [];
+        let pipelineSkipped = false;
         if (customWebSearchInput) {
           sendStatusUpdate({ type: "search-start", query: customWebSearchInput.prompt });
           try {
@@ -3802,16 +3803,16 @@ export async function POST(request: NextRequest) {
               message: "Web search failed",
             });
           }
-        pipelineGate = customWebSearchResult?.gate?.enoughEvidence === true;
-        const pipelineSkipped = customWebSearchResult?.skipped === true;
-        customWebSearchContext =
-          customWebSearchResult && pipelineGate
-            ? formatWebPipelineContext(customWebSearchResult)
-            : null;
-        customWebSearchDomains =
-          customWebSearchResult && pipelineGate
-            ? extractPipelineDomains(customWebSearchResult)
-            : [];
+          pipelineGate = customWebSearchResult?.gate?.enoughEvidence === true;
+          pipelineSkipped = customWebSearchResult?.skipped === true;
+          customWebSearchContext =
+            customWebSearchResult && pipelineGate
+              ? formatWebPipelineContext(customWebSearchResult)
+              : null;
+          customWebSearchDomains =
+            customWebSearchResult && pipelineGate
+              ? extractPipelineDomains(customWebSearchResult)
+              : [];
           if (pipelineGate) {
             customWebSearchDomains.forEach((domain) => recordLiveSearchDomain(domain));
           }

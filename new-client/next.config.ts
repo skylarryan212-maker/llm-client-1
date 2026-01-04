@@ -16,10 +16,8 @@ const nextConfig: NextConfig = {
       "@napi-rs/canvas": canvasStubPath,
     },
   },
-  experimental: {
-    outputFileTracingIncludes: {
-      "/api/web-render": ["./node_modules/@sparticuz/chromium/**"],
-    },
+  outputFileTracingIncludes: {
+    "/api/web-render": ["./node_modules/@sparticuz/chromium/**"],
   },
   webpack: (config, { isServer }) => {
     if (isServer) {
