@@ -79,7 +79,7 @@ export const FILE_OPERATIONS_PRICING = {
 
 // Tool call pricing (per 1k calls)
 export const TOOL_CALL_PRICING_PER_1K = {
-  web_search: 2.5, // $2.50 / 1k tool calls (tool version/model dependent; using default)
+  web_search: 10.0, // $10.00 / 1k tool calls (OpenAI web_search)
   file_search: 2.5, // Responses API file_search tool calls
 } as const;
 
