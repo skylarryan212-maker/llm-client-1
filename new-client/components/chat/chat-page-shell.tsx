@@ -1833,6 +1833,8 @@ export default function ChatPageShell({
     startResponseTiming();
     showThinkingIndicator();
     promoteThinkingIndicator(guestPreviewConfig.reasoning?.effort ?? guestReasoningEffort);
+    let flushGuestUpdate: (() => void) | null = null;
+
     try {
       const response = await fetch("/api/guest-chat", {
         method: "POST",
@@ -1874,12 +1876,12 @@ export default function ChatPageShell({
 	      } | null = null;
 	      let updateTimer: ReturnType<typeof setTimeout> | null = null;
 
-	      const flushGuestUpdate = () => {
-	        if (updateTimer) {
-	          clearTimeout(updateTimer);
-	          updateTimer = null;
-	        }
-	        if (!pendingUpdate) return;
+      flushGuestUpdate = () => {
+        if (updateTimer) {
+          clearTimeout(updateTimer);
+          updateTimer = null;
+        }
+        if (!pendingUpdate) return;
 	        const { content, metadata } = pendingUpdate;
 	        pendingUpdate = null;
 	        updateMessage(chatId, assistantId, {
@@ -1888,12 +1890,12 @@ export default function ChatPageShell({
 	        });
 	      };
 
-	      const scheduleGuestUpdate = (
-	        content: string,
-	        metadata: AssistantMessageMetadata | null
-	      ) => {
-	        pendingUpdate = { content, metadata };
-	        if (updateTimer) return;
+      const scheduleGuestUpdate = (
+        content: string,
+        metadata: AssistantMessageMetadata | null
+      ) => {
+        pendingUpdate = { content, metadata };
+        if (updateTimer) return;
 	        updateTimer = setTimeout(() => {
 	          updateTimer = null;
 	          if (!pendingUpdate) return;
@@ -1966,7 +1968,9 @@ export default function ChatPageShell({
       console.error("guest chat error", e);
       setGuestWarning("Guest mode: model call failed. Please sign in.");
     } finally {
-      flushGuestUpdate();
+      if (flushGuestUpdate) {
+        flushGuestUpdate();
+      }
       resetThinkingIndicator();
       setIsStreaming(false);
       setActiveIndicatorMessageId(null);
