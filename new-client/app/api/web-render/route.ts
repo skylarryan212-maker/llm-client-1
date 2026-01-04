@@ -24,7 +24,7 @@ async function renderWithPlaywright(url: string, timeoutMs: number, maxBytes: nu
       ? `${proxyHost.startsWith("http") ? "" : "http://"}${proxyHost}:${proxyPort}`
       : null;
 
-  let browser: Awaited<ReturnType<typeof chromium.launch>> | null = null;
+  let browser: any = null;
   try {
     const executablePath = await chromium.executablePath();
     browser = await playwrightChromium.launch({
