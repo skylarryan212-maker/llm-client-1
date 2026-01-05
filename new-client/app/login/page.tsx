@@ -18,10 +18,8 @@ function LoginPageContent() {
   const [googleLoading, setGoogleLoading] = useState(false);
   const [googleError, setGoogleError] = useState<string | null>(null);
   const [tokenInput, setTokenInput] = useState("");
-  const [tokenLoginLoading, setTokenLoginLoading] = useState(false);
-  const [tokenLoginError, setTokenLoginError] = useState<string | null>(null);
-  const [tokenSignupLoading, setTokenSignupLoading] = useState(false);
-  const [tokenSignupError, setTokenSignupError] = useState<string | null>(null);
+  const [tokenActionLoading, setTokenActionLoading] = useState(false);
+  const [tokenActionError, setTokenActionError] = useState<string | null>(null);
   const [tokenModalToken, setTokenModalToken] = useState<string | null>(null);
   const [copyStatus, setCopyStatus] = useState<"idle" | "copied">("idle");
   const copyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -77,35 +75,26 @@ function LoginPageContent() {
     window.location.assign(providerUrl);
   };
 
-  const handleTokenLogin = async (event: FormEvent<HTMLFormElement>) => {
+  const handleTokenAction = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const trimmedToken = tokenInput.trim();
-    if (!trimmedToken) {
-      setTokenLoginError("Please enter your token");
-      return;
-    }
-    setTokenLoginLoading(true);
-    setTokenLoginError(null);
-    try {
-      const { error } = await supabaseClient.auth.signInWithPassword({
-        email: buildTokenAuthEmail(trimmedToken),
-        password: trimmedToken,
-      });
-      if (error) {
-        throw error;
-      }
-      router.push(nextPath);
-    } catch (err: any) {
-      setTokenLoginError(err?.message ?? "Failed to log in with token");
-    } finally {
-      setTokenLoginLoading(false);
-    }
-  };
 
-  const handleTokenSignup = async () => {
-    setTokenSignupLoading(true);
-    setTokenSignupError(null);
+    setTokenActionLoading(true);
+    setTokenActionError(null);
+
     try {
+      if (trimmedToken) {
+        const { error } = await supabaseClient.auth.signInWithPassword({
+          email: buildTokenAuthEmail(trimmedToken),
+          password: trimmedToken,
+        });
+        if (error) {
+          throw error;
+        }
+        router.push(nextPath);
+        return;
+      }
+
       const res = await fetch("/api/auth/token", {
         method: "POST",
       });
@@ -113,21 +102,24 @@ function LoginPageContent() {
       if (!res.ok || !payload?.token) {
         throw new Error(payload?.error ?? "Unable to create a token account");
       }
-      const token = payload.token;
+      const generatedToken = payload.token;
       const { error } = await supabaseClient.auth.signInWithPassword({
-        email: buildTokenAuthEmail(token),
-        password: token,
+        email: buildTokenAuthEmail(generatedToken),
+        password: generatedToken,
       });
       if (error) {
         throw error;
       }
-      setTokenModalToken(token);
+      setTokenModalToken(generatedToken);
       setCopyStatus("idle");
       setTokenInput("");
     } catch (err: any) {
-      setTokenSignupError(err?.message ?? "Failed to create a token login");
+      setTokenActionError(
+        err?.message ??
+          (trimmedToken ? "Failed to log in with token" : "Failed to create a token login")
+      );
     } finally {
-      setTokenSignupLoading(false);
+      setTokenActionLoading(false);
     }
   };
 
@@ -220,42 +212,33 @@ function LoginPageContent() {
             {googleError}
           </p>
         ) : null}
-        <div className="space-y-4 rounded-xl border border-border bg-muted/30 p-5">
+        <div className="space-y-4 rounded-xl border border-border bg-muted/20 p-5">
           <div className="space-y-1">
-            <h2 className="text-lg font-semibold">Token login</h2>
+            <h2 className="text-lg font-semibold">Token access</h2>
             <p className="text-xs text-muted-foreground">
-              Sign up with a token to skip email, or reuse an existing token to log in instantly.
+              Paste a token to log in instantly, or leave the field blank to generate a new one you can copy safely.
             </p>
           </div>
-          <Button
-            onClick={handleTokenSignup}
-            disabled={tokenSignupLoading}
-            className="w-full justify-center"
-          >
-            {tokenSignupLoading ? "Creating token..." : "Sign up with token"}
-          </Button>
-          {tokenSignupError && (
-            <p className="text-sm text-destructive" role="alert">
-              {tokenSignupError}
-            </p>
-          )}
-          <form onSubmit={handleTokenLogin} className="space-y-2">
+          <form onSubmit={handleTokenAction} className="space-y-3">
             <div className="space-y-1">
-              <Label htmlFor="token-input">Have a token?</Label>
+              <Label htmlFor="token-input">Token</Label>
               <Input
                 id="token-input"
                 value={tokenInput}
                 onChange={(event) => setTokenInput(event.target.value)}
-                placeholder="Enter your login token"
-                disabled={tokenLoginLoading}
+                placeholder="Enter saved token (optional)"
+                disabled={tokenActionLoading}
               />
             </div>
-            <Button type="submit" className="w-full justify-center" disabled={tokenLoginLoading}>
-              {tokenLoginLoading ? "Signing in..." : "Log in with token"}
+            <p className="text-[11px] text-muted-foreground">
+              Tokens look like `token-<short-id>` and act as both your email and password.
+            </p>
+            <Button type="submit" className="w-full justify-center" disabled={tokenActionLoading}>
+              {tokenActionLoading ? "Processing..." : "Use or create a token"}
             </Button>
-            {tokenLoginError && (
+            {tokenActionError && (
               <p className="text-sm text-destructive" role="alert">
-                {tokenLoginError}
+                {tokenActionError}
               </p>
             )}
           </form>
