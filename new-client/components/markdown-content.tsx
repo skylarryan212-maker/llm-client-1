@@ -532,9 +532,9 @@ export const MarkdownContent = memo(function MarkdownContent({ content, messageI
   const remarkCleanChildren = useMemo(() => {
     return (tree: any) => {
       visit(tree, (node: any) => {
-        if (node && Array.isArray(node.children)) {
-          node.children = node.children.filter(Boolean)
-        }
+        if (!node) return
+        const kids = Array.isArray(node.children) ? node.children : []
+        node.children = kids.filter(Boolean)
       })
     }
   }, [])
