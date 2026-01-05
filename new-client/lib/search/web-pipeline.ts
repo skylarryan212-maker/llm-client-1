@@ -1,10 +1,15 @@
 import { performance } from "perf_hooks";
 import { convert } from "html-to-text";
+import { createHash } from "crypto";
 import { createOpenAIClient } from "@/lib/openai/client";
 import { extractDomainFromUrl } from "@/lib/metadata";
 import { supabaseServer } from "@/lib/supabase/server";
 import { fetchGoogleOrganicSerp } from "@/lib/search/brightdata-serp";
-import { runEvidenceGate, writeSearchQueries } from "@/lib/search/search-llm";
+import {
+  assessTimeSensitivity,
+  runEvidenceGate,
+  writeSearchQueries,
+} from "@/lib/search/search-llm";
 import { calculateEmbeddingCost } from "@/lib/pricing";
 import { estimateTokens } from "@/lib/tokens/estimateTokens";
 
@@ -35,6 +40,9 @@ type PipelineOptions = {
   onProgress?: (event: { type: "page_fetch_progress"; searched: number }) => void;
   retryOnGateFailure?: boolean;
   allowSkip?: boolean;
+  preferredSourceUrls?: string[];
+  preferredSourceChunkLimit?: number;
+  preferredSourceTokenBudget?: number;
 };
 
 export type WebPipelineChunk = {
@@ -60,6 +68,10 @@ export type WebPipelineResult = {
   expanded: boolean;
   skipped?: boolean;
   skipReason?: string;
+  timeSensitive?: boolean;
+  reusedPersistentQuery?: boolean;
+  serpCacheHits?: number;
+  pageCacheHits?: number;
   cost?: {
     serpRequests: number;
     serpEstimatedUsd: number;
@@ -99,7 +111,13 @@ const DEFAULTS = {
   languageCode: "en",
   countryCode: "us",
   device: "desktop" as const,
+  preferredSourceChunkLimit: 4,
+  preferredSourceTokenBudget: 6000,
 };
+
+const PERSISTENT_QUERY_SIMILARITY_THRESHOLD = 0.88;
+const PERSISTENT_QUERY_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+const PERSISTENT_DOCUMENT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
 let cachedOpenAIClient: ReturnType<typeof createOpenAIClient> | null = null;
 
@@ -480,6 +498,14 @@ async function embedTexts(inputs: string[]): Promise<number[][]> {
     });
   }
   return embeddings;
+}
+
+function normalizeQueryKey(query: string): string {
+  return normalizeWhitespace(query).toLowerCase();
+}
+
+function hashChunkText(text: string): string {
+  return createHash("sha1").update(text || "").digest("hex");
 }
 
 async function fetchPageHtml(
@@ -903,6 +929,198 @@ function dedupeAndCapChunks(
   return selected;
 }
 
+async function findPersistentQueryReuse(params: {
+  query: string;
+  embedding: number[] | null;
+  allowReuse: boolean;
+}): Promise<{ serpPayload: any } | null> {
+  if (!params.allowReuse) return null;
+  if (!params.embedding || !params.embedding.length) return null;
+  try {
+    const supabase = await supabaseServer();
+    const { data, error } = await supabase.rpc("match_web_search_queries", {
+      query_embedding: params.embedding as any,
+      match_threshold: PERSISTENT_QUERY_SIMILARITY_THRESHOLD,
+      match_count: 3,
+    });
+    if (error || !Array.isArray(data) || !data.length) return null;
+    const now = Date.now();
+    const fresh = data.find((row: any) => {
+      const lastUsed = row?.last_used_at ? new Date(row.last_used_at).getTime() : 0;
+      return now - lastUsed <= PERSISTENT_QUERY_MAX_AGE_MS;
+    });
+    if (fresh?.serp_payload) {
+      console.log("[web-pipeline] persistent query reuse hit", {
+        query: params.query,
+        similarity: Number(fresh.similarity ?? 0).toFixed(3),
+      });
+      try {
+        const supabase = await supabaseServer();
+        await supabase
+          .from("web_search_query_catalog")
+          .update({ last_used_at: new Date().toISOString() })
+          .eq("id", fresh.id);
+      } catch (err) {
+        console.warn("[web-pipeline] failed to bump last_used_at for persistent query", err);
+      }
+      return { serpPayload: fresh.serp_payload };
+    }
+  } catch (error) {
+    console.warn("[web-pipeline] persistent query reuse failed", error);
+  }
+  return null;
+}
+
+async function persistSearchArtifacts(params: {
+  queries: string[];
+  queryEmbeddings: number[][];
+  serpResults: Array<{ url: string; title: string; description?: string | null; position?: number | null; domain?: string | null }>;
+  selectedChunks: RankedChunk[];
+  isTimeSensitive: boolean;
+}) {
+  try {
+    const supabase = await supabaseServer();
+    const nowIso = new Date().toISOString();
+    const urls = params.serpResults.map((r) => r.url).filter(Boolean);
+
+    for (let i = 0; i < params.queries.length; i += 1) {
+      const embedding = params.queryEmbeddings[i];
+      const normalized = normalizeQueryKey(params.queries[i]);
+      await supabase
+        .from("web_search_query_catalog")
+        .upsert({
+          normalized_query: normalized,
+          provider: "brightdata",
+          serp_payload: params.serpResults,
+          urls,
+          first_seen_at: nowIso,
+          last_used_at: nowIso,
+          is_time_sensitive: params.isTimeSensitive,
+          embedding_raw: embedding ? (embedding as any) : null,
+        })
+        .select("id")
+        .maybeSingle();
+    }
+
+    if (!params.selectedChunks.length) return;
+
+    const chunkEmbeddings = await embedTexts(params.selectedChunks.map((chunk) => chunk.text));
+    const chunkIndexByUrl = new Map<string, number>();
+    for (let i = 0; i < params.selectedChunks.length; i += 1) {
+      const chunk = params.selectedChunks[i];
+      const chunkEmbedding = chunkEmbeddings[i];
+      const url = chunk.url;
+      if (!url) continue;
+      const domain = chunk.domain ?? extractDomainFromUrl(url) ?? null;
+      const docResult = await supabase
+        .from("web_search_documents")
+        .upsert({
+          url,
+          domain,
+          title: chunk.title ?? null,
+          text_content: chunk.text,
+          first_seen_at: nowIso,
+          last_crawled_at: nowIso,
+          last_used_at: nowIso,
+        })
+        .select("id")
+        .maybeSingle();
+      const documentId = (docResult?.data as { id?: string } | null)?.id;
+      if (!documentId) continue;
+      const nextIndex = (chunkIndexByUrl.get(url) ?? 0) + 1;
+      chunkIndexByUrl.set(url, nextIndex);
+      const chunkHash = hashChunkText(chunk.text);
+      await supabase.from("web_search_chunks").upsert({
+        document_id: documentId,
+        chunk_index: nextIndex,
+        chunk_hash: chunkHash,
+        chunk_text: chunk.text,
+        embedding_raw: chunkEmbedding ? (chunkEmbedding as any) : null,
+        last_used_at: nowIso,
+      });
+    }
+  } catch (error) {
+    console.warn("[web-pipeline] failed to persist search artifacts", error);
+  }
+}
+
+async function loadStoredChunksForUrls(params: {
+  urls: string[];
+  maxChunksPerUrl: number;
+  tokenBudget: number;
+}) {
+  const urls = Array.from(
+    new Set(
+      params.urls
+        .map((u) => (typeof u === "string" ? u.trim() : ""))
+        .filter(Boolean)
+    )
+  );
+  if (!urls.length) return [] as RankedChunk[];
+  try {
+    const supabase = await supabaseServer();
+    const { data, error } = await supabase
+      .from("web_search_chunks")
+      .select(
+        `chunk_text, chunk_index, last_used_at, web_search_documents!inner(id, url, domain, title, last_crawled_at)`
+      )
+      .in("web_search_documents.url", urls)
+      .order("chunk_index", { ascending: true });
+    if (error || !Array.isArray(data)) return [];
+    const now = Date.now();
+    const chunks: RankedChunk[] = [];
+    let tokensUsed = 0;
+    const perUrlCounts = new Map<string, number>();
+    const touchedDocIds: string[] = [];
+    for (const row of data as any[]) {
+      const doc = row.web_search_documents;
+      const url = doc?.url;
+      if (!url) continue;
+      const lastCrawled = doc?.last_crawled_at ? new Date(doc.last_crawled_at).getTime() : 0;
+      if (lastCrawled && now - lastCrawled > PERSISTENT_DOCUMENT_MAX_AGE_MS) {
+        continue;
+      }
+      const count = perUrlCounts.get(url) ?? 0;
+      if (count >= params.maxChunksPerUrl) continue;
+      const text: string = row.chunk_text ?? "";
+      const tokenEstimate = estimateTokens(text);
+      if (tokensUsed + tokenEstimate > params.tokenBudget) break;
+      tokensUsed += tokenEstimate;
+      perUrlCounts.set(url, count + 1);
+      if (doc?.id) touchedDocIds.push(doc.id);
+      chunks.push({
+        text,
+        title: doc?.title ?? null,
+        url,
+        domain: doc?.domain ?? extractDomainFromUrl(url) ?? null,
+        score: 1.0,
+        urlKey: normalizeUrlKey(url),
+        kind: "text",
+      });
+    }
+    if (chunks.length) {
+      try {
+        const supabase = await supabaseServer();
+        if (touchedDocIds.length) {
+          await supabase
+            .from("web_search_documents")
+            .update({ last_used_at: new Date().toISOString() })
+            .in("id", touchedDocIds);
+        }
+      } catch (err) {
+        console.warn("[web-pipeline] failed to bump last_used_at for stored docs", err);
+      }
+      console.log("[web-pipeline] loaded stored chunks for preferred sources", {
+        urls: chunks.map((c) => c.url),
+        count: chunks.length,
+      });
+    }
+    return chunks;
+  } catch (error) {
+    console.warn("[web-pipeline] failed to load stored chunks for urls", error);
+    return [] as RankedChunk[];
+  }
+}
 export async function runWebSearchPipeline(prompt: string, options: PipelineOptions = {}) {
   const config = { ...DEFAULTS, ...options };
   const budgetByDepth: Record<
@@ -916,6 +1134,8 @@ export async function runWebSearchPipeline(prompt: string, options: PipelineOpti
   };
   let pageFetches = 0;
   let pageCacheHits = 0;
+  let serpCacheHits = 0;
+  let persistentQueryHit = false;
   const pipelineStart = performance.now();
   const logTiming = (stage: string, start: number, extra?: Record<string, unknown>) => {
     console.log("[web-pipeline] timing", {
@@ -971,6 +1191,16 @@ export async function runWebSearchPipeline(prompt: string, options: PipelineOpti
       },
     } satisfies WebPipelineResult;
   }
+
+  const timeSensitivityStart = performance.now();
+  const timeDecision = await assessTimeSensitivity({
+    prompt,
+    currentDate: options.currentDate,
+  });
+  logTiming("time_sensitivity", timeSensitivityStart, { timeSensitive: timeDecision.timeSensitive });
+  const allowPersistentReuse = !timeDecision.timeSensitive;
+
+  const queryEmbeddings = await embedTexts(queryResult.queries);
 
   const allowedDepths = [15, 30, 50, 100];
   const targetDepthHint = allowedDepths.includes(queryResult.targetDepth ?? 0)
@@ -1401,13 +1631,33 @@ ${slice}`,
     });
   };
 
-  const runPass = async (queries: string[], stageLabel: "initial" | "retry") => {
+  const runPass = async (
+    queries: string[],
+    stageLabel: "initial" | "retry",
+    allowPersistentReuse: boolean,
+    queryEmbeddings?: number[][]
+  ) => {
     const serpStart = performance.now();
+    const embeddings = queryEmbeddings && queryEmbeddings.length === queries.length
+      ? queryEmbeddings
+      : await embedTexts(queries);
     const serpResponses = await Promise.all(
       queries.map(async (query) => {
+        const embedding = embeddings.find((_, idx) => idx === queries.indexOf(query)) ?? null;
+        const persistentHit = await findPersistentQueryReuse({
+          query,
+          embedding: embedding ?? null,
+          allowReuse: allowPersistentReuse,
+        });
+        if (persistentHit?.serpPayload) {
+          persistentQueryHit = true;
+          console.log("[web-pipeline] SERP persistent cache hit", query);
+          return persistentHit.serpPayload as any;
+        }
         const cacheKey = `${SERP_CACHE_PREFIX}${normalizeUrlKey(query)}`;
         const cached = await loadSerpCache(cacheKey);
         if (cached) {
+          serpCacheHits += 1;
           console.log("[web-pipeline] SERP cache hit", query);
           return cached as any;
         }
@@ -1582,13 +1832,22 @@ ${slice}`,
 
     const chunkStart = performance.now();
     const initialChunks = buildChunks(combinedPages);
+    let preferredChunks: RankedChunk[] = [];
+    if (Array.isArray(config.preferredSourceUrls) && config.preferredSourceUrls.length) {
+      preferredChunks = await loadStoredChunksForUrls({
+        urls: config.preferredSourceUrls,
+        maxChunksPerUrl: Math.max(1, config.preferredSourceChunkLimit ?? DEFAULTS.preferredSourceChunkLimit),
+        tokenBudget: Math.max(500, config.preferredSourceTokenBudget ?? DEFAULTS.preferredSourceTokenBudget),
+      });
+    }
+    const combinedChunks = preferredChunks.length ? [...preferredChunks, ...initialChunks] : initialChunks;
     logTiming(stageLabel === "retry" ? "chunk_build_retry" : "chunk_build_initial", chunkStart, {
-      chunks: initialChunks.length,
+      chunks: combinedChunks.length,
     });
-    console.log("[web-pipeline] chunks built", initialChunks.length);
+    console.log("[web-pipeline] chunks built", combinedChunks.length);
 
     const rankStart = performance.now();
-    let rankedChunks = await rankChunks(initialChunks, queries);
+    let rankedChunks = await rankChunks(combinedChunks, queries);
     logTiming(stageLabel === "retry" ? "rank_chunks_retry" : "rank_chunks_initial", rankStart, {
       chunks: rankedChunks.length,
     });
@@ -1722,7 +1981,7 @@ ${slice}`,
   };
 
   let usedQueries = [...queryResult.queries];
-  let pass = await runPass(queryResult.queries, "initial");
+  let pass = await runPass(queryResult.queries, "initial", allowPersistentReuse, queryEmbeddings);
   if (
     !pass.gate.enoughEvidence &&
     retryOnGateFailure &&
@@ -1730,7 +1989,7 @@ ${slice}`,
     pass.gate.suggestedQueries.length
   ) {
     const retryQueries = pass.gate.suggestedQueries.slice(0, 2);
-    const retryPass = await runPass(retryQueries, "retry");
+    const retryPass = await runPass(retryQueries, "retry", allowPersistentReuse);
     usedQueries = [...usedQueries, ...retryQueries];
     if (retryPass.gate.enoughEvidence || retryPass.chunks.length >= pass.chunks.length) {
       pass = { ...retryPass, expanded: pass.expanded || retryPass.expanded };
@@ -1751,6 +2010,14 @@ ${slice}`,
     chunksSelected: pass.chunks.length,
   });
   logTiming("pipeline_total", pipelineStart);
+  const persistEmbeddings = await embedTexts(usedQueries);
+  await persistSearchArtifacts({
+    queries: usedQueries,
+    queryEmbeddings: persistEmbeddings,
+    serpResults: pass.results,
+    selectedChunks: pass.chunks,
+    isTimeSensitive: timeDecision.timeSensitive,
+  });
 
   return {
     queries: usedQueries,
@@ -1759,6 +2026,10 @@ ${slice}`,
     sources: pass.sources,
     gate: pass.gate,
     expanded: pass.expanded,
+    timeSensitive: timeDecision.timeSensitive,
+    reusedPersistentQuery: persistentQueryHit || serpCacheHits > 0,
+    serpCacheHits,
+    pageCacheHits,
     cost: {
       serpRequests: serpRequestsTotal,
       serpEstimatedUsd: serpEstimatedUsd,

@@ -141,6 +141,11 @@ export type GateDecision = {
   suggestedQueries?: string[];
 };
 
+export type TimeSensitivityDecision = {
+  timeSensitive: boolean;
+  reason?: string;
+};
+
 export async function runEvidenceGate(params: {
   prompt: string;
   chunks: Array<{ text: string; title?: string | null; url?: string | null }>;
@@ -210,4 +215,59 @@ Rules:
   }
 
   return { enoughEvidence: false, suggestedQueries: [] };
+}
+
+export async function assessTimeSensitivity(params: {
+  prompt: string;
+  currentDate?: string;
+}): Promise<TimeSensitivityDecision> {
+  const systemPrompt = `You classify whether a user question needs fresh/real-time data.
+Return JSON only:
+{ "timeSensitive": boolean, "reason": string }
+Rules:
+- timeSensitive = true when the user likely wants the latest schedules, dates, prices, news, rankings, releases, scores, weather, or other fast-changing facts.
+- Otherwise, return false. Keep reason brief (<= 12 words).`;
+
+  const start = performance.now();
+  const { text, usage } = await callDeepInfraLlama({
+    messages: [
+      { role: "system", content: systemPrompt },
+      {
+        role: "user",
+        content: `Current date: ${params.currentDate ?? "Unknown"}\nUser prompt: ${params.prompt}`,
+      },
+    ],
+    schemaName: "time_sensitivity_classifier",
+    schema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        timeSensitive: { type: "boolean" },
+        reason: { type: "string" },
+      },
+      required: ["timeSensitive"],
+    },
+    temperature: 0.1,
+    model: "openai/gpt-oss-20b",
+    enforceJson: true,
+    maxTokens: 80,
+    extraParams: { reasoning_effort: "low" },
+  });
+  console.log("[search-llm] time-sensitivity timing", {
+    ms: Math.round(performance.now() - start),
+  });
+  logDeepInfraUsage("time-sensitivity", "openai/gpt-oss-20b", usage);
+
+  try {
+    const parsed = JSON.parse(text);
+    if (typeof parsed?.timeSensitive === "boolean") {
+      return {
+        timeSensitive: parsed.timeSensitive,
+        reason: typeof parsed?.reason === "string" ? parsed.reason.trim() : undefined,
+      };
+    }
+  } catch {
+    // fall through
+  }
+  return { timeSensitive: false };
 }

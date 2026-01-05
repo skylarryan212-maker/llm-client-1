@@ -2152,6 +2152,7 @@ export async function POST(request: NextRequest) {
           recentMessages: Array<{ role: "user" | "assistant" | "system"; content: string }>;
           currentDate: string;
           location?: { city?: string; countryCode?: string; languageCode?: string };
+          preferredSourceUrls?: string[];
         }
       | null = null;
     const nowForSearch = typeof clientNow === "string" || typeof clientNow === "number"
@@ -2557,6 +2558,28 @@ export async function POST(request: NextRequest) {
           headerGeo.location?.countryCode?.toLowerCase() ||
           (request.headers.get("x-vercel-ip-country") || request.headers.get("cf-ipcountry") || "").toLowerCase() ||
           undefined;
+        let preferredSourceUrls: string[] = [];
+        const { data: lastAssistantMeta } = await supabaseAny
+          .from("messages")
+          .select("metadata")
+          .eq("conversation_id", conversationId)
+          .eq("role", "assistant")
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        const lastMeta = (lastAssistantMeta?.metadata || null) as AssistantMessageMetadata | null;
+        if (lastMeta?.webSearchSources && Array.isArray(lastMeta.webSearchSources)) {
+          const seen = new Set<string>();
+          preferredSourceUrls = lastMeta.webSearchSources
+            .map((s) => (typeof s?.url === "string" ? s.url.trim() : ""))
+            .filter((u) => {
+              if (!u) return false;
+              const key = u.toLowerCase();
+              if (seen.has(key)) return false;
+              seen.add(key);
+              return true;
+            });
+        }
         customWebSearchInput = {
           prompt: trimmedMessage,
           recentMessages: recentMessagesForSearch,
@@ -2566,6 +2589,7 @@ export async function POST(request: NextRequest) {
             countryCode: countryCode ? countryCode.toLowerCase() : undefined,
             languageCode: primaryLang || undefined,
           },
+          preferredSourceUrls,
         };
       }
 
@@ -3833,6 +3857,7 @@ export async function POST(request: NextRequest) {
               locationName: customWebSearchInput.location?.city ?? effectiveLocation?.city ?? undefined,
               languageCode: customWebSearchInput.location?.languageCode ?? undefined,
               countryCode: customWebSearchInput.location?.countryCode ?? undefined,
+              preferredSourceUrls: customWebSearchInput.preferredSourceUrls,
               allowSkip: !forceWebSearch,
               onSearchStart: ({ query }) => {
                 searchStarted = true;
@@ -4459,6 +4484,15 @@ export async function POST(request: NextRequest) {
             content: assistantContent,
             thinkingDurationMs,
           });
+          if (customWebSearchResult) {
+            metadataPayload.webSearchQueries = customWebSearchResult.queries ?? [];
+            metadataPayload.webSearchSources = customWebSearchResult.sources ?? [];
+            metadataPayload.webSearchTimeSensitive = customWebSearchResult.timeSensitive ?? undefined;
+            metadataPayload.webSearchUsedCache = Boolean(
+              customWebSearchResult.reusedPersistentQuery ||
+                (customWebSearchResult.serpCacheHits ?? 0) > 0
+            );
+          }
           if (rehostedImages.length) {
             (metadataPayload as any).inlineImages = rehostedImages;
           }

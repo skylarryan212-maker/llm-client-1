@@ -26,6 +26,10 @@ export type AssistantMessageMetadata = {
   };
   searchedDomains?: string[];
   searchedSiteLabel?: string;
+  webSearchQueries?: string[];
+  webSearchSources?: Array<{ url: string; title?: string | null }>;
+  webSearchUsedCache?: boolean;
+  webSearchTimeSensitive?: boolean;
   citations?: CitationMetadata[];
   generatedFiles?: Array<{
     containerId: string;
