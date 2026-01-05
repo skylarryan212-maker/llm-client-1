@@ -2315,6 +2315,21 @@ export async function POST(request: NextRequest) {
         : null;
 
     const conversation = conversationData as ConversationRow;
+    const abortSignal = request.signal;
+    const removeAssistantPlaceholder = async () => {
+      if (!assistantMessageRow) return;
+      try {
+        await supabaseAny.from("messages").delete().eq("id", assistantMessageRow.id);
+      } catch (err) {
+        console.error("[chatApi] Failed to delete aborted assistant placeholder:", err);
+      }
+      assistantMessageRow = null;
+    };
+    const exitIfAborted = async () => {
+      if (!abortSignal.aborted) return false;
+      await removeAssistantPlaceholder();
+      return true;
+    };
 
     let projectMeta: { id: string; name: string | null } | null = null;
     if (conversation.project_id) {
@@ -2890,6 +2905,9 @@ export async function POST(request: NextRequest) {
       },
       allowLLM: allowLLMRouters,
     });
+    if (await exitIfAborted()) {
+      return;
+    }
     console.log("[decision-router] output:", JSON.stringify(decision, null, 2));
 
     // Create a stub topic immediately for new-topic actions so downstream work (and the OpenAI call)
@@ -3723,22 +3741,49 @@ export async function POST(request: NextRequest) {
 
     const readableStream = new ReadableStream({
       async start(controller) {
-        const encoder = new TextEncoder();
-        const enqueueJson = (payload: Record<string, unknown>) => {
-          controller.enqueue(encoder.encode(`${JSON.stringify(payload)}\n`));
+        let controllerClosed = false;
+        const closeControllerIfNeeded = () => {
+          if (controllerClosed) return;
+          controllerClosed = true;
+          try {
+            controller.close();
+          } catch {
+            // ignore
+          }
         };
-        if (deferredAttachmentTasks.length) {
-          // Kick off deferred uploads/OCR without blocking the stream
-          void Promise.allSettled(deferredAttachmentTasks).then((results) => {
-            const failures = results.filter((r) => r.status === "rejected");
-            if (failures.length) {
-              console.warn(`[chatApi] ${failures.length} deferred attachment tasks failed`);
-            }
-          });
-        }
-        const sendStatusUpdate = (status: SearchStatusEvent) => {
-          enqueueJson({ status });
+        const stopIfAborted = async () => {
+          if (!abortSignal.aborted) return false;
+          await exitIfAborted();
+          closeControllerIfNeeded();
+          return true;
         };
+        const handleRequestAbort = () => {
+          closeControllerIfNeeded();
+          if (responseStream?.return) {
+            responseStream.return().catch(() => {});
+          }
+          void exitIfAborted();
+        };
+        abortSignal.addEventListener("abort", handleRequestAbort);
+          const encoder = new TextEncoder();
+          const enqueueJson = (payload: Record<string, unknown>) => {
+            controller.enqueue(encoder.encode(`${JSON.stringify(payload)}\n`));
+          };
+          if (await stopIfAborted()) {
+            return;
+          }
+          if (deferredAttachmentTasks.length) {
+            // Kick off deferred uploads/OCR without blocking the stream
+            void Promise.allSettled(deferredAttachmentTasks).then((results) => {
+              const failures = results.filter((r) => r.status === "rejected");
+              if (failures.length) {
+                console.warn(`[chatApi] ${failures.length} deferred attachment tasks failed`);
+              }
+            });
+          }
+          const sendStatusUpdate = (status: SearchStatusEvent) => {
+            enqueueJson({ status });
+          };
         const recordLiveSearchDomain = (domain?: string | null) => {
           const label = domain?.trim();
           if (!label) {
@@ -3834,6 +3879,9 @@ export async function POST(request: NextRequest) {
               results: customWebSearchResult?.results?.length ?? 0,
             });
           }
+        }
+        if (await stopIfAborted()) {
+          return;
         }
 
         const allowWebSearch = !useCustomWebSearch || (!pipelineGate && !pipelineSkipped);
@@ -3977,6 +4025,9 @@ export async function POST(request: NextRequest) {
             useFlex ? "(flex)" : "(standard)"
           );
           requestStartMs = Date.now();
+          if (await stopIfAborted()) {
+            return;
+          }
 
           // Emit model info immediately so the UI can show effort badges before first token
           enqueueJson({
@@ -4050,6 +4101,9 @@ export async function POST(request: NextRequest) {
 
         try {
           for await (const event of responseStream) {
+            if (await stopIfAborted()) {
+              break;
+            }
             const chunkMetadata =
               event && typeof event === "object"
                 ? (event as { metadata?: unknown }).metadata
@@ -4168,6 +4222,9 @@ export async function POST(request: NextRequest) {
             ) {
               noteDomainsFromCall((event as { item?: unknown }).item as WebSearchCall);
             }
+          }
+          if (await stopIfAborted()) {
+            return;
           }
 
           const finalResponse = await responseStream.finalResponse();
@@ -4663,6 +4720,9 @@ export async function POST(request: NextRequest) {
             (modelConfig as any).permanentInstructionsToDelete = writer.permanentInstructionsToDelete || [];
             (modelConfig as any).artifactsToWrite = writer.artifactsToWrite || [];
           }
+          if (await exitIfAborted()) {
+            return;
+          }
 
           // Apply permanent instruction writes/deletes after streaming (router + heuristics).
           {
@@ -4959,7 +5019,8 @@ export async function POST(request: NextRequest) {
             enqueueJson({ done: true });
             doneSent = true;
           }
-          controller.close();
+          closeControllerIfNeeded();
+          abortSignal.removeEventListener("abort", handleRequestAbort);
         }
       },
     });

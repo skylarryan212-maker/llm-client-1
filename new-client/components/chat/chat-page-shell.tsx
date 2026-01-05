@@ -82,6 +82,20 @@ interface ServerMessage {
   metadata?: Record<string, unknown> | null;
 }
 
+const RUNTIME_INDICATOR_SLOT_ID = "__runtime-indicator__" as const;
+
+interface RuntimeIndicatorSlotMessage {
+  id: typeof RUNTIME_INDICATOR_SLOT_ID;
+  runtimeIndicator: true;
+}
+
+type ChatListItem = StoredMessage | RuntimeIndicatorSlotMessage;
+
+const isRuntimeIndicatorSlotMessage = (
+  message: ChatListItem
+): message is RuntimeIndicatorSlotMessage =>
+  (message as RuntimeIndicatorSlotMessage).runtimeIndicator === true;
+
 type SearchStatusEvent =
   | { type: "search-start"; query: string }
   | { type: "search-complete"; query: string; results?: number }
@@ -2950,22 +2964,38 @@ export default function ChatPageShell({
     streamModelResponseRef.current = streamModelResponse;
   }, [streamModelResponse]);
 
-	  const handleStopGeneration = useCallback(() => {
-	    const controller = streamAbortControllerRef.current;
-	    if (!controller) return;
-	    stopRequestedRef.current = true;
-	    controller.abort();
-	    streamAbortControllerRef.current = null;
-	    setIsStreaming(false);
-	    if (typeof window !== "undefined") {
-	      try {
-	        window.sessionStorage.removeItem(STREAMING_ACTIVE_STORAGE_KEY);
-	        window.sessionStorage.removeItem(STREAMING_CHAT_ID_STORAGE_KEY);
-	      } catch {}
-	    }
-	    resetThinkingIndicator();
-	    clearAnalyzingIndicator();
-	  }, [clearAnalyzingIndicator, resetThinkingIndicator]);
+  const handleStopGeneration = useCallback(() => {
+    const controller = streamAbortControllerRef.current;
+    if (!controller) return;
+    stopRequestedRef.current = true;
+    controller.abort();
+    streamAbortControllerRef.current = null;
+    setIsStreaming(false);
+    if (typeof window !== "undefined") {
+      try {
+        window.sessionStorage.removeItem(STREAMING_ACTIVE_STORAGE_KEY);
+        window.sessionStorage.removeItem(STREAMING_CHAT_ID_STORAGE_KEY);
+      } catch {}
+    }
+    setReserveRuntimeIndicatorSpace(false);
+    activeStreamStateRef.current = null;
+    setActiveIndicatorMessageId(null);
+    if (selectedChatId && activeIndicatorMessageId) {
+      removeMessage(selectedChatId, activeIndicatorMessageId);
+    }
+    resetThinkingIndicator();
+    clearSearchIndicator();
+    clearFileReadingIndicator();
+    clearAnalyzingIndicator();
+  }, [
+    activeIndicatorMessageId,
+    clearAnalyzingIndicator,
+    clearFileReadingIndicator,
+    clearSearchIndicator,
+    removeMessage,
+    resetThinkingIndicator,
+    selectedChatId,
+  ]);
 
 	  useEffect(() => {
 	    const onVisible = () => {
@@ -3747,6 +3777,17 @@ export default function ChatPageShell({
     );
   }, [runtimeIndicatorContent]);
 
+  const renderRuntimeIndicatorSlot = (content: React.ReactNode | null) => {
+    if (!content) return null;
+    return (
+      <div className="px-4 sm:px-6">
+        <div className="w-full max-w-[min(48rem,calc(100vw-32px))] min-w-0 mx-auto px-1.5 sm:px-0 overflow-hidden">
+          {content}
+        </div>
+      </div>
+    );
+  };
+
 
   const assistantShimmerRgb = useMemo(() => {
     if (fileReadingIndicator) return "83, 242, 199"; // green
@@ -3761,6 +3802,27 @@ export default function ChatPageShell({
     Boolean(selectedChatId && lastUserMessageId) &&
     (reserveRuntimeIndicatorSpace ||
       Boolean(thinkingStatus || searchIndicator || fileReadingIndicator || isAnalyzing));
+
+  const shouldDisplayRuntimeIndicator = Boolean(
+    shouldRenderRuntimeIndicatorSlot && runtimeIndicatorElement
+  );
+
+  const chatListItems = useMemo<ChatListItem[]>(() => {
+    if (!shouldDisplayRuntimeIndicator) {
+      return messages;
+    }
+    const placeholderIndex =
+      activeIndicatorMessageId !== null
+        ? messages.findIndex((msg) => msg.id === activeIndicatorMessageId)
+        : -1;
+    const insertIdx = placeholderIndex >= 0 ? placeholderIndex : messages.length;
+    const nextItems: ChatListItem[] = [...messages];
+    nextItems.splice(insertIdx, 0, {
+      id: RUNTIME_INDICATOR_SLOT_ID,
+      runtimeIndicator: true,
+    });
+    return nextItems;
+  }, [messages, shouldDisplayRuntimeIndicator, activeIndicatorMessageId]);
 
 
   // Ensure we never shrink the bottom spacer while a runtime indicator is visible; keeps page height stable.
@@ -4336,9 +4398,9 @@ export default function ChatPageShell({
                   Scroller: VirtuosoScroller,
                 Footer: () => (
                   <div>
-                    {shouldRenderRuntimeIndicatorSlot && runtimeIndicatorElement ? (
-                      runtimeIndicatorElement
-                    ) : null}
+                    {shouldRenderRuntimeIndicatorSlot && runtimeIndicatorElement
+                      ? renderRuntimeIndicatorSlot(runtimeIndicatorElement)
+                      : null}
                     <div aria-hidden="true" style={{ height: `${bottomSpacerPx}px` }} />
                   </div>
                 ),
@@ -4350,7 +4412,7 @@ export default function ChatPageShell({
               <Virtuoso
                 ref={virtuosoRef}
                 style={{ height: "100%" }}
-                data={messages}
+                data={chatListItems}
                 overscan={80}
                 atTopThreshold={120}
                 atBottomStateChange={handleAtBottomStateChange}
@@ -4367,6 +4429,10 @@ export default function ChatPageShell({
                 }}
                 computeItemKey={(index, message) => message.id ?? String(index)}
                 itemContent={(index, message) => {
+                    if (isRuntimeIndicatorSlotMessage(message)) {
+                      return renderRuntimeIndicatorSlot(runtimeIndicatorElement);
+                    }
+
                   const metadata = message.metadata as AssistantMessageMetadata | null;
                   const isStreamingMessage = message.id === activeIndicatorMessageId;
 
