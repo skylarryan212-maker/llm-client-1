@@ -88,9 +88,10 @@ const SERP_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 const PAGE_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
 const BRIGHTDATA_SERP_COST_USD = 0.0015;
 const BRIGHTDATA_UNLOCKER_COST_USD = 0.0015;
-const MAX_EMBED_CHUNKS = 80;
+const MAX_EMBED_CHUNKS = 60;
 const VERBOSE_WEB_LOG = process.env.WEB_PIPELINE_VERBOSE === "1";
 const LOG_LIST_CAP = VERBOSE_WEB_LOG ? Number.MAX_SAFE_INTEGER : 20;
+// TODO: add short-TTL answer cache for high-frequency factual queries.
 const DEFAULTS = {
   queryCount: 2,
   serpDepth: 10,
@@ -119,8 +120,17 @@ const DEFAULTS = {
 const PERSISTENT_QUERY_SIMILARITY_THRESHOLD = 0.88;
 const PERSISTENT_QUERY_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 const PERSISTENT_DOCUMENT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+const ANSWER_CACHE_TTL_MS = 10 * 60 * 1000;
 
 let cachedOpenAIClient: ReturnType<typeof createOpenAIClient> | null = null;
+const domainTimings = new Map<string, { durations: number[]; cacheHits: number; fetches: number }>();
+const answerCache = new Map<
+  string,
+  {
+    result: WebPipelineResult;
+    expiresAt: number;
+  }
+>();
 
 function toTimestamp(value: unknown): number {
   if (typeof value === "string" || typeof value === "number" || value instanceof Date) {
@@ -371,6 +381,36 @@ function normalizeWhitespace(text: string): string {
   return text.replace(/\s+/g, " ").trim();
 }
 
+function stripBoilerplate(text: string): string {
+  if (!text) return "";
+  const lines = text.split(/\n+/).map((l) => l.trim());
+  const skipPatterns = [
+    /^copyright/i,
+    /^all rights reserved/i,
+    /^privacy/i,
+    /^terms/i,
+    /^subscribe/i,
+    /^sign in/i,
+    /^sign up/i,
+    /^cookies/i,
+    /^navbar/i,
+    /^footer/i,
+  ];
+  const filtered = lines.filter((line) => {
+    if (!line) return false;
+    return !skipPatterns.some((re) => re.test(line));
+  });
+  // Deduplicate consecutive identical lines to drop repeating nav/footer.
+  const deduped: string[] = [];
+  let last = "";
+  for (const line of filtered) {
+    if (line === last) continue;
+    deduped.push(line);
+    last = line;
+  }
+  return deduped.join("\n").trim();
+}
+
 function splitByTokens(text: string, maxTokens: number): string[] {
   const words = text.split(/\s+/).filter(Boolean);
   if (!words.length) return [];
@@ -413,7 +453,7 @@ function takeTailByTokens(text: string, targetTokens: number): string {
 }
 
 function chunkText(text: string, chunkSize: number, overlap: number): string[] {
-  const normalized = text.replace(/\r/g, "").trim();
+  const normalized = stripBoilerplate(text.replace(/\r/g, "").trim());
   if (!normalized) return [];
   const paragraphs = normalized.split(/\n{2,}/g).map((p) => p.trim()).filter(Boolean);
   const chunks: string[] = [];
@@ -1332,6 +1372,15 @@ export async function runWebSearchPipeline(prompt: string, options: PipelineOpti
     config.onSearchStart({ query: queryLabel, queries: queryResult.queries });
   }
 
+  const answerCacheKey = normalizeQueryKey(queryResult.queries.join(" | "));
+  if (!timeDecision.timeSensitive) {
+    const cachedAnswer = answerCache.get(answerCacheKey);
+    if (cachedAnswer && cachedAnswer.expiresAt > Date.now()) {
+      console.log("[web-pipeline] answer cache hit", { queries: queryResult.queries });
+      return cachedAnswer.result;
+    }
+  }
+
   let serpRequestsTotal = 0;
   const retryOnGateFailure = options.retryOnGateFailure !== false;
   let brightdataUnlockerRequests = 0;
@@ -1355,6 +1404,27 @@ export async function runWebSearchPipeline(prompt: string, options: PipelineOpti
   });
 
   const shouldExtractLinks = config.includeLinkedPages !== false;
+  const recordDomainTiming = (domain: string | null | undefined, durationMs: number, cacheHit: boolean) => {
+    const key = domain || "unknown";
+    const entry = domainTimings.get(key) ?? { durations: [], cacheHits: 0, fetches: 0 };
+    if (durationMs > 0) {
+      entry.durations.push(durationMs);
+      entry.fetches += 1;
+    } else if (cacheHit) {
+      entry.cacheHits += 1;
+    }
+    domainTimings.set(key, entry);
+  };
+  const getDomainPenalty = (domain: string | null | undefined) => {
+    const key = domain || "unknown";
+    const entry = domainTimings.get(key);
+    if (!entry || !entry.durations.length) return 0;
+    const sorted = entry.durations.slice().sort((a, b) => a - b);
+    const p95 = sorted[Math.floor(sorted.length * 0.95)] || 0;
+    if (p95 > 5000) return 0.3;
+    if (p95 > 3000) return 0.15;
+    return 0;
+  };
 
   const fetchPages = async (results: FetchTask[]): Promise<FetchedPage[]> => {
     const pages = await Promise.all(
@@ -1367,6 +1437,7 @@ export async function runWebSearchPipeline(prompt: string, options: PipelineOpti
           if (cached?.text_content && (!policy.requireHtml || cachedHtml)) {
             pageCacheHits += 1;
             console.log("[web-pipeline] page cache hit", result.url);
+            recordDomainTiming(result.domain ?? extractDomainFromUrl(result.url), 0, true);
             searchedCount += 1;
             reportProgress();
             return {
@@ -1383,31 +1454,64 @@ export async function runWebSearchPipeline(prompt: string, options: PipelineOpti
           }
           pageFetches += 1;
           console.log("[web-pipeline] fetching page", result.url);
-          let { html, truncated, status } = await fetchPageHtml(
-            result.url,
-            config.pageTimeoutMs,
-            config.pageMaxBytes,
-            {
+          const fetchStart = performance.now();
+          const tier1Timeout = Math.min(config.pageTimeoutMs, 8000);
+          const tier2Timeout = Math.max(config.pageTimeoutMs, 12000);
+          const runFetch = async (timeoutMs: number) =>
+            fetchPageHtml(result.url, timeoutMs, config.pageMaxBytes, {
               onUnlockerUsed: () => {
                 brightdataUnlockerRequests += 1;
               },
               allowUnlocker: policy.allowUnlocker,
               requireHtml: policy.requireHtml,
-            }
-          );
+            });
+          let { html, truncated, status } = await runFetch(tier1Timeout);
           let text = extractTextFromHtml(html);
           const tableBlocks = extractTableBlocks(html);
           const listBlocks = extractListBlocks(html);
           const jsLikelihood = computeJsLikelihood(html);
+          const blockedLike =
+            status === 403 ||
+            status === 429 ||
+            status === 503 ||
+            /captcha|access denied|forbidden|subscribe|sign[ -]?in|paywall/i.test(html);
+          if (
+            !blockedLike &&
+            tier2Timeout > tier1Timeout &&
+            (status === 0 || (status === 200 && text.length < 200))
+          ) {
+            const retry = await runFetch(tier2Timeout);
+            if (retry.html.length > html.length || retry.status === 200) {
+              html = retry.html;
+              truncated = retry.truncated;
+              status = retry.status;
+              text = extractTextFromHtml(html);
+            }
+          }
+          const structuredText = extractStructuredDataText(html);
+          if (structuredText) {
+            text = `${text}
+
+Structured data:
+${structuredText}`.trim();
+          }
+          const hasJsSignals =
+            jsLikelihood >= 2 ||
+            /enable javascript|turn on javascript|requires javascript/i.test(html) ||
+            (text.length < 120 && (tableBlocks.length === 0 && listBlocks.length === 0));
           const useJinaFallback = process.env.USE_JINA_READER_FALLBACK !== "0";
           const canTryJina = policy.allowJinaFallback && useJinaFallback && status !== 415;
           const shouldTryJina =
             canTryJina &&
+            !blockedLike &&
             (policy.allowJinaOnFailure
-              ? status !== 200 || (status === 200 && text.length < 80 && jsLikelihood < 2)
-              : status === 200 && text.length < 80 && jsLikelihood < 2);
+              ? status !== 200 || (status === 200 && (text.length < 200 || hasJsSignals))
+              : status === 200 && (text.length < 200 || hasJsSignals));
           if (shouldTryJina) {
-            const fallbackText = await fetchJinaReaderText(result.url, config.pageTimeoutMs);
+            const fallbackText = await fetchJinaReaderText(
+              result.url,
+              Math.max(tier2Timeout, config.pageTimeoutMs)
+            );
             if (fallbackText.length > text.length) {
               text = fallbackText;
               console.log("[web-pipeline] jina fallback used", {
@@ -1429,6 +1533,11 @@ export async function runWebSearchPipeline(prompt: string, options: PipelineOpti
 Structured data:
 ${structuredText}`.trim();
           }
+          recordDomainTiming(
+            result.domain ?? extractDomainFromUrl(result.url),
+            Math.round(performance.now() - fetchStart),
+            false
+          );
           await savePageCache(cacheKey, result.url, {
             html,
             text,
@@ -1459,6 +1568,7 @@ ${structuredText}`.trim();
           console.warn("[web-pipeline] page processing failed", { url: result.url, error });
           searchedCount += 1;
           reportProgress();
+          recordDomainTiming(result.domain ?? extractDomainFromUrl(result.url), 0, false);
           return {
             ...result,
             text: "",
@@ -1477,15 +1587,23 @@ ${structuredText}`.trim();
 
   const buildChunks = (pages: FetchedPage[]) => {
     const chunks: RankedChunk[] = [];
+    let fullPageTokensTotal = 0;
+    const maxFullPageTokensTotal = 6000;
+    const maxFullPages = 4;
+    let fullPagesUsed = 0;
     for (const page of pages) {
       if (!page.text && !(page.tableBlocks?.length || page.listBlocks?.length)) continue;
       const urlKey = normalizeUrlKey(page.url);
       const domain = page.domain ?? extractDomainFromUrl(page.url);
       if (page.text) {
-        const slices = chunkText(page.text, config.chunkSize, config.chunkOverlap);
-        for (const slice of slices) {
+        const pageTokens = estimateTokens(page.text);
+        const canTakeFullPage =
+          pageTokens <= 1500 &&
+          fullPagesUsed < maxFullPages &&
+          fullPageTokensTotal + pageTokens <= maxFullPageTokensTotal;
+        if (canTakeFullPage) {
           chunks.push({
-            text: slice,
+            text: page.text,
             url: page.url,
             title: page.title,
             domain,
@@ -1493,6 +1611,21 @@ ${structuredText}`.trim();
             urlKey,
             kind: "text",
           });
+          fullPagesUsed += 1;
+          fullPageTokensTotal += pageTokens;
+        } else {
+          const slices = chunkText(page.text, config.chunkSize, config.chunkOverlap);
+          for (const slice of slices) {
+            chunks.push({
+              text: slice,
+              url: page.url,
+              title: page.title,
+              domain,
+              score: 0,
+              urlKey,
+              kind: "text",
+            });
+          }
         }
       }
       const tableBlocks = page.tableBlocks ?? [];
@@ -1537,10 +1670,45 @@ ${slice}`,
     return { textLength, ratio };
   };
 
-  const isHighQualityPage = (page: { text: string; htmlLength: number; status?: number }) => {
+  const getPageGenre = (page: { url: string; text: string; title?: string | null }) => {
+    const url = page.url.toLowerCase();
+    const title = (page.title ?? "").toLowerCase();
+    if (url.includes("/docs") || url.includes("/api") || url.includes("/reference") || url.includes("/developer")) {
+      return "docs";
+    }
+    if (url.includes("/news") || url.includes("/press") || /news|press/.test(title)) {
+      return "news";
+    }
+    if (url.includes("/blog") || url.includes("/article") || url.includes("/posts")) {
+      return "blog";
+    }
+    return "general";
+  };
+
+  const pageQualityThresholds = (page: { url: string; text: string; title?: string | null }) => {
+    const genre = getPageGenre(page);
+    switch (genre) {
+      case "docs":
+      case "news":
+        return {
+          minText: Math.max(800, Math.min(config.minPageTextLength, 2000)),
+          minRatio: Math.min(0.02, config.minContentRatio),
+        };
+      case "blog":
+        return {
+          minText: Math.max(1200, Math.min(config.minPageTextLength, 2400)),
+          minRatio: config.minContentRatio,
+        };
+      default:
+        return { minText: config.minPageTextLength, minRatio: config.minContentRatio };
+    }
+  };
+
+  const isHighQualityPage = (page: { text: string; htmlLength: number; status?: number; url: string; title?: string | null }) => {
     if (page.status !== undefined && page.status !== 200) return false;
     const { textLength, ratio } = scorePageQuality(page);
-    return textLength >= config.minPageTextLength && ratio >= config.minContentRatio;
+    const thresholds = pageQualityThresholds(page);
+    return textLength >= thresholds.minText && ratio >= thresholds.minRatio;
   };
 
   type LinkQueueItem = {
@@ -1713,20 +1881,38 @@ ${slice}`,
         ? overlapScored.sort((a, b) => b.score - a.score).slice(0, MAX_EMBED_CHUNKS)
         : overlapScored;
     const prefilteredChunks = prefiltered.map((item) => item.chunk);
+
+    // Lexical-first guardrail: if lexical coverage is strong, skip embeddings to save latency.
+    const lexicalSorted = overlapScored.sort((a, b) => b.score - a.score);
+    const topLexical = lexicalSorted.slice(0, Math.max(4, Math.min(8, lexicalSorted.length)));
+    const lexicalTokenSum = topLexical.reduce(
+      (sum, item) => sum + estimateTokens(item.chunk.text),
+      0
+    );
+    const dominance =
+      topLexical.length >= 2 && topLexical[1].score > 0
+        ? topLexical[0].score / topLexical[1].score
+        : 1;
+    const lexicalStrong =
+      topLexical.length >= 4 && lexicalTokenSum >= 900 && dominance <= 3;
+
+    if (lexicalStrong) {
+      return lexicalSorted.map((item) => ({ ...item.chunk, score: item.score }));
+    }
+
     const queryEmbeddings = await embedTexts(queries);
     const chunkEmbeddings = await embedTexts(prefilteredChunks.map((c) => c.text));
     if (!queryEmbeddings.length || !chunkEmbeddings.length) {
       console.warn("[web-pipeline] embeddings unavailable; skipping semantic ranking.");
-      return overlapScored
-        .sort((a, b) => b.score - a.score)
-        .map((item) => ({ ...item.chunk, score: item.score }));
+      return lexicalSorted.map((item) => ({ ...item.chunk, score: item.score }));
     }
     return prefilteredChunks.map((chunk, index) => {
       const embedding = chunkEmbeddings[index] ?? [];
       const semantic = Math.max(...queryEmbeddings.map((q) => cosineSimilarity(q, embedding)));
       const overlap = keywordScore(chunk.text, queries);
       const boost = chunk.kind === "table" || chunk.kind === "list" ? 0.2 : 0;
-      const score = semantic + overlap * 0.15 + boost;
+      const penalty = getDomainPenalty(chunk.domain);
+      const score = semantic + overlap * 0.15 + boost - penalty;
       return { ...chunk, score };
     });
   };
@@ -1835,6 +2021,7 @@ ${slice}`,
       maxChunksPerUrl: Math.max(1, config.preferredSourceChunkLimit ?? DEFAULTS.preferredSourceChunkLimit),
       tokenBudget: Math.max(500, config.preferredSourceTokenBudget ?? DEFAULTS.preferredSourceTokenBudget),
     });
+    const hasCachedCoverage = storedChunksForShortlist.length >= chunkBudget.minSources;
     const storedUrlKeys = new Set(storedChunksForShortlist.map((c) => c.urlKey));
     const fetchableResults = candidateResults.filter(
       (item) => !storedUrlKeys.has(normalizeUrlKey(item.url))
@@ -1843,7 +2030,7 @@ ${slice}`,
     const fetchStart = performance.now();
     const fetchesBefore = pageFetches;
     const cacheHitsBefore = pageCacheHits;
-    const candidatePages = await fetchPages(fetchableResults);
+    const candidatePages = hasCachedCoverage ? [] : await fetchPages(fetchableResults);
     logTiming(stageLabel === "retry" ? "page_fetch_retry" : "page_fetch_initial", fetchStart, {
       pages: candidatePages.length,
       fetches: pageFetches - fetchesBefore,
@@ -1873,7 +2060,7 @@ ${slice}`,
     });
 
     let extraFetchMs = 0;
-    while (allowExpansion && goodPages.length < config.pageLimit && remainingResults.length > 0) {
+    while (!hasCachedCoverage && allowExpansion && goodPages.length < config.pageLimit && remainingResults.length > 0) {
       const batch = remainingResults.splice(0, Math.min(5, remainingResults.length));
       console.log("[web-pipeline] fetching extra pages", batch.map((item) => item.url));
       const extraStart = performance.now();
@@ -2058,7 +2245,7 @@ ${slice}`,
 
     let expanded = false;
     if (!gate.enoughEvidence && remainingResults.length > 0) {
-      const extra = remainingResults.splice(0, 1);
+      const extra = remainingResults.splice(0, Math.min(3, remainingResults.length));
       console.log("[web-pipeline] expansion fetch", extra[0]?.url);
       const expansionFetchStart = performance.now();
       const expansionFetchesBefore = pageFetches;
@@ -2153,6 +2340,27 @@ ${slice}`,
     pagesSelected: pass.selectedPagesCount,
     chunksSelected: pass.chunks.length,
   });
+  if (domainTimings.size) {
+    const domainSummary = Array.from(domainTimings.entries())
+      .map(([domain, meta]) => {
+        const sorted = meta.durations.slice().sort((a, b) => a - b);
+        const p50 = sorted.length ? sorted[Math.floor(sorted.length * 0.5)] : 0;
+        const p95 = sorted.length ? sorted[Math.floor(sorted.length * 0.95)] : 0;
+        const avg =
+          sorted.length > 0 ? Math.round(sorted.reduce((s, v) => s + v, 0) / sorted.length) : 0;
+        return {
+          domain,
+          fetches: meta.fetches,
+          cacheHits: meta.cacheHits,
+          p50,
+          p95,
+          avg,
+        };
+      })
+      .sort((a, b) => b.fetches + b.cacheHits - (a.fetches + a.cacheHits))
+      .slice(0, 10);
+    logCapped("[web-pipeline] domain timings", domainSummary);
+  }
   logTiming("pipeline_total", pipelineStart);
   const persistEmbeddings = await embedTexts(usedQueries);
   await persistSearchArtifacts({
@@ -2162,6 +2370,30 @@ ${slice}`,
     selectedChunks: pass.chunks,
     isTimeSensitive: timeDecision.timeSensitive,
   });
+
+  if (pass.gate.enoughEvidence && !timeDecision.timeSensitive) {
+    answerCache.set(answerCacheKey, {
+      result: {
+        queries: usedQueries,
+        results: pass.results,
+        chunks: pass.chunks,
+        sources: pass.sources,
+        gate: pass.gate,
+        expanded: pass.expanded,
+        timeSensitive: timeDecision.timeSensitive,
+        reusedPersistentQuery: persistentQueryHit || serpCacheHits > 0,
+        serpCacheHits,
+        pageCacheHits,
+        cost: {
+          serpRequests: serpRequestsTotal,
+          serpEstimatedUsd: serpEstimatedUsd,
+          brightdataUnlockerRequests,
+          brightdataUnlockerEstimatedUsd: brightdataUnlockerEstimatedUsd,
+        },
+      },
+      expiresAt: Date.now() + ANSWER_CACHE_TTL_MS,
+    });
+  }
 
   return {
     queries: usedQueries,
