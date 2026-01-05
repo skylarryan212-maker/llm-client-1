@@ -4013,6 +4013,17 @@ export async function POST(request: NextRequest) {
           streamOptions.service_tier = "flex";
         }
 
+        console.log("[chatApi] LLM payload", {
+          model: streamOptions.model,
+          instructions: streamOptions.instructions,
+          input: streamOptions.input,
+          metadata: streamOptions.metadata,
+          tools: streamOptions.tools,
+          prompt_cache_key: streamOptions.prompt_cache_key,
+          reasoning: streamOptions.reasoning,
+          service_tier: streamOptions.service_tier,
+        });
+
         try {
           const streamStartPromise = (async () => {
             responseStream = await openai.responses.stream(streamOptions);
