@@ -159,7 +159,6 @@ export const ChatMessage = memo(function ChatMessage({
       (citation): citation is CitationMetadata & { url: string } =>
         Boolean(citation.url && citation.url.length)
     )
-  const citationUrls = sanitizedCitations.map((citation) => citation.url)
   const primaryCitation = sanitizedCitations[0]
   const extraCitationCount = Math.max(sanitizedCitations.length - 1, 0)
   const primaryCitationBadge = primaryCitation
@@ -331,7 +330,7 @@ export const ChatMessage = memo(function ChatMessage({
               content={content}
               messageId={messageId}
               generatedFiles={typedMetadata?.generatedFiles}
-              citationUrls={citationUrls}
+              citations={sanitizedCitations}
             />
           ) : (
             <div className="assistant-streaming-text whitespace-pre-wrap break-words text-sm leading-relaxed text-foreground/90">

@@ -7,10 +7,13 @@ import rehypeKatex from 'rehype-katex'
 import rehypeRaw from 'rehype-raw'
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter'
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism'
-import { ArrowLeft, Check, Copy, Download, Share2 } from 'lucide-react'
+import { ArrowLeft, Check, Copy, Download, Globe, Share2 } from 'lucide-react'
+import { visit } from 'unist-util-visit'
 import { Button } from '@/components/ui/button'
 import { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import type { CitationMetadata } from '@/lib/chatTypes'
+import type { PluggableList } from 'unified'
 import 'katex/dist/katex.min.css'
 
 interface MarkdownContentProps {
@@ -21,7 +24,7 @@ interface MarkdownContentProps {
     fileId: string
     filename: string
   }>
-  citationUrls?: string[]
+  citations?: CitationMetadata[]
 }
 
 const withoutNode = <P extends { node?: unknown }>(
@@ -33,7 +36,7 @@ const withoutNode = <P extends { node?: unknown }>(
   };
 };
 
-export const MarkdownContent = memo(function MarkdownContent({ content, messageId, generatedFiles, citationUrls }: MarkdownContentProps) {
+export const MarkdownContent = memo(function MarkdownContent({ content, messageId, generatedFiles, citations }: MarkdownContentProps) {
   const [copiedCode, setCopiedCode] = useState<string | null>(null)
   const [copiedTableId, setCopiedTableId] = useState<string | null>(null)
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null)
@@ -366,6 +369,16 @@ export const MarkdownContent = memo(function MarkdownContent({ content, messageI
     return ''
   }
 
+  const citationHostname = (value?: string | null) => {
+    if (!value) return null
+    try {
+      const url = new URL(value)
+      return url.hostname.replace(/^www\\./i, '')
+    } catch {
+      return value.trim() || null
+    }
+  }
+
   const normalizeCitationUrl = useCallback((value?: string | null): string => {
     const trimmed = (value ?? '').trim()
     if (!trimmed) return ''
@@ -380,19 +393,203 @@ export const MarkdownContent = memo(function MarkdownContent({ content, messageI
     }
   }, [])
 
+  const sanitizedCitations = useMemo(() => {
+    if (!Array.isArray(citations)) return []
+    return citations
+      .map((citation) => ({
+        ...citation,
+        url: typeof citation.url === 'string' ? citation.url.trim() : '',
+      }))
+      .filter((citation): citation is CitationMetadata & { url: string } => Boolean(citation.url))
+  }, [citations])
+
   const citationUrlSet = useMemo(() => {
     const set = new Set<string>()
-    if (!citationUrls?.length) {
-      return set
-    }
-    for (const url of citationUrls) {
-      const normalized = normalizeCitationUrl(url)
+    for (const citation of sanitizedCitations) {
+      const normalized = normalizeCitationUrl(citation.url)
       if (normalized) {
         set.add(normalized)
       }
     }
     return set
-  }, [citationUrls, normalizeCitationUrl])
+  }, [sanitizedCitations, normalizeCitationUrl])
+
+  const citationLookup = useMemo(() => {
+    const map = new Map<string, CitationMetadata & { url: string }>()
+    for (const citation of sanitizedCitations) {
+      const normalized = normalizeCitationUrl(citation.url)
+      if (normalized) {
+        map.set(normalized, citation)
+      }
+    }
+    return map
+  }, [sanitizedCitations, normalizeCitationUrl])
+
+  const getMdastText = (node: any): string => {
+    if (!node) return ''
+    if (node.type === 'text') return node.value || ''
+    if (Array.isArray(node.children)) {
+      return node.children.map(getMdastText).join('')
+    }
+    return ''
+  }
+
+  const isCitationLabel = (node: any): boolean => {
+    const label = getMdastText(node).trim().toLowerCase()
+    if (!label) return false
+    const compact = label.replace(/\s+/g, '')
+    return /^\d+$/.test(compact) || compact === 'source' || compact === 'sources'
+  }
+
+  const isCitationLinkNode = (node: any): string | null => {
+    if (!node || node.type !== 'link') return null
+    const normalized = normalizeCitationUrl(node.url)
+    if (!normalized || !citationUrlSet.has(normalized)) return null
+    if (!isCitationLabel(node)) return null
+    return normalized
+  }
+
+  const remarkCitationGroups = useMemo(() => {
+    if (!citationUrlSet.size) return null
+    return (tree: any) => {
+      visit(tree, 'paragraph', (node: any) => {
+        if (!Array.isArray(node.children)) return
+        const children = node.children
+        const nextChildren: any[] = []
+        let i = 0
+
+        while (i < children.length) {
+          const child = children[i]
+          const firstUrl = isCitationLinkNode(child)
+          if (!firstUrl) {
+            nextChildren.push(child)
+            i += 1
+            continue
+          }
+
+          const groupUrls: string[] = [firstUrl]
+          let j = i + 1
+
+          while (j < children.length) {
+            const candidate = children[j]
+            if (candidate?.type === 'text' && typeof candidate.value === 'string' && candidate.value.trim() === '') {
+              let k = j + 1
+              while (
+                k < children.length &&
+                children[k]?.type === 'text' &&
+                typeof children[k]?.value === 'string' &&
+                children[k].value.trim() === ''
+              ) {
+                k += 1
+              }
+              const nextUrl = k < children.length ? isCitationLinkNode(children[k]) : null
+              if (nextUrl) {
+                j = k
+                continue
+              }
+              break
+            }
+            const nextUrl = isCitationLinkNode(candidate)
+            if (nextUrl) {
+              groupUrls.push(nextUrl)
+              j += 1
+              continue
+            }
+            break
+          }
+
+          const uniqueUrls: string[] = []
+          const seen = new Set<string>()
+          for (const url of groupUrls) {
+            if (!seen.has(url)) {
+              seen.add(url)
+              uniqueUrls.push(url)
+            }
+          }
+
+          nextChildren.push({
+            type: 'citationGroup',
+            data: {
+              hName: 'citation-group',
+              hProperties: {
+                urls: uniqueUrls,
+              },
+            },
+          })
+          i = j
+        }
+
+        node.children = nextChildren
+      })
+    }
+  }, [citationUrlSet, normalizeCitationUrl])
+
+  const InlineCitationBadge = ({ urls }: { urls?: string[] | string }) => {
+    const parsedUrls = Array.isArray(urls)
+      ? urls
+      : typeof urls === 'string'
+        ? urls.split('|').filter(Boolean)
+        : []
+    if (!parsedUrls.length) return null
+    const uniqueUrls: string[] = []
+    const seen = new Set<string>()
+    for (const url of parsedUrls) {
+      if (!seen.has(url)) {
+        seen.add(url)
+        uniqueUrls.push(url)
+      }
+    }
+    const primaryKey = uniqueUrls[0]
+    const primaryCitation = citationLookup.get(primaryKey) ?? { url: primaryKey }
+    const extraCount = Math.max(uniqueUrls.length - 1, 0)
+    const label =
+      (primaryCitation.domain && primaryCitation.domain.trim()) ||
+      (primaryCitation.title && primaryCitation.title.trim()) ||
+      citationHostname(primaryCitation.url) ||
+      primaryCitation.url
+    const tooltipTitle = (primaryCitation.title && primaryCitation.title.trim()) || label
+    const tooltipSnippet = primaryCitation.snippet?.trim()
+    const domainLabel =
+      citationHostname(primaryCitation.url) || primaryCitation.domain || primaryCitation.url
+
+    return (
+      <a
+        href={primaryCitation.url}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="not-prose group relative inline-flex max-w-[12rem] items-center gap-1.5 rounded-full border border-border/60 bg-background/40 px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground no-underline transition-colors hover:border-foreground/40 hover:text-foreground align-middle"
+      >
+        <div className="flex items-center gap-1 truncate">
+          <span className="truncate">{label}</span>
+          {extraCount > 0 && (
+            <span className="rounded-full border border-border/70 bg-muted px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.3em] text-muted-foreground">
+              +{extraCount}
+            </span>
+          )}
+        </div>
+        <span className="sr-only">{`Open source ${tooltipTitle}`}</span>
+        <div className="pointer-events-none absolute left-1/2 top-full z-50 w-72 -translate-x-1/2 -translate-y-2 rounded-2xl border border-border bg-card/95 p-3 text-xs text-foreground opacity-0 transition duration-150 group-hover:opacity-100 group-hover:translate-y-0 shadow-2xl">
+          <div className="flex items-center gap-2 text-[12px] font-semibold">
+            <Globe className="h-3 w-3 text-muted-foreground" />
+            <span className="truncate">{tooltipTitle}</span>
+          </div>
+          {tooltipSnippet ? (
+            <p
+              className="mt-1 text-[11px] text-muted-foreground"
+              style={{ maxHeight: "3rem", overflow: "hidden" }}
+            >
+              {tooltipSnippet}
+            </p>
+          ) : null}
+          {domainLabel ? (
+            <div className="mt-2 flex items-center gap-1 text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
+              <span className="truncate">{domainLabel}</span>
+            </div>
+          ) : null}
+        </div>
+      </a>
+    )
+  }
 
   const buildDirectDownloadHref = (file: { containerId: string; fileId: string; filename: string }) => {
     if (!messageId) return null
@@ -508,12 +705,28 @@ export const MarkdownContent = memo(function MarkdownContent({ content, messageI
   }
 
 
+  const remarkPlugins = useMemo<PluggableList>(() => {
+    const plugins: PluggableList = [remarkGfm]
+    if (remarkCitationGroups) {
+      plugins.push(remarkCitationGroups)
+    }
+    if (enableMath) {
+      plugins.push(remarkMath)
+    }
+    return plugins
+  }, [remarkCitationGroups, enableMath])
+
   return (
     <div className="prose prose-invert max-w-none prose-p:leading-relaxed prose-pre:p-0 prose-pre:bg-transparent w-full max-w-full min-w-0 break-words prose-a:break-words">
       <ReactMarkdown
-        remarkPlugins={[remarkGfm, ...(enableMath ? [remarkMath] : [])]}
+        remarkPlugins={remarkPlugins}
         rehypePlugins={[rehypeRaw, ...(enableMath ? [rehypeKatex] : [])]}
         components={{
+        'citation-group': (props: any) => {
+          const { node, ...rest } = props || {}
+          void node
+          return <InlineCitationBadge urls={rest.urls} />
+        },
         // Headings
         h1: withoutNode((props) => (
           <h1 className="text-2xl font-bold mt-6 mb-4 text-foreground" {...props} />
@@ -590,11 +803,14 @@ export const MarkdownContent = memo(function MarkdownContent({ content, messageI
           const normalizedHref = normalizeCitationUrl(href)
           const inlineLinkText = extractText(props?.children ?? '').trim()
           const inlineDigits = inlineLinkText.replace(/\s+/g, '')
+          const inlineLabel = inlineDigits.toLowerCase()
+          const isCitationLabelText =
+            /^\d+$/.test(inlineDigits) || inlineLabel === 'source' || inlineLabel === 'sources'
           const shouldHideInlineCitation =
             Boolean(normalizedHref) &&
             citationUrlSet.has(normalizedHref) &&
             inlineDigits.length > 0 &&
-            /^\d+$/.test(inlineDigits)
+            isCitationLabelText
           if (shouldHideInlineCitation) {
             return <span className="sr-only">{inlineLinkText}</span>
           }
@@ -764,7 +980,7 @@ export const MarkdownContent = memo(function MarkdownContent({ content, messageI
           }
           return <input {...props} />
         }),
-      }}
+      } as any}
     >
       {safeContent}
     </ReactMarkdown>
