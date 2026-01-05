@@ -8,10 +8,10 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { Copy, ExternalLink, Check, Download } from 'lucide-react'
+import { Copy, ExternalLink, Check, Download, Globe } from 'lucide-react'
 import Image from 'next/image'
 import { memo, useEffect, useRef, useState } from 'react'
-import type { AssistantMessageMetadata } from '@/lib/chatTypes'
+import type { AssistantMessageMetadata, CitationMetadata } from '@/lib/chatTypes'
 import { MessageInsightChips } from '@/components/chat/message-insight-chips'
 import { MarkdownContent } from '@/components/markdown-content'
 
@@ -140,6 +140,67 @@ export const ChatMessage = memo(function ChatMessage({
     Boolean((typedMetadata as any)?.imageGeneration?.provider === "gemini") ||
     Boolean(resolvedFamily && resolvedFamily.toLowerCase().includes("gemini"));
   const suppressSources = isGeminiImageMessage || Boolean((typedMetadata as any)?.imageGeneration);
+  const citationHostname = (value?: string | null) => {
+    if (!value) return null
+    try {
+      const url = new URL(value)
+      return url.hostname.replace(/^www\\./i, '')
+    } catch {
+      return value.trim() || null
+    }
+  }
+  const citationsRaw = Array.isArray(typedMetadata?.citations) ? typedMetadata.citations : []
+  const sanitizedCitations = citationsRaw
+    .map((citation) => ({
+      ...citation,
+      url: typeof citation.url === 'string' ? citation.url.trim() : '',
+    }))
+    .filter(
+      (citation): citation is CitationMetadata & { url: string } =>
+        Boolean(citation.url && citation.url.length)
+    )
+  const citationBadges = sanitizedCitations.map((citation, idx) => {
+    const label =
+      (citation.domain && citation.domain.trim()) ||
+      (citation.title && citation.title.trim()) ||
+      citationHostname(citation.url) ||
+      citation.url
+    const tooltipTitle = (citation.title && citation.title.trim()) || label
+    const tooltipSnippet = citation.snippet?.trim()
+    const domainLabel =
+      citationHostname(citation.url) || citation.domain || citation.url
+    return (
+      <a
+        key={`citation-${idx}-${citation.url}`}
+        href={citation.url}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="group relative inline-flex max-w-[12rem] items-center gap-1 rounded-full border border-border/60 bg-background/50 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground transition-colors hover:border-foreground/40 hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-foreground"
+      >
+        <span className="truncate">{label}</span>
+        <span className="sr-only">{`Open source ${tooltipTitle}`}</span>
+        <div className="pointer-events-none absolute left-1/2 top-full z-50 w-72 -translate-x-1/2 -translate-y-2 rounded-2xl border border-border bg-card/95 p-3 text-xs text-foreground opacity-0 transition duration-150 group-hover:opacity-100 group-hover:translate-y-0 shadow-2xl">
+          <div className="flex items-center gap-2 text-[12px] font-semibold">
+            <Globe className="h-3 w-3 text-muted-foreground" />
+            <span className="truncate">{tooltipTitle}</span>
+          </div>
+          {tooltipSnippet ? (
+            <p
+              className="mt-1 text-[11px] text-muted-foreground"
+              style={{ maxHeight: "3rem", overflow: "hidden" }}
+            >
+              {tooltipSnippet}
+            </p>
+          ) : null}
+          {domainLabel ? (
+            <div className="mt-2 flex items-center gap-1 text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
+              <span className="truncate">{domainLabel}</span>
+            </div>
+          ) : null}
+        </div>
+      </a>
+    )
+  })
 
   const handleCopy = async () => {
     await navigator.clipboard.writeText(content)
@@ -381,6 +442,15 @@ export const ChatMessage = memo(function ChatMessage({
             )}
           </div>
 
+          {!suppressSources && sanitizedCitations.length > 0 && (
+            <div className="mt-2 flex flex-col gap-1 text-xs">
+              <div className="flex flex-wrap gap-2">{citationBadges}</div>
+              <div className="flex items-center gap-1 text-[11px] font-semibold text-muted-foreground">
+                <Globe className="h-4 w-4" />
+                <span>{sanitizedCitations.length} source{sanitizedCitations.length === 1 ? '' : 's'}</span>
+              </div>
+            </div>
+          )}
           {/* Expandable Sources Panel */}
           {!suppressSources && showSources && Array.isArray(typedMetadata?.citations) && typedMetadata.citations.length > 0 && (
             <div className="mt-4 rounded-xl border border-border bg-muted/30 p-4">
