@@ -225,7 +225,9 @@ export async function assessTimeSensitivity(params: {
 Return JSON only:
 { "timeSensitive": boolean, "reason": string }
 Rules:
-- timeSensitive = true when the user likely wants the latest schedules, dates, prices, news, rankings, releases, scores, weather, or other fast-changing facts.
+- Our system already caches web results for 24 hours. Only mark timeSensitive=true if data older than ~24 hours is likely insufficient (e.g., live scores, breaking news, current traffic/stock/flight status, “right now” weather).
+- For stable schedules within a day, routine recipes/how-tos, evergreen facts, or yesterday’s news being acceptable, return false.
+- timeSensitive=true when the user likely wants the latest schedules/dates/prices/news/rankings/releases/scores/weather that change intra-day and need fresh fetch.
 - Otherwise, return false. Keep reason brief (<= 12 words).`;
 
   const start = performance.now();
