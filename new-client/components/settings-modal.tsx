@@ -197,26 +197,27 @@ export function SettingsModal({ isOpen, onClose, initialTab = 'preferences' }: S
 
     let alive = true
     setTokenLoading(true)
-    supabaseClient
-      .from("token_auth_keys")
-      .select("token")
-      .maybeSingle()
-      .then((result) => {
+    const loadTokenKey = async () => {
+      try {
+        const result = await supabaseClient
+          .from("token_auth_keys")
+          .select("token")
+          .maybeSingle()
         if (!alive) return
         setTokenKey(result.data?.token ?? null)
         setTokenVisible(false)
         setCopyStatus("idle")
-      })
-      .catch((error) => {
+      } catch (error) {
         console.error("[settings][token] failed to load token", error)
         if (!alive) return
         setTokenKey(null)
-      })
-      .finally(() => {
+      } finally {
         if (!alive) return
         setTokenLoading(false)
-      })
+      }
+    }
 
+    loadTokenKey()
     return () => {
       alive = false
     }
