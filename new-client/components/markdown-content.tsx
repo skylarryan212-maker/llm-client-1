@@ -450,6 +450,13 @@ export const MarkdownContent = memo(function MarkdownContent({ content, messageI
     return map
   }, [sanitizedCitations, normalizeCitationUrl])
 
+  const citationUrls = useMemo(() => sanitizedCitations.map((c) => c.url), [sanitizedCitations])
+
+  const isCitationLabelText = (text: string): boolean => {
+    const compact = text.replace(/\s+/g, '').toLowerCase()
+    return compact.length > 0 && (/^\d+$/.test(compact) || compact === 'source' || compact === 'sources')
+  }
+
   const getMdastText = (node: any): string => {
     if (!node) return ''
     if (node.type === 'text') return node.value || ''
@@ -458,111 +465,6 @@ export const MarkdownContent = memo(function MarkdownContent({ content, messageI
     }
     return ''
   }
-
-  const isCitationLabel = (node: any): boolean => {
-    const label = getMdastText(node).trim().toLowerCase()
-    if (!label) return false
-    const compact = label.replace(/\s+/g, '')
-    return /^\d+$/.test(compact) || compact === 'source' || compact === 'sources'
-  }
-
-  const isCitationLinkNode = (node: any): string | null => {
-    if (!node || node.type !== 'link') return null
-    const normalized = normalizeCitationUrl(node.url)
-    if (!normalized || !citationUrlSet.has(normalized)) return null
-    if (!isCitationLabel(node)) return null
-    return normalized
-  }
-
-  const remarkCitationGroups = useMemo(() => {
-    if (!citationUrlSet.size) return null
-    return (tree: any) => {
-      visit(tree, 'paragraph', (node: any) => {
-        if (!Array.isArray(node.children)) return
-        const children = node.children
-        const nextChildren: any[] = []
-        let i = 0
-
-        while (i < children.length) {
-          const child = children[i]
-          if (!child) {
-            i += 1
-            continue
-          }
-          const firstUrl = isCitationLinkNode(child)
-          if (!firstUrl) {
-            nextChildren.push(child)
-            i += 1
-            continue
-          }
-
-          const groupUrls: string[] = [firstUrl]
-          let j = i + 1
-
-          while (j < children.length) {
-            const candidate = children[j]
-            if (candidate?.type === 'text' && typeof candidate.value === 'string' && candidate.value.trim() === '') {
-              let k = j + 1
-              while (
-                k < children.length &&
-                children[k]?.type === 'text' &&
-                typeof children[k]?.value === 'string' &&
-                children[k].value.trim() === ''
-              ) {
-                k += 1
-              }
-              const nextUrl = k < children.length ? isCitationLinkNode(children[k]) : null
-              if (nextUrl) {
-                j = k
-                continue
-              }
-              break
-            }
-            const nextUrl = isCitationLinkNode(candidate)
-            if (nextUrl) {
-              groupUrls.push(nextUrl)
-              j += 1
-              continue
-            }
-            break
-          }
-
-          const uniqueUrls: string[] = []
-          const seen = new Set<string>()
-          for (const url of groupUrls) {
-            if (!seen.has(url)) {
-              seen.add(url)
-              uniqueUrls.push(url)
-            }
-          }
-
-          nextChildren.push({
-            type: 'citationGroup',
-            children: [],
-            data: {
-              hName: 'citation-group',
-              hProperties: {
-                urls: uniqueUrls,
-              },
-            },
-          })
-          i = j
-        }
-
-        node.children = nextChildren.filter(Boolean)
-      })
-    }
-  }, [citationUrlSet, normalizeCitationUrl])
-
-  const remarkCleanChildren = useMemo(() => {
-    return (tree: any) => {
-      visit(tree, (node: any) => {
-        if (!node) return
-        const kids = Array.isArray(node.children) ? node.children : []
-        node.children = kids.filter(Boolean)
-      })
-    }
-  }, [])
 
   const InlineCitationBadge = ({ urls }: { urls?: string[] | string }) => {
     const parsedUrls = Array.isArray(urls)
@@ -746,15 +648,18 @@ export const MarkdownContent = memo(function MarkdownContent({ content, messageI
 
 
   const remarkPlugins = useMemo<PluggableList>(() => {
-    const plugins: PluggableList = [remarkGfm, remarkCleanChildren]
-    if (remarkCitationGroups) {
-      plugins.push(remarkCitationGroups)
-    }
+    const plugins: PluggableList = [remarkGfm]
     if (enableMath) {
       plugins.push(remarkMath)
     }
     return plugins
-  }, [remarkCitationGroups, enableMath, remarkCleanChildren])
+  }, [enableMath])
+
+  const sourceTagPattern = useMemo(() => /\[(?:sources?|source)\s*:[^\]]*\]/gi, [])
+  const contentWithInlineCitations = useMemo(() => {
+    if (!citationUrls.length) return safeContent
+    return safeContent.replace(sourceTagPattern, '<citation-inline></citation-inline>')
+  }, [safeContent, citationUrls, sourceTagPattern])
 
   const markdownNode = (
     <MarkdownErrorBoundary
@@ -768,11 +673,7 @@ export const MarkdownContent = memo(function MarkdownContent({ content, messageI
         remarkPlugins={remarkPlugins}
         rehypePlugins={[rehypeRaw, ...(enableMath ? [rehypeKatex] : [])]}
         components={{
-        'citation-group': (props: any) => {
-          const { node, ...rest } = props || {}
-          void node
-          return <InlineCitationBadge urls={rest.urls} />
-        },
+        'citation-inline': () => <InlineCitationBadge urls={citationUrls} />,
         // Headings
         h1: withoutNode((props) => (
           <h1 className="text-2xl font-bold mt-6 mb-4 text-foreground" {...props} />
@@ -848,17 +749,12 @@ export const MarkdownContent = memo(function MarkdownContent({ content, messageI
           const target = href && isExternalHttpLink(href) ? '_blank' : undefined
           const normalizedHref = normalizeCitationUrl(href)
           const inlineLinkText = extractText(props?.children ?? '').trim()
-          const inlineDigits = inlineLinkText.replace(/\s+/g, '')
-          const inlineLabel = inlineDigits.toLowerCase()
-          const isCitationLabelText =
-            /^\d+$/.test(inlineDigits) || inlineLabel === 'source' || inlineLabel === 'sources'
-          const shouldHideInlineCitation =
+          const shouldReplaceWithBadge =
             Boolean(normalizedHref) &&
             citationUrlSet.has(normalizedHref) &&
-            inlineDigits.length > 0 &&
-            isCitationLabelText
-          if (shouldHideInlineCitation) {
-            return <span className="sr-only">{inlineLinkText}</span>
+            isCitationLabelText(inlineLinkText)
+          if (shouldReplaceWithBadge) {
+            return <InlineCitationBadge urls={citationUrls} />
           }
 
           return (
@@ -1028,7 +924,7 @@ export const MarkdownContent = memo(function MarkdownContent({ content, messageI
         }),
       } as any}
     >
-      {safeContent}
+      {contentWithInlineCitations}
     </ReactMarkdown>
     </MarkdownErrorBoundary>
   )
