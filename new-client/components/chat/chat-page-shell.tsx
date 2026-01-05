@@ -4334,7 +4334,14 @@ export default function ChatPageShell({
                 )}
                 components={{
                   Scroller: VirtuosoScroller,
-                  Footer: () => <div aria-hidden="true" style={{ height: `${bottomSpacerPx}px` }} />,
+                Footer: () => (
+                  <div>
+                    {shouldRenderRuntimeIndicatorSlot && runtimeIndicatorElement ? (
+                      runtimeIndicatorElement
+                    ) : null}
+                    <div aria-hidden="true" style={{ height: `${bottomSpacerPx}px` }} />
+                  </div>
+                ),
                 }}
               />
             </div>
@@ -4495,17 +4502,6 @@ export default function ChatPageShell({
             </div>
           )}
         </div>
-        {/* Runtime indicator overlay (fixed, out of document flow) */}
-        {shouldRenderRuntimeIndicatorSlot && runtimeIndicatorElement ? (
-          <div
-            className="pointer-events-none fixed inset-x-0 bottom-[calc(104px+env(safe-area-inset-bottom,0px))] z-40 flex justify-center"
-            style={{ overflowAnchor: "none" }}
-          >
-            <div className="pointer-events-auto">
-              {runtimeIndicatorElement}
-            </div>
-          </div>
-        ) : null}
         {/* Composer: full-width bar, centered pill like ChatGPT */}
         {(!shouldUseCenteredComposer || shouldAnimateComposerDrop) && (
           <div
