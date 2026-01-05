@@ -452,6 +452,11 @@ export const MarkdownContent = memo(function MarkdownContent({ content, messageI
   const remarkCitationGroups = useMemo(() => {
     if (!citationUrlSet.size) return null
     return (tree: any) => {
+      visit(tree, (node: any) => {
+        if (node && Array.isArray(node.children)) {
+          node.children = node.children.filter(Boolean)
+        }
+      })
       visit(tree, 'paragraph', (node: any) => {
         if (!Array.isArray(node.children)) return
         const children = node.children
