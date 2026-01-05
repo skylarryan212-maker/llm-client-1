@@ -2,6 +2,7 @@ import { performance } from "perf_hooks";
 import { convert } from "html-to-text";
 import { createHash } from "crypto";
 import { createOpenAIClient } from "@/lib/openai/client";
+import { callDeepInfraLlama } from "@/lib/deepInfraLlama";
 import { extractDomainFromUrl } from "@/lib/metadata";
 import { supabaseServer } from "@/lib/supabase/server";
 import { fetchGoogleOrganicSerp } from "@/lib/search/brightdata-serp";
@@ -136,6 +137,17 @@ function logCapped(label: string, items: unknown[]) {
   } else {
     console.log(label, items.slice(0, LOG_LIST_CAP), { truncated: items.length - LOG_LIST_CAP });
   }
+}
+
+function logDeepInfraUsage(label: string, model: string, usage?: { input_tokens: number; output_tokens: number }) {
+  if (!usage) return;
+  const inputTokens = usage.input_tokens ?? 0;
+  const outputTokens = usage.output_tokens ?? 0;
+  console.log(`[web-pipeline] ${label} usage`, {
+    model,
+    inputTokens,
+    outputTokens,
+  });
 }
 
 function getOpenAIClient() {
@@ -934,34 +946,53 @@ async function selectSerpCandidates(params: {
   mergedResults: WebPipelineResult["results"];
   pageLimit: number;
 }): Promise<{ selected: WebPipelineResult["results"]; enough: boolean }> {
-  const client = getOpenAIClient();
-  if (!client) {
-    return { selected: params.mergedResults.slice(0, Math.max(1, params.pageLimit)), enough: false };
-  }
   try {
     const shortlistCap = Math.max(3, Math.min(8, params.pageLimit));
-    const promptParts = [
-      "You are selecting a small set of URLs to fetch. Goal: only the highest-signal sources needed to answer the query. Prefer official/authoritative/how-to pages, avoid social spam/ads unless the query explicitly seeks reviews/local listings.",
-      "Return JSON ONLY: {\"selected_urls\": [\"url1\",\"url2\",...], \"enough\": true|false}.",
-      `Pick at most ${shortlistCap} URLs. Pick fewer if that is sufficient. "enough" means these URLs alone should answer the query; set false if more are likely needed.`,
-      "Avoid obviously blocked/anti-bot domains if there are equivalent alternatives.",
+    const system = [
+      "You select a minimal set of URLs to fetch for a search pipeline.",
+      "Return ONLY JSON: {\"selected_urls\": [\"url1\",...], \"enough\": true|false}",
+      `Pick at most ${shortlistCap} URLs; pick fewer if sufficient.`,
+      "\"enough\": true only if these URLs should answer the query without more fetches.",
+      "Prefer official/authoritative/how-to sources. Avoid spam/ads/blocked/social unless necessary.",
+      "Bias against sites that are often blocked (heavy anti-bot) if alternatives exist.",
+    ].join("\n");
+    const user = [
       "Queries:",
       params.queries.map((q) => `- ${q}`).join("\n"),
       "SERP results (url | title | snippet | position | domain):",
       params.mergedResults
         .slice(0, 30)
-        .map((r, idx) => `${idx + 1}. ${r.url} | ${r.title ?? ""} | ${r.description ?? ""} | pos:${r.position ?? ""} | ${r.domain ?? ""}`)
+        .map(
+          (r, idx) =>
+            `${idx + 1}. ${r.url} | ${r.title ?? ""} | ${r.description ?? ""} | pos:${r.position ?? ""} | ${r.domain ?? ""}`
+        )
         .join("\n"),
-      "Now respond with JSON only.",
+      "Respond with JSON only.",
     ].join("\n");
 
-    const completion = await client.chat.completions.create({
-      model: "openai/gpt-oss-20b",
+    const { text, usage } = await callDeepInfraLlama({
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content: user },
+      ],
+      schemaName: "serp_selector",
+      schema: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          selected_urls: { type: "array", items: { type: "string" } },
+          enough: { type: "boolean" },
+        },
+        required: ["selected_urls", "enough"],
+      },
       temperature: 0,
-      messages: [{ role: "user", content: promptParts }],
-      max_tokens: 400,
+      model: "openai/gpt-oss-20b",
+      enforceJson: true,
+      maxTokens: 300,
+      extraParams: { reasoning_effort: "low" },
     });
-    const raw = completion.choices?.[0]?.message?.content ?? "";
+    logDeepInfraUsage("serp-selector", "openai/gpt-oss-20b", usage);
+    const raw = text ?? "";
     let parsed: { selected_urls?: string[]; enough?: boolean } = {};
     try {
       parsed = JSON.parse(raw);
