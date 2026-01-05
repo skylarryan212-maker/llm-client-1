@@ -2031,6 +2031,14 @@ ${slice}`,
         preview: chunk.text.slice(0, 120),
       }))
     );
+    logCapped(
+      "[web-pipeline] selected chunk tokens",
+      selectedChunks.map((chunk) => ({
+        url: chunk.url,
+        kind: chunk.kind,
+        tokens: Math.max(estimateTokens(chunk.text), 1),
+      }))
+    );
     console.log("[web-pipeline] selected chunks", selectedChunks.length);
 
     const gateStart = performance.now();
