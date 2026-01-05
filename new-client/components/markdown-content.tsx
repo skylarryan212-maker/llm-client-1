@@ -460,6 +460,10 @@ export const MarkdownContent = memo(function MarkdownContent({ content, messageI
 
         while (i < children.length) {
           const child = children[i]
+          if (!child) {
+            i += 1
+            continue
+          }
           const firstUrl = isCitationLinkNode(child)
           if (!firstUrl) {
             nextChildren.push(child)
@@ -509,6 +513,7 @@ export const MarkdownContent = memo(function MarkdownContent({ content, messageI
 
           nextChildren.push({
             type: 'citationGroup',
+            children: [],
             data: {
               hName: 'citation-group',
               hProperties: {
@@ -519,7 +524,7 @@ export const MarkdownContent = memo(function MarkdownContent({ content, messageI
           i = j
         }
 
-        node.children = nextChildren
+        node.children = nextChildren.filter(Boolean)
       })
     }
   }, [citationUrlSet, normalizeCitationUrl])
