@@ -231,7 +231,7 @@ function LoginPageContent() {
               />
             </div>
             <p className="text-[11px] text-muted-foreground">
-              Tokens look like `token-<short-id>` and act as both your email and password.
+              Tokens look like <code className="font-mono">token-&lt;short-id&gt;</code> and act as both your email and password.
             </p>
             <Button type="submit" className="w-full justify-center" disabled={tokenActionLoading}>
               {tokenActionLoading ? "Processing..." : "Use or create a token"}
