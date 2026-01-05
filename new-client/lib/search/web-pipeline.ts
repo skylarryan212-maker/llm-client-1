@@ -1828,10 +1828,22 @@ ${slice}`,
         : mergedResults.slice(0, config.fetchCandidateLimit);
     const allowExpansion = !selection.enough;
 
+    // Try to reuse stored chunks for any shortlisted URLs to avoid refetching.
+    const shortlistedUrls = candidateResults.map((item) => item.url);
+    const storedChunksForShortlist = await loadStoredChunksForUrls({
+      urls: shortlistedUrls,
+      maxChunksPerUrl: Math.max(1, config.preferredSourceChunkLimit ?? DEFAULTS.preferredSourceChunkLimit),
+      tokenBudget: Math.max(500, config.preferredSourceTokenBudget ?? DEFAULTS.preferredSourceTokenBudget),
+    });
+    const storedUrlKeys = new Set(storedChunksForShortlist.map((c) => c.urlKey));
+    const fetchableResults = candidateResults.filter(
+      (item) => !storedUrlKeys.has(normalizeUrlKey(item.url))
+    );
+
     const fetchStart = performance.now();
     const fetchesBefore = pageFetches;
     const cacheHitsBefore = pageCacheHits;
-    const candidatePages = await fetchPages(candidateResults);
+    const candidatePages = await fetchPages(fetchableResults);
     logTiming(stageLabel === "retry" ? "page_fetch_retry" : "page_fetch_initial", fetchStart, {
       pages: candidatePages.length,
       fetches: pageFetches - fetchesBefore,
@@ -1961,7 +1973,10 @@ ${slice}`,
         tokenBudget: Math.max(500, config.preferredSourceTokenBudget ?? DEFAULTS.preferredSourceTokenBudget),
       });
     }
-    const combinedChunks = preferredChunks.length ? [...preferredChunks, ...initialChunks] : initialChunks;
+    const combinedChunks =
+      preferredChunks.length || storedChunksForShortlist.length
+        ? [...storedChunksForShortlist, ...preferredChunks, ...initialChunks]
+        : initialChunks;
     logTiming(stageLabel === "retry" ? "chunk_build_retry" : "chunk_build_initial", chunkStart, {
       chunks: combinedChunks.length,
     });
