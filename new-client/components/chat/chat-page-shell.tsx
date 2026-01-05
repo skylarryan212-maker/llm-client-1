@@ -1567,9 +1567,11 @@ export default function ChatPageShell({
   const emptyStatePaddingTop = shouldUseCenteredComposer ? "calc(48vh - 180px)" : undefined;
   const shouldAnimateComposerDrop = hasPendingNewChat && canAnimateComposerDrop;
   const [composerDropStage, setComposerDropStage] = useState<"idle" | "start" | "end">("idle");
-  const composerDropOffset =
-    shouldAnimateComposerDrop && composerDropStage === "start" && typeof composerDropOffsetPx === "number"
-      ? `${composerDropOffsetPx}px`
+  const composerDropTranslate =
+    shouldAnimateComposerDrop && typeof composerDropOffsetPx === "number"
+      ? composerDropStage === "start"
+        ? `${composerDropOffsetPx}px`
+        : "0px"
       : null;
   const isNewChatComposer = !selectedChatId && showEmptyConversation;
   const composerAlignmentClass = isNewChatComposer ? "items-start" : "items-end";
@@ -3799,7 +3801,7 @@ export default function ChatPageShell({
       <div
         ref={mainPanelRef}
         data-main-panel="true"
-        className="chat-ambient-bg flex flex-1 flex-col w-full min-w-0 min-h-0 overflow-hidden"
+        className="bg-black flex flex-1 flex-col w-full min-w-0 min-h-0 overflow-hidden"
         style={{ viewTransitionName: "main-panel", ["--assistant-shimmer-rgb" as any]: assistantShimmerRgb }}
       >
         {/* Header bar */}
@@ -4472,8 +4474,8 @@ export default function ChatPageShell({
               shouldUseCenteredComposer ? "fixed inset-x-0 bottom-0 pointer-events-none opacity-0" : "relative sticky"
             } bottom-0 z-30 pb-[max(env(safe-area-inset-bottom),0px)] transition-transform ${shouldAnimateComposerDrop ? "duration-300 ease-out" : "duration-200 ease-out"}`}
             style={{
-              transform: composerDropOffset
-                ? `translateY(calc(${-Math.max(0, composerLiftPx + 4)}px + ${composerDropOffset}))`
+              transform: composerDropTranslate
+                ? `translateY(calc(${-Math.max(0, composerLiftPx + 4)}px + ${composerDropTranslate}))`
                 : `translateY(${-Math.max(0, composerLiftPx + 4)}px)`,
             }}
           >

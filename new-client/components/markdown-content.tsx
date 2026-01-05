@@ -42,16 +42,100 @@ export const MarkdownContent = memo(function MarkdownContent({ content, messageI
   const tableRefs = useRef<Map<string, HTMLTableElement>>(new Map())
   const deferredContent = useDeferredValue(content)
 
+  const normalizeMathDelimiters = useCallback((text: string): string => {
+    if (!text) return text;
+    let out = '';
+    let i = 0;
+    const isCurrencyLike = (value: string) =>
+      /^[\d\s.,]+(?:[KMBTkm bt]|[KMBT])?%?\s*$/.test(value);
+    const shouldRenderInlineMath = (value: string): boolean => {
+      const inner = value.trim();
+      if (!inner) return false;
+      if (isCurrencyLike(inner)) return false;
+
+      const hasLatexCommand = /\\[a-zA-Z]+/.test(inner);
+      const hasMathOperators = /[=^_<>]/.test(inner) || /[+\-*/]/.test(inner);
+      const hasWordySentence = /[A-Za-z]{2,}\s+[A-Za-z]{2,}/.test(inner);
+      const startsWithDigit = /^[\d.,]/.test(inner);
+
+      if (hasWordySentence && !hasLatexCommand) return false;
+      if (startsWithDigit && !hasLatexCommand && !hasMathOperators) return false;
+      if (startsWithDigit && hasMathOperators && inner.length > 24) return false;
+
+      return hasLatexCommand || hasMathOperators;
+    };
+
+    while (i < text.length) {
+      const ch = text[i];
+      if (ch === '\\') {
+        out += ch;
+        if (i + 1 < text.length) {
+          out += text[i + 1];
+          i += 2;
+          continue;
+        }
+      }
+      if (ch === '$') {
+        if (text[i + 1] === '$') {
+          out += '$$';
+          i += 2;
+          continue;
+        }
+        const next = text[i + 1];
+        if (next && /[\d.,]/.test(next)) {
+          out += '\\$';
+          i += 1;
+          continue;
+        }
+        let j = i + 1;
+        let found = false;
+        while (j < text.length) {
+          if (text[j] === '\\') {
+            j += 2;
+            continue;
+          }
+          if (text[j] === '$') {
+            found = true;
+            break;
+          }
+          j += 1;
+        }
+        if (!found) {
+          out += '\\$';
+          i += 1;
+          continue;
+        }
+        const inner = text.slice(i + 1, j);
+        if (shouldRenderInlineMath(inner)) {
+          out += `$${inner}$`;
+          i = j + 1;
+        } else {
+          out += '\\$';
+          i += 1;
+        }
+        continue;
+      }
+      out += ch;
+      i += 1;
+    }
+
+    return out;
+  }, []);
+
+  const safeContent = useMemo(
+    () => normalizeMathDelimiters(deferredContent || ''),
+    [deferredContent, normalizeMathDelimiters]
+  );
+
   const enableMath = useMemo(() => {
-    const text = deferredContent;
+    const text = safeContent;
     if (!text) return false;
     const hasBlock = /\$\$[\s\S]*\$\$/.test(text) || /\\\[[\s\S]*?\\\]/.test(text);
-    const hasInlinePair = /(^|[^$])\$[^$\s][^$]*\$/.test(text);
+    const hasInlinePair = /\\\((?:.|\n)*?\\\)/.test(text);
+    const hasInlineDollar = /(^|[^\\])\$(?!\$)[\s\S]*?[^\\]\$(?!\$)/.test(text);
     const hasLatexEnv = /\\begin\{[^}]+\}/.test(text);
-    return hasBlock || hasInlinePair || hasLatexEnv;
-  }, [deferredContent]);
-
-  const safeContent = deferredContent;
+    return hasBlock || hasInlinePair || hasInlineDollar || hasLatexEnv;
+  }, [safeContent]);
 
   const handleCopyCode = async (code: string) => {
     await navigator.clipboard.writeText(code)
@@ -442,7 +526,10 @@ export const MarkdownContent = memo(function MarkdownContent({ content, messageI
           <strong className="font-bold text-foreground" {...props} />
         )),
         em: withoutNode((props) => (
-          <em className="italic" {...props} />
+          <em className="italic text-foreground" {...props} />
+        )),
+        i: withoutNode((props) => (
+          <i className="italic text-foreground" {...props} />
         )),
         del: withoutNode((props) => (
           <del className="line-through text-muted-foreground" {...props} />
@@ -521,15 +608,15 @@ export const MarkdownContent = memo(function MarkdownContent({ content, messageI
           const language = match ? match[1] : ''
           const codeString = String(children).replace(/\n$/, '')
 
-          if (!inline && language) {
-            // Code block with syntax highlighting
+          if (!inline) {
+            const label = language || 'text'
             return (
               <div
                 className="my-4 rounded-lg border border-border bg-[#1e1e1e] w-full overflow-hidden min-w-0 mx-auto"
                 style={{ maxWidth: 'min(100%, calc(100vw - 2rem))' }}
               >
                 <div className="flex items-center justify-between border-b border-border/50 bg-[#252526] px-4 py-2 rounded-t-lg min-w-0">
-                  <span className="text-xs font-mono text-muted-foreground">{language}</span>
+                  <span className="text-xs font-mono text-muted-foreground">{label}</span>
                   <Button
                     variant="ghost"
                     size="sm"
@@ -552,11 +639,11 @@ export const MarkdownContent = memo(function MarkdownContent({ content, messageI
                 <div
                   className="overflow-x-auto rounded-b-lg max-w-full w-full touch-pan-x min-w-0"
                   role="region"
-                  aria-label={`${language} code block`}
+                  aria-label={`${label} code block`}
                   style={{ maxWidth: "100%", width: "100%" }}
                 >
                   <SyntaxHighlighter
-                    language={language}
+                    language={language || 'text'}
                     style={vscDarkPlus}
                     customStyle={{
                       margin: 0,
