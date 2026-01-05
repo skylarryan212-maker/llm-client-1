@@ -7,6 +7,7 @@ export type UserIdentity = {
   fullName: string | null;
   email: string | null;
   isGuest: boolean;
+  tokenAuth: boolean;
 };
 
 const UserIdentityContext = createContext<UserIdentity>({
@@ -14,6 +15,7 @@ const UserIdentityContext = createContext<UserIdentity>({
   fullName: null,
   email: null,
   isGuest: true,
+  tokenAuth: false,
 });
 
 export function UserIdentityProvider({

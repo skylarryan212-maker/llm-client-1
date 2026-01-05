@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { X, Palette, Database, UserCircle, ChevronDown, Info } from 'lucide-react'
+import { X, Palette, Database, UserCircle, ChevronDown, Info, Copy, Eye, EyeOff } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
 import { useRouter } from 'next/navigation'
@@ -24,6 +24,7 @@ import { updateAccentColorAction } from '@/app/actions/preferences-actions'
 import { getContextModeGlobalPreference, saveContextModeGlobalPreference } from '@/app/actions/user-preferences-actions'
 import { useUserPlan } from '@/lib/hooks/use-user-plan'
 import { useUserIdentity } from '@/components/user-identity-provider'
+import supabaseClient from '@/lib/supabase/browser-client'
 import { getUserPlanDetails, cancelSubscription } from '@/app/actions/plan-actions'
 import { getUserTotalSpending, getMonthlySpending } from '@/app/actions/usage-actions'
 import { getUsageStatus } from '@/lib/usage-limits'
@@ -46,7 +47,7 @@ export function SettingsModal({ isOpen, onClose, initialTab = 'preferences' }: S
   const { plan, refreshPlan } = useUserPlan()
   const [contextModeGlobal, setContextModeGlobal] = useState<"advanced" | "simple">("simple")
   const [speedModeEnabled, setSpeedModeEnabled] = useState(false)
-  const { fullName, email, isGuest } = useUserIdentity()
+  const { fullName, email, isGuest, tokenAuth } = useUserIdentity()
   const { refreshChats } = useChatStore()
 
   const [planDetails, setPlanDetails] = useState<{
@@ -65,12 +66,17 @@ export function SettingsModal({ isOpen, onClose, initialTab = 'preferences' }: S
     remaining: number
     limit: number
   } | null>(null)
+  const [tokenKey, setTokenKey] = useState<string | null>(null)
+  const [tokenLoading, setTokenLoading] = useState(false)
+  const [tokenVisible, setTokenVisible] = useState(false)
+  const [copyStatus, setCopyStatus] = useState<"idle" | "copied">("idle")
   const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false)
   const [cancelProcessing, setCancelProcessing] = useState(false)
   const [cancelResultDialog, setCancelResultDialog] = useState<{ open: boolean; message: string; success: boolean }>({ open: false, message: "", success: false })
   const [deleteAllChatsConfirmOpen, setDeleteAllChatsConfirmOpen] = useState(false)
   const [deleteAllChatsProcessing, setDeleteAllChatsProcessing] = useState(false)
   const contentScrollRef = useRef<HTMLDivElement | null>(null)
+  const copyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [canScrollUp, setCanScrollUp] = useState(false)
   const [canScrollDown, setCanScrollDown] = useState(false)
 
@@ -180,6 +186,49 @@ export function SettingsModal({ isOpen, onClose, initialTab = 'preferences' }: S
       window.removeEventListener('resize', update)
     }
   }, [isOpen, activeTab])
+
+  useEffect(() => {
+    if (!isOpen || activeTab !== 'account' || !tokenAuth) {
+      setTokenKey(null)
+      setTokenLoading(false)
+      setTokenVisible(false)
+      return
+    }
+
+    let alive = true
+    setTokenLoading(true)
+    supabaseClient
+      .from("token_auth_keys")
+      .select("token")
+      .maybeSingle()
+      .then((result) => {
+        if (!alive) return
+        setTokenKey(result.data?.token ?? null)
+        setTokenVisible(false)
+        setCopyStatus("idle")
+      })
+      .catch((error) => {
+        console.error("[settings][token] failed to load token", error)
+        if (!alive) return
+        setTokenKey(null)
+      })
+      .finally(() => {
+        if (!alive) return
+        setTokenLoading(false)
+      })
+
+    return () => {
+      alive = false
+    }
+  }, [isOpen, activeTab, tokenAuth])
+
+  useEffect(() => {
+    return () => {
+      if (copyTimeoutRef.current) {
+        clearTimeout(copyTimeoutRef.current)
+      }
+    }
+  }, [])
 
   const handleAccentColorChange = (newColor: string) => {
     // Only save when user explicitly changes the color
@@ -293,6 +342,24 @@ export function SettingsModal({ isOpen, onClose, initialTab = 'preferences' }: S
       alert('Failed to delete all chats. Please try again.')
     } finally {
       setDeleteAllChatsProcessing(false)
+    }
+  }
+
+  const handleCopyToken = async () => {
+    if (!tokenKey || typeof navigator === "undefined" || !navigator.clipboard) {
+      return
+    }
+    try {
+      await navigator.clipboard.writeText(tokenKey)
+      setCopyStatus("copied")
+      if (copyTimeoutRef.current) {
+        clearTimeout(copyTimeoutRef.current)
+      }
+      copyTimeoutRef.current = setTimeout(() => {
+        setCopyStatus("idle")
+      }, 1500)
+    } catch (error) {
+      console.error("[settings][token] failed to copy token", error)
     }
   }
 
@@ -639,19 +706,60 @@ export function SettingsModal({ isOpen, onClose, initialTab = 'preferences' }: S
                 </div>
               </div>
 
-              {/* User Information */}
-              <div className="space-y-4">
-                <div>
-                  <Label className="text-sm text-muted-foreground">Email</Label>
-                  <p className="text-base text-foreground mt-1">{email || 'Not available'}</p>
-                </div>
-                {fullName && (
-                  <div>
-                    <Label className="text-sm text-muted-foreground">Name</Label>
-                    <p className="text-base text-foreground mt-1">{fullName}</p>
+              {tokenAuth ? (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-sm text-muted-foreground">Authentication token</Label>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={handleCopyToken}
+                        disabled={!tokenKey || tokenLoading}
+                        className="h-8 w-8 p-0"
+                        aria-label="Copy token"
+                      >
+                        <Copy className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setTokenVisible((prev) => !prev)}
+                        disabled={!tokenKey || tokenLoading}
+                        className="h-8 w-8 p-0"
+                        aria-label={tokenVisible ? "Hide token" : "Show token"}
+                      >
+                        {tokenVisible ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </Button>
+                    </div>
                   </div>
-                )}
-              </div>
+                  <div className="rounded-lg border border-border bg-background px-3 py-2 font-mono text-sm">
+                    {tokenLoading
+                      ? "Loading token..."
+                      : tokenKey
+                      ? tokenVisible
+                        ? tokenKey
+                        : "•".repeat(Math.max(12, tokenKey.length))
+                      : "Token not available"}
+                  </div>
+                  {copyStatus === "copied" && (
+                    <p className="text-xs text-muted-foreground">Token copied to clipboard.</p>
+                  )}
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div>
+                    <Label className="text-sm text-muted-foreground">Email</Label>
+                    <p className="text-base text-foreground mt-1">{email || 'Not available'}</p>
+                  </div>
+                  {fullName && (
+                    <div>
+                      <Label className="text-sm text-muted-foreground">Name</Label>
+                      <p className="text-base text-foreground mt-1">{fullName}</p>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
 

@@ -457,6 +457,22 @@ export interface MarketAgentThesisUpdate {
   created_at?: string | null;
 }
 
+export interface TokenAuthKey {
+  id: string;
+  user_id: string;
+  token: string;
+  created_at: string | null;
+}
+
+export interface TokenAuthKeyInsert {
+  user_id: string;
+  token: string;
+}
+
+export interface TokenAuthKeyUpdate {
+  token?: string;
+}
+
 type PublicTables = {
       conversations: {
         Row: Conversation;
@@ -537,6 +553,11 @@ type PublicTables = {
         Row: MarketAgentThesis;
         Insert: MarketAgentThesisInsert;
         Update: MarketAgentThesisUpdate;
+      };
+      token_auth_keys: {
+        Row: TokenAuthKey;
+        Insert: TokenAuthKeyInsert;
+        Update: TokenAuthKeyUpdate;
       };
 };
 

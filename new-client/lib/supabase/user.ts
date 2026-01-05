@@ -39,6 +39,7 @@ export async function getCurrentUserIdentity(): Promise<UserIdentity> {
     (user?.user_metadata as any)?.name ||
     null;
   const email = user?.email ?? null;
+  const tokenAuth = Boolean((user?.user_metadata as any)?.token_auth);
 
   if (!user?.id) {
     return {
@@ -46,6 +47,7 @@ export async function getCurrentUserIdentity(): Promise<UserIdentity> {
       fullName: null,
       email: null,
       isGuest: true,
+      tokenAuth: false,
     };
   }
 
@@ -54,5 +56,6 @@ export async function getCurrentUserIdentity(): Promise<UserIdentity> {
     fullName,
     email,
     isGuest: false,
+    tokenAuth,
   };
 }
