@@ -983,6 +983,8 @@ async function persistSearchArtifacts(params: {
     const nowIso = new Date().toISOString();
     const urls = params.serpResults.map((r) => r.url).filter(Boolean);
 
+    const serpPayload = { results: params.serpResults };
+
     for (let i = 0; i < params.queries.length; i += 1) {
       const embedding = params.queryEmbeddings[i];
       const normalized = normalizeQueryKey(params.queries[i]);
@@ -991,7 +993,7 @@ async function persistSearchArtifacts(params: {
         .upsert({
           normalized_query: normalized,
           provider: "brightdata",
-          serp_payload: params.serpResults,
+          serp_payload: serpPayload,
           urls,
           first_seen_at: nowIso,
           last_used_at: nowIso,
@@ -1652,7 +1654,13 @@ ${slice}`,
         if (persistentHit?.serpPayload) {
           persistentQueryHit = true;
           console.log("[web-pipeline] SERP persistent cache hit", query);
-          return persistentHit.serpPayload as any;
+          const payload = persistentHit.serpPayload as any;
+          const serpResponse = payload?.results
+            ? payload
+            : Array.isArray(payload)
+              ? { results: payload }
+              : null;
+          return serpResponse ?? { results: [] };
         }
         const cacheKey = `${SERP_CACHE_PREFIX}${normalizeUrlKey(query)}`;
         const cached = await loadSerpCache(cacheKey);
