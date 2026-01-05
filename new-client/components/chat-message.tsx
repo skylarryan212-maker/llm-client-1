@@ -457,15 +457,6 @@ export const ChatMessage = memo(function ChatMessage({
             )}
           </div>
 
-          {!suppressSources && sanitizedCitations.length > 0 && (
-            <div className="mt-2 flex flex-col gap-1 text-xs">
-              <div className="flex flex-wrap gap-2">{primaryCitationBadge}</div>
-              <div className="flex items-center gap-1 text-[11px] font-semibold text-muted-foreground">
-                <Globe className="h-4 w-4" />
-                <span>{sanitizedCitations.length} source{sanitizedCitations.length === 1 ? '' : 's'}</span>
-              </div>
-            </div>
-          )}
           {/* Expandable Sources Panel */}
           {!suppressSources && showSources && Array.isArray(typedMetadata?.citations) && typedMetadata.citations.length > 0 && (
             <div className="mt-4 rounded-xl border border-border bg-muted/30 p-4">
