@@ -159,48 +159,63 @@ export const ChatMessage = memo(function ChatMessage({
       (citation): citation is CitationMetadata & { url: string } =>
         Boolean(citation.url && citation.url.length)
     )
-  const citationBadges = sanitizedCitations.map((citation, idx) => {
-    const label =
-      (citation.domain && citation.domain.trim()) ||
-      (citation.title && citation.title.trim()) ||
-      citationHostname(citation.url) ||
-      citation.url
-    const tooltipTitle = (citation.title && citation.title.trim()) || label
-    const tooltipSnippet = citation.snippet?.trim()
-    const domainLabel =
-      citationHostname(citation.url) || citation.domain || citation.url
-    return (
-      <a
-        key={`citation-${idx}-${citation.url}`}
-        href={citation.url}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="group relative inline-flex max-w-[12rem] items-center gap-1 rounded-full border border-border/60 bg-background/50 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground transition-colors hover:border-foreground/40 hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-foreground"
-      >
-        <span className="truncate">{label}</span>
-        <span className="sr-only">{`Open source ${tooltipTitle}`}</span>
-        <div className="pointer-events-none absolute left-1/2 top-full z-50 w-72 -translate-x-1/2 -translate-y-2 rounded-2xl border border-border bg-card/95 p-3 text-xs text-foreground opacity-0 transition duration-150 group-hover:opacity-100 group-hover:translate-y-0 shadow-2xl">
-          <div className="flex items-center gap-2 text-[12px] font-semibold">
-            <Globe className="h-3 w-3 text-muted-foreground" />
-            <span className="truncate">{tooltipTitle}</span>
-          </div>
-          {tooltipSnippet ? (
-            <p
-              className="mt-1 text-[11px] text-muted-foreground"
-              style={{ maxHeight: "3rem", overflow: "hidden" }}
-            >
-              {tooltipSnippet}
-            </p>
-          ) : null}
-          {domainLabel ? (
-            <div className="mt-2 flex items-center gap-1 text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
-              <span className="truncate">{domainLabel}</span>
+  const citationUrls = sanitizedCitations.map((citation) => citation.url)
+  const primaryCitation = sanitizedCitations[0]
+  const extraCitationCount = Math.max(sanitizedCitations.length - 1, 0)
+  const primaryCitationBadge = primaryCitation
+    ? (() => {
+        const label =
+          (primaryCitation.domain && primaryCitation.domain.trim()) ||
+          (primaryCitation.title && primaryCitation.title.trim()) ||
+          citationHostname(primaryCitation.url) ||
+          primaryCitation.url
+        const tooltipTitle = (primaryCitation.title && primaryCitation.title.trim()) || label
+        const tooltipSnippet = primaryCitation.snippet?.trim()
+        const domainLabel =
+          citationHostname(primaryCitation.url) || primaryCitation.domain || primaryCitation.url
+        const srOnlyText = `Open source ${tooltipTitle}${
+          extraCitationCount > 0 ? ` (plus ${extraCitationCount} more source${extraCitationCount === 1 ? '' : 's'})` : ''
+        }`
+        return (
+          <a
+            key={`citation-primary-${primaryCitation.url}`}
+            href={primaryCitation.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="group relative inline-flex max-w-[12rem] items-center gap-1.5 rounded-full border border-border/60 bg-background/50 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground transition-colors hover:border-foreground/40 hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-foreground"
+          >
+            <div className="flex items-center gap-1 truncate">
+              <span className="truncate">{label}</span>
+              {extraCitationCount > 0 && (
+                <span className="rounded-full border border-border/70 bg-muted px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.3em] text-muted-foreground">
+                  +{extraCitationCount}
+                </span>
+              )}
             </div>
-          ) : null}
-        </div>
-      </a>
-    )
-  })
+            <span className="sr-only">{srOnlyText}</span>
+            <div className="pointer-events-none absolute left-1/2 top-full z-50 w-72 -translate-x-1/2 -translate-y-2 rounded-2xl border border-border bg-card/95 p-3 text-xs text-foreground opacity-0 transition duration-150 group-hover:opacity-100 group-hover:translate-y-0 shadow-2xl">
+              <div className="flex items-center gap-2 text-[12px] font-semibold">
+                <Globe className="h-3 w-3 text-muted-foreground" />
+                <span className="truncate">{tooltipTitle}</span>
+              </div>
+              {tooltipSnippet ? (
+                <p
+                  className="mt-1 text-[11px] text-muted-foreground"
+                  style={{ maxHeight: "3rem", overflow: "hidden" }}
+                >
+                  {tooltipSnippet}
+                </p>
+              ) : null}
+              {domainLabel ? (
+                <div className="mt-2 flex items-center gap-1 text-[10px] uppercase tracking-[0.2em] text-muted-foreground">
+                  <span className="truncate">{domainLabel}</span>
+                </div>
+              ) : null}
+            </div>
+          </a>
+        )
+      })()
+    : null
 
   const handleCopy = async () => {
     await navigator.clipboard.writeText(content)
@@ -316,6 +331,7 @@ export const ChatMessage = memo(function ChatMessage({
               content={content}
               messageId={messageId}
               generatedFiles={typedMetadata?.generatedFiles}
+              citationUrls={citationUrls}
             />
           ) : (
             <div className="assistant-streaming-text whitespace-pre-wrap break-words text-sm leading-relaxed text-foreground/90">
@@ -444,7 +460,7 @@ export const ChatMessage = memo(function ChatMessage({
 
           {!suppressSources && sanitizedCitations.length > 0 && (
             <div className="mt-2 flex flex-col gap-1 text-xs">
-              <div className="flex flex-wrap gap-2">{citationBadges}</div>
+              <div className="flex flex-wrap gap-2">{primaryCitationBadge}</div>
               <div className="flex items-center gap-1 text-[11px] font-semibold text-muted-foreground">
                 <Globe className="h-4 w-4" />
                 <span>{sanitizedCitations.length} source{sanitizedCitations.length === 1 ? '' : 's'}</span>

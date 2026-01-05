@@ -21,6 +21,7 @@ interface MarkdownContentProps {
     fileId: string
     filename: string
   }>
+  citationUrls?: string[]
 }
 
 const withoutNode = <P extends { node?: unknown }>(
@@ -32,7 +33,7 @@ const withoutNode = <P extends { node?: unknown }>(
   };
 };
 
-export const MarkdownContent = memo(function MarkdownContent({ content, messageId, generatedFiles }: MarkdownContentProps) {
+export const MarkdownContent = memo(function MarkdownContent({ content, messageId, generatedFiles, citationUrls }: MarkdownContentProps) {
   const [copiedCode, setCopiedCode] = useState<string | null>(null)
   const [copiedTableId, setCopiedTableId] = useState<string | null>(null)
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null)
@@ -365,6 +366,34 @@ export const MarkdownContent = memo(function MarkdownContent({ content, messageI
     return ''
   }
 
+  const normalizeCitationUrl = useCallback((value?: string | null): string => {
+    const trimmed = (value ?? '').trim()
+    if (!trimmed) return ''
+    const stripTrailingSlash = (input: string) => input.replace(/\/+$/, '')
+
+    try {
+      const url = new URL(trimmed)
+      url.hash = ''
+      return stripTrailingSlash(url.toString())
+    } catch {
+      return stripTrailingSlash(trimmed)
+    }
+  }, [])
+
+  const citationUrlSet = useMemo(() => {
+    const set = new Set<string>()
+    if (!citationUrls?.length) {
+      return set
+    }
+    for (const url of citationUrls) {
+      const normalized = normalizeCitationUrl(url)
+      if (normalized) {
+        set.add(normalized)
+      }
+    }
+    return set
+  }, [citationUrls, normalizeCitationUrl])
+
   const buildDirectDownloadHref = (file: { containerId: string; fileId: string; filename: string }) => {
     if (!messageId) return null
     return `/api/code-interpreter/download?messageId=${encodeURIComponent(
@@ -558,6 +587,17 @@ export const MarkdownContent = memo(function MarkdownContent({ content, messageI
           const href = resolvedDownload?.href ?? resolvedHref
           const isDownload = Boolean(resolvedDownload)
           const target = href && isExternalHttpLink(href) ? '_blank' : undefined
+          const normalizedHref = normalizeCitationUrl(href)
+          const inlineLinkText = extractText(props?.children ?? '').trim()
+          const inlineDigits = inlineLinkText.replace(/\s+/g, '')
+          const shouldHideInlineCitation =
+            Boolean(normalizedHref) &&
+            citationUrlSet.has(normalizedHref) &&
+            inlineDigits.length > 0 &&
+            /^\d+$/.test(inlineDigits)
+          if (shouldHideInlineCitation) {
+            return <span className="sr-only">{inlineLinkText}</span>
+          }
 
           return (
             <a
