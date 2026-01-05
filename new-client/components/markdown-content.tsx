@@ -731,8 +731,9 @@ export const MarkdownContent = memo(function MarkdownContent({ content, messageI
     return plugins
   }, [remarkCitationGroups, enableMath, remarkCleanChildren])
 
-  return (
-    <div className="prose prose-invert max-w-none prose-p:leading-relaxed prose-pre:p-0 prose-pre:bg-transparent w-full max-w-full min-w-0 break-words prose-a:break-words">
+  let markdownNode: React.ReactNode
+  try {
+    markdownNode = (
       <ReactMarkdown
         remarkPlugins={remarkPlugins}
         rehypePlugins={[rehypeRaw, ...(enableMath ? [rehypeKatex] : [])]}
@@ -999,7 +1000,19 @@ export const MarkdownContent = memo(function MarkdownContent({ content, messageI
     >
       {safeContent}
     </ReactMarkdown>
+    )
+  } catch (err) {
+    console.error('markdown-render-error', err)
+    markdownNode = (
+      <p className="text-base leading-relaxed text-foreground mb-4 break-words whitespace-pre-wrap">
+        {safeContent}
+      </p>
+    )
+  }
 
+  return (
+    <div className="prose prose-invert max-w-none prose-p:leading-relaxed prose-pre:p-0 prose-pre:bg-transparent w-full max-w-full min-w-0 break-words prose-a:break-words">
+      {markdownNode}
       {typeof document !== 'undefined' && lightboxNode ? createPortal(lightboxNode, document.body) : null}
     </div>
   )
