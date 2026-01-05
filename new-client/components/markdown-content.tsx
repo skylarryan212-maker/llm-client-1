@@ -10,7 +10,7 @@ import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism'
 import { ArrowLeft, Check, Copy, Download, Globe, Share2 } from 'lucide-react'
 import { visit } from 'unist-util-visit'
 import { Button } from '@/components/ui/button'
-import { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
+import React, { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { CitationMetadata } from '@/lib/chatTypes'
 import type { PluggableList } from 'unified'
@@ -25,6 +25,31 @@ interface MarkdownContentProps {
     filename: string
   }>
   citations?: CitationMetadata[]
+}
+
+class MarkdownErrorBoundary extends React.Component<
+  { fallback: React.ReactNode; children: React.ReactNode },
+  { hasError: boolean }
+> {
+  constructor(props: { fallback: React.ReactNode; children: React.ReactNode }) {
+    super(props)
+    this.state = { hasError: false }
+  }
+
+  static getDerivedStateFromError(): { hasError: boolean } {
+    return { hasError: true }
+  }
+
+  componentDidCatch(error: any) {
+    console.error('markdown-render-boundary', error)
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return this.props.fallback
+    }
+    return this.props.children
+  }
 }
 
 const withoutNode = <P extends { node?: unknown }>(
@@ -731,9 +756,14 @@ export const MarkdownContent = memo(function MarkdownContent({ content, messageI
     return plugins
   }, [remarkCitationGroups, enableMath, remarkCleanChildren])
 
-  let markdownNode: React.ReactNode
-  try {
-    markdownNode = (
+  const markdownNode = (
+    <MarkdownErrorBoundary
+      fallback={
+        <p className="text-base leading-relaxed text-foreground mb-4 break-words whitespace-pre-wrap">
+          {safeContent}
+        </p>
+      }
+    >
       <ReactMarkdown
         remarkPlugins={remarkPlugins}
         rehypePlugins={[rehypeRaw, ...(enableMath ? [rehypeKatex] : [])]}
@@ -1000,15 +1030,8 @@ export const MarkdownContent = memo(function MarkdownContent({ content, messageI
     >
       {safeContent}
     </ReactMarkdown>
-    )
-  } catch (err) {
-    console.error('markdown-render-error', err)
-    markdownNode = (
-      <p className="text-base leading-relaxed text-foreground mb-4 break-words whitespace-pre-wrap">
-        {safeContent}
-      </p>
-    )
-  }
+    </MarkdownErrorBoundary>
+  )
 
   return (
     <div className="prose prose-invert max-w-none prose-p:leading-relaxed prose-pre:p-0 prose-pre:bg-transparent w-full max-w-full min-w-0 break-words prose-a:break-words">
