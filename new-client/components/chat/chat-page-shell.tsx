@@ -11,8 +11,8 @@ import { ChatMessage } from "@/components/chat-message";
 import { ChatComposer } from "@/components/chat-composer";
 import { Button } from "@/components/ui/button";
 import { ArrowDown, Check, ChevronDown, Image as ImageIcon, Menu, Plus, X } from "lucide-react";
-import dynamic from "next/dynamic";
 import { StatusBubble } from "@/components/chat/status-bubble";
+import dynamic from "next/dynamic";
 import supabaseBrowserClient from "@/lib/supabase/browser-client";
 import { ApiUsageBadge } from "@/components/api-usage-badge";
 import {
@@ -104,6 +104,24 @@ type SearchIndicatorState =
       subtext?: string;
     }
   | null;
+
+type RuntimeIndicatorVariant = "default" | "extended" | "search" | "reading" | "analyzing" | "error" | "warning";
+
+const RUNTIME_INDICATOR_GRADIENTS: Record<RuntimeIndicatorVariant, { center: string; side: string }> = {
+  default: { center: "rgba(255, 255, 255, 0.95)", side: "rgba(255, 255, 255, 0.25)" },
+  extended: { center: "rgba(183, 198, 255, 0.95)", side: "rgba(138, 180, 255, 0.35)" },
+  search: { center: "rgba(155, 184, 255, 0.95)", side: "rgba(75, 100, 255, 0.25)" },
+  reading: { center: "rgba(184, 255, 232, 0.95)", side: "rgba(83, 242, 199, 0.25)" },
+  analyzing: { center: "rgba(221, 214, 254, 0.95)", side: "rgba(196, 181, 253, 0.3)" },
+  error: { center: "rgba(255, 103, 135, 0.95)", side: "rgba(255, 103, 135, 0.35)" },
+  warning: { center: "rgba(255, 210, 116, 0.95)", side: "rgba(255, 210, 116, 0.35)" },
+};
+
+type RuntimeIndicatorState = {
+  label: string;
+  variant: RuntimeIndicatorVariant;
+  subtext?: string;
+};
 
 interface ChatPageShellProps {
   conversations: ShellConversation[];
@@ -3662,7 +3680,7 @@ export default function ChatPageShell({
     });
   }, [projects, projectConversations]);
 
-  const runtimeIndicatorBubble = useMemo(() => {
+  const runtimeIndicatorContent = useMemo<RuntimeIndicatorState | null>(() => {
     if (!selectedChatId || !lastUserMessageId) return null;
 
     const hasIndicator = Boolean(thinkingStatus || searchIndicator || fileReadingIndicator || isAnalyzing);
@@ -3673,30 +3691,29 @@ export default function ChatPageShell({
       return null;
     }
 
-    const bubble = isAnalyzing ? (
-      <StatusBubble label="Analyzing" variant="analyzing" />
-    ) : fileReadingIndicator ? (
-      <StatusBubble
-        label="Reading documents"
-        variant={fileReadingIndicator === "error" ? "error" : "reading"}
-      />
-    ) : searchIndicator ? (
-      <StatusBubble
-        label={searchIndicator.message}
-        variant={searchIndicator.variant === "error" ? "error" : "search"}
-        subtext={searchIndicator.subtext}
-      />
-    ) : thinkingStatus ? (
-      <StatusBubble
-        label={thinkingStatus.label}
-        variant={thinkingStatus.variant === "extended" ? "extended" : "default"}
-        onClick={openInsightSidebar}
-      />
-    ) : null;
-
-    if (!bubble) return null;
-
-    return bubble;
+    if (isAnalyzing) {
+      return { label: "Analyzing", variant: "analyzing" };
+    }
+    if (fileReadingIndicator) {
+      return {
+        label: "Reading documents",
+        variant: fileReadingIndicator === "error" ? "error" : "reading",
+      };
+    }
+    if (searchIndicator) {
+      return {
+        label: searchIndicator.message,
+        variant: searchIndicator.variant === "error" ? "error" : "search",
+        subtext: searchIndicator.subtext,
+      };
+    }
+    if (thinkingStatus) {
+      return {
+        label: thinkingStatus.label,
+        variant: thinkingStatus.variant === "extended" ? "extended" : "default",
+      };
+    }
+    return null;
   }, [
     fileReadingIndicator,
     isAnalyzing,
@@ -3706,6 +3723,29 @@ export default function ChatPageShell({
     selectedChatId,
     thinkingStatus,
   ]);
+
+  const runtimeIndicatorElement = useMemo(() => {
+    if (!runtimeIndicatorContent) return null;
+
+    const gradient = RUNTIME_INDICATOR_GRADIENTS[runtimeIndicatorContent.variant];
+    const gradientStyle = {
+      "--status-wave-color-center": gradient.center,
+      "--status-wave-color-side": gradient.side,
+    } as React.CSSProperties;
+
+    return (
+      <div className="px-1 pb-1 text-white/80">
+        <p className="text-base leading-relaxed">
+          <span className="inline-block status-wave-text" style={gradientStyle}>
+            {runtimeIndicatorContent.label}
+          </span>
+        </p>
+        {runtimeIndicatorContent.subtext ? (
+          <p className="mt-1 text-xs text-white/60">{runtimeIndicatorContent.subtext}</p>
+        ) : null}
+      </div>
+    );
+  }, [runtimeIndicatorContent]);
 
 
   const assistantShimmerRgb = useMemo(() => {
@@ -3725,9 +3765,9 @@ export default function ChatPageShell({
 
   // Ensure we never shrink the bottom spacer while a runtime indicator is visible; keeps page height stable.
   useEffect(() => {
-    if (!runtimeIndicatorBubble) return;
+    if (!runtimeIndicatorElement) return;
     setBottomSpacerPx((prev) => Math.max(prev, baseBottomSpacerPx + 80));
-  }, [runtimeIndicatorBubble, baseBottomSpacerPx]);
+  }, [runtimeIndicatorElement, baseBottomSpacerPx]);
 
   useEffect(() => {
     if (!shouldRenderRuntimeIndicatorSlot && !isStreaming) {
@@ -4456,13 +4496,13 @@ export default function ChatPageShell({
           )}
         </div>
         {/* Runtime indicator overlay (fixed, out of document flow) */}
-        {shouldRenderRuntimeIndicatorSlot && runtimeIndicatorBubble ? (
+        {shouldRenderRuntimeIndicatorSlot && runtimeIndicatorElement ? (
           <div
             className="pointer-events-none fixed inset-x-0 bottom-[calc(104px+env(safe-area-inset-bottom,0px))] z-40 flex justify-center"
             style={{ overflowAnchor: "none" }}
           >
             <div className="pointer-events-auto">
-              {runtimeIndicatorBubble}
+              {runtimeIndicatorElement}
             </div>
           </div>
         ) : null}

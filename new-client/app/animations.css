@@ -231,6 +231,20 @@
     animation: thinking-shimmer 1.4s linear infinite;
   }
 
+  .status-wave-text {
+    background: linear-gradient(
+      90deg,
+      var(--status-wave-color-side, rgba(255, 255, 255, 0.25)),
+      var(--status-wave-color-center, rgba(255, 255, 255, 0.95)),
+      var(--status-wave-color-side, rgba(255, 255, 255, 0.25))
+    );
+    background-size: 200% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    animation: thinking-shimmer 1.4s linear infinite;
+  }
+
   .agent-chat-scroll-area {
     scrollbar-width: none;
     scrollbar-gutter: stable;
