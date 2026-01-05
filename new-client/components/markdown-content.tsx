@@ -452,11 +452,6 @@ export const MarkdownContent = memo(function MarkdownContent({ content, messageI
   const remarkCitationGroups = useMemo(() => {
     if (!citationUrlSet.size) return null
     return (tree: any) => {
-      visit(tree, (node: any) => {
-        if (node && Array.isArray(node.children)) {
-          node.children = node.children.filter(Boolean)
-        }
-      })
       visit(tree, 'paragraph', (node: any) => {
         if (!Array.isArray(node.children)) return
         const children = node.children
@@ -533,6 +528,16 @@ export const MarkdownContent = memo(function MarkdownContent({ content, messageI
       })
     }
   }, [citationUrlSet, normalizeCitationUrl])
+
+  const remarkCleanChildren = useMemo(() => {
+    return (tree: any) => {
+      visit(tree, (node: any) => {
+        if (node && Array.isArray(node.children)) {
+          node.children = node.children.filter(Boolean)
+        }
+      })
+    }
+  }, [])
 
   const InlineCitationBadge = ({ urls }: { urls?: string[] | string }) => {
     const parsedUrls = Array.isArray(urls)
@@ -716,7 +721,7 @@ export const MarkdownContent = memo(function MarkdownContent({ content, messageI
 
 
   const remarkPlugins = useMemo<PluggableList>(() => {
-    const plugins: PluggableList = [remarkGfm]
+    const plugins: PluggableList = [remarkGfm, remarkCleanChildren]
     if (remarkCitationGroups) {
       plugins.push(remarkCitationGroups)
     }
@@ -724,7 +729,7 @@ export const MarkdownContent = memo(function MarkdownContent({ content, messageI
       plugins.push(remarkMath)
     }
     return plugins
-  }, [remarkCitationGroups, enableMath])
+  }, [remarkCitationGroups, enableMath, remarkCleanChildren])
 
   return (
     <div className="prose prose-invert max-w-none prose-p:leading-relaxed prose-pre:p-0 prose-pre:bg-transparent w-full max-w-full min-w-0 break-words prose-a:break-words">
