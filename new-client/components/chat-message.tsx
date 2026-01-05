@@ -91,11 +91,6 @@ export const ChatMessage = memo(function ChatMessage({
   }, [enableEntryAnimation, messageId])
 
   const animateClass = isAnimating ? 'chat-entry-animate' : ''
-  const assistantStreamingClass =
-    role === 'assistant' && isStreaming && !suppressPreStreamAnimation
-      ? 'assistant-streaming'
-      : ''
-
   // Extract metadata safely
   let metadataObj: AssistantMessageMetadata | Record<string, unknown> | null = null
   try {
@@ -243,7 +238,7 @@ export const ChatMessage = memo(function ChatMessage({
   const shouldRenderMarkdown = !(role === "assistant" && isStreaming);
 
   return (
-    <div {...rootAttributes} className={`py-0 ${animateClass} ${assistantStreamingClass}`}>
+    <div {...rootAttributes} className={`py-0 ${animateClass}`}>
       <div
         className={`mx-auto w-full ${
           forceFullWidth ? "max-w-full" : "max-w-3xl"
