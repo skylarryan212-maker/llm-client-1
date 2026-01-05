@@ -929,6 +929,73 @@ function dedupeAndCapChunks(
   return selected;
 }
 
+async function selectSerpCandidates(params: {
+  queries: string[];
+  mergedResults: WebPipelineResult["results"];
+  pageLimit: number;
+}): Promise<{ selected: WebPipelineResult["results"]; enough: boolean }> {
+  const client = getOpenAIClient();
+  if (!client) {
+    return { selected: params.mergedResults.slice(0, Math.max(1, params.pageLimit)), enough: false };
+  }
+  try {
+    const shortlistCap = Math.max(3, Math.min(8, params.pageLimit));
+    const promptParts = [
+      "You are selecting a small set of URLs to fetch. Goal: only the highest-signal sources needed to answer the query. Prefer official/authoritative/how-to pages, avoid social spam/ads unless the query explicitly seeks reviews/local listings.",
+      "Return JSON ONLY: {\"selected_urls\": [\"url1\",\"url2\",...], \"enough\": true|false}.",
+      `Pick at most ${shortlistCap} URLs. Pick fewer if that is sufficient. "enough" means these URLs alone should answer the query; set false if more are likely needed.`,
+      "Avoid obviously blocked/anti-bot domains if there are equivalent alternatives.",
+      "Queries:",
+      params.queries.map((q) => `- ${q}`).join("\n"),
+      "SERP results (url | title | snippet | position | domain):",
+      params.mergedResults
+        .slice(0, 30)
+        .map((r, idx) => `${idx + 1}. ${r.url} | ${r.title ?? ""} | ${r.description ?? ""} | pos:${r.position ?? ""} | ${r.domain ?? ""}`)
+        .join("\n"),
+      "Now respond with JSON only.",
+    ].join("\n");
+
+    const completion = await client.chat.completions.create({
+      model: "openai/gpt-oss-20b",
+      temperature: 0,
+      messages: [{ role: "user", content: promptParts }],
+      max_tokens: 400,
+    });
+    const raw = completion.choices?.[0]?.message?.content ?? "";
+    let parsed: { selected_urls?: string[]; enough?: boolean } = {};
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      // try to salvage by extracting JSON block
+      const match = raw.match(/\{[\s\S]*\}/);
+      if (match) {
+        try {
+          parsed = JSON.parse(match[0]);
+        } catch {
+          parsed = {};
+        }
+      }
+    }
+    const selectedUrls = Array.isArray(parsed.selected_urls)
+      ? parsed.selected_urls.filter((u) => typeof u === "string" && u.trim().length > 0)
+      : [];
+    const enough = Boolean(parsed.enough);
+    if (!selectedUrls.length) {
+      return { selected: params.mergedResults.slice(0, Math.max(1, params.pageLimit)), enough: false };
+    }
+    const selected = params.mergedResults.filter((item) =>
+      selectedUrls.some((u) => normalizeUrlKey(u) === normalizeUrlKey(item.url))
+    );
+    if (!selected.length) {
+      return { selected: params.mergedResults.slice(0, Math.max(1, params.pageLimit)), enough: false };
+    }
+    return { selected: selected.slice(0, shortlistCap), enough };
+  } catch (error) {
+    console.warn("[web-pipeline] serp selector failed; falling back to defaults", error);
+    return { selected: params.mergedResults.slice(0, Math.max(1, params.pageLimit)), enough: false };
+  }
+}
+
 async function findPersistentQueryReuse(params: {
   query: string;
   embedding: number[] | null;
@@ -1712,8 +1779,23 @@ ${slice}`,
     });
     console.log("[web-pipeline] merged results", mergedResults.length);
 
-    const remainingResults = [...mergedResults];
-    const candidateResults = remainingResults.splice(0, config.fetchCandidateLimit);
+    const selectionStart = performance.now();
+    const selection = await selectSerpCandidates({
+      queries,
+      mergedResults,
+      pageLimit: config.pageLimit,
+    });
+    logTiming("serp_selection", selectionStart, {
+      selected: selection.selected.length,
+      enough: selection.enough,
+    });
+    const selectedSet = new Set(selection.selected.map((item) => normalizeUrlKey(item.url)));
+    const remainingResults = mergedResults.filter((item) => !selectedSet.has(normalizeUrlKey(item.url)));
+    const candidateResults =
+      selection.selected.length > 0
+        ? selection.selected.slice(0, config.fetchCandidateLimit)
+        : mergedResults.slice(0, config.fetchCandidateLimit);
+    const allowExpansion = !selection.enough;
 
     const fetchStart = performance.now();
     const fetchesBefore = pageFetches;
@@ -1748,7 +1830,7 @@ ${slice}`,
     });
 
     let extraFetchMs = 0;
-    while (goodPages.length < config.pageLimit && remainingResults.length > 0) {
+    while (allowExpansion && goodPages.length < config.pageLimit && remainingResults.length > 0) {
       const batch = remainingResults.splice(0, Math.min(5, remainingResults.length));
       console.log("[web-pipeline] fetching extra pages", batch.map((item) => item.url));
       const extraStart = performance.now();
@@ -1824,7 +1906,7 @@ ${slice}`,
     const remainingBudget = Math.max(0, maxTotalPages - cappedSelectedPages.length);
     const linkExpansionStart = performance.now();
     const linkedPages =
-      remainingBudget > 0 && config.linkDepth > 0
+      allowExpansion && remainingBudget > 0 && config.linkDepth > 0
         ? await expandLinkedPages(cappedSelectedPages, remainingBudget, config.linkDepth)
         : [];
     if (linkedPages.length) {
