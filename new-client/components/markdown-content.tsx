@@ -510,7 +510,7 @@ export const MarkdownContent = memo(function MarkdownContent({ content, messageI
           )}
         </div>
         <span className="sr-only">{`Open source ${tooltipTitle}`}</span>
-        <div className="pointer-events-none absolute left-1/2 top-full z-50 w-72 -translate-x-1/2 -translate-y-2 rounded-2xl border border-border bg-card/95 p-3 text-xs text-foreground opacity-0 transition duration-150 group-hover:opacity-100 group-hover:translate-y-0 shadow-2xl">
+        <div className="pointer-events-none absolute left-1/2 bottom-full z-[60] w-72 -translate-x-1/2 translate-y-2 rounded-2xl border border-border bg-card/95 p-3 text-xs text-foreground opacity-0 transition duration-150 group-hover:opacity-100 group-hover:-translate-y-0 shadow-2xl">
           <div className="flex items-center gap-2 text-[12px] font-semibold">
             <Globe className="h-3 w-3 text-muted-foreground" />
             <span className="truncate">{tooltipTitle}</span>
@@ -748,13 +748,8 @@ export const MarkdownContent = memo(function MarkdownContent({ content, messageI
           const isDownload = Boolean(resolvedDownload)
           const target = href && isExternalHttpLink(href) ? '_blank' : undefined
           const normalizedHref = normalizeCitationUrl(href)
-          const inlineLinkText = extractText(props?.children ?? '').trim()
-          const shouldReplaceWithBadge =
-            Boolean(normalizedHref) &&
-            citationUrlSet.has(normalizedHref) &&
-            isCitationLabelText(inlineLinkText)
-          if (shouldReplaceWithBadge) {
-            return <InlineCitationBadge urls={citationUrls} />
+          if (normalizedHref && citationUrlSet.has(normalizedHref)) {
+            return <InlineCitationBadge urls={[normalizedHref]} />
           }
 
           return (
