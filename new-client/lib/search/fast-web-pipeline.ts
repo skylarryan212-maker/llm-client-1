@@ -53,6 +53,7 @@ type PipelineOptions = {
   queryCount?: number;
   maxEvidenceSources?: number;
   targetUsablePages?: number;
+  resultsPerQueryOverride?: number;
   excerptMode?: "snippets" | "balanced" | "rich";
   excerptWords?: number;
   keywordWindowWords?: number;
@@ -394,7 +395,12 @@ export async function runWebSearchPipeline(
   }
 
   const requestedResultCount = queryWriterResult?.resultCount === 20 ? 20 : 10;
-  const resultsPerQuery = queries.length > 1 ? 10 : requestedResultCount;
+  const resultsPerQuery =
+    options.resultsPerQueryOverride && Number.isFinite(options.resultsPerQueryOverride)
+      ? Math.max(1, Math.min(MAX_SERP_RESULTS, Math.round(options.resultsPerQueryOverride)))
+      : queries.length > 1
+        ? 10
+        : requestedResultCount;
   const excerptPreset = EXCERPT_PRESETS[options.excerptMode ?? "balanced"] ?? EXCERPT_PRESETS.balanced;
   const excerptWords = options.excerptWords ?? excerptPreset.excerptWords ?? DEFAULT_EXCERPT_WORDS;
   const keywordWindowWords =
@@ -402,7 +408,7 @@ export async function runWebSearchPipeline(
   const explicitEvidenceLimit = options.maxEvidenceSources;
   const targetUsablePages = Math.max(
     1,
-    options.targetUsablePages ?? explicitEvidenceLimit ?? DEFAULT_TARGET_USABLE_PAGES
+    options.targetUsablePages ?? explicitEvidenceLimit ?? resultsPerQuery ?? DEFAULT_TARGET_USABLE_PAGES
   );
 
   console.log("[fast-web-pipeline] query writer result", {
