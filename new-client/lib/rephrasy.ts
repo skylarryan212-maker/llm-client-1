@@ -13,7 +13,7 @@ type DetectParams = {
 
 const HUMANIZE_URL = "https://v2-humanizer.rephrasy.ai/api";
 const DETECT_URL = "https://detector.rephrasy.ai/detect_api";
-const DEFAULT_TIMEOUT_MS = 15000;
+const DEFAULT_TIMEOUT_MS = 60000;
 
 async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs = DEFAULT_TIMEOUT_MS) {
   const controller = new AbortController();
