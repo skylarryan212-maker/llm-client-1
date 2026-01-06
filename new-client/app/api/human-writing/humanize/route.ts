@@ -9,7 +9,7 @@ import { computeHumanScore, rephrasyDetect, rephrasyHumanize } from "@/lib/rephr
 
 const MAX_ITERATIONS = 6;
 const TARGET_HUMAN_SCORE = 75;
-const MAX_REPHRASY_RETRIES = 2;
+const MAX_REPHRASY_RETRIES = 0; // avoid multiplying billable calls when upstream is flaky
 const EDIT_PROMPT =
   "You are polishing a draft that was already humanized. Fix only obvious errors, clarity issues, and awkward phrasing. Keep meaning, citations, and length roughly the same. Do not add new ideas.";
 
@@ -116,7 +116,7 @@ export async function POST(request: NextRequest) {
               text: currentDraft,
               model,
               language: language === "auto" ? undefined : language,
-              costs: true,
+              costs: false, // disable cost reporting/billing to avoid extra charges on failures
             });
             humanizedOutput = humanized.output;
             humanizedFlesch = humanized.flesch;

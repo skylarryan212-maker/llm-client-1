@@ -39,10 +39,10 @@ export async function rephrasyHumanize(params: HumanizeParams) {
   const body: Record<string, unknown> = {
     text: params.text,
     model: params.model || "undetectable",
+    costs: params.costs ?? false,
   };
   if (params.language && params.language !== "auto") body.language = params.language;
   if (typeof params.words === "boolean") body.words = params.words;
-  if (typeof params.costs === "boolean") body.costs = params.costs;
 
   const res = await fetchWithTimeout(
     HUMANIZE_URL,
