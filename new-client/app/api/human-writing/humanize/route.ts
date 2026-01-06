@@ -5,6 +5,7 @@ import { supabaseServer } from "@/lib/supabase/server";
 import { requireUserIdServer } from "@/lib/supabase/user";
 import { rephrasyHumanize } from "@/lib/rephrasy";
 import { createOpenAIClient, getOpenAIRequestId } from "@/lib/openai/client";
+import type { Json, MessageInsert } from "@/lib/supabase/types";
 
 async function reviewAndOptionallyEdit(params: {
   humanizedText: string;
@@ -125,7 +126,7 @@ export async function POST(request: NextRequest) {
       }
 
       if (conversationId) {
-        const inserts = [
+        const inserts: MessageInsert[] = [
           {
             user_id: userId,
             conversation_id: conversationId,
@@ -137,7 +138,7 @@ export async function POST(request: NextRequest) {
               model,
               language,
               flesch: humanized.flesch,
-            },
+            } as Json,
           },
           {
             user_id: userId,
@@ -151,11 +152,13 @@ export async function POST(request: NextRequest) {
               language,
               edited,
               source: "review",
-            },
+            } as Json,
           },
         ];
 
-        const { error: insertError } = await supabase.from("messages").insert(inserts);
+        const { error: insertError } = await supabase
+          .from("messages")
+          .insert(inserts, { defaultToNull: false });
         if (insertError) {
           console.error("[human-writing][humanize] insert message error", insertError);
         }
