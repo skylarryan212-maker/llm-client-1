@@ -2236,10 +2236,12 @@ ${slice}`,
     );
     console.log("[web-pipeline] selected chunks", selectedChunks.length);
 
+    const chunkHardCapTokens =
+      chunkBudget.hardCapTokens ?? chunkBudget.tokenBudget ?? Number.POSITIVE_INFINITY;
     const hasCoverage =
       selectedChunks.length >= chunkBudget.minSources &&
       selectedChunks.reduce((sum, c) => sum + Math.max(estimateTokens(c.text), 1), 0) <=
-        chunkBudget.hardCapTokens;
+        chunkHardCapTokens;
     if (hasCoverage) {
       console.log("[web-pipeline] skipping expansion; coverage met");
     }
