@@ -2297,6 +2297,7 @@ export default function ChatPageShell({
           agentId: selectedAgentId,
           marketAgentContext: marketContext ?? (currentMarketInstanceId ? { instanceId: currentMarketInstanceId } : null),
           userMessageMetadata: Object.keys(userMetadata).length ? userMetadata : null,
+          searchControls: searchControlsPayload,
         }
       );
     // Clear one-time follow-up context after use
@@ -2453,6 +2454,7 @@ export default function ChatPageShell({
       agentId?: string | null;
       marketAgentContext?: { instanceId?: string | null; eventId?: string | null } | null;
       userMessageMetadata?: Record<string, unknown> | null;
+      searchControls?: SearchControls;
     }
   ) => {
     const requestKey = `${conversationId}:${message}`;
@@ -2594,6 +2596,8 @@ export default function ChatPageShell({
 
       const effectiveMode = generationOverride?.generationMode ?? (isImageMode ? "image" : "chat");
       const effectiveImageModel = generationOverride?.imageModel ?? currentImageModel;
+
+      const searchControlsPayload = extras?.searchControls ?? activeSearchControls;
 
       const response = await fetch("/api/chat", {
         method: "POST",
@@ -2955,6 +2959,7 @@ export default function ChatPageShell({
     currentModel,
     handleStatusEvent,
     hideThinkingIndicator,
+    activeSearchControls,
     isImageMode,
     resetThinkingIndicator,
     removeMessage,
@@ -3114,6 +3119,7 @@ export default function ChatPageShell({
           agentId: marketInstanceId ? "market-agent" : null,
           marketAgentContext: autoMarketContext,
           userMessageMetadata: userMessage.metadata as any,
+          searchControls: activeSearchControls,
         }
       ).catch((err: unknown) => {
         console.error("Failed to stream initial message:", err);
