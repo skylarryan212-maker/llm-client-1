@@ -1,53 +1,9 @@
 "use server";
 
 import { NextRequest, NextResponse } from "next/server";
-import type { Response as OpenAIResponse } from "openai/resources/responses/responses";
 import { supabaseServer } from "@/lib/supabase/server";
 import { requireUserIdServer } from "@/lib/supabase/user";
-import { createOpenAIClient, getOpenAIRequestId } from "@/lib/openai/client";
-import { computeHumanScore, rephrasyDetect, rephrasyHumanize } from "@/lib/rephrasy";
-
-const MAX_ITERATIONS = 6;
-const TARGET_HUMAN_SCORE = 75;
-const MAX_REPHRASY_RETRIES = 0; // avoid multiplying billable calls when upstream is flaky
-const EDIT_PROMPT =
-  "You are polishing a draft that was already humanized. Fix only obvious errors, clarity issues, and awkward phrasing. Keep meaning, citations, and length roughly the same. Do not add new ideas.";
-
-const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
-async function runLightEdit(text: string): Promise<{ text: string; requestId?: string }> {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) {
-    throw new Error("Missing OPENAI_API_KEY");
-  }
-
-  const client = createOpenAIClient({ apiKey });
-  const { data: response, response: raw } = await client.responses
-    .create({
-      model: "gpt-5-nano",
-      instructions: EDIT_PROMPT,
-      input: [{ role: "user", content: text }],
-      max_output_tokens: 1200,
-      store: false,
-    })
-    .withResponse();
-
-  const requestId = getOpenAIRequestId(response, raw);
-
-  const rawOutput = (response as OpenAIResponse).output_text;
-  const outputArray = Array.isArray(rawOutput)
-    ? rawOutput
-    : typeof rawOutput === "string"
-      ? [rawOutput]
-      : [];
-  const outputText = outputArray.join("").trim();
-
-  if (outputText.length === 0) {
-    throw new Error("Model returned no text");
-  }
-
-  return { text: outputText, requestId };
-}
+import { rephrasyHumanize } from "@/lib/rephrasy";
 
 export async function POST(request: NextRequest) {
   try {
@@ -63,6 +19,7 @@ export async function POST(request: NextRequest) {
     const language = body.language?.trim() || "auto";
     const taskId = body.taskId?.trim();
     const runId = `hw-humanize-${taskId || "unknown"}-${Date.now()}`;
+
     if (!text) {
       return NextResponse.json({ error: "Text is required" }, { status: 400 });
     }
@@ -89,201 +46,57 @@ export async function POST(request: NextRequest) {
     }
 
     const conversationId = convo?.[0]?.id ?? null;
-    let currentDraft = text;
-    let finalDraft = text;
-    let finalHumanScore: number | null = null;
-    let iterationsRun = 0;
-    let lastError: string | null = null;
-    const audit: Array<{
-      iteration: number;
-      humanized: string;
-      edited: string;
-      flesch: number | null;
-      detectorOverall: number | null;
-      humanScore: number | null;
-    }> = [];
 
-    for (let i = 0; i < MAX_ITERATIONS; i++) {
-      iterationsRun = i + 1;
-
-      let humanizedOutput: string = currentDraft;
-      let humanizedFlesch: number | null = null;
-      try {
-        let lastHumanizeError: any = null;
-        for (let attempt = 0; attempt <= MAX_REPHRASY_RETRIES; attempt++) {
-          try {
-            const humanized = await rephrasyHumanize({
-              text: currentDraft,
-              model,
-              language: language === "auto" ? undefined : language,
-              costs: false, // disable cost reporting/billing to avoid extra charges on failures
-            });
-            humanizedOutput = humanized.output;
-            humanizedFlesch = humanized.flesch;
-            lastHumanizeError = null;
-            break;
-          } catch (err: any) {
-            lastHumanizeError = err;
-            if (attempt < MAX_REPHRASY_RETRIES) {
-              await delay(200 + attempt * 150);
-            }
-            console.warn("[human-writing][humanize][retry][humanize]", {
-              runId,
-              taskId,
-              attempt,
-              status: err?.status,
-              message: err?.message,
-              snippet: err?.bodySnippet,
-              textLength: currentDraft.length,
-              model,
-              language,
-            });
-          }
-        }
-        if (lastHumanizeError) throw lastHumanizeError;
-      } catch (err: any) {
-        lastError = err?.message || "humanize_failed";
-        console.error("[human-writing][humanize][fail][humanize]", {
-          runId,
-          taskId,
-          status: err?.status,
-          message: err?.message,
-          snippet: err?.bodySnippet,
-          textLength: currentDraft.length,
-          model,
-          language,
-        });
-        break;
-      }
-
-      let editedDraft: string = humanizedOutput;
-      try {
-        const edited = await runLightEdit(humanizedOutput);
-        editedDraft = edited.text;
-      } catch (err: any) {
-        lastError = err?.message || "edit_failed";
-        break;
-      }
-
-      let detectorOverall: number | null = null;
-      try {
-        let lastDetectError: any = null;
-        for (let attempt = 0; attempt <= MAX_REPHRASY_RETRIES; attempt++) {
-          try {
-            const detector = await rephrasyDetect({
-              text: editedDraft,
-              mode: "depth",
-            });
-            detectorOverall = detector.rawOverall;
-            lastDetectError = null;
-            break;
-          } catch (err: any) {
-            lastDetectError = err;
-            if (attempt < MAX_REPHRASY_RETRIES) {
-              await delay(200 + attempt * 150);
-            }
-            console.warn("[human-writing][humanize][retry][detect]", {
-              runId,
-              taskId,
-              attempt,
-              status: err?.status,
-              message: err?.message,
-              snippet: err?.bodySnippet,
-              textLength: editedDraft.length,
-              model,
-              language,
-            });
-          }
-        }
-        if (lastDetectError) throw lastDetectError;
-      } catch (err: any) {
-        lastError = err?.message || "detect_failed";
-        console.error("[human-writing][humanize][fail][detect]", {
-          runId,
-          taskId,
-          status: err?.status,
-          message: err?.message,
-          snippet: err?.bodySnippet,
-          textLength: editedDraft.length,
-          model,
-          language,
-        });
-        break;
-      }
-
-      const humanScore = computeHumanScore(detectorOverall, "depth");
-
-      audit.push({
-        iteration: iterationsRun,
-        humanized: humanizedOutput,
-        edited: editedDraft,
-        flesch: humanizedFlesch,
-        detectorOverall,
-        humanScore,
+    try {
+      const humanized = await rephrasyHumanize({
+        text,
+        model,
+        language: language === "auto" ? undefined : language,
+        costs: false,
       });
 
-      finalDraft = editedDraft;
-      finalHumanScore = humanScore;
-
-      if (typeof humanScore === "number" && humanScore >= TARGET_HUMAN_SCORE) {
-        break;
+      if (conversationId) {
+        const { error: insertError } = await supabase.from("messages").insert([
+          {
+            user_id: userId,
+            conversation_id: conversationId,
+            role: "assistant",
+            content: humanized.output,
+            metadata: {
+              agent: "human-writing",
+              kind: "humanized",
+              model,
+              language,
+              flesch: humanized.flesch,
+            },
+          },
+        ]);
+        if (insertError) {
+          console.error("[human-writing][humanize] insert message error", insertError);
+        }
       }
 
-      currentDraft = editedDraft;
-    }
-
-    if (lastError) {
-      console.error("[human-writing][humanize][abort]", {
+      return NextResponse.json({
+        output: humanized.output,
+        flesch: humanized.flesch,
+        raw: humanized.raw,
+      });
+    } catch (err: any) {
+      console.error("[human-writing][humanize][humanize_call_failed]", {
         runId,
         taskId,
-        iterationsRun,
-        lastError,
+        status: err?.status,
+        message: err?.message,
+        snippet: err?.bodySnippet,
+        textLength: text.length,
+        model,
+        language,
       });
       return NextResponse.json(
-        {
-          error: lastError,
-          humanScore: finalHumanScore,
-          iterations: iterationsRun,
-          audit,
-        },
-        { status: 502 }
+        { error: err?.message || "humanize_failed" },
+        { status: err?.status || 502 }
       );
     }
-
-    if (conversationId) {
-      const { error: insertError } = await supabase.from("messages").insert([
-        {
-          user_id: userId,
-          conversation_id: conversationId,
-          role: "assistant",
-          content: finalDraft,
-          metadata: {
-            agent: "human-writing",
-            kind: "humanized",
-            human_score: finalHumanScore,
-            iterations: iterationsRun,
-            audit: audit.map((item) => ({
-              iteration: item.iteration,
-              humanScore: item.humanScore,
-              detectorOverall: item.detectorOverall,
-              flesch: item.flesch,
-            })),
-            model,
-            language,
-          },
-        },
-      ]);
-      if (insertError) {
-        console.error("[human-writing][humanize] insert message error", insertError);
-      }
-    }
-
-    return NextResponse.json({
-      output: finalDraft,
-      humanScore: finalHumanScore,
-      iterations: iterationsRun,
-      audit,
-    });
   } catch (error: any) {
     console.error("[human-writing][humanize] error:", error);
     return NextResponse.json(
