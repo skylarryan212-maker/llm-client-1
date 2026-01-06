@@ -1,12 +1,12 @@
 // app/page.tsx
 "use client";
 
-import { useMemo } from "react";
+import { Suspense, useMemo } from "react";
 import { useSearchParams } from "next/navigation";
 import ChatPageShell from "@/components/chat/chat-page-shell";
 import { LoginOverlay } from "@/components/auth/login-overlay";
 
-export default function HomePage() {
+function HomeShell() {
   const searchParams = useSearchParams();
   const searchParamsObject = useMemo(() => {
     const entries = Array.from(searchParams.entries());
@@ -20,11 +20,10 @@ export default function HomePage() {
       return acc;
     }, {});
   }, [searchParams]);
-  const showLogin =
-    searchParams.get("login") === "1" || searchParams.get("auth") === "1";
+  const showLogin = searchParams.get("login") === "1" || searchParams.get("auth") === "1";
 
   return (
-    <main className="h-[100dvh] max-h-[100dvh] w-full min-w-0 overflow-hidden bg-background">
+    <>
       <ChatPageShell
         conversations={[]}
         activeConversationId={null}
@@ -32,6 +31,16 @@ export default function HomePage() {
         searchParams={searchParamsObject}
       />
       {showLogin ? <LoginOverlay /> : null}
+    </>
+  );
+}
+
+export default function HomePage() {
+  return (
+    <main className="h-[100dvh] max-h-[100dvh] w-full min-w-0 overflow-hidden bg-background">
+      <Suspense fallback={null}>
+        <HomeShell />
+      </Suspense>
     </main>
   );
 }
