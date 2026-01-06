@@ -192,48 +192,91 @@ function LoginPageContent() {
   ) : null;
 
   return (
-    <div className="min-h-screen bg-background text-foreground flex items-center justify-center p-6">
-      <div className="w-full max-w-md space-y-6 border border-border rounded-xl p-8 shadow-sm bg-card">
-        <div>
-          <h1 className="text-2xl font-semibold">Sign in</h1>
-          <p className="text-sm text-muted-foreground mt-2">
-            Continue with your Google account to access your projects and chats.
-          </p>
+    <div className="min-h-screen bg-[#030303] text-white flex items-center justify-center p-4">
+      <div className="w-full max-w-md rounded-[32px] border border-white/10 bg-gradient-to-b from-white/5 to-black/90 p-6 shadow-[0_25px_80px_rgba(0,0,0,0.8)] backdrop-blur-xl">
+        <div className="flex items-start justify-between">
+          <div>
+            <h1 className="text-3xl font-semibold">Log in or sign up</h1>
+            <p className="mt-1 text-sm text-white/60">
+              You'll get smarter responses and can upload files, images, and more.
+            </p>
+          </div>
+          <button
+            type="button"
+            className="rounded-full border border-white/20 px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-white/60 hover:bg-white/10 transition"
+            onClick={() => router.push("/")}
+          >
+            Close
+          </button>
         </div>
-        <Button
-          onClick={handleGoogleLogin}
-          disabled={googleLoading}
-          className="w-full justify-center"
-        >
-          {googleLoading ? "Redirecting..." : "Continue with Google"}
-        </Button>
+
+        <div className="mt-6 space-y-3">
+          <Button
+            variant="ghost"
+            className="w-full justify-start rounded-full border border-white/20 bg-white/5 px-5 py-3 text-base font-medium text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.1)] transition hover:bg-white/10"
+            onClick={handleGoogleLogin}
+            disabled={googleLoading}
+          >
+            {googleLoading ? "Redirecting..." : "Continue with Google"}
+          </Button>
+          <Button
+            variant="ghost"
+            className="w-full justify-start rounded-full border border-white/10 bg-transparent px-5 py-3 text-base font-medium text-white/70"
+            disabled
+          >
+            Continue with Apple
+          </Button>
+          <Button
+            variant="ghost"
+            className="w-full justify-start rounded-full border border-white/10 bg-transparent px-5 py-3 text-base font-medium text-white/70"
+            disabled
+          >
+            Continue with Microsoft
+          </Button>
+          <Button
+            variant="ghost"
+            className="w-full justify-start rounded-full border border-white/10 bg-transparent px-5 py-3 text-base font-medium text-white/70"
+            disabled
+          >
+            Continue with phone
+          </Button>
+        </div>
+
         {googleError ? (
-          <p className="text-sm text-destructive" role="alert">
+          <p className="mt-4 text-sm text-destructive" role="alert">
             {googleError}
           </p>
         ) : null}
-        <div className="space-y-4 rounded-xl border border-border bg-muted/20 p-5">
-          <div className="space-y-1">
-            <h2 className="text-lg font-semibold">Token access</h2>
-            <p className="text-xs text-muted-foreground">
-              Paste a token to log in instantly, or leave the field blank to generate a new one you can copy safely.
-            </p>
-          </div>
+
+        <div className="mt-6 flex items-center gap-3 text-[11px] uppercase tracking-[0.4em] text-white/50">
+          <span className="flex-1 h-px bg-white/20" />
+          <span>or</span>
+          <span className="flex-1 h-px bg-white/20" />
+        </div>
+
+        <div className="mt-5 space-y-3 rounded-2xl border border-white/10 bg-black/20 p-5">
           <form onSubmit={handleTokenAction} className="space-y-3">
             <div className="space-y-1">
-              <Label htmlFor="token-input">Token</Label>
+              <Label htmlFor="token-input" className="text-white/70">
+                Token
+              </Label>
               <Input
                 id="token-input"
+                className="bg-white/5 text-white placeholder:text-white/40 focus:bg-white/10 focus:border-white/30"
                 value={tokenInput}
                 onChange={(event) => setTokenInput(event.target.value)}
                 placeholder="Enter saved token (optional)"
                 disabled={tokenActionLoading}
               />
             </div>
-            <p className="text-[11px] text-muted-foreground">
-              Tokens look like <code className="font-mono">token-&lt;short-id&gt;</code> and act as both your email and password.
+            <p className="text-[11px] text-white/50">
+              Your token is a short hex string that acts as both email and password.
             </p>
-            <Button type="submit" className="w-full justify-center" disabled={tokenActionLoading}>
+            <Button
+              type="submit"
+              className="w-full justify-center rounded-full bg-white text-black px-5 py-3 font-medium shadow-[0_10px_30px_rgba(0,0,0,0.5)]"
+              disabled={tokenActionLoading}
+            >
               {tokenActionLoading ? "Processing..." : "Use or create a token"}
             </Button>
             {tokenActionError && (
