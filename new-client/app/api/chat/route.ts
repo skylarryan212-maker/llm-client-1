@@ -2575,8 +2575,8 @@ export async function POST(request: NextRequest) {
           currentDate: currentDateForSearch,
           location: {
             city: effectiveLocation?.city,
-            countryCode: countryCode ? countryCode.toLowerCase() : undefined,
-            languageCode: primaryLang || undefined,
+        countryCode: countryCode ? countryCode.toLowerCase() : undefined,
+          languageCode: primaryLang || undefined,
           },
           preferredSourceUrls,
           searchControls,
@@ -3844,6 +3844,11 @@ export async function POST(request: NextRequest) {
             typeof customWebSearchInput.searchControls?.sourceLimit === "number"
               ? customWebSearchInput.searchControls.sourceLimit
               : undefined;
+          console.log("[chatApi] search controls received", {
+            sourceLimit: customWebSearchInput.searchControls?.sourceLimit ?? "auto",
+            excerptMode: customWebSearchInput.searchControls?.excerptMode ?? "auto",
+            numericSourceLimit,
+          });
           try {
             customWebSearchResult = await runWebSearchPipeline(customWebSearchInput.prompt, {
               recentMessages: customWebSearchInput.recentMessages,

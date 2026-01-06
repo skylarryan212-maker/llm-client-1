@@ -2023,6 +2023,7 @@ export default function ChatPageShell({
   const handleSearchControlsChange = useCallback(
     (next: SearchControls) => {
       setSearchControlsByChat((prev) => ({ ...prev, [conversationKey]: next }));
+      console.log("[chatDebug] search controls updated", { conversationKey, next });
     },
     [conversationKey]
   );

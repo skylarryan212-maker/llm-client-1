@@ -420,6 +420,10 @@ export async function runWebSearchPipeline(
     reason: queryWriterResult?.reason,
     queries,
     resultsPerQuery,
+    requestedResultCount,
+    resolvedExcerptMode,
+    explicitEvidenceLimit,
+    targetUsablePages,
   });
   if (!shouldUseWebSearch && canSkip) {
     const reason = queryWriterResult?.reason ?? "Search not needed";
