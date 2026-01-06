@@ -69,9 +69,9 @@ type SourceCard = {
 
 const TARGET_USABLE_PAGES = 10;
 const MAX_SERP_RESULTS = 30;
-const MAX_RESULTS_PER_DOMAIN = 2;
 const DEFAULT_QUERY_COUNT = 1;
 const FETCH_CONCURRENCY = 12;
+const SERP_RESULTS_UNIT = 10;
 const PAGE_TIMEOUT_MS = 3_000;
 const MAX_PAGE_CHARS = 4_000;
 const EXCERPT_WORDS = 400;
@@ -269,18 +269,13 @@ async function fetchSourceCard(
 
 function selectSerpResults(
   results: BrightDataOrganicResult[],
-  maxItems: number,
-  maxPerDomain: number
+  maxItems: number
 ): BrightDataOrganicResult[] {
-  const domainCounts = new Map<string, number>();
   const output: BrightDataOrganicResult[] = [];
   for (const item of results) {
     if (!item?.url || typeof item.url !== "string") continue;
     const domain = item.domain ?? extractDomainFromUrl(item.url) ?? "";
     if (!domain) continue;
-    const count = domainCounts.get(domain) ?? 0;
-    if (count >= maxPerDomain) continue;
-    domainCounts.set(domain, count + 1);
     output.push({ ...item, domain });
     if (output.length >= maxItems) break;
   }
@@ -315,20 +310,12 @@ async function collectSources(
   return collected;
 }
 
-function pickEvidence(cards: SourceCard[], maxPerDomain: number): SourceCard[] {
+function selectEvidenceSources(cards: SourceCard[], serpCount: number): SourceCard[] {
   const okCards = cards.filter((card) => card.status === "ok" && card.text);
+  if (!okCards.length) return [];
   const sorted = okCards.sort((a, b) => b.relevanceScore - a.relevanceScore);
-  const domainCounts = new Map<string, number>();
-  const evidence: SourceCard[] = [];
-  for (const card of sorted) {
-    const domain = card.domain ?? "";
-    const count = domainCounts.get(domain) ?? 0;
-    if (count >= maxPerDomain) continue;
-    domainCounts.set(domain, count + 1);
-    evidence.push(card);
-    if (evidence.length >= 5) break;
-  }
-  return evidence.slice(0, Math.max(3, evidence.length));
+  const limit = Math.max(1, Math.min(sorted.length, Math.floor(serpCount / 2) || 1));
+  return sorted.slice(0, limit);
 }
 
 export async function runWebSearchPipeline(
@@ -389,14 +376,18 @@ export async function runWebSearchPipeline(
     queries.push(fallbackQuery);
   }
 
+  const requestedResultCount = queryWriterResult?.resultCount === 20 ? 20 : 10;
+  const resultsPerQuery = queries.length > 1 ? 10 : requestedResultCount;
+
   console.log("[fast-web-pipeline] query writer result", {
     shouldUseWebSearch,
     reason: queryWriterResult?.reason,
     queries,
+    resultsPerQuery,
   });
   if (!shouldUseWebSearch && canSkip) {
     const reason = queryWriterResult?.reason ?? "Search not needed";
-    console.log("[fast-web-pipeline] skipping search", { reason, queries });
+    console.log("[fast-web-pipeline] skipping search", { reason, queries, resultsPerQuery });
     return {
       queries,
       results: [],
@@ -427,32 +418,36 @@ export async function runWebSearchPipeline(
   for (const query of queries) {
     const serpResponse = await fetchGoogleOrganicSerp({
       keyword: query,
-      depth: 30,
+      depth: resultsPerQuery,
       gl: options.countryCode,
       hl: options.languageCode,
     });
     serpRequests += 1;
     const count = Array.isArray(serpResponse.results) ? serpResponse.results.length : 0;
-    console.log("[fast-web-pipeline] fetched SERP", { query, serpRequests, results: count });
+    console.log("[fast-web-pipeline] fetched SERP", {
+      query,
+      serpRequests,
+      results: count,
+      requested: resultsPerQuery,
+    });
     if (Array.isArray(serpResponse.results)) {
       allSerpResults.push(...serpResponse.results);
     }
   }
-  const serpEstimatedUsd = serpRequests * BRIGHTDATA_SERP_COST_USD;
+  const resultMultiplier = resultsPerQuery / SERP_RESULTS_UNIT;
+  const serpEstimatedUsd = serpRequests * resultMultiplier * BRIGHTDATA_SERP_COST_USD;
 
-  const serpResults = selectSerpResults(
-    allSerpResults,
-    MAX_SERP_RESULTS,
-    MAX_RESULTS_PER_DOMAIN
-  );
+  const maxSerpItems = Math.min(MAX_SERP_RESULTS, resultsPerQuery * queries.length);
+  const serpResults = selectSerpResults(allSerpResults, maxSerpItems);
   console.log("[fast-web-pipeline] SERP selection", {
     candidateResults: allSerpResults.length,
     selected: serpResults.length,
     serpRequests,
+    resultsPerQuery,
   });
 
   if (!serpResults.length) {
-    console.log("[fast-web-pipeline] no SERP results", { queries });
+    console.log("[fast-web-pipeline] no SERP results", { queries, resultsPerQuery });
     return {
       queries,
       results: [],
@@ -478,7 +473,7 @@ export async function runWebSearchPipeline(
   const queryKeywords = extractKeywords(queries.join(" "));
   const collected = await collectSources(serpResults, queryKeywords, options.onProgress);
   const usable = collected.filter((card) => card.status === "ok" && card.text).slice(0, TARGET_USABLE_PAGES);
-  const evidenceCards = pickEvidence(usable, MAX_RESULTS_PER_DOMAIN);
+  const evidenceCards = selectEvidenceSources(usable, serpResults.length);
 
   const chunks: WebPipelineChunk[] = [];
   for (const card of evidenceCards) {
@@ -510,6 +505,7 @@ export async function runWebSearchPipeline(
     totalSERPResults: serpResults.length,
     chunks: chunks.length,
     serpRequests,
+    resultsPerQuery,
     serpEstimatedUsd,
   });
 
