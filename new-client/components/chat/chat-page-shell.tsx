@@ -400,6 +400,7 @@ export default function ChatPageShell({
   );
   const prevActiveConversationIdRef = useRef<string | null>(activeConversationId);
   const conversationKey = selectedChatId ?? "__new__";
+  const prevConversationKeyRef = useRef(conversationKey);
   const [agentSelectionByChat, setAgentSelectionByChat] = useState<Record<string, string | null>>({});
   const [marketInstanceByChat, setMarketInstanceByChat] = useState<Record<string, string | null>>({});
   const [composerPrefill, setComposerPrefill] = useState<string | null>(null);
@@ -418,6 +419,29 @@ export default function ChatPageShell({
   } | null>(null);
   const autoSendHandledRef = useRef(false);
   const initialConversationsHydratedRef = useRef(initialConversations.length === 0);
+
+  // Carry pending search controls from a new chat (__new__) onto the freshly-created conversation id.
+  useEffect(() => {
+    const prevKey = prevConversationKeyRef.current;
+    if (prevKey === conversationKey) return;
+    if (prevKey === "__new__" && conversationKey !== "__new__") {
+      setSearchControlsByChat((prev) => {
+        const pending = prev[prevKey];
+        if (!pending) {
+          return prev;
+        }
+        if (prev[conversationKey]) {
+          const { [prevKey]: _removed, ...rest } = prev;
+          void _removed;
+          return rest;
+        }
+        const { [prevKey]: _removed, ...rest } = prev;
+        void _removed;
+        return { ...rest, [conversationKey]: pending };
+      });
+    }
+    prevConversationKeyRef.current = conversationKey;
+  }, [conversationKey]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -2286,6 +2310,7 @@ export default function ChatPageShell({
     }
     
       // Stream the model response and insert the user message on server
+      console.log("[chatDebug] submitting with search controls", searchControlsPayload);
       await streamModelResponse(
         selectedChatId,
         selectedProjectId || undefined,
