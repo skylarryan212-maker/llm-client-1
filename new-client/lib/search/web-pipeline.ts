@@ -1526,13 +1526,6 @@ ${structuredText}`.trim();
               });
             }
           }
-          const structuredText = extractStructuredDataText(html);
-          if (structuredText) {
-            text = `${text}
-
-Structured data:
-${structuredText}`.trim();
-          }
           recordDomainTiming(
             result.domain ?? extractDomainFromUrl(result.url),
             Math.round(performance.now() - fetchStart),
