@@ -9,8 +9,11 @@ import { computeHumanScore, rephrasyDetect, rephrasyHumanize } from "@/lib/rephr
 
 const MAX_ITERATIONS = 6;
 const TARGET_HUMAN_SCORE = 75;
+const MAX_REPHRASY_RETRIES = 2;
 const EDIT_PROMPT =
   "You are polishing a draft that was already humanized. Fix only obvious errors, clarity issues, and awkward phrasing. Keep meaning, citations, and length roughly the same. Do not add new ideas.";
+
+const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function runLightEdit(text: string): Promise<{ text: string; requestId?: string }> {
   const apiKey = process.env.OPENAI_API_KEY;
@@ -105,14 +108,27 @@ export async function POST(request: NextRequest) {
       let humanizedOutput: string = currentDraft;
       let humanizedFlesch: number | null = null;
       try {
-        const humanized = await rephrasyHumanize({
-          text: currentDraft,
-          model,
-          language: language === "auto" ? undefined : language,
-          costs: true,
-        });
-        humanizedOutput = humanized.output;
-        humanizedFlesch = humanized.flesch;
+        let lastHumanizeError: any = null;
+        for (let attempt = 0; attempt <= MAX_REPHRASY_RETRIES; attempt++) {
+          try {
+            const humanized = await rephrasyHumanize({
+              text: currentDraft,
+              model,
+              language: language === "auto" ? undefined : language,
+              costs: true,
+            });
+            humanizedOutput = humanized.output;
+            humanizedFlesch = humanized.flesch;
+            lastHumanizeError = null;
+            break;
+          } catch (err: any) {
+            lastHumanizeError = err;
+            if (attempt < MAX_REPHRASY_RETRIES) {
+              await delay(200 + attempt * 150);
+            }
+          }
+        }
+        if (lastHumanizeError) throw lastHumanizeError;
       } catch (err: any) {
         lastError = err?.message || "humanize_failed";
         break;
@@ -129,11 +145,24 @@ export async function POST(request: NextRequest) {
 
       let detectorOverall: number | null = null;
       try {
-        const detector = await rephrasyDetect({
-          text: editedDraft,
-          mode: "depth",
-        });
-        detectorOverall = detector.rawOverall;
+        let lastDetectError: any = null;
+        for (let attempt = 0; attempt <= MAX_REPHRASY_RETRIES; attempt++) {
+          try {
+            const detector = await rephrasyDetect({
+              text: editedDraft,
+              mode: "depth",
+            });
+            detectorOverall = detector.rawOverall;
+            lastDetectError = null;
+            break;
+          } catch (err: any) {
+            lastDetectError = err;
+            if (attempt < MAX_REPHRASY_RETRIES) {
+              await delay(200 + attempt * 150);
+            }
+          }
+        }
+        if (lastDetectError) throw lastDetectError;
       } catch (err: any) {
         lastError = err?.message || "detect_failed";
         break;
