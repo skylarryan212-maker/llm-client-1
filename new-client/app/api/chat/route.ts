@@ -1227,6 +1227,7 @@ interface ChatRequestBody {
   clientNow?: number;
   agentId?: string | null;
   marketAgentContext?: { instanceId?: string | null; eventId?: string | null } | null;
+  searchControls?: { sourceLimit?: number; excerptMode?: "snippets" | "balanced" | "rich" };
 }
 
 type SearchStatusEvent =
@@ -2105,20 +2106,21 @@ export async function POST(request: NextRequest) {
         generationMode = "chat",
         imageModel,
 	      modelFamilyOverride,
-	      speedModeOverride,
-	      reasoningEffortOverride,
+        speedModeOverride,
+        reasoningEffortOverride,
         speedModeEnabled = false,
-	      skipUserInsert,
-	      forceWebSearch = false,
-	      attachments,
-	      location,
-	      timezone,
-	      clientNow,
-	      simpleContextMode = false,
-	      simpleContextExternalChatIds,
-	      advancedContextTopicIds,
+        skipUserInsert,
+        forceWebSearch = false,
+        attachments,
+        location,
+        timezone,
+        clientNow,
+        simpleContextMode = false,
+        simpleContextExternalChatIds,
+        advancedContextTopicIds,
         agentId = null,
         marketAgentContext = null,
+        searchControls,
     } = body;
     const headerGeo = getApproximateLocationFromHeaders(request);
     const effectiveLocation = location ?? headerGeo.location ?? null;
@@ -2133,6 +2135,7 @@ export async function POST(request: NextRequest) {
           currentDate: string;
           location?: { city?: string; countryCode?: string; languageCode?: string };
           preferredSourceUrls?: string[];
+          searchControls?: { sourceLimit?: number; excerptMode?: "snippets" | "balanced" | "rich" };
         }
       | null = null;
     const nowForSearch = typeof clientNow === "string" || typeof clientNow === "number"
@@ -2570,6 +2573,7 @@ export async function POST(request: NextRequest) {
             languageCode: primaryLang || undefined,
           },
           preferredSourceUrls,
+          searchControls,
         };
       }
 
@@ -3838,6 +3842,9 @@ export async function POST(request: NextRequest) {
               languageCode: customWebSearchInput.location?.languageCode ?? undefined,
               countryCode: customWebSearchInput.location?.countryCode ?? undefined,
               preferredSourceUrls: customWebSearchInput.preferredSourceUrls,
+              maxEvidenceSources: customWebSearchInput.searchControls?.sourceLimit,
+              targetUsablePages: customWebSearchInput.searchControls?.sourceLimit,
+              excerptMode: customWebSearchInput.searchControls?.excerptMode,
               allowSkip: !forceWebSearch,
               onSearchStart: ({ query }) => {
                 searchStarted = true;

@@ -8,7 +8,7 @@ import { Virtuoso, VirtuosoHandle } from "react-virtuoso";
 
 import { ChatSidebar } from "@/components/chat-sidebar";
 import { ChatMessage } from "@/components/chat-message";
-import { ChatComposer } from "@/components/chat-composer";
+import { ChatComposer, type SearchControls } from "@/components/chat-composer";
 import { Button } from "@/components/ui/button";
 import { ArrowDown, Check, ChevronDown, Image as ImageIcon, Menu, Plus, X } from "lucide-react";
 import { StatusBubble } from "@/components/chat/status-bubble";
@@ -109,6 +109,8 @@ type SearchStatusEvent =
   | { type: "code-interpreter-start" }
   | { type: "code-interpreter-complete" }
   | { type: "code-interpreter-error"; message?: string };
+
+const DEFAULT_SEARCH_CONTROLS: SearchControls = { sourceLimit: 10, excerptMode: "balanced" };
 
 type SearchIndicatorState =
   | {
@@ -405,6 +407,8 @@ export default function ChatPageShell({
   const [isMarketSidebarOpen, setIsMarketSidebarOpen] = useState(false);
   const selectedAgentId = agentSelectionByChat[conversationKey] ?? null;
   const currentMarketInstanceId = marketInstanceByChat[conversationKey] ?? null;
+  const [searchControlsByChat, setSearchControlsByChat] = useState<Record<string, SearchControls>>({});
+  const activeSearchControls = searchControlsByChat[conversationKey] ?? DEFAULT_SEARCH_CONTROLS;
   const searchPrefillHandledRef = useRef(false);
   const queuedMarketPrefillRef = useRef<{
     message: string;
@@ -2016,6 +2020,13 @@ export default function ChatPageShell({
     [conversationKey]
   );
 
+  const handleSearchControlsChange = useCallback(
+    (next: SearchControls) => {
+      setSearchControlsByChat((prev) => ({ ...prev, [conversationKey]: next }));
+    },
+    [conversationKey]
+  );
+
   const handleMarketAsk = useCallback(
     (event: MarketAgentFeedEvent) => {
       const prompt =
@@ -2031,7 +2042,11 @@ export default function ChatPageShell({
     [conversationKey]
   );
 
-  const handleSubmit = async (message: string, attachments?: UploadedFragment[]) => {
+  const handleSubmit = async (
+    message: string,
+    attachments?: UploadedFragment[],
+    searchControlsOverride?: SearchControls
+  ) => {
     console.log("[chatDebug] handleSubmit called with message:", message.substring(0, 50));
     const now = new Date().toISOString();
     const marketContext = marketContextRef.current || (selectedAgentId === "market-agent" && currentMarketInstanceId
@@ -2064,6 +2079,8 @@ export default function ChatPageShell({
             agent_chat: true,
           }
         : undefined;
+
+    const searchControls = searchControlsOverride ?? activeSearchControls;
 
     const userMessage: StoredMessage = {
       id: `user-${Date.now()}`,
@@ -2594,6 +2611,7 @@ export default function ChatPageShell({
             skipUserInsert,
             attachments,
             location: locationData,
+            searchControls,
             clientNow: Date.now(),
             timezone,
             simpleContextMode: useSimpleContext,
@@ -3857,6 +3875,8 @@ export default function ChatPageShell({
         onPrefillUsed={() => setComposerPrefill(null)}
         selectedAgentId={selectedAgentId}
         onAgentChange={handleAgentChange}
+        searchControls={activeSearchControls}
+        onSearchControlsChange={handleSearchControlsChange}
         shouldGrowDownward={shouldUseCenteredComposer}
         stackedActions
       />

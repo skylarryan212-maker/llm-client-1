@@ -13,7 +13,7 @@ import {
 } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { Mic, ArrowUp, ChevronDown, Bot } from "lucide-react";
+import { Mic, ArrowUp, ChevronDown, Bot, Search } from "lucide-react";
 import { AttachmentMenuButton } from "@/components/chat/attachment-menu";
 import { uploadFilesAndGetUrls } from "@/lib/uploads";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -31,7 +31,7 @@ type UploadedFragment = {
 };
 
 type ChatComposerProps = {
-  onSubmit?: (message: string, attachments?: UploadedFragment[]) => void;
+  onSubmit?: (message: string, attachments?: UploadedFragment[], searchControls?: SearchControls) => void;
   onSendMessage?: (message: string) => void;
   isStreaming?: boolean;
   onStop?: () => void;
@@ -48,9 +48,16 @@ type ChatComposerProps = {
   showAttachmentButton?: boolean;
   shouldGrowDownward?: boolean;
   stackedActions?: boolean;
+  searchControls?: SearchControls;
+  onSearchControlsChange?: (next: SearchControls) => void;
 };
 
 const RESTORE_FOCUS_KEY = "llm-client:composer:restore-focus";
+
+export type SearchControls = {
+  sourceLimit: number;
+  excerptMode: "snippets" | "balanced" | "rich";
+};
 
 function readRestoreFocusFlag(): boolean {
   if (typeof window === "undefined") return false;
@@ -79,9 +86,12 @@ export function ChatComposer({
   showAttachmentButton = true,
   shouldGrowDownward = false,
   stackedActions = false,
+  searchControls,
+  onSearchControlsChange,
 }: ChatComposerProps) {
   const [value, setValue] = useState("");
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [isSearchMenuOpen, setIsSearchMenuOpen] = useState(false);
   const [isAgentPickerOpen, setIsAgentPickerOpen] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -90,6 +100,15 @@ export function ChatComposer({
   const [attachments, setAttachments] = useState<UploadedFragment[]>([]);
   const [selectedAgentByConversation, setSelectedAgentByConversation] = useState<Record<string, string | null>>({});
   const trimmedValue = value.trim();
+  const defaultSearchControls: SearchControls = { sourceLimit: 10, excerptMode: "balanced" };
+  const [localSearchControls, setLocalSearchControls] = useState<SearchControls>(searchControls ?? defaultSearchControls);
+  const effectiveSearchControls = searchControls ?? localSearchControls;
+
+  useEffect(() => {
+    if (searchControls) {
+      setLocalSearchControls(searchControls);
+    }
+  }, [searchControls]);
 
   const NEW_CONVERSATION_KEY = "__new__";
   const conversationKey = conversationId ?? NEW_CONVERSATION_KEY;
@@ -498,7 +517,7 @@ export function ChatComposer({
       }));
     setAttachmentError(null);
 
-    if (onSubmit) onSubmit(trimmed, attachmentsToSend);
+    if (onSubmit) onSubmit(trimmed, attachmentsToSend, effectiveSearchControls);
     else if (onSendMessage) onSendMessage(trimmed);
     setValue("");
     setAttachments([]);
@@ -571,6 +590,12 @@ export function ChatComposer({
     e.preventDefault();
     setAttachmentError(null);
     void handleFilesSelected(files);
+  };
+
+  const applySearchControls = (next: SearchControls) => {
+    setLocalSearchControls(next);
+    onSearchControlsChange?.(next);
+    setIsSearchMenuOpen(false);
   };
 
   useEffect(() => {
@@ -716,27 +741,112 @@ export function ChatComposer({
               className="min-h-[40px] max-h-[200px] border-0 bg-transparent dark:bg-transparent px-0 py-2 text-base leading-5 resize-none focus-visible:ring-0 focus-visible:ring-offset-0 shadow-none rounded-none"
             />
             <div className="flex w-full items-center justify-between gap-2">
-              {showAttachmentButton ? (
-                <AttachmentMenuButton
-                  open={isMenuOpen}
-                  onOpenChange={setIsMenuOpen}
-                  onPickFiles={handleOpenFilePicker}
-                  onCreateImage={onCreateImage}
-                  selectedAgentId={selectedAgentId}
-                  onSelectAgent={(id) => {
-                    setSelectedAgentIdForConversation(id);
-                    setIsAgentPickerOpen(false);
-                    setIsMenuOpen(false);
-                  }}
-                  onClearAgent={() => {
-                    setSelectedAgentIdForConversation(null);
-                    setIsAgentPickerOpen(false);
-                    setIsMenuOpen(false);
-                  }}
-                />
-              ) : (
-                <div />
-              )}
+              <div className="flex items-center gap-1">
+                {showAttachmentButton ? (
+                  <AttachmentMenuButton
+                    open={isMenuOpen}
+                    onOpenChange={setIsMenuOpen}
+                    onPickFiles={handleOpenFilePicker}
+                    onCreateImage={onCreateImage}
+                    selectedAgentId={selectedAgentId}
+                    onSelectAgent={(id) => {
+                      setSelectedAgentIdForConversation(id);
+                      setIsAgentPickerOpen(false);
+                      setIsMenuOpen(false);
+                    }}
+                    onClearAgent={() => {
+                      setSelectedAgentIdForConversation(null);
+                      setIsAgentPickerOpen(false);
+                      setIsMenuOpen(false);
+                    }}
+                  />
+                ) : null}
+                <DropdownMenu open={isSearchMenuOpen} onOpenChange={setIsSearchMenuOpen}>
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      type="button"
+                      aria-label="Search options"
+                      className="flex h-10 w-10 items-center justify-center rounded-full transition hover:bg-accent"
+                    >
+                      <Search className="h-4 w-4" />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent
+                    align="start"
+                    side="bottom"
+                    sideOffset={8}
+                    className="w-72 rounded-xl border border-border bg-popover p-3 shadow-xl"
+                  >
+                    <div className="space-y-2">
+                      <div>
+                        <div className="text-xs font-semibold text-muted-foreground">Sources to search</div>
+                        <div className="mt-2 grid gap-1">
+                          {[
+                            { value: 5, label: "Lean (5)", description: "Faster, fewer sites" },
+                            { value: 10, label: "Standard (10)", description: "Balanced coverage" },
+                            { value: 20, label: "Deep (20)", description: "Broader sweep" },
+                          ].map((option) => {
+                            const isActive = effectiveSearchControls.sourceLimit === option.value;
+                            return (
+                              <button
+                                key={option.value}
+                                type="button"
+                                onClick={() =>
+                                  applySearchControls({ ...effectiveSearchControls, sourceLimit: option.value })
+                                }
+                                className={`flex w-full items-start justify-between rounded-lg border px-3 py-2 text-left text-sm transition ${
+                                  isActive
+                                    ? "border-primary bg-primary/10 text-primary"
+                                    : "border-border hover:bg-muted/70"
+                                }`}
+                              >
+                                <span className="flex flex-col">
+                                  <span className="font-medium">{option.label}</span>
+                                  <span className="text-xs text-muted-foreground">{option.description}</span>
+                                </span>
+                                <span className="text-xs text-muted-foreground">→</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      <div className="pt-2">
+                        <div className="text-xs font-semibold text-muted-foreground">Depth per source</div>
+                        <div className="mt-2 grid gap-1">
+                          {[
+                            { value: "snippets" as const, label: "Snippets", description: "Short pulls" },
+                            { value: "balanced" as const, label: "Balanced", description: "Moderate excerpts" },
+                            { value: "rich" as const, label: "Rich", description: "Longer excerpts" },
+                          ].map((option) => {
+                            const isActive = effectiveSearchControls.excerptMode === option.value;
+                            return (
+                              <button
+                                key={option.value}
+                                type="button"
+                                onClick={() =>
+                                  applySearchControls({ ...effectiveSearchControls, excerptMode: option.value })
+                                }
+                                className={`flex w-full items-start justify-between rounded-lg border px-3 py-2 text-left text-sm transition ${
+                                  isActive
+                                    ? "border-primary bg-primary/10 text-primary"
+                                    : "border-border hover:bg-muted/70"
+                                }`}
+                              >
+                                <span className="flex flex-col">
+                                  <span className="font-medium">{option.label}</span>
+                                  <span className="text-xs text-muted-foreground">{option.description}</span>
+                                </span>
+                                <span className="text-xs text-muted-foreground">→</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </div>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
               <div className="flex items-center gap-2">
                 <button
                   type="button"
@@ -821,28 +931,115 @@ export function ChatComposer({
           </>
         ) : (
           <>
-            {/* Left action button (plus) */}
-            {showAttachmentButton ? (
-              <div className="flex items-center">
-                <AttachmentMenuButton
-                  open={isMenuOpen}
-                  onOpenChange={setIsMenuOpen}
-                  onPickFiles={handleOpenFilePicker}
-                  onCreateImage={onCreateImage}
-                  selectedAgentId={selectedAgentId}
-                  onSelectAgent={(id) => {
-                    setSelectedAgentIdForConversation(id);
-                    setIsAgentPickerOpen(false);
-                    setIsMenuOpen(false);
-                  }}
-                  onClearAgent={() => {
-                    setSelectedAgentIdForConversation(null);
-                    setIsAgentPickerOpen(false);
-                    setIsMenuOpen(false);
-                  }}
-                />
-              </div>
-            ) : null}
+            {/* Left action buttons (plus + search controls) */}
+            <div className="flex items-center gap-1">
+              {showAttachmentButton ? (
+                <div className="flex items-center">
+                  <AttachmentMenuButton
+                    open={isMenuOpen}
+                    onOpenChange={setIsMenuOpen}
+                    onPickFiles={handleOpenFilePicker}
+                    onCreateImage={onCreateImage}
+                    selectedAgentId={selectedAgentId}
+                    onSelectAgent={(id) => {
+                      setSelectedAgentIdForConversation(id);
+                      setIsAgentPickerOpen(false);
+                      setIsMenuOpen(false);
+                    }}
+                    onClearAgent={() => {
+                      setSelectedAgentIdForConversation(null);
+                      setIsAgentPickerOpen(false);
+                      setIsMenuOpen(false);
+                    }}
+                  />
+                </div>
+              ) : null}
+              <DropdownMenu open={isSearchMenuOpen} onOpenChange={setIsSearchMenuOpen}>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    aria-label="Search options"
+                    className="flex h-10 w-10 items-center justify-center rounded-full transition hover:bg-accent"
+                  >
+                    <Search className="h-4 w-4" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent
+                  align="start"
+                  side="bottom"
+                  sideOffset={8}
+                  className="w-72 rounded-xl border border-border bg-popover p-3 shadow-xl"
+                >
+                  <div className="space-y-2">
+                    <div>
+                      <div className="text-xs font-semibold text-muted-foreground">Sources to search</div>
+                      <div className="mt-2 grid gap-1">
+                        {[
+                          { value: 5, label: "Lean (5)", description: "Faster, fewer sites" },
+                          { value: 10, label: "Standard (10)", description: "Balanced coverage" },
+                          { value: 20, label: "Deep (20)", description: "Broader sweep" },
+                        ].map((option) => {
+                          const isActive = effectiveSearchControls.sourceLimit === option.value;
+                          return (
+                            <button
+                              key={option.value}
+                              type="button"
+                              onClick={() =>
+                                applySearchControls({ ...effectiveSearchControls, sourceLimit: option.value })
+                              }
+                              className={`flex w-full items-start justify-between rounded-lg border px-3 py-2 text-left text-sm transition ${
+                                isActive
+                                  ? "border-primary bg-primary/10 text-primary"
+                                  : "border-border hover:bg-muted/70"
+                              }`}
+                            >
+                              <span className="flex flex-col">
+                                <span className="font-medium">{option.label}</span>
+                                <span className="text-xs text-muted-foreground">{option.description}</span>
+                              </span>
+                              <span className="text-xs text-muted-foreground">→</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    <div className="pt-2">
+                      <div className="text-xs font-semibold text-muted-foreground">Depth per source</div>
+                      <div className="mt-2 grid gap-1">
+                        {[
+                          { value: "snippets" as const, label: "Snippets", description: "Short pulls" },
+                          { value: "balanced" as const, label: "Balanced", description: "Moderate excerpts" },
+                          { value: "rich" as const, label: "Rich", description: "Longer excerpts" },
+                        ].map((option) => {
+                          const isActive = effectiveSearchControls.excerptMode === option.value;
+                          return (
+                            <button
+                              key={option.value}
+                              type="button"
+                              onClick={() =>
+                                applySearchControls({ ...effectiveSearchControls, excerptMode: option.value })
+                              }
+                              className={`flex w-full items-start justify-between rounded-lg border px-3 py-2 text-left text-sm transition ${
+                                isActive
+                                  ? "border-primary bg-primary/10 text-primary"
+                                  : "border-border hover:bg-muted/70"
+                              }`}
+                            >
+                              <span className="flex flex-col">
+                                <span className="font-medium">{option.label}</span>
+                                <span className="text-xs text-muted-foreground">{option.description}</span>
+                              </span>
+                              <span className="text-xs text-muted-foreground">→</span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
 
             {/* Textarea */}
             <Textarea

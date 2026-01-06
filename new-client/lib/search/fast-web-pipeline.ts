@@ -51,6 +51,11 @@ type PipelineOptions = {
   preferredSourceUrls?: string[];
   allowSkip?: boolean;
   queryCount?: number;
+  maxEvidenceSources?: number;
+  targetUsablePages?: number;
+  excerptMode?: "snippets" | "balanced" | "rich";
+  excerptWords?: number;
+  keywordWindowWords?: number;
   onSearchStart?: (event: { query: string; queries: string[] }) => void;
   onProgress?: (event: { type: "page_fetch_progress"; searched: number }) => void;
 };
@@ -67,15 +72,23 @@ type SourceCard = {
   relevanceScore: number;
 };
 
-const TARGET_USABLE_PAGES = 10;
+const DEFAULT_TARGET_USABLE_PAGES = 10;
 const MAX_SERP_RESULTS = 30;
 const DEFAULT_QUERY_COUNT = 1;
 const FETCH_CONCURRENCY = 12;
 const SERP_RESULTS_UNIT = 10;
 const PAGE_TIMEOUT_MS = 3_000;
 const MAX_PAGE_CHARS = 4_000;
-const EXCERPT_WORDS = 400;
-const KEYWORD_WINDOW_WORDS = 120;
+const DEFAULT_EXCERPT_WORDS = 400;
+const DEFAULT_KEYWORD_WINDOW_WORDS = 120;
+const EXCERPT_PRESETS: Record<
+  "snippets" | "balanced" | "rich",
+  { excerptWords: number; keywordWindowWords: number }
+> = {
+  snippets: { excerptWords: 220, keywordWindowWords: 80 },
+  balanced: { excerptWords: 400, keywordWindowWords: 120 },
+  rich: { excerptWords: 650, keywordWindowWords: 180 },
+};
 const BRIGHTDATA_SERP_COST_USD = 0.0015;
 const BRIGHTDATA_UNLOCKER_COST_USD = 0;
 
@@ -152,19 +165,19 @@ function truncateText(text: string, maxChars: number): string {
   return text.slice(0, maxChars);
 }
 
-function makeStartExcerpt(text: string): string {
+function makeStartExcerpt(text: string, excerptWords: number): string {
   const words = text.split(/\s+/).filter(Boolean);
-  return words.slice(0, EXCERPT_WORDS).join(" ");
+  return words.slice(0, excerptWords).join(" ");
 }
 
-function makeKeywordExcerpt(text: string, keywords: string[]): string {
+function makeKeywordExcerpt(text: string, keywords: string[], excerptWords: number, keywordWindowWords: number): string {
   if (!keywords.length) {
-    return makeStartExcerpt(text);
+    return makeStartExcerpt(text, excerptWords);
   }
   const words = text.split(/\s+/).filter(Boolean);
   if (!words.length) return "";
   const lowerWords = words.map((w) => w.toLowerCase());
-  const windowSize = Math.min(KEYWORD_WINDOW_WORDS, words.length);
+  const windowSize = Math.min(keywordWindowWords, words.length);
   let bestScore = -1;
   let bestStart = 0;
 
@@ -177,8 +190,8 @@ function makeKeywordExcerpt(text: string, keywords: string[]): string {
     }
   }
 
-  const start = Math.max(0, bestStart - Math.floor((EXCERPT_WORDS - windowSize) / 2));
-  return words.slice(start, start + EXCERPT_WORDS).join(" ");
+  const start = Math.max(0, bestStart - Math.floor((excerptWords - windowSize) / 2));
+  return words.slice(start, start + excerptWords).join(" ");
 }
 
 async function fetchWithTimeout(url: string, timeoutMs: number): Promise<Response> {
@@ -285,6 +298,7 @@ function selectSerpResults(
 async function collectSources(
   serpResults: BrightDataOrganicResult[],
   queryKeywords: string[],
+  targetUsablePages: number,
   onProgress?: PipelineOptions["onProgress"]
 ): Promise<SourceCard[]> {
   const collected: SourceCard[] = [];
@@ -292,7 +306,7 @@ async function collectSources(
   let cursor = 0;
   const workers = Array.from({ length: Math.min(FETCH_CONCURRENCY, serpResults.length) }, async () => {
     while (true) {
-      if (usableCount >= TARGET_USABLE_PAGES) return;
+      if (usableCount >= targetUsablePages) return;
       const current = cursor;
       cursor += 1;
       if (current >= serpResults.length) return;
@@ -310,11 +324,14 @@ async function collectSources(
   return collected;
 }
 
-function selectEvidenceSources(cards: SourceCard[], serpCount: number): SourceCard[] {
+function selectEvidenceSources(cards: SourceCard[], serpCount: number, explicitLimit?: number): SourceCard[] {
   const okCards = cards.filter((card) => card.status === "ok" && card.text);
   if (!okCards.length) return [];
   const sorted = okCards.sort((a, b) => b.relevanceScore - a.relevanceScore);
-  const limit = Math.max(1, Math.min(sorted.length, Math.floor(serpCount / 2) || 1));
+  const fallbackLimit = Math.max(1, Math.floor(serpCount / 2) || 1);
+  const limit = typeof explicitLimit === "number" && Number.isFinite(explicitLimit)
+    ? Math.max(1, Math.min(sorted.length, explicitLimit))
+    : Math.max(1, Math.min(sorted.length, fallbackLimit));
   return sorted.slice(0, limit);
 }
 
@@ -378,6 +395,15 @@ export async function runWebSearchPipeline(
 
   const requestedResultCount = queryWriterResult?.resultCount === 20 ? 20 : 10;
   const resultsPerQuery = queries.length > 1 ? 10 : requestedResultCount;
+  const excerptPreset = EXCERPT_PRESETS[options.excerptMode ?? "balanced"] ?? EXCERPT_PRESETS.balanced;
+  const excerptWords = options.excerptWords ?? excerptPreset.excerptWords ?? DEFAULT_EXCERPT_WORDS;
+  const keywordWindowWords =
+    options.keywordWindowWords ?? excerptPreset.keywordWindowWords ?? DEFAULT_KEYWORD_WINDOW_WORDS;
+  const explicitEvidenceLimit = options.maxEvidenceSources;
+  const targetUsablePages = Math.max(
+    1,
+    options.targetUsablePages ?? explicitEvidenceLimit ?? DEFAULT_TARGET_USABLE_PAGES
+  );
 
   console.log("[fast-web-pipeline] query writer result", {
     shouldUseWebSearch,
@@ -471,14 +497,14 @@ export async function runWebSearchPipeline(
   }
 
   const queryKeywords = extractKeywords(queries.join(" "));
-  const collected = await collectSources(serpResults, queryKeywords, options.onProgress);
-  const usable = collected.filter((card) => card.status === "ok" && card.text).slice(0, TARGET_USABLE_PAGES);
-  const evidenceCards = selectEvidenceSources(usable, serpResults.length);
+  const collected = await collectSources(serpResults, queryKeywords, targetUsablePages, options.onProgress);
+  const usable = collected.filter((card) => card.status === "ok" && card.text).slice(0, targetUsablePages);
+  const evidenceCards = selectEvidenceSources(usable, serpResults.length, explicitEvidenceLimit);
 
   const chunks: WebPipelineChunk[] = [];
   for (const card of evidenceCards) {
-    const excerptA = makeStartExcerpt(card.text);
-    const excerptB = makeKeywordExcerpt(card.text, queryKeywords);
+    const excerptA = makeStartExcerpt(card.text, excerptWords);
+    const excerptB = makeKeywordExcerpt(card.text, queryKeywords, excerptWords, keywordWindowWords);
     if (excerptA) {
       chunks.push({
         text: excerptA,
