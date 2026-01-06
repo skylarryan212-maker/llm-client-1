@@ -59,6 +59,20 @@ export type SearchControls = {
   excerptMode: "snippets" | "balanced" | "rich" | "auto";
 };
 
+const SOURCE_OPTIONS: Array<{ value: SearchControls["sourceLimit"]; label: string; description: string }> = [
+  { value: "auto", label: "Auto", description: "Let the model decide" },
+  { value: 5, label: "Lean (5)", description: "Faster, fewer sites" },
+  { value: 10, label: "Standard (10)", description: "Balanced coverage" },
+  { value: 20, label: "Deep (20)", description: "Broader sweep" },
+];
+
+const EXCERPT_OPTIONS: Array<{ value: SearchControls["excerptMode"]; label: string; description: string }> = [
+  { value: "auto", label: "Auto", description: "Let the model decide" },
+  { value: "snippets", label: "Snippets", description: "Short pulls" },
+  { value: "balanced", label: "Balanced", description: "Moderate excerpts" },
+  { value: "rich", label: "Rich", description: "Longer excerpts" },
+];
+
 function readRestoreFocusFlag(): boolean {
   if (typeof window === "undefined") return false;
   try {
@@ -781,11 +795,7 @@ export function ChatComposer({
                       <div>
                         <div className="text-xs font-semibold text-muted-foreground">Sources to search</div>
                         <div className="mt-2 grid gap-1">
-                          {[
-                            { value: 5, label: "Lean (5)", description: "Faster, fewer sites" },
-                            { value: 10, label: "Standard (10)", description: "Balanced coverage" },
-                            { value: 20, label: "Deep (20)", description: "Broader sweep" },
-                          ].map((option) => {
+                          {SOURCE_OPTIONS.map((option) => {
                             const isActive = effectiveSearchControls.sourceLimit === option.value;
                             return (
                               <button
@@ -814,11 +824,7 @@ export function ChatComposer({
                       <div className="pt-2">
                         <div className="text-xs font-semibold text-muted-foreground">Depth per source</div>
                         <div className="mt-2 grid gap-1">
-                          {[
-                            { value: "snippets" as const, label: "Snippets", description: "Short pulls" },
-                            { value: "balanced" as const, label: "Balanced", description: "Moderate excerpts" },
-                            { value: "rich" as const, label: "Rich", description: "Longer excerpts" },
-                          ].map((option) => {
+                          {EXCERPT_OPTIONS.map((option) => {
                             const isActive = effectiveSearchControls.excerptMode === option.value;
                             return (
                               <button
@@ -974,12 +980,7 @@ export function ChatComposer({
                     <div>
                       <div className="text-xs font-semibold text-muted-foreground">Sources to search</div>
                       <div className="mt-2 grid gap-1">
-                        {[
-                          { value: "auto" as const, label: "Auto", description: "Let the model decide" },
-                          { value: 5, label: "Lean (5)", description: "Faster, fewer sites" },
-                          { value: 10, label: "Standard (10)", description: "Balanced coverage" },
-                          { value: 20, label: "Deep (20)", description: "Broader sweep" },
-                        ].map((option) => {
+                        {SOURCE_OPTIONS.map((option) => {
                           const isActive = effectiveSearchControls.sourceLimit === option.value;
                           return (
                             <button
@@ -1008,12 +1009,7 @@ export function ChatComposer({
                     <div className="pt-2">
                       <div className="text-xs font-semibold text-muted-foreground">Depth per source</div>
                       <div className="mt-2 grid gap-1">
-                        {[
-                          { value: "auto" as const, label: "Auto", description: "Let the model decide" },
-                          { value: "snippets" as const, label: "Snippets", description: "Short pulls" },
-                          { value: "balanced" as const, label: "Balanced", description: "Moderate excerpts" },
-                          { value: "rich" as const, label: "Rich", description: "Longer excerpts" },
-                        ].map((option) => {
+                        {EXCERPT_OPTIONS.map((option) => {
                           const isActive = effectiveSearchControls.excerptMode === option.value;
                           return (
                             <button
