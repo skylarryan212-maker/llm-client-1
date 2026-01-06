@@ -7,9 +7,8 @@ import { extractDomainFromUrl } from "@/lib/metadata";
 import { supabaseServer } from "@/lib/supabase/server";
 import { fetchGoogleOrganicSerp } from "@/lib/search/brightdata-serp";
 import {
-  assessTimeSensitivity,
   runEvidenceGate,
-  writeSearchQueries,
+  writeSearchQueriesAndTime,
 } from "@/lib/search/search-llm";
 import { calculateEmbeddingCost } from "@/lib/pricing";
 import { estimateTokens } from "@/lib/tokens/estimateTokens";
@@ -1296,7 +1295,7 @@ export async function runWebSearchPipeline(prompt: string, options: PipelineOpti
   });
 
   const queryStart = performance.now();
-  const queryResult = await writeSearchQueries({
+  const queryResult = await writeSearchQueriesAndTime({
     prompt,
     count: config.queryCount,
     currentDate: options.currentDate,
@@ -1307,8 +1306,12 @@ export async function runWebSearchPipeline(prompt: string, options: PipelineOpti
         ? { countryCode: config.countryCode }
         : undefined,
   });
-  logTiming("query_writer", queryStart, { queries: queryResult.queries.length });
+  logTiming("query_and_time", queryStart, {
+    queries: queryResult.queries.length,
+    timeSensitive: queryResult.timeSensitive,
+  });
   console.log("[web-pipeline] query writer output", queryResult.queries);
+  const timeDecision = { timeSensitive: queryResult.timeSensitive, reason: queryResult.timeReason };
   if (queryResult.useWebSearch === false && config.allowSkip !== false) {
     console.log("[web-pipeline] query writer skipped search", {
       reason: queryResult.reason ?? "Not needed",
@@ -1331,13 +1334,6 @@ export async function runWebSearchPipeline(prompt: string, options: PipelineOpti
       },
     } satisfies WebPipelineResult;
   }
-
-  const timeSensitivityStart = performance.now();
-  const timeDecision = await assessTimeSensitivity({
-    prompt,
-    currentDate: options.currentDate,
-  });
-  logTiming("time_sensitivity", timeSensitivityStart, { timeSensitive: timeDecision.timeSensitive });
   const allowPersistentReuse = !timeDecision.timeSensitive;
 
   const queryEmbeddings = await embedTexts(queryResult.queries);
