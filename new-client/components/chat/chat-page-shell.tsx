@@ -110,7 +110,7 @@ type SearchStatusEvent =
   | { type: "code-interpreter-complete" }
   | { type: "code-interpreter-error"; message?: string };
 
-const DEFAULT_SEARCH_CONTROLS: SearchControls = { sourceLimit: 10, excerptMode: "balanced" };
+const DEFAULT_SEARCH_CONTROLS: SearchControls = { sourceLimit: "auto", excerptMode: "auto" };
 
 type SearchIndicatorState =
   | {

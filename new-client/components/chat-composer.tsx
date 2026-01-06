@@ -55,8 +55,8 @@ type ChatComposerProps = {
 const RESTORE_FOCUS_KEY = "llm-client:composer:restore-focus";
 
 export type SearchControls = {
-  sourceLimit: number;
-  excerptMode: "snippets" | "balanced" | "rich";
+  sourceLimit: number | "auto";
+  excerptMode: "snippets" | "balanced" | "rich" | "auto";
 };
 
 function readRestoreFocusFlag(): boolean {
@@ -100,7 +100,7 @@ export function ChatComposer({
   const [attachments, setAttachments] = useState<UploadedFragment[]>([]);
   const [selectedAgentByConversation, setSelectedAgentByConversation] = useState<Record<string, string | null>>({});
   const trimmedValue = value.trim();
-  const defaultSearchControls: SearchControls = { sourceLimit: 10, excerptMode: "balanced" };
+  const defaultSearchControls: SearchControls = { sourceLimit: "auto", excerptMode: "auto" };
   const [localSearchControls, setLocalSearchControls] = useState<SearchControls>(searchControls ?? defaultSearchControls);
   const effectiveSearchControls = searchControls ?? localSearchControls;
 
@@ -975,6 +975,7 @@ export function ChatComposer({
                       <div className="text-xs font-semibold text-muted-foreground">Sources to search</div>
                       <div className="mt-2 grid gap-1">
                         {[
+                          { value: "auto" as const, label: "Auto", description: "Let the model decide" },
                           { value: 5, label: "Lean (5)", description: "Faster, fewer sites" },
                           { value: 10, label: "Standard (10)", description: "Balanced coverage" },
                           { value: 20, label: "Deep (20)", description: "Broader sweep" },
@@ -1008,6 +1009,7 @@ export function ChatComposer({
                       <div className="text-xs font-semibold text-muted-foreground">Depth per source</div>
                       <div className="mt-2 grid gap-1">
                         {[
+                          { value: "auto" as const, label: "Auto", description: "Let the model decide" },
                           { value: "snippets" as const, label: "Snippets", description: "Short pulls" },
                           { value: "balanced" as const, label: "Balanced", description: "Moderate excerpts" },
                           { value: "rich" as const, label: "Rich", description: "Longer excerpts" },

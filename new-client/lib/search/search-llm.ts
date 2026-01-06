@@ -8,6 +8,7 @@ export type QueryWriterResult = {
   reason?: string;
   targetDepth?: number;
   resultCount?: number;
+  excerptMode?: "snippets" | "balanced" | "rich";
 };
 
 export type QueryAndTimeResult = {
@@ -42,7 +43,7 @@ export async function writeSearchQueries(params: {
   const count = params.count ?? 2;
   const systemPrompt = `You are a search query writer for a web search pipeline.
 Return JSON only with this shape:
-{ "useWebSearch": boolean, "queries": string[], "reason": string, "targetDepth": number, "resultCount": number }
+{ "useWebSearch": boolean, "queries": string[], "reason": string, "targetDepth": number, "resultCount": number, "excerptMode": "snippets" | "balanced" | "rich" }
 Rules:
 - Decide whether web search will materially help answer the prompt.
 - If web search will NOT help (e.g., purely conversational, personal preference, creative writing, general advice, or internal app help without external facts), set "useWebSearch": false and return an empty queries array.
@@ -56,6 +57,7 @@ Rules:
 - If "useWebSearch" is false, include a short reason in "reason" (max 12 words).
 - Choose a "targetDepth" from [15, 30, 50, 100] to signal how many URLs to fetch overall (including any crawl). Use lower for narrow/urgent/local questions; higher for broad research or long-tail topics. If unsure, pick 30.
 - Include "resultCount" (10 or 20) to recommend how many SERP rows you want per query; if you return two queries, keep resultCount at 10 so each query stays focused. Set resultCount=20 when a single query needs deeper coverage, otherwise 10.
+- Choose an "excerptMode" from ["snippets","balanced","rich"] to indicate how much text to extract from each source (snippets=short, balanced=medium, rich=long).
 - Do not include commentary or extra fields.`;
 
   const recentMessageBlock = Array.isArray(params.recentMessages) && params.recentMessages.length
@@ -94,6 +96,7 @@ Rules:
         reason: { type: "string" },
         targetDepth: { type: "number" },
         resultCount: { type: "number" },
+        excerptMode: { type: "string", enum: ["snippets", "balanced", "rich"] },
       },
       required: ["useWebSearch", "queries"],
     },
@@ -145,7 +148,13 @@ Rules:
   const parsedDepth = typeof parsed?.targetDepth === "number" ? Math.round(parsed.targetDepth) : NaN;
   const targetDepth = allowedDepths.find((d) => d === parsedDepth);
 
-  return { queries: finalQueries, useWebSearch: true, targetDepth };
+  return {
+    queries: finalQueries,
+    useWebSearch: true,
+    targetDepth,
+    resultCount: parsed?.resultCount,
+    excerptMode: parsed?.excerptMode,
+  };
 }
 
 export type GateDecision = {

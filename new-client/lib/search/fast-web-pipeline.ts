@@ -54,7 +54,7 @@ type PipelineOptions = {
   maxEvidenceSources?: number;
   targetUsablePages?: number;
   resultsPerQueryOverride?: number;
-  excerptMode?: "snippets" | "balanced" | "rich";
+  excerptMode?: "snippets" | "balanced" | "rich" | "auto";
   excerptWords?: number;
   keywordWindowWords?: number;
   onSearchStart?: (event: { query: string; queries: string[] }) => void;
@@ -401,7 +401,11 @@ export async function runWebSearchPipeline(
       : queries.length > 1
         ? 10
         : requestedResultCount;
-  const excerptPreset = EXCERPT_PRESETS[options.excerptMode ?? "balanced"] ?? EXCERPT_PRESETS.balanced;
+  const resolvedExcerptMode =
+    options.excerptMode === "auto" || typeof options.excerptMode === "undefined"
+      ? queryWriterResult?.excerptMode ?? "balanced"
+      : options.excerptMode;
+  const excerptPreset = EXCERPT_PRESETS[resolvedExcerptMode ?? "balanced"] ?? EXCERPT_PRESETS.balanced;
   const excerptWords = options.excerptWords ?? excerptPreset.excerptWords ?? DEFAULT_EXCERPT_WORDS;
   const keywordWindowWords =
     options.keywordWindowWords ?? excerptPreset.keywordWindowWords ?? DEFAULT_KEYWORD_WINDOW_WORDS;

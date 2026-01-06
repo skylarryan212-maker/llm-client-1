@@ -1227,7 +1227,10 @@ interface ChatRequestBody {
   clientNow?: number;
   agentId?: string | null;
   marketAgentContext?: { instanceId?: string | null; eventId?: string | null } | null;
-  searchControls?: { sourceLimit?: number; excerptMode?: "snippets" | "balanced" | "rich" };
+  searchControls?: {
+    sourceLimit?: number | "auto";
+    excerptMode?: "snippets" | "balanced" | "rich" | "auto";
+  };
 }
 
 type SearchStatusEvent =
@@ -3834,6 +3837,10 @@ export async function POST(request: NextRequest) {
         let pipelineSkipped = false;
         let searchStarted = false;
         if (customWebSearchInput) {
+          const numericSourceLimit =
+            typeof customWebSearchInput.searchControls?.sourceLimit === "number"
+              ? customWebSearchInput.searchControls.sourceLimit
+              : undefined;
           try {
             customWebSearchResult = await runWebSearchPipeline(customWebSearchInput.prompt, {
               recentMessages: customWebSearchInput.recentMessages,
@@ -3841,10 +3848,10 @@ export async function POST(request: NextRequest) {
               locationName: customWebSearchInput.location?.city ?? effectiveLocation?.city ?? undefined,
               languageCode: customWebSearchInput.location?.languageCode ?? undefined,
               countryCode: customWebSearchInput.location?.countryCode ?? undefined,
-          preferredSourceUrls: customWebSearchInput.preferredSourceUrls,
-              resultsPerQueryOverride: customWebSearchInput.searchControls?.sourceLimit,
-              maxEvidenceSources: customWebSearchInput.searchControls?.sourceLimit,
-              targetUsablePages: customWebSearchInput.searchControls?.sourceLimit,
+              preferredSourceUrls: customWebSearchInput.preferredSourceUrls,
+              resultsPerQueryOverride: numericSourceLimit,
+              maxEvidenceSources: numericSourceLimit,
+              targetUsablePages: numericSourceLimit,
               excerptMode: customWebSearchInput.searchControls?.excerptMode,
               allowSkip: !forceWebSearch,
               onSearchStart: ({ query }) => {
