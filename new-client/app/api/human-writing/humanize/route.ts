@@ -31,10 +31,10 @@ async function runLightEdit(text: string): Promise<{ text: string; requestId?: s
 
   const requestId = getOpenAIRequestId(response, raw);
 
-  const outputText =
-    (Array.isArray((response as OpenAIResponse).output_text) &&
-      (response as OpenAIResponse).output_text?.join("")?.trim()) ||
-    "";
+  const outputArray = Array.isArray((response as OpenAIResponse).output_text)
+    ? (response as OpenAIResponse).output_text
+    : [];
+  const outputText = outputArray.join("").trim();
 
   if (outputText.length === 0) {
     throw new Error("Model returned no text");
