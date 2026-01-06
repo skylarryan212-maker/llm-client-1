@@ -358,7 +358,7 @@ export async function POST(request: NextRequest) {
                   user_id: userId,
                   conversation_id: conversationId,
                   role: "assistant",
-                  content: "Draft ready. Want me to humanize it now? (no detector or loop yet)",
+                  content: "Draft ready. Want me to humanize it now?",
                   metadata: {
                     agent: "human-writing",
                     kind: "cta",

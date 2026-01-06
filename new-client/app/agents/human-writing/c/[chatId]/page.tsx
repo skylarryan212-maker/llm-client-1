@@ -596,7 +596,7 @@ function ChatInner({ params }: PageProps) {
                 {
                   id: `cta-${Date.now()}`,
                   role: "assistant",
-                  content: "Draft ready. Want me to humanize it now? (no detector or loop yet)",
+                  content: "Draft ready. Want me to humanize it now?",
                   kind: "cta" as MessageKind,
                   draftText: draft,
                   status: "pending",
@@ -617,7 +617,7 @@ function ChatInner({ params }: PageProps) {
             body: JSON.stringify({
               taskId,
               draftText: draft,
-              content: "Draft ready. Want me to humanize it now? (no detector or loop yet)",
+              content: "Draft ready. Want me to humanize it now?",
               reason: decisionReason,
               status: "pending",
               createdAt: ctaCreatedAt,
@@ -676,6 +676,16 @@ function ChatInner({ params }: PageProps) {
       }
 
       const output = (data?.output as string) || "Humanizer returned no output.";
+      const humanScore =
+        typeof data?.humanScore === "number" ? Math.round(Number(data.humanScore)) : null;
+      const iterations = typeof data?.iterations === "number" ? data.iterations : null;
+      const summaryParts = [
+        humanScore !== null ? `Human score: ${humanScore}%` : null,
+        iterations ? `Iterations: ${iterations}` : null,
+        resolvedModel ? `Model: ${resolvedModel}` : null,
+        humanizerSettings.language ? `Language: ${humanizerSettings.language}` : null,
+      ].filter(Boolean);
+      const summaryLine = summaryParts.length ? `\n\n_${summaryParts.join(" • ")}_` : "";
       setMessages((prev) =>
         prev.map((msg) => {
           if (msg.id === actionId) {
@@ -684,7 +694,7 @@ function ChatInner({ params }: PageProps) {
           if (msg.id === runId) {
             return {
               ...msg,
-              content: `**Humanized draft**\n\n${output}`,
+              content: `**Humanized draft**\n\n${output}${summaryLine}`,
             };
           }
           return msg;
@@ -702,7 +712,7 @@ function ChatInner({ params }: PageProps) {
           body: JSON.stringify({
             taskId,
             draftText: ctaMessage?.draftText || draftText,
-            content: ctaMessage?.content || "Draft ready. Want me to humanize it now? (no detector or loop yet)",
+            content: ctaMessage?.content || "Draft ready. Want me to humanize it now?",
             status: "done",
           }),
         });

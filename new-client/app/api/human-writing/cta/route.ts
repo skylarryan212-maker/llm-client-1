@@ -18,7 +18,7 @@ export async function POST(request: NextRequest) {
   try {
     const body = (await request.json().catch(() => ({}))) as CTARequest;
     const taskId = body.taskId?.trim();
-    const content = body.content?.trim() || "Draft ready. Want me to humanize it now? (no detector or loop yet)";
+  const content = body.content?.trim() || "Draft ready. Want me to humanize it now?";
     const draftText = body.draftText?.trim() || "";
     const reason = body.reason;
     const status = body.status === "done" ? "done" : "pending";
