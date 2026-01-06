@@ -52,7 +52,8 @@ export async function POST(request: NextRequest) {
         text,
         model,
         language: language === "auto" ? undefined : language,
-        costs: false,
+        costs: true,
+        words: true,
       });
 
       if (conversationId) {
