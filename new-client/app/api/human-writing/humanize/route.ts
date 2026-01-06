@@ -89,6 +89,7 @@ export async function POST(request: NextRequest) {
     let finalDraft = text;
     let finalHumanScore: number | null = null;
     let iterationsRun = 0;
+    let lastError: string | null = null;
     const audit: Array<{
       iteration: number;
       humanized: string;
@@ -101,39 +102,74 @@ export async function POST(request: NextRequest) {
     for (let i = 0; i < MAX_ITERATIONS; i++) {
       iterationsRun = i + 1;
 
-      const humanized = await rephrasyHumanize({
-        text: currentDraft,
-        model,
-        language: language === "auto" ? undefined : language,
-        costs: true,
-      });
+      let humanizedOutput: string = currentDraft;
+      let humanizedFlesch: number | null = null;
+      try {
+        const humanized = await rephrasyHumanize({
+          text: currentDraft,
+          model,
+          language: language === "auto" ? undefined : language,
+          costs: true,
+        });
+        humanizedOutput = humanized.output;
+        humanizedFlesch = humanized.flesch;
+      } catch (err: any) {
+        lastError = err?.message || "humanize_failed";
+        break;
+      }
 
-      const edited = await runLightEdit(humanized.output);
+      let editedDraft: string = humanizedOutput;
+      try {
+        const edited = await runLightEdit(humanizedOutput);
+        editedDraft = edited.text;
+      } catch (err: any) {
+        lastError = err?.message || "edit_failed";
+        break;
+      }
 
-      const detector = await rephrasyDetect({
-        text: edited.text,
-        mode: "depth",
-      });
+      let detectorOverall: number | null = null;
+      try {
+        const detector = await rephrasyDetect({
+          text: editedDraft,
+          mode: "depth",
+        });
+        detectorOverall = detector.rawOverall;
+      } catch (err: any) {
+        lastError = err?.message || "detect_failed";
+        break;
+      }
 
-      const humanScore = computeHumanScore(detector.rawOverall, "depth");
+      const humanScore = computeHumanScore(detectorOverall, "depth");
 
       audit.push({
         iteration: iterationsRun,
-        humanized: humanized.output,
-        edited: edited.text,
-        flesch: humanized.flesch,
-        detectorOverall: detector.rawOverall,
+        humanized: humanizedOutput,
+        edited: editedDraft,
+        flesch: humanizedFlesch,
+        detectorOverall,
         humanScore,
       });
 
-      finalDraft = edited.text;
+      finalDraft = editedDraft;
       finalHumanScore = humanScore;
 
       if (typeof humanScore === "number" && humanScore >= TARGET_HUMAN_SCORE) {
         break;
       }
 
-      currentDraft = edited.text;
+      currentDraft = editedDraft;
+    }
+
+    if (lastError) {
+      return NextResponse.json(
+        {
+          error: lastError,
+          humanScore: finalHumanScore,
+          iterations: iterationsRun,
+          audit,
+        },
+        { status: 502 }
+      );
     }
 
     if (conversationId) {
