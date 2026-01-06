@@ -1422,152 +1422,149 @@ export async function runWebSearchPipeline(prompt: string, options: PipelineOpti
     return 0;
   };
 
-  const fetchPages = async (results: FetchTask[]): Promise<FetchedPage[]> => {
-    const pages = await Promise.all(
-      results.map(async (result) => {
+  const fetchPages = async (results: FetchTask[], concurrency = 4): Promise<FetchedPage[]> => {
+    const pages: FetchedPage[] = [];
+    const queue = [...results];
+    const workers = Math.max(1, Math.min(concurrency, queue.length));
+    await Promise.all(
+      Array.from({ length: workers }).map(async () => {
         try {
-          const policy = resolveFetchPolicy(result.fetchPolicy);
-          const cacheKey = `${PAGE_CACHE_PREFIX}${normalizeUrlKey(result.url)}`;
-          const cached = await loadPageCache(cacheKey);
-          const cachedHtml = typeof cached?.html === "string" ? cached.html : "";
-          if (cached?.text_content && (!policy.requireHtml || cachedHtml)) {
-            pageCacheHits += 1;
-            console.log("[web-pipeline] page cache hit", result.url);
-            recordDomainTiming(result.domain ?? extractDomainFromUrl(result.url), 0, true);
-            searchedCount += 1;
-            reportProgress();
-            return {
-              ...result,
-              text: cached.text_content as string,
-              htmlLength: cachedHtml.length,
-              status: typeof cached.status === "number" ? cached.status : 0,
-              truncated: Boolean(cached.truncated),
-              links:
-                shouldExtractLinks && cachedHtml
-                  ? extractLinksFromHtml(cachedHtml, result.url)
-                  : [],
-            };
-          }
-          pageFetches += 1;
-          console.log("[web-pipeline] fetching page", result.url);
-          const fetchStart = performance.now();
-          const tier1Timeout = Math.min(config.pageTimeoutMs, 8000);
-          const tier2Timeout = Math.max(config.pageTimeoutMs, 12000);
-          const runFetch = async (timeoutMs: number) =>
-            fetchPageHtml(result.url, timeoutMs, config.pageMaxBytes, {
-              onUnlockerUsed: () => {
-                brightdataUnlockerRequests += 1;
-              },
-              allowUnlocker: policy.allowUnlocker,
-              requireHtml: policy.requireHtml,
-            });
-          let { html, truncated, status } = await runFetch(tier1Timeout);
-          let text = extractTextFromHtml(html);
-          const tableBlocks = extractTableBlocks(html);
-          const listBlocks = extractListBlocks(html);
-          const jsLikelihood = computeJsLikelihood(html);
-          const blockedLike =
-            status === 403 ||
-            status === 429 ||
-            status === 503 ||
-            /captcha|access denied|forbidden|subscribe|sign[ -]?in|paywall/i.test(html);
-          if (
-            !blockedLike &&
-            tier2Timeout > tier1Timeout &&
-            (status === 0 || (status === 200 && text.length < 200))
-          ) {
-            const retry = await runFetch(tier2Timeout);
-            if (retry.html.length > html.length || retry.status === 200) {
-              html = retry.html;
-              truncated = retry.truncated;
-              status = retry.status;
-              text = extractTextFromHtml(html);
+          while (queue.length) {
+            const result = queue.shift();
+            if (!result) break;
+            const policy = resolveFetchPolicy(result.fetchPolicy);
+            const cacheKey = `${PAGE_CACHE_PREFIX}${normalizeUrlKey(result.url)}`;
+            const cached = await loadPageCache(cacheKey);
+            const cachedHtml = typeof cached?.html === "string" ? cached.html : "";
+            if (cached?.text_content && (!policy.requireHtml || cachedHtml)) {
+              pageCacheHits += 1;
+              console.log("[web-pipeline] page cache hit", result.url);
+              recordDomainTiming(result.domain ?? extractDomainFromUrl(result.url), 0, true);
+              searchedCount += 1;
+              reportProgress();
+              pages.push({
+                ...result,
+                text: cached.text_content as string,
+                htmlLength: cachedHtml.length,
+                status: typeof cached.status === "number" ? cached.status : 0,
+                truncated: Boolean(cached.truncated),
+                links:
+                  shouldExtractLinks && cachedHtml
+                    ? extractLinksFromHtml(cachedHtml, result.url)
+                    : [],
+              });
+              continue;
             }
-          }
-          const structuredText = extractStructuredDataText(html);
-          if (structuredText) {
-            text = `${text}
+            pageFetches += 1;
+            console.log("[web-pipeline] fetching page", result.url);
+            const fetchStart = performance.now();
+            const tier1Timeout = Math.min(config.pageTimeoutMs, 8000);
+            const tier2Timeout = Math.max(config.pageTimeoutMs, 12000);
+            const runFetch = async (timeoutMs: number) =>
+              fetchPageHtml(result.url, timeoutMs, config.pageMaxBytes, {
+                onUnlockerUsed: () => {
+                  brightdataUnlockerRequests += 1;
+                },
+                allowUnlocker: policy.allowUnlocker,
+                requireHtml: policy.requireHtml,
+              });
+            let { html, truncated, status } = await runFetch(tier1Timeout);
+            let text = extractTextFromHtml(html);
+            const tableBlocks = extractTableBlocks(html);
+            const listBlocks = extractListBlocks(html);
+            const jsLikelihood = computeJsLikelihood(html);
+            const blockedLike =
+              status === 403 ||
+              status === 429 ||
+              status === 503 ||
+              /captcha|access denied|forbidden|subscribe|sign[ -]?in|paywall/i.test(html);
+            if (
+              !blockedLike &&
+              tier2Timeout > tier1Timeout &&
+              (status === 0 || (status === 200 && text.length < 200))
+            ) {
+              const retry = await runFetch(tier2Timeout);
+              if (retry.html.length > html.length || retry.status === 200) {
+                html = retry.html;
+                truncated = retry.truncated;
+                status = retry.status;
+                text = extractTextFromHtml(html);
+              }
+            }
+            const structuredText = extractStructuredDataText(html);
+            if (structuredText) {
+              text = `${text}
 
 Structured data:
 ${structuredText}`.trim();
-          }
-          const hasJsSignals =
-            jsLikelihood >= 2 ||
-            /enable javascript|turn on javascript|requires javascript/i.test(html) ||
-            (text.length < 120 && (tableBlocks.length === 0 && listBlocks.length === 0));
-          const useJinaFallback = process.env.USE_JINA_READER_FALLBACK !== "0";
-          const canTryJina = policy.allowJinaFallback && useJinaFallback && status !== 415;
-          const shouldTryJina =
-            canTryJina &&
-            !blockedLike &&
-            (policy.allowJinaOnFailure
-              ? status !== 200 || (status === 200 && (text.length < 200 || hasJsSignals))
-              : status === 200 && (text.length < 200 || hasJsSignals));
-          if (shouldTryJina) {
-            const fallbackText = await fetchJinaReaderText(
-              result.url,
-              Math.max(tier2Timeout, config.pageTimeoutMs)
-            );
-            if (fallbackText.length > text.length) {
-              text = fallbackText;
-              console.log("[web-pipeline] jina fallback used", {
-                url: result.url,
-                fallbackLength: fallbackText.length,
-              });
-            } else if (html.length > 2000) {
-              console.log("[web-pipeline] js shell/blocked suspected", {
-                url: result.url,
-                htmlLength: html.length,
-                textLength: text.length,
-              });
             }
+            const hasJsSignals =
+              jsLikelihood >= 2 ||
+              /enable javascript|turn on javascript|requires javascript/i.test(html) ||
+              (text.length < 120 && (tableBlocks.length === 0 && listBlocks.length === 0));
+            const useJinaFallback = process.env.USE_JINA_READER_FALLBACK !== "0";
+            const canTryJina = policy.allowJinaFallback && useJinaFallback && status !== 415;
+            const shouldTryJina =
+              canTryJina &&
+              !blockedLike &&
+              (policy.allowJinaOnFailure
+                ? status !== 200 || (status === 200 && (text.length < 200 || hasJsSignals))
+                : status === 200 && (text.length < 200 || hasJsSignals));
+            if (shouldTryJina) {
+              const fallbackText = await fetchJinaReaderText(
+                result.url,
+                Math.max(tier2Timeout, config.pageTimeoutMs)
+              );
+              if (fallbackText.length > text.length) {
+                text = fallbackText;
+                console.log("[web-pipeline] jina fallback used", {
+                  url: result.url,
+                  fallbackLength: fallbackText.length,
+                });
+              } else if (html.length > 2000) {
+                console.log("[web-pipeline] js shell/blocked suspected", {
+                  url: result.url,
+                  htmlLength: html.length,
+                  textLength: text.length,
+                });
+              }
+            }
+            recordDomainTiming(
+              result.domain ?? extractDomainFromUrl(result.url),
+              Math.round(performance.now() - fetchStart),
+              false
+            );
+            await savePageCache(cacheKey, result.url, {
+              html,
+              text,
+              truncated,
+              status,
+            });
+            const links = shouldExtractLinks && html ? extractLinksFromHtml(html, result.url) : [];
+            console.log("[web-pipeline] page extracted", {
+              url: result.url,
+              status,
+              truncated,
+              length: text.length,
+              htmlLength: html.length,
+            });
+            searchedCount += 1;
+            reportProgress();
+            pages.push({
+              ...result,
+              text,
+              tableBlocks,
+              listBlocks,
+              htmlLength: html.length,
+              status,
+              truncated,
+              links,
+            });
           }
-          recordDomainTiming(
-            result.domain ?? extractDomainFromUrl(result.url),
-            Math.round(performance.now() - fetchStart),
-            false
-          );
-          await savePageCache(cacheKey, result.url, {
-            html,
-            text,
-            truncated,
-            status,
-          });
-          const links = shouldExtractLinks && html ? extractLinksFromHtml(html, result.url) : [];
-          console.log("[web-pipeline] page extracted", {
-            url: result.url,
-            status,
-            truncated,
-            length: text.length,
-            htmlLength: html.length,
-          });
-          searchedCount += 1;
-          reportProgress();
-          return {
-            ...result,
-            text,
-            tableBlocks,
-            listBlocks,
-            htmlLength: html.length,
-            status,
-            truncated,
-            links,
-          };
         } catch (error) {
-          console.warn("[web-pipeline] page processing failed", { url: result.url, error });
+          console.warn("[web-pipeline] page processing failed", { url: (results[0] || {}).url, error });
           searchedCount += 1;
           reportProgress();
-          recordDomainTiming(result.domain ?? extractDomainFromUrl(result.url), 0, false);
-          return {
-            ...result,
-            text: "",
-            tableBlocks: [],
-            listBlocks: [],
-            htmlLength: 0,
-            status: 0,
-            truncated: false,
-            links: [],
-          };
         }
       })
     );
@@ -1890,12 +1887,28 @@ ${slice}`,
     }
 
     const queryEmbeddings = await embedTexts(queries);
-    const chunkEmbeddings = await embedTexts(prefilteredChunks.map((c) => c.text));
+    // Limit embedding workload per URL/domain to avoid long tails.
+    const perUrlCap = 2;
+    const perDomainCap = 6;
+    const seenUrlCounts = new Map<string, number>();
+    const seenDomainCounts = new Map<string, number>();
+    const cappedChunks: RankedChunk[] = [];
+    for (const chunk of prefilteredChunks) {
+      const urlCount = seenUrlCounts.get(chunk.urlKey) ?? 0;
+      const domainCount = seenDomainCounts.get(chunk.domain ?? "unknown") ?? 0;
+      if (urlCount >= perUrlCap) continue;
+      if (domainCount >= perDomainCap) continue;
+      seenUrlCounts.set(chunk.urlKey, urlCount + 1);
+      seenDomainCounts.set(chunk.domain ?? "unknown", domainCount + 1);
+      cappedChunks.push(chunk);
+    }
+
+    const chunkEmbeddings = await embedTexts(cappedChunks.map((c) => c.text));
     if (!queryEmbeddings.length || !chunkEmbeddings.length) {
       console.warn("[web-pipeline] embeddings unavailable; skipping semantic ranking.");
       return lexicalSorted.map((item) => ({ ...item.chunk, score: item.score }));
     }
-    return prefilteredChunks.map((chunk, index) => {
+    return cappedChunks.map((chunk, index) => {
       const embedding = chunkEmbeddings[index] ?? [];
       const semantic = Math.max(...queryEmbeddings.map((q) => cosineSimilarity(q, embedding)));
       const overlap = keywordScore(chunk.text, queries);
@@ -1985,16 +1998,22 @@ ${slice}`,
     });
     console.log("[web-pipeline] merged results", mergedResults.length);
 
-    const selectionStart = performance.now();
-    const selection = await selectSerpCandidates({
-      queries,
-      mergedResults,
-      pageLimit: config.pageLimit,
-    });
-    logTiming("serp_selection", selectionStart, {
-      selected: selection.selected.length,
-      enough: selection.enough,
-    });
+    let selection: { selected: WebPipelineResult["results"]; enough: boolean };
+    if (mergedResults.length <= 5) {
+      selection = { selected: mergedResults.slice(0, config.pageLimit), enough: false };
+      logTiming("serp_selection", mergeStart, { selected: selection.selected.length, enough: selection.enough });
+    } else {
+      const selectionStart = performance.now();
+      selection = await selectSerpCandidates({
+        queries,
+        mergedResults,
+        pageLimit: config.pageLimit,
+      });
+      logTiming("serp_selection", selectionStart, {
+        selected: selection.selected.length,
+        enough: selection.enough,
+      });
+    }
     const selectedSet = new Set(selection.selected.map((item) => normalizeUrlKey(item.url)));
     const remainingResults = mergedResults.filter((item) => !selectedSet.has(normalizeUrlKey(item.url)));
     const candidateResults =
@@ -2217,6 +2236,14 @@ ${slice}`,
     );
     console.log("[web-pipeline] selected chunks", selectedChunks.length);
 
+    const hasCoverage =
+      selectedChunks.length >= chunkBudget.minSources &&
+      selectedChunks.reduce((sum, c) => sum + Math.max(estimateTokens(c.text), 1), 0) <=
+        chunkBudget.hardCapTokens;
+    if (hasCoverage) {
+      console.log("[web-pipeline] skipping expansion; coverage met");
+    }
+
     const gateStart = performance.now();
     let gate = await runEvidenceGate({
       prompt,
@@ -2233,7 +2260,7 @@ ${slice}`,
     console.log("[web-pipeline] gate decision", gate.enoughEvidence);
 
     let expanded = false;
-    if (!gate.enoughEvidence && remainingResults.length > 0) {
+    if (!gate.enoughEvidence && !hasCoverage && remainingResults.length > 0) {
       const extra = remainingResults.splice(0, Math.min(3, remainingResults.length));
       console.log("[web-pipeline] expansion fetch", extra[0]?.url);
       const expansionFetchStart = performance.now();
