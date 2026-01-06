@@ -1,5 +1,3 @@
-"use server";
-
 type HumanizeParams = {
   text: string;
   model: string;
