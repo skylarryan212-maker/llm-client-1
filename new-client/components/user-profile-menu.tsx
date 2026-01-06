@@ -90,8 +90,13 @@ export function UserProfileMenu({ isCompressed, onSettingsOpen, onGeneralSetting
                   <div className="h-7 w-7 rounded-full bg-gradient-to-br from-primary to-purple-600 flex items-center justify-center text-xs font-semibold text-white">
                     {initials}
                   </div>
-                  <div className="flex flex-col items-start">
-                    <span className="text-xs font-medium text-sidebar-foreground">{displayName}</span>
+                <div className="flex flex-col items-start min-w-0">
+                    <span
+                      className="text-xs font-medium text-sidebar-foreground truncate max-w-[140px]"
+                      title={displayName}
+                    >
+                      {displayName}
+                    </span>
                     <span className="text-[10px] text-muted-foreground flex items-center gap-1" suppressHydrationWarning>
                       {getPlanIcon()}
                       {getPlanLabel()}
