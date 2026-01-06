@@ -2138,7 +2138,10 @@ export async function POST(request: NextRequest) {
           currentDate: string;
           location?: { city?: string; countryCode?: string; languageCode?: string };
           preferredSourceUrls?: string[];
-          searchControls?: { sourceLimit?: number; excerptMode?: "snippets" | "balanced" | "rich" };
+          searchControls?: {
+            sourceLimit?: number | "auto";
+            excerptMode?: "snippets" | "balanced" | "rich" | "auto";
+          };
         }
       | null = null;
     const nowForSearch = typeof clientNow === "string" || typeof clientNow === "number"
