@@ -675,17 +675,22 @@ function ChatInner({ params }: PageProps) {
         throw new Error(data?.error || "humanizer_failed");
       }
 
-      const output = (data?.output as string) || "Humanizer returned no output.";
-      const humanScore =
-        typeof data?.humanScore === "number" ? Math.round(Number(data.humanScore)) : null;
-      const iterations = typeof data?.iterations === "number" ? data.iterations : null;
-      const summaryParts = [
-        humanScore !== null ? `Human score: ${humanScore}%` : null,
-        iterations ? `Iterations: ${iterations}` : null,
+      const humanized =
+        typeof data?.humanized === "string" && data.humanized.trim().length
+          ? data.humanized
+          : (data?.output as string) || "Humanizer returned no output.";
+      const reviewed =
+        typeof data?.reviewed === "string" && data.reviewed.trim().length
+          ? data.reviewed
+          : humanized;
+      const edited = Boolean(data?.edited);
+      const summaryLine = `\n\n_${[
+        edited ? "Model review applied" : "Model review: no changes",
         resolvedModel ? `Model: ${resolvedModel}` : null,
         humanizerSettings.language ? `Language: ${humanizerSettings.language}` : null,
-      ].filter(Boolean);
-      const summaryLine = summaryParts.length ? `\n\n_${summaryParts.join(" • ")}_` : "";
+      ]
+        .filter(Boolean)
+        .join(" • ")}_`;
       setMessages((prev) =>
         prev.map((msg) => {
           if (msg.id === actionId) {
@@ -694,11 +699,19 @@ function ChatInner({ params }: PageProps) {
           if (msg.id === runId) {
             return {
               ...msg,
-              content: `**Humanized draft**\n\n${output}${summaryLine}`,
+              content: `**Humanized draft**\n\n${humanized}`,
             };
           }
           return msg;
-        })
+        }).concat([
+          {
+            id: `${runId}-review`,
+            role: "assistant",
+            content: edited
+              ? `**Model review (edits applied)**\n\n${reviewed}${summaryLine}`
+              : `**Model review**\n\nLooks good — no changes needed.${summaryLine}`,
+          },
+        ])
       );
 
       // Persist CTA state as completed

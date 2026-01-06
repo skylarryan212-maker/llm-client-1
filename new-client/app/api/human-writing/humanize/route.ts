@@ -69,11 +69,11 @@ export async function POST(request: NextRequest) {
     const model = body.model?.trim() || "undetectable";
     const language = body.language?.trim() || "auto";
     const taskId = body.taskId?.trim();
-    const runId = `hw-humanize-${taskId || "unknown"}-${Date.now()}`;
+  const runId = `hw-humanize-${taskId || "unknown"}-${Date.now()}`;
 
-    if (!text) {
-      return NextResponse.json({ error: "Text is required" }, { status: 400 });
-    }
+  if (!text) {
+    return NextResponse.json({ error: "Text is required" }, { status: 400 });
+  }
     if (!taskId) {
       return NextResponse.json({ error: "taskId is required" }, { status: 400 });
     }
@@ -125,32 +125,47 @@ export async function POST(request: NextRequest) {
       }
 
       if (conversationId) {
-        const { error: insertError } = await supabase.from("messages").insert([
+        const inserts = [
           {
             user_id: userId,
             conversation_id: conversationId,
             role: "assistant",
-            content: finalDraft,
+            content: humanized.output,
             metadata: {
               agent: "human-writing",
               kind: "humanized",
               model,
               language,
               flesch: humanized.flesch,
-              reviewed: true,
-              edited,
             },
           },
-        ]);
+          {
+            user_id: userId,
+            conversation_id: conversationId,
+            role: "assistant",
+            content: edited ? finalDraft : "Looks good — no changes needed.",
+            metadata: {
+              agent: "human-writing",
+              kind: "humanized_review",
+              model,
+              language,
+              edited,
+              source: "review",
+            },
+          },
+        ];
+
+        const { error: insertError } = await supabase.from("messages").insert(inserts);
         if (insertError) {
           console.error("[human-writing][humanize] insert message error", insertError);
         }
       }
 
       return NextResponse.json({
-        output: finalDraft,
-        flesch: humanized.flesch,
+        humanized: humanized.output,
+        reviewed: finalDraft,
         edited,
+        flesch: humanized.flesch,
         raw: humanized.raw,
       });
     } catch (err: any) {
