@@ -62,6 +62,7 @@ export async function POST(request: NextRequest) {
     const model = body.model?.trim() || "undetectable";
     const language = body.language?.trim() || "auto";
     const taskId = body.taskId?.trim();
+    const runId = `hw-humanize-${taskId || "unknown"}-${Date.now()}`;
     if (!text) {
       return NextResponse.json({ error: "Text is required" }, { status: 400 });
     }
@@ -126,11 +127,32 @@ export async function POST(request: NextRequest) {
             if (attempt < MAX_REPHRASY_RETRIES) {
               await delay(200 + attempt * 150);
             }
+            console.warn("[human-writing][humanize][retry][humanize]", {
+              runId,
+              taskId,
+              attempt,
+              status: err?.status,
+              message: err?.message,
+              snippet: err?.bodySnippet,
+              textLength: currentDraft.length,
+              model,
+              language,
+            });
           }
         }
         if (lastHumanizeError) throw lastHumanizeError;
       } catch (err: any) {
         lastError = err?.message || "humanize_failed";
+        console.error("[human-writing][humanize][fail][humanize]", {
+          runId,
+          taskId,
+          status: err?.status,
+          message: err?.message,
+          snippet: err?.bodySnippet,
+          textLength: currentDraft.length,
+          model,
+          language,
+        });
         break;
       }
 
@@ -160,11 +182,32 @@ export async function POST(request: NextRequest) {
             if (attempt < MAX_REPHRASY_RETRIES) {
               await delay(200 + attempt * 150);
             }
+            console.warn("[human-writing][humanize][retry][detect]", {
+              runId,
+              taskId,
+              attempt,
+              status: err?.status,
+              message: err?.message,
+              snippet: err?.bodySnippet,
+              textLength: editedDraft.length,
+              model,
+              language,
+            });
           }
         }
         if (lastDetectError) throw lastDetectError;
       } catch (err: any) {
         lastError = err?.message || "detect_failed";
+        console.error("[human-writing][humanize][fail][detect]", {
+          runId,
+          taskId,
+          status: err?.status,
+          message: err?.message,
+          snippet: err?.bodySnippet,
+          textLength: editedDraft.length,
+          model,
+          language,
+        });
         break;
       }
 
@@ -190,6 +233,12 @@ export async function POST(request: NextRequest) {
     }
 
     if (lastError) {
+      console.error("[human-writing][humanize][abort]", {
+        runId,
+        taskId,
+        iterationsRun,
+        lastError,
+      });
       return NextResponse.json(
         {
           error: lastError,

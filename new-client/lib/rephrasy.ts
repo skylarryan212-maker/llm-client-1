@@ -57,10 +57,23 @@ export async function rephrasyHumanize(params: HumanizeParams) {
     DEFAULT_TIMEOUT_MS
   );
 
-  const json = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  const text = await res.text().catch(() => "");
+  let json: Record<string, unknown> = {};
+  try {
+    json = text ? (JSON.parse(text) as Record<string, unknown>) : {};
+  } catch {
+    json = {};
+  }
+
   if (!res.ok) {
-    const message = typeof json?.error === "string" ? json.error : res.statusText;
-    throw new Error(`Rephrasy humanize failed (${res.status}): ${message}`);
+    const message =
+      typeof json?.error === "string"
+        ? json.error
+        : res.statusText || "rephrasy_error";
+    const err = new Error(`Rephrasy humanize failed (${res.status}): ${message}`);
+    (err as any).status = res.status;
+    (err as any).bodySnippet = text.slice(0, 400);
+    throw err;
   }
 
   const output = typeof json.output === "string" ? json.output : params.text;
@@ -92,10 +105,23 @@ export async function rephrasyDetect(params: DetectParams) {
     DEFAULT_TIMEOUT_MS
   );
 
-  const json = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  const text = await res.text().catch(() => "");
+  let json: Record<string, unknown> = {};
+  try {
+    json = text ? (JSON.parse(text) as Record<string, unknown>) : {};
+  } catch {
+    json = {};
+  }
+
   if (!res.ok) {
-    const message = typeof json?.error === "string" ? json.error : res.statusText;
-    throw new Error(`Rephrasy detect failed (${res.status}): ${message}`);
+    const message =
+      typeof json?.error === "string"
+        ? json.error
+        : res.statusText || "rephrasy_error";
+    const err = new Error(`Rephrasy detect failed (${res.status}): ${message}`);
+    (err as any).status = res.status;
+    (err as any).bodySnippet = text.slice(0, 400);
+    throw err;
   }
 
   const overall = Number((json as any)?.scores?.overall ?? (json as any)?.overall);
