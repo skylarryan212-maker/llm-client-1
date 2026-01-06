@@ -32,13 +32,39 @@ export async function POST(request: NextRequest) {
     }
 
     console.log("[guest-chat] Message:", message.substring(0, 50));
-    const supabase = await supabaseServerAdmin();
-    const { session, cookieValue } = await ensureGuestSession(request, supabase);
-    let requestCount = session.request_count ?? 0;
-    if (shouldResetDailyCounter(session)) {
+    // Supabase may not be available in some guest deployments; fall back gracefully.
+    let supabase: any = null;
+    let session:
+      | {
+          id: string;
+          request_count: number | null;
+          token_count: number | null;
+          estimated_cost: number | null;
+          last_seen: string | null;
+        }
+      | null = null;
+    let cookieValue: string | undefined;
+    try {
+      supabase = await supabaseServerAdmin();
+      const ensured = await ensureGuestSession(request, supabase);
+      session = ensured.session;
+      cookieValue = ensured.cookieValue;
+    } catch (err) {
+      console.warn("[guest-chat] Supabase unavailable, using in-memory guest session fallback:", err);
+      session = {
+        id: `guest-fallback-${Date.now()}`,
+        request_count: 0,
+        token_count: 0,
+        estimated_cost: 0,
+        last_seen: null,
+      };
+    }
+
+    let requestCount = session?.request_count ?? 0;
+    if (session && shouldResetDailyCounter(session as any)) {
       requestCount = 0;
     }
-    if (requestCount >= GUEST_PROMPT_LIMIT_PER_DAY) {
+    if (session && supabase && requestCount >= GUEST_PROMPT_LIMIT_PER_DAY) {
       const limitResponse = NextResponse.json(
         {
           error: "Guest limit reached",
@@ -50,7 +76,9 @@ export async function POST(request: NextRequest) {
       return limitResponse;
     }
 
-    await incrementGuestSessionRequest(supabase, session.id, requestCount + 1);
+    if (supabase && session) {
+      await incrementGuestSessionRequest(supabase, session.id, requestCount + 1);
+    }
 
     // Guest mode always uses a single model to keep behavior predictable.
     const model = "gpt-5-nano";
@@ -151,14 +179,16 @@ export async function POST(request: NextRequest) {
           try {
             const estimatedCost = calculateCost(model, inputTokens, cachedTokens, outputTokens);
             const totalTokens = (inputTokens || 0) + (cachedTokens || 0) + (outputTokens || 0);
-            await addGuestUsage(
-              supabase,
-              session.id,
-              (session as any)?.token_count,
-              (session as any)?.estimated_cost,
-              totalTokens,
-              estimatedCost
-            );
+            if (supabase && session) {
+              await addGuestUsage(
+                supabase,
+                session.id,
+                (session as any)?.token_count,
+                (session as any)?.estimated_cost,
+                totalTokens,
+                estimatedCost
+              );
+            }
           } catch (usageErr) {
             console.error("[guest-chat] Failed to log guest usage:", usageErr);
           }
