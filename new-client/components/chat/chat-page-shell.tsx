@@ -583,7 +583,6 @@ export default function ChatPageShell({
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
   const [bottomSpacerPx, setBottomSpacerPx] = useState(baseBottomSpacerPx);
   const [composerLiftPx, setComposerLiftPx] = useState(0);
-  const [showOtherModels, setShowOtherModels] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
   const NEW_CHAT_SELECTION_KEY = "__new_chat__";
   const [pendingNewChatMessages, setPendingNewChatMessages] = useState<StoredMessage[] | null>(null);
@@ -606,7 +605,6 @@ export default function ChatPageShell({
   useEffect(() => {
     if (!speedModeEnabled) return;
     setCurrentModel((prev) => normalizeModelForSpeedMode(prev));
-    setShowOtherModels(false);
   }, [speedModeEnabled]);
 
   useEffect(() => {
@@ -957,16 +955,8 @@ export default function ChatPageShell({
       : "Nano Banana Pro"
     : speedModeEnabled
       ? effectiveModelDisplay
-      : currentModel === "Auto"
-        ? "GPT 5.2"
-        : currentModel === "Instant"
-          ? "GPT 5.2 Instant"
-          : currentModel === "Thinking"
-            ? "GPT 5.2 Thinking"
-            : currentModel === "Pro"
-            ? "GPT 5.2 Pro"
-              : currentModel;
-  const modelTriggerLabelToRender = isHydrated ? modelTriggerLabel : "GPT 5.2";
+      : currentModel;
+  const modelTriggerLabelToRender = isHydrated ? modelTriggerLabel : "Auto";
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -3868,6 +3858,7 @@ export default function ChatPageShell({
         selectedAgentId={selectedAgentId}
         onAgentChange={handleAgentChange}
         shouldGrowDownward={shouldUseCenteredComposer}
+        stackedActions
       />
     </>
   );
@@ -3943,13 +3934,7 @@ export default function ChatPageShell({
             )}
 
             <ApiUsageBadge />
-            <DropdownMenu
-              onOpenChange={(open) => {
-                if (!open) {
-                  setShowOtherModels(false);
-                }
-              }}
-            >
+            <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button
                 variant="ghost"
@@ -4062,18 +4047,13 @@ export default function ChatPageShell({
                       </>
                     ) : (
                       <>
-                        <div className="px-3 pb-1 text-sm font-semibold text-muted-foreground">
-                          GPT 5.2
-                        </div>
                         <DropdownMenuItem
                           className="items-center gap-3 px-3 py-2"
                           onSelect={() => setCurrentModel("Auto")}
                         >
                           <div className="flex flex-1 flex-col">
                             <span className="font-medium leading-none">Auto</span>
-                            <span className="text-xs text-muted-foreground">
-                              Auto routing
-                            </span>
+                            <span className="text-xs text-muted-foreground">We’ll pick the best model</span>
                           </div>
                           <span className="flex w-4 justify-end">
                             {currentModel === "Auto" && <Check className="h-4 w-4" />}
@@ -4081,146 +4061,52 @@ export default function ChatPageShell({
                         </DropdownMenuItem>
                         <DropdownMenuItem
                           className="items-center gap-3 px-3 py-2"
-                          onSelect={() => setCurrentModel("Instant")}
+                          onSelect={() => setCurrentModel("GPT 5 Nano")}
                         >
                           <div className="flex flex-1 flex-col">
-                            <span className="font-medium leading-none">Instant</span>
-                            <span className="text-xs text-muted-foreground">
-                              Answers right away
-                            </span>
+                            <span className="font-medium leading-none">GPT 5 Nano</span>
+                            <span className="text-xs text-muted-foreground">Lightweight</span>
                           </div>
                           <span className="flex w-4 justify-end">
-                            {currentModel === "Instant" && <Check className="h-4 w-4" />}
+                            {currentModel === "GPT 5 Nano" && <Check className="h-4 w-4" />}
                           </span>
                         </DropdownMenuItem>
                         <DropdownMenuItem
                           className="items-center gap-3 px-3 py-2"
-                          onSelect={() => setCurrentModel("Thinking")}
+                          onSelect={() => setCurrentModel("GPT 5 Mini")}
                         >
                           <div className="flex flex-1 flex-col">
-                            <span className="font-medium leading-none">Thinking</span>
-                            <span className="text-xs text-muted-foreground">
-                              Thinks longer for better answers
-                            </span>
+                            <span className="font-medium leading-none">GPT 5 Mini</span>
+                            <span className="text-xs text-muted-foreground">Fast, lower cost</span>
                           </div>
                           <span className="flex w-4 justify-end">
-                            {currentModel === "Thinking" && <Check className="h-4 w-4" />}
+                            {currentModel === "GPT 5 Mini" && <Check className="h-4 w-4" />}
                           </span>
                         </DropdownMenuItem>
                         <DropdownMenuItem
                           className="items-center gap-3 px-3 py-2"
-                          onSelect={() => setCurrentModel("Pro")}
+                          onSelect={() => setCurrentModel("GPT 5.2")}
                         >
                           <div className="flex flex-1 flex-col">
-                            <span className="font-medium leading-none">Pro</span>
-                            <span className="text-xs text-muted-foreground">Highest quality GPT 5.2</span>
+                            <span className="font-medium leading-none">GPT 5.2</span>
+                            <span className="text-xs text-muted-foreground">Balanced quality</span>
                           </div>
                           <span className="flex w-4 justify-end">
-                            {currentModel === "Pro" && <Check className="h-4 w-4" />}
+                            {currentModel === "GPT 5.2" && <Check className="h-4 w-4" />}
                           </span>
                         </DropdownMenuItem>
-
-                        <div className="px-2">
-                          <div className="h-px bg-border" />
-                        </div>
-
                         <DropdownMenuItem
                           className="items-center gap-3 px-3 py-2"
-                          onSelect={(e) => {
-                            e.preventDefault();
-                            setShowOtherModels((open) => !open);
-                          }}
+                          onSelect={() => setCurrentModel("GPT 5.2 Pro")}
                         >
-                          <div className="flex flex-1 flex-col text-left">
-                            <span className="font-medium leading-none">
-                              Other models
-                            </span>
+                          <div className="flex flex-1 flex-col">
+                            <span className="font-medium leading-none">GPT 5.2 Pro</span>
+                            <span className="text-xs text-muted-foreground">Highest quality</span>
                           </div>
-                          <ChevronDown
-                            className={`h-4 w-4 text-muted-foreground transition-transform ${showOtherModels ? "rotate-180" : ""}`}
-                          />
+                          <span className="flex w-4 justify-end">
+                            {currentModel === "GPT 5.2 Pro" && <Check className="h-4 w-4" />}
+                          </span>
                         </DropdownMenuItem>
-                        {showOtherModels && (
-                          <div className="mt-1 space-y-1 rounded-md border border-border/70 bg-popover px-2 py-2 text-foreground shadow-sm origin-top animate-in fade-in-0 zoom-in-95 duration-150">
-                            <div className="px-3 pb-1 text-sm font-semibold text-muted-foreground">
-                              GPT 5 Nano
-                            </div>
-                            <DropdownMenuItem
-                              className="items-center gap-3 px-3 py-2"
-                              onSelect={() => setCurrentModel("GPT 5 Nano Auto")}
-                            >
-                              <div className="flex flex-1 flex-col">
-                                <span className="font-medium leading-none">Auto</span>
-                              </div>
-                              <span className="flex w-4 justify-end">
-                                {currentModel === "GPT 5 Nano Auto" && <Check className="h-4 w-4" />}
-                              </span>
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              className="items-center gap-3 px-3 py-2"
-                              onSelect={() => setCurrentModel("GPT 5 Nano Instant")}
-                            >
-                              <div className="flex flex-1 flex-col">
-                                <span className="font-medium leading-none">Instant</span>
-                              </div>
-                              <span className="flex w-4 justify-end">
-                                {currentModel === "GPT 5 Nano Instant" && <Check className="h-4 w-4" />}
-                              </span>
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              className="items-center gap-3 px-3 py-2"
-                              onSelect={() => setCurrentModel("GPT 5 Nano Thinking")}
-                            >
-                              <div className="flex flex-1 flex-col">
-                                <span className="font-medium leading-none">Thinking</span>
-                              </div>
-                              <span className="flex w-4 justify-end">
-                                {currentModel === "GPT 5 Nano Thinking" && <Check className="h-4 w-4" />}
-                              </span>
-                            </DropdownMenuItem>
-
-                            <div className="px-2">
-                              <div className="h-px bg-border" />
-                            </div>
-
-                            <div className="px-3 pb-1 text-sm font-semibold text-muted-foreground">
-                              GPT 5 Mini
-                            </div>
-                            <DropdownMenuItem
-                              className="items-center gap-3 px-3 py-2"
-                              onSelect={() => setCurrentModel("GPT 5 Mini Auto")}
-                            >
-                              <div className="flex flex-1 flex-col">
-                                <span className="font-medium leading-none">Auto</span>
-                              </div>
-                              <span className="flex w-4 justify-end">
-                                {currentModel === "GPT 5 Mini Auto" && <Check className="h-4 w-4" />}
-                              </span>
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              className="items-center gap-3 px-3 py-2"
-                              onSelect={() => setCurrentModel("GPT 5 Mini Instant")}
-                            >
-                              <div className="flex flex-1 flex-col">
-                                <span className="font-medium leading-none">Instant</span>
-                              </div>
-                              <span className="flex w-4 justify-end">
-                                {currentModel === "GPT 5 Mini Instant" && <Check className="h-4 w-4" />}
-                              </span>
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              className="items-center gap-3 px-3 py-2"
-                              onSelect={() => setCurrentModel("GPT 5 Mini Thinking")}
-                            >
-                              <div className="flex flex-1 flex-col">
-                                <span className="font-medium leading-none">Thinking</span>
-                              </div>
-                              <span className="flex w-4 justify-end">
-                                {currentModel === "GPT 5 Mini Thinking" && <Check className="h-4 w-4" />}
-                              </span>
-                            </DropdownMenuItem>
-                          </div>
-                        )}
                       </>
                     )}
                 </DropdownMenuContent>
@@ -4582,7 +4468,7 @@ export default function ChatPageShell({
             }}
           >
             <div
-              className={`scroll-tip pointer-events-none fixed inset-x-0 bottom-[calc(96px+env(safe-area-inset-bottom,0px))] z-30 transition-opacity duration-200 ${
+              className={`scroll-tip pointer-events-none absolute inset-x-0 bottom-[calc(100%+12px)] z-30 transition-opacity duration-200 ${
                 showScrollToBottom ? "opacity-100 scroll-tip-visible" : "opacity-0"
               }`}
             >

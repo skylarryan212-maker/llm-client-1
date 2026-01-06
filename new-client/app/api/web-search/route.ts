@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { runWebSearchPipeline } from "@/lib/search/web-pipeline";
+import { runWebSearchPipeline } from "@/lib/search/fast-web-pipeline";
 
 export async function POST(request: Request) {
   try {

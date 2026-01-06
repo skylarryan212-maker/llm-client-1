@@ -42,7 +42,7 @@ import { toFile } from "openai";
 import { buildOpenAIClientOptions } from "@/lib/openai/client";
 import { runDecisionRouter } from "@/lib/router/decision-router";
 import { runWriterRouter } from "@/lib/router/write-router";
-import { runWebSearchPipeline, type WebPipelineResult } from "@/lib/search/web-pipeline";
+import { runWebSearchPipeline, type WebPipelineResult } from "@/lib/search/fast-web-pipeline";
 import { estimateTokens } from "@/lib/tokens/estimateTokens";
 import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";

@@ -47,6 +47,7 @@ type ChatComposerProps = {
   disableAccentStyles?: boolean;
   showAttachmentButton?: boolean;
   shouldGrowDownward?: boolean;
+  stackedActions?: boolean;
 };
 
 const RESTORE_FOCUS_KEY = "llm-client:composer:restore-focus";
@@ -77,6 +78,7 @@ export function ChatComposer({
   disableAccentStyles = false,
   showAttachmentButton = true,
   shouldGrowDownward = false,
+  stackedActions = false,
 }: ChatComposerProps) {
   const [value, setValue] = useState("");
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -644,7 +646,7 @@ export function ChatComposer({
         </div>
       )}
       <div
-        className={`composer-shell relative z-10 flex ${shouldGrowDownward ? "items-start" : "items-end"} gap-1.5 sm:gap-2 rounded-3xl border border-border bg-card px-2 sm:px-3 lg:px-4 py-2 sm:py-2.5 transition-all focus-within:border-ring`}
+        className={`composer-shell relative z-10 ${stackedActions ? "flex flex-col items-stretch min-h-[112px] space-y-2 py-3" : `flex ${shouldGrowDownward ? "items-start" : "items-end"} gap-1.5 sm:gap-2 py-2 sm:py-2.5`} rounded-3xl border border-border bg-card px-2 sm:px-3 lg:px-4 transition-all focus-within:border-ring`}
       >
         {isRecording ? (
           <div className="flex items-center gap-2 flex-1 w-full">
@@ -699,6 +701,124 @@ export function ChatComposer({
               </svg>
             </button>
           </div>
+        ) : stackedActions ? (
+          <>
+            <Textarea
+              ref={textareaRef}
+              value={value}
+              onChange={(e) => setValue(e.target.value)}
+              onKeyDown={handleKeyDown}
+              onPaste={handlePaste}
+              title="Tip: paste images/files to attach"
+              placeholder={isTranscribing ? "Transcribing..." : placeholder ?? "Ask Quarry..."}
+              rows={1}
+              disabled={isRecording || isTranscribing}
+              className="min-h-[40px] max-h-[200px] border-0 bg-transparent dark:bg-transparent px-0 py-2 text-base leading-5 resize-none focus-visible:ring-0 focus-visible:ring-offset-0 shadow-none rounded-none"
+            />
+            <div className="flex w-full items-center justify-between gap-2">
+              {showAttachmentButton ? (
+                <AttachmentMenuButton
+                  open={isMenuOpen}
+                  onOpenChange={setIsMenuOpen}
+                  onPickFiles={handleOpenFilePicker}
+                  onCreateImage={onCreateImage}
+                  selectedAgentId={selectedAgentId}
+                  onSelectAgent={(id) => {
+                    setSelectedAgentIdForConversation(id);
+                    setIsAgentPickerOpen(false);
+                    setIsMenuOpen(false);
+                  }}
+                  onClearAgent={() => {
+                    setSelectedAgentIdForConversation(null);
+                    setIsAgentPickerOpen(false);
+                    setIsMenuOpen(false);
+                  }}
+                />
+              ) : (
+                <div />
+              )}
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={startRecording}
+                  disabled={micDisabled || isUploading}
+                  aria-label="Start dictation"
+                  className={`flex h-10 w-10 items-center justify-center rounded-full transition ${micDisabled ? "cursor-not-allowed opacity-40" : "hover:bg-accent"}`}
+                >
+                  <Mic className="h-4 w-4" />
+                </button>
+                {!isStreaming ? (
+                  isTranscribing ? (
+                    <button
+                      type="button"
+                      disabled
+                      className={`flex h-10 w-10 items-center justify-center rounded-full shadow-lg${disableAccentStyles ? ` ${sendButtonClassName ?? ""}` : ` accent-send-button ${sendButtonClassName ?? ""}`}`}
+                      aria-label="Transcribing"
+                      style={sendButtonStyle}
+                    >
+                      <span className="inline-flex h-5 w-5 items-center justify-center">
+                        <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                      </span>
+                    </button>
+                  ) : trimmedValue ? (
+                    <button
+                      type="submit"
+                      onMouseDown={markRestoreFocus}
+                      disabled={isUploading}
+                      className={`flex h-10 w-10 items-center justify-center rounded-full shadow-lg transition disabled:opacity-50${disableAccentStyles ? ` ${sendButtonClassName ?? ""}` : ` accent-send-button ${sendButtonClassName ?? ""}`}`}
+                      aria-label="Send message"
+                      style={sendButtonStyle}
+                    >
+                      {isUploading ? (
+                        <span className="inline-flex h-5 w-5 items-center justify-center">
+                          <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                        </span>
+                      ) : (
+                        <ArrowUp className="h-5 w-5" />
+                      )}
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => {}}
+                      className={`flex h-10 w-10 items-center justify-center rounded-full shadow-lg transition${disableAccentStyles ? ` ${sendButtonClassName ?? ""}` : ` accent-send-button ${sendButtonClassName ?? ""}`}`}
+                      aria-label="Voice input unavailable"
+                      style={sendButtonStyle}
+                    >
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        viewBox="0 0 66 56"
+                        className="h-5 w-5"
+                        fill="currentColor"
+                      >
+                        <rect x="0" y="15" width="12" height="30" rx="3" />
+                        <rect x="18" y="0" width="12" height="70" rx="3" />
+                        <rect x="36" y="6" width="12" height="50" rx="3" />
+                        <rect x="55" y="15" width="12" height="30" rx="3" />
+                      </svg>
+                    </button>
+                  )
+                ) : (
+                  <button
+                    type="button"
+                    onClick={onStop}
+                    className={`flex h-10 w-10 items-center justify-center rounded-full shadow-lg transition${disableAccentStyles ? ` ${sendButtonClassName ?? ""}` : ` accent-send-button ${sendButtonClassName ?? ""}`}`}
+                    aria-label="Stop generating"
+                    style={sendButtonStyle}
+                  >
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      viewBox="0 0 24 24"
+                      className="h-6 w-6"
+                      fill="currentColor"
+                    >
+                      <rect x="6.5" y="6.5" width="11" height="11" rx="1.5" />
+                    </svg>
+                  </button>
+                )}
+              </div>
+            </div>
+          </>
         ) : (
           <>
             {/* Left action button (plus) */}
@@ -732,7 +852,7 @@ export function ChatComposer({
               onKeyDown={handleKeyDown}
               onPaste={handlePaste}
               title="Tip: paste images/files to attach"
-              placeholder={isTranscribing ? "Transcribing…" : placeholder ?? "Ask Quarry..."}
+              placeholder={isTranscribing ? "Transcribing..." : placeholder ?? "Ask Quarry..."}
               rows={1}
               disabled={isRecording || isTranscribing}
               className="flex-1 min-h-[40px] max-h-[200px] border-0 bg-transparent dark:bg-transparent px-0 py-2.5 text-base leading-5 resize-none focus-visible:ring-0 focus-visible:ring-offset-0 shadow-none rounded-none"
