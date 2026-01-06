@@ -31,9 +31,12 @@ async function runLightEdit(text: string): Promise<{ text: string; requestId?: s
 
   const requestId = getOpenAIRequestId(response, raw);
 
-  const outputArray = Array.isArray((response as OpenAIResponse).output_text)
-    ? (response as OpenAIResponse).output_text
-    : [];
+  const rawOutput = (response as OpenAIResponse).output_text;
+  const outputArray = Array.isArray(rawOutput)
+    ? rawOutput
+    : typeof rawOutput === "string"
+      ? [rawOutput]
+      : [];
   const outputText = outputArray.join("").trim();
 
   if (outputText.length === 0) {
