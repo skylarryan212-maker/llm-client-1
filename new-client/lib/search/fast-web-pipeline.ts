@@ -4,6 +4,7 @@ import {
   fetchGoogleOrganicSerp,
   type BrightDataOrganicResult,
 } from "@/lib/search/brightdata-serp";
+import { writeSearchQueries } from "@/lib/search/search-llm";
 
 export type WebPipelineChunk = {
   text: string;
@@ -49,6 +50,7 @@ type PipelineOptions = {
   recentMessages?: Array<{ role: "user" | "assistant" | "system"; content: string }>;
   preferredSourceUrls?: string[];
   allowSkip?: boolean;
+  queryCount?: number;
   onSearchStart?: (event: { query: string; queries: string[] }) => void;
   onProgress?: (event: { type: "page_fetch_progress"; searched: number }) => void;
 };
@@ -68,6 +70,7 @@ type SourceCard = {
 const TARGET_USABLE_PAGES = 10;
 const MAX_SERP_RESULTS = 30;
 const MAX_RESULTS_PER_DOMAIN = 2;
+const DEFAULT_QUERY_COUNT = 1;
 const FETCH_CONCURRENCY = 12;
 const PAGE_TIMEOUT_MS = 3_000;
 const MAX_PAGE_CHARS = 4_000;
@@ -346,27 +349,112 @@ export async function runWebSearchPipeline(
     };
   }
 
-  const query = buildSearchQuery(trimmedPrompt, options.currentDate);
-  options.onSearchStart?.({ query, queries: [query] });
+  const fallbackQuery = buildSearchQuery(trimmedPrompt, options.currentDate);
+  const queryCount = Math.max(1, options.queryCount ?? DEFAULT_QUERY_COUNT);
+  const location = options.locationName
+    ? { city: options.locationName, countryCode: options.countryCode }
+    : options.countryCode
+      ? { countryCode: options.countryCode }
+      : undefined;
 
-  const serpResponse = await fetchGoogleOrganicSerp({
-    keyword: query,
-    depth: 30,
-    gl: options.countryCode,
-    hl: options.languageCode,
+  console.log("[fast-web-pipeline] invoking query writer", {
+    prompt: trimmedPrompt,
+    fallbackQuery,
+    queryCount,
   });
+  let queryWriterResult: Awaited<ReturnType<typeof writeSearchQueries>> | null = null;
+  try {
+    queryWriterResult = await writeSearchQueries({
+      prompt: trimmedPrompt,
+      count: queryCount,
+      currentDate: options.currentDate,
+      recentMessages: options.recentMessages,
+      location,
+    });
+  } catch (error) {
+    console.warn("[fast-web-pipeline] query writer failed", error);
+  }
+
+  const shouldUseWebSearch = queryWriterResult?.useWebSearch ?? true;
+  const canSkip = options.allowSkip !== false;
+
+  const rawWriterQueries = Array.isArray(queryWriterResult?.queries)
+    ? queryWriterResult.queries
+    : [];
+  const cleanedWriterQueries = rawWriterQueries
+    .map((entry) => (typeof entry === "string" ? entry.trim() : ""))
+    .filter((entry) => entry.length > 0);
+  const queries: string[] = cleanedWriterQueries.slice(0, queryCount);
+  while (queries.length < queryCount) {
+    queries.push(fallbackQuery);
+  }
+
+  console.log("[fast-web-pipeline] query writer result", {
+    shouldUseWebSearch,
+    reason: queryWriterResult?.reason,
+    queries,
+  });
+  if (!shouldUseWebSearch && canSkip) {
+    const reason = queryWriterResult?.reason ?? "Search not needed";
+    console.log("[fast-web-pipeline] skipping search", { reason, queries });
+    return {
+      queries,
+      results: [],
+      chunks: [],
+      sources: [],
+      gate: { enoughEvidence: false },
+      expanded: false,
+      skipped: true,
+      skipReason: reason,
+      timeSensitive: false,
+      reusedPersistentQuery: false,
+      serpCacheHits: 0,
+      pageCacheHits: 0,
+      cost: {
+        serpRequests: 0,
+        serpEstimatedUsd: 0,
+        brightdataUnlockerRequests: 0,
+        brightdataUnlockerEstimatedUsd: BRIGHTDATA_UNLOCKER_COST_USD,
+      },
+    };
+  }
+
+  const queryLabel = queries.join(" | ").trim() || trimmedPrompt;
+  options.onSearchStart?.({ query: queryLabel, queries });
+
+  const allSerpResults: BrightDataOrganicResult[] = [];
+  let serpRequests = 0;
+  for (const query of queries) {
+    const serpResponse = await fetchGoogleOrganicSerp({
+      keyword: query,
+      depth: 30,
+      gl: options.countryCode,
+      hl: options.languageCode,
+    });
+    serpRequests += 1;
+    const count = Array.isArray(serpResponse.results) ? serpResponse.results.length : 0;
+    console.log("[fast-web-pipeline] fetched SERP", { query, serpRequests, results: count });
+    if (Array.isArray(serpResponse.results)) {
+      allSerpResults.push(...serpResponse.results);
+    }
+  }
+  const serpEstimatedUsd = serpRequests * BRIGHTDATA_SERP_COST_USD;
 
   const serpResults = selectSerpResults(
-    serpResponse.results ?? [],
+    allSerpResults,
     MAX_SERP_RESULTS,
     MAX_RESULTS_PER_DOMAIN
   );
-  const serpRequests = serpResults.length ? 1 : 0;
-  const serpEstimatedUsd = serpRequests ? BRIGHTDATA_SERP_COST_USD : 0;
+  console.log("[fast-web-pipeline] SERP selection", {
+    candidateResults: allSerpResults.length,
+    selected: serpResults.length,
+    serpRequests,
+  });
 
   if (!serpResults.length) {
+    console.log("[fast-web-pipeline] no SERP results", { queries });
     return {
-      queries: [query],
+      queries,
       results: [],
       chunks: [],
       sources: [],
@@ -387,7 +475,7 @@ export async function runWebSearchPipeline(
     };
   }
 
-  const queryKeywords = extractKeywords(query);
+  const queryKeywords = extractKeywords(queries.join(" "));
   const collected = await collectSources(serpResults, queryKeywords, options.onProgress);
   const usable = collected.filter((card) => card.status === "ok" && card.text).slice(0, TARGET_USABLE_PAGES);
   const evidenceCards = pickEvidence(usable, MAX_RESULTS_PER_DOMAIN);
@@ -417,9 +505,16 @@ export async function runWebSearchPipeline(
   }
 
   const sources = evidenceCards.map((card) => ({ title: card.title, url: card.url }));
+  console.log("[fast-web-pipeline] returning result", {
+    queries,
+    totalSERPResults: serpResults.length,
+    chunks: chunks.length,
+    serpRequests,
+    serpEstimatedUsd,
+  });
 
   return {
-    queries: [query],
+    queries,
     results: serpResults.map((r) => ({
       url: r.url,
       title: r.title,
