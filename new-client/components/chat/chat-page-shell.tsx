@@ -2080,7 +2080,7 @@ export default function ChatPageShell({
           }
         : undefined;
 
-    const searchControls = searchControlsOverride ?? activeSearchControls;
+    const searchControlsPayload = searchControlsOverride ?? activeSearchControls;
 
     const userMessage: StoredMessage = {
       id: `user-${Date.now()}`,
@@ -2611,7 +2611,7 @@ export default function ChatPageShell({
             skipUserInsert,
             attachments,
             location: locationData,
-            searchControls,
+            searchControls: searchControlsPayload,
             clientNow: Date.now(),
             timezone,
             simpleContextMode: useSimpleContext,
