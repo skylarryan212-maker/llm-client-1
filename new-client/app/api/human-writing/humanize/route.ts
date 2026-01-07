@@ -45,6 +45,19 @@ async function reviewAndOptionallyEdit(params: {
     .withResponse();
 
   const requestId = getOpenAIRequestId(response, raw);
+  const usage = response.usage;
+  if (usage) {
+    console.info("[human-writing][review][cost]", {
+      requestId,
+      totalCost: usage.total_cost,
+      totalTokens: usage.total_tokens,
+      promptTokens: usage.prompt_tokens,
+      completionTokens: usage.completion_tokens,
+    });
+  } else {
+    console.info("[human-writing][review][cost]", { requestId, totalCost: null });
+  }
+
   const rawOutput = response.output_text;
   const outputArray = Array.isArray(rawOutput)
     ? rawOutput

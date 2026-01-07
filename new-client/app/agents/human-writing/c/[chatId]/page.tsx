@@ -662,13 +662,13 @@ function ChatInner({ params }: PageProps) {
     const reviewMessageId = `${runId}-review`;
     setIsHumanizing(true);
     setActiveActionId(actionId);
-    setMessages((prev) => {
-      const next = prev.map((msg) =>
-        msg.id === actionId ? { ...msg, progressLabel: "Running the humanizer..." } : msg
-      );
-      messagesRef.current = next;
-      return next;
-    });
+      setMessages((prev) => {
+        const next = prev.map((msg) =>
+          msg.id === actionId ? { ...msg, progressLabel: "Running the humanizer..." } : msg
+        );
+        messagesRef.current = next;
+        return next;
+      });
 
     try {
       const resolvedModel =
@@ -779,34 +779,38 @@ function ChatInner({ params }: PageProps) {
       } catch (err) {
         console.warn("[human-writing][cta][persist-status] failed", err);
       }
-      } catch (error: any) {
-        const message = error?.message || "Humanizer failed.";
-        setMessages((prev) => {
-          const updated = prev.map((msg) =>
-            msg.id === actionId
-              ? { ...msg, status: "done", progressLabel: "Humanizer failed" }
-              : msg
-          );
-          const next = [
-            ...updated,
-            {
-              id: `humanizer-error-${Date.now()}`,
-              role: "assistant",
-              content: `Humanizer error: ${message}`,
-            },
-          ];
-          messagesRef.current = next;
-          return next;
+    } catch (error: any) {
+      const message = error?.message || "Humanizer failed.";
+      setMessages((prev) => {
+        const next = prev.map((msg) => {
+          if (msg.id === actionId) {
+            const updatedMsg: Message = {
+              ...msg,
+              status: "done",
+              progressLabel: "Humanizer failed",
+            };
+            return updatedMsg;
+          }
+          return msg;
         });
-        setIsAutoScroll(true);
-        setShowScrollToBottom(false);
-        scrollToBottom("smooth");
-      } finally {
-        setIsHumanizing(false);
-        setActiveActionId(null);
-        finalizeHumanizerFlow();
-      }
-    };
+        const errorMessage: Message = {
+          id: `humanizer-error-${Date.now()}`,
+          role: "assistant",
+          content: `Humanizer error: ${message}`,
+        };
+        const combined = [...next, errorMessage];
+        messagesRef.current = combined;
+        return combined;
+      });
+      setIsAutoScroll(true);
+      setShowScrollToBottom(false);
+      scrollToBottom("smooth");
+    } finally {
+      setIsHumanizing(false);
+      setActiveActionId(null);
+      finalizeHumanizerFlow();
+    }
+  };
 
   useEffect(() => {
     if (isSidebarOpen) return;
