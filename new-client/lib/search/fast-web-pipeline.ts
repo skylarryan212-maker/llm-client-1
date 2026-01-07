@@ -72,6 +72,7 @@ type SourceCard = {
   blockedReason?: string | null;
   text: string;
   relevanceScore: number;
+  contentScore?: number;
 };
 
 const DEFAULT_TARGET_USABLE_PAGES = 10;
@@ -93,6 +94,77 @@ const EXCERPT_PRESETS: Record<
 };
 const BRIGHTDATA_SERP_COST_USD = 0.0015;
 const BRIGHTDATA_UNLOCKER_COST_USD = 0;
+
+function isolateMainHtml(html: string): string {
+  const selectors = [
+    /<main[\s\S]*?<\/main>/i,
+    /<article[\s\S]*?<\/article>/i,
+    /<section[\s\S]*?<\/section>/i,
+  ];
+  for (const regex of selectors) {
+    const match = html.match(regex);
+    if (match && match[0].length) {
+      return match[0];
+    }
+  }
+  const contentDiv = html.match(/<div[^>]+(?:content|article|main|body|post)[^>]*>[\s\S]*?<\/div>/i);
+  return contentDiv ? contentDiv[0] : html;
+}
+
+function splitSentences(text: string): string[] {
+  return text
+    .split(/(?<=[.!?])\s+/)
+    .map((sentence) => sentence.trim())
+    .filter(Boolean);
+}
+
+function countOccurrences(text: string, term: string): number {
+  if (!term) return 0;
+  const pattern = new RegExp(term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi");
+  const matches = text.match(pattern);
+  return matches ? matches.length : 0;
+}
+
+function computeSentenceScore(sentence: string, keywords: string[]): number {
+  const text = sentence.toLowerCase();
+  const keywordMatches = keywords.reduce((sum, keyword) => sum + countOccurrences(text, keyword.toLowerCase()), 0);
+  const numericMatches = (sentence.match(/\d+/g) || []).length;
+  return keywordMatches * 2 + numericMatches * 0.5;
+}
+
+function truncateWords(text: string, limit: number): string {
+  const words = text.split(/\s+/).filter(Boolean);
+  if (words.length <= limit) return text;
+  return words.slice(0, limit).join(" ") + "...";
+}
+
+function extractHighValueSentences(
+  text: string,
+  keywords: string[],
+  excerptWords: number
+): string {
+  const sentences = splitSentences(text);
+  const scored = sentences
+    .map((sentence) => ({
+      sentence,
+      score: computeSentenceScore(sentence, keywords),
+    }))
+    .filter((item) => item.score > 0);
+  if (!scored.length) return "";
+  scored.sort((a, b) => b.score - a.score);
+  return truncateWords(scored[0].sentence, excerptWords);
+}
+
+function computeContentScore(text: string, keywords: string[]): number {
+  if (!text.length) return 0;
+  const keywordWeight = keywords.reduce(
+    (sum, keyword) => sum + countOccurrences(text.toLowerCase(), keyword.toLowerCase()),
+    0
+  );
+  const numericDensity = Math.min(1, (text.match(/\d+/g)?.length ?? 0) / 5);
+  const densityScore = Math.min(1, keywordWeight / 5);
+  return Math.min(1, densityScore * 0.7 + numericDensity * 0.3);
+}
 
 const STOPWORDS = new Set([
   "the",
@@ -212,7 +284,8 @@ async function extractPageText(url: string, timeoutMs: number): Promise<string> 
     throw new Error(`Fetch failed: ${response.status}`);
   }
   const html = await response.text();
-  const text = convert(html, {
+  const mainHtml = isolateMainHtml(html);
+  const text = convert(mainHtml || html, {
     wordwrap: false,
     selectors: [
       { selector: "script", format: "skip" },
@@ -313,6 +386,8 @@ async function collectSources(
       cursor += 1;
       if (current >= serpResults.length) return;
       const card = await fetchSourceCard(serpResults[current], queryKeywords);
+      const quality = card.text ? computeContentScore(card.text, queryKeywords) : 0;
+      card.contentScore = quality;
       collected.push(card);
       if (card.status === "ok" && card.text) {
         usableCount += 1;
@@ -329,12 +404,18 @@ async function collectSources(
 function selectEvidenceSources(cards: SourceCard[], serpCount: number, explicitLimit?: number): SourceCard[] {
   const okCards = cards.filter((card) => card.status === "ok" && card.text);
   if (!okCards.length) return [];
-  const sorted = okCards.sort((a, b) => b.relevanceScore - a.relevanceScore);
+  const scored = okCards
+    .map((card) => ({
+      card,
+      combinedScore: card.relevanceScore + (card.contentScore ?? 0) * 20,
+    }))
+    .sort((a, b) => b.combinedScore - a.combinedScore);
   const fallbackLimit = Math.max(1, Math.floor(serpCount / 2) || 1);
+  const candidateCount = scored.length;
   const limit = typeof explicitLimit === "number" && Number.isFinite(explicitLimit)
-    ? Math.max(1, Math.min(sorted.length, explicitLimit))
-    : Math.max(1, Math.min(sorted.length, fallbackLimit));
-  return sorted.slice(0, limit);
+    ? Math.max(1, Math.min(candidateCount, explicitLimit))
+    : Math.max(1, Math.min(candidateCount, fallbackLimit));
+  return scored.slice(0, limit).map((entry) => entry.card);
 }
 
 export async function runWebSearchPipeline(
@@ -519,6 +600,17 @@ export async function runWebSearchPipeline(
 
   const chunks: WebPipelineChunk[] = [];
   for (const card of evidenceCards) {
+    const sentenceExcerpt = extractHighValueSentences(card.text, queryKeywords, excerptWords);
+    if (sentenceExcerpt) {
+      chunks.push({
+        text: sentenceExcerpt,
+        url: card.url,
+        title: card.title,
+        domain: card.domain,
+        score: card.relevanceScore,
+      });
+      continue;
+    }
     const excerptA = makeStartExcerpt(card.text, excerptWords);
     const excerptB = makeKeywordExcerpt(card.text, queryKeywords, excerptWords, keywordWindowWords);
     if (excerptA) {
