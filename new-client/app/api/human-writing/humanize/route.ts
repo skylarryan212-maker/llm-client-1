@@ -110,9 +110,7 @@ export async function POST(request: NextRequest) {
       console.info("[human-writing][humanize][request]", {
         runId,
         taskId,
-        payloadPreview: `${payload.text.slice(0, 400)}${payload.text.length > 400 ? "…" : ""}`,
-        model: payload.model,
-        language: payload.language ?? "auto",
+        payload,
       });
       const humanized = await rephrasyHumanize(payload);
 
