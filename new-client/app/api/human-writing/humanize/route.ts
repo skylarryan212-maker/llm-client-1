@@ -68,7 +68,8 @@ export async function POST(request: NextRequest) {
 
     const text = body.text?.trim();
     const model = body.model?.trim() || "undetectable";
-    const language = body.language?.trim() || "auto";
+    const rawLanguage = body.language?.trim() || "auto";
+    const language = rawLanguage === "auto" ? "English" : rawLanguage;
     const taskId = body.taskId?.trim();
   const runId = `hw-humanize-${taskId || "unknown"}-${Date.now()}`;
 
@@ -103,7 +104,7 @@ export async function POST(request: NextRequest) {
       const payload = {
         text,
         model,
-        language: language === "auto" ? undefined : language,
+        language,
         costs: true,
         words: true,
       };
