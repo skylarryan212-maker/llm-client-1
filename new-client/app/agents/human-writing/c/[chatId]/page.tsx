@@ -691,10 +691,10 @@ function ChatInner({ params }: PageProps) {
       ]
         .filter(Boolean)
         .join(" • ")}_`;
-      setMessages((prev) =>
-        prev.map((msg) => {
+      setMessages((prev) => {
+        const updated = prev.map((msg) => {
           if (msg.id === actionId) {
-            return { ...msg, status: "done" };
+            return { ...msg, status: "done" as const };
           }
           if (msg.id === runId) {
             return {
@@ -703,16 +703,18 @@ function ChatInner({ params }: PageProps) {
             };
           }
           return msg;
-        }).concat([
-          {
-            id: `${runId}-review`,
-            role: "assistant",
-            content: edited
-              ? `**Model review (edits applied)**\n\n${reviewed}${summaryLine}`
-              : `**Model review**\n\nLooks good — no changes needed.${summaryLine}`,
-          },
-        ])
-      );
+        });
+
+        const reviewMessage: Message = {
+          id: `${runId}-review`,
+          role: "assistant",
+          content: edited
+            ? `**Model review (edits applied)**\n\n${reviewed}${summaryLine}`
+            : `**Model review**\n\nLooks good — no changes needed.${summaryLine}`,
+        };
+
+        return [...updated, reviewMessage];
+      });
 
       // Persist CTA state as completed
       try {
