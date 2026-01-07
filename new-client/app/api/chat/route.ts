@@ -2148,7 +2148,6 @@ export async function POST(request: NextRequest) {
     let webPipelinePromise: Promise<WebPipelineResult | null> | null = null;
     let searchStarted = false;
     let numericSourceLimit: number | undefined = undefined;
-    let queryWriterPromise: Promise<QueryWriterResult | null> | null = null;
     const nowForSearch = typeof clientNow === "string" || typeof clientNow === "number"
       ? new Date(clientNow)
       : new Date();
@@ -2222,6 +2221,10 @@ export async function POST(request: NextRequest) {
       );
     }
     const personalizationSettingsPromise = loadPersonalizationSettingsServer(userId);
+
+    // Kick off early query-writer inputs (before billing) using prompt + last 6 + location
+    let queryWriterPromise: Promise<QueryWriterResult | null> | null = null;
+    const forceSpeedMode = Boolean(speedModeEnabled);
 
     const supabase = await supabaseServer();
     const supabaseAny = supabase as any;
@@ -2647,7 +2650,6 @@ export async function POST(request: NextRequest) {
 
     // Validate and normalize model settings with progressive restrictions based on usage
     let modelFamily = normalizeModelFamily(modelFamilyOverride ?? "auto");
-    const forceSpeedMode = Boolean(speedModeEnabled);
     const speedMode = normalizeSpeedMode(speedModeOverride ?? "auto");
     const reasoningEffortHint = reasoningEffortOverride;
     if (forceSpeedMode && modelFamily === "auto") {
