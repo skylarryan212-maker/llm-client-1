@@ -3839,6 +3839,8 @@ export async function POST(request: NextRequest) {
         let customWebSearchDomains: string[] = [];
         let pipelineSkipped = false;
         let searchStarted = false;
+        let webPipelinePromise: Promise<WebPipelineResult | null> | null = null;
+
         if (customWebSearchInput) {
           const numericSourceLimit =
             typeof customWebSearchInput.searchControls?.sourceLimit === "number"
@@ -3849,13 +3851,16 @@ export async function POST(request: NextRequest) {
             excerptMode: customWebSearchInput.searchControls?.excerptMode ?? "auto",
             numericSourceLimit,
           });
-          try {
-            customWebSearchResult = await runWebSearchPipeline(customWebSearchInput.prompt, {
-              recentMessages: customWebSearchInput.recentMessages,
-              currentDate: customWebSearchInput.currentDate,
-              locationName: customWebSearchInput.location?.city ?? effectiveLocation?.city ?? undefined,
-              languageCode: customWebSearchInput.location?.languageCode ?? undefined,
-              countryCode: customWebSearchInput.location?.countryCode ?? undefined,
+          // Kick off the web pipeline immediately in parallel.
+          webPipelinePromise = (async () => {
+            let result: WebPipelineResult | null = null;
+            try {
+              result = await runWebSearchPipeline(customWebSearchInput.prompt, {
+                recentMessages: customWebSearchInput.recentMessages,
+                currentDate: customWebSearchInput.currentDate,
+                locationName: customWebSearchInput.location?.city ?? effectiveLocation?.city ?? undefined,
+                languageCode: customWebSearchInput.location?.languageCode ?? undefined,
+                countryCode: customWebSearchInput.location?.countryCode ?? undefined,
               preferredSourceUrls: customWebSearchInput.preferredSourceUrls,
               resultsPerQueryOverride: numericSourceLimit,
               maxEvidenceSources: numericSourceLimit,
@@ -3866,24 +3871,45 @@ export async function POST(request: NextRequest) {
                 searchStarted = true;
                 sendStatusUpdate({ type: "search-start", query });
               },
-              onProgress: (event) => {
-                if (!searchStarted) {
-                  return;
-                }
-                sendStatusUpdate({ type: "search-progress", count: event.searched });
-              },
-            });
+                onProgress: (event) => {
+                  if (!searchStarted) {
+                    return;
+                  }
+                  sendStatusUpdate({ type: "search-progress", count: event.searched });
+                },
+              });
+              return result;
+            } catch (searchErr) {
+              console.error("[web-pipeline] failed", searchErr);
+              if (searchStarted) {
+                sendStatusUpdate({
+                  type: "search-error",
+                  query: customWebSearchInput.prompt,
+                  message: "Web search failed",
+                });
+              }
+              return null;
+            } finally {
+              if (searchStarted) {
+                const queryLabel =
+                  result?.queries?.join(" | ")?.trim() || customWebSearchInput.prompt;
+                sendStatusUpdate({
+                  type: "search-complete",
+                  query: queryLabel,
+                  results: result?.results?.length ?? 0,
+                });
+              }
+            }
+          })();
+        }
+
+        if (webPipelinePromise) {
+          try {
+            customWebSearchResult = await webPipelinePromise;
             console.log("[web-pipeline] completed for prompt");
           } catch (searchErr) {
             console.error("[web-pipeline] failed", searchErr);
             customWebSearchResult = null;
-            if (searchStarted) {
-              sendStatusUpdate({
-                type: "search-error",
-                query: customWebSearchInput.prompt,
-                message: "Web search failed",
-              });
-            }
           }
           pipelineGate = customWebSearchResult?.gate?.enoughEvidence === true;
           pipelineSkipped = customWebSearchResult?.skipped === true;
