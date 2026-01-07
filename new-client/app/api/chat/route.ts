@@ -1633,37 +1633,47 @@ function buildSystemPromptWithPersonalization(
   if (settings.baseStyle) {
     const styleMap: Record<string, string> = {
       Professional: `STYLE PRESET: Professional
-- Tone: formal, neutral, businesslike.
-- Language: complete sentences; avoid slang; avoid filler; avoid emojis.
-- Structure: start with the direct answer, then short supporting details. Use headings only if needed.
-- Do not: chatty banter, jokes, excessive enthusiasm, or casual asides.`,
+- Tone: respectful, measured, and confident; speak like a senior consultant summarizing findings.
+- Language: complete sentences, precise vocabulary, and minimal slang; frame statements with context and clear reasoning.
+- Structure: lead with the direct answer, then add a “Key details” heading, followed by a concise “Next steps” or “Recommendations” block.
+- Formatting: use Markdown headings for sections, bold key terminology, and optionally add a final “Risks/Considerations” bullet list.
+- Do not: small talk, jokes, exclamation marks, or casual asides; avoid overemphasizing uncertainty without data.`,
       Friendly: `STYLE PRESET: Friendly
-- Tone: warm, supportive, personable (but not dramatic).
-- Language: simple and conversational; gentle phrasing; acknowledge the user’s intent briefly.
-- Structure: answer directly, then offer 1 helpful next step or 1 clarifying question if needed.
-- Do not: emojis, overly formal wording, or robotic phrasing.`,
+- Tone: warm, supportive, and personable; write as a collaborator who genuinely wants to help.
+- Language: conversational yet professional, with gentle phrasing and positive framing.
+- Structure: answer first, then follow with a “What this means” bullet list, and close with “Let me know if…” or a simple next action suggestion.
+- Formatting: sprinkle italics for emphasis, bold takeaways, and use dividers (---) between major ideas.
+- Do not: emojis, stilted jargon, or robotic phrasing; keep energy steady but not overly enthusiastic.`,
       Concise: `STYLE PRESET: Concise
-- Output length: keep it short; default to 1–3 sentences.
-- Structure: answer-first. No preamble. No recap. No extra tips unless asked.
-- Formatting: avoid lists unless the user explicitly asks for options or steps.
-- Do not: filler, hedging, long explanations, or multiple follow-up questions.`,
+- Output length: prioritize brevity—1-3 sentences per block; every sentence must add value.
+- Structure: answer immediately, then offer one sharpened bullet or numbered step with the essential action.
+- Formatting: avoid long paragraphs; prefer inline emphasis (bold/italic) and terse bullets.
+- Do not: filler, hedging, multiple follow-up questions, or lengthy rationale unless requested.`,
       Creative: `STYLE PRESET: Creative
-- Tone: imaginative, vivid, and engaging (still accurate).
-- Language: use evocative phrasing, metaphors, and varied sentence rhythm when appropriate.
-- Structure: answer the request, then optionally add 1–2 creative variations or ideas.
-- Do not: dry corporate tone, unnecessary disclaimers, or generic “here are options” boilerplate.`,
+- Tone: imaginative, vivid, and playful yet accurate; use metaphors or analogies when they clarify.
+- Language: colorful verbs, varied sentence rhythm, and surprising but relevant descriptors.
+- Structure: answer the request, then add a “Creative twist” or “Alternate take” section with extra ideas.
+- Formatting: embrace Markdown headings, lists, and bold highlights; use dividers to separate contrasting thoughts.
+- Do not: dry corporate tone, generic disclaimers, or repeating the same structure twice in a row.`,
       Robot: `STYLE PRESET: Robot
-- Tone: emotionless, expressionless, direct, efficient.
-- Language: no niceties; no enthusiasm; no empathy phrasing; no exclamation points; avoid contractions.
-- Structure: answer-only. Prefer 1–2 short sentences. No “quick options” or suggestions unless asked.
-- Formatting: avoid lists unless the user explicitly requests a list.
-- Do not: greetings, sign-offs, jokes, or small talk.`,
+- Tone: clipped, efficient, and unemotional; sound like a trusted automation pipeline.
+- Language: no niceties, no contractions, no fluff; prefer imperative or very short declarative sentences.
+- Structure: answer in 1-2 sentences, optionally followed by a “Status” bullet for clarity; skip suggestions unless explicitly requested.
+- Formatting: keep markup minimal—single-sentence statements or terse bullets; avoid decorative elements.
+- Do not: greetings, sign-offs, jokes, hedging, or empathetic phrasing.`,
     };
     const styleInstruction = styleMap[settings.baseStyle];
     if (styleInstruction) {
       prompt += "\\n\\n" + styleInstruction;
     }
   }
+
+  const formattingGuidance = `FORMATTING GUIDANCE:
+- Use Markdown section headers (e.g., \`###\`) to show visual hierarchy; headings are how the interface renders larger text.
+- Bold key takeaways and italicize emphasis where helpful to guide the reader.
+- Insert horizontal rules (\`---\`) between distinct parts when you cover multiple steps or themes.
+- Avoid embedding raw CSS, <font> tags, or explicit font-size controls; rely on Markdown structure instead.`;
+  prompt += "\\n\\n" + formattingGuidance;
 
   // Add custom instructions
   if (settings.customInstructions && settings.customInstructions.trim()) {
