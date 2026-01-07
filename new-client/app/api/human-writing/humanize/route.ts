@@ -45,14 +45,14 @@ async function reviewAndOptionallyEdit(params: {
     .withResponse();
 
   const requestId = getOpenAIRequestId(response, raw);
-  const usage = response.usage;
+  const usage = response.usage as any;
   if (usage) {
     console.info("[human-writing][review][cost]", {
       requestId,
-      totalCost: usage.total_cost,
-      totalTokens: usage.total_tokens,
-      promptTokens: usage.prompt_tokens,
-      completionTokens: usage.completion_tokens,
+      totalCost: usage.total_cost ?? usage.totalCost ?? null,
+      totalTokens: usage.total_tokens ?? usage.totalTokens ?? null,
+      promptTokens: usage.prompt_tokens ?? usage.promptTokens ?? null,
+      completionTokens: usage.completion_tokens ?? usage.completionTokens ?? null,
     });
   } else {
     console.info("[human-writing][review][cost]", { requestId, totalCost: null });
@@ -127,6 +127,18 @@ export async function POST(request: NextRequest) {
         payload,
       });
       const humanized = await rephrasyHumanize(payload);
+
+      // Log Rephrasy cost if present
+      const humanizeCosts = (humanized.raw as any)?.costs ?? (humanized.raw as any)?.cost ?? null;
+      if (humanizeCosts) {
+        console.info("[human-writing][humanize][cost]", {
+          runId,
+          taskId,
+          model,
+          language,
+          costs: humanizeCosts,
+        });
+      }
 
       let finalDraft = humanized.output;
       let edited = false;
