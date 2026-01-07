@@ -55,8 +55,8 @@ type PipelineOptions = {
   targetUsablePages?: number;
   resultsPerQueryOverride?: number;
   excerptMode?: "snippets" | "balanced" | "rich" | "auto";
-  excerptWords?: number;
-  keywordWindowWords?: number;
+  chunkWords?: number;
+  chunkCount?: number;
   onSearchStart?: (event: { query: string; queries: string[] }) => void;
   onProgress?: (event: { type: "page_fetch_progress"; searched: number }) => void;
   precomputedQueryResult?: QueryWriterResult | null;
@@ -82,15 +82,15 @@ const FETCH_CONCURRENCY = 12;
 const SERP_RESULTS_UNIT = 10;
 const PAGE_TIMEOUT_MS = 3_000;
 const MAX_PAGE_CHARS = 4_000;
-const DEFAULT_EXCERPT_WORDS = 400;
-const DEFAULT_KEYWORD_WINDOW_WORDS = 120;
-const EXCERPT_PRESETS: Record<
+const DEFAULT_CHUNK_WORDS = 1000;
+const DEFAULT_CHUNK_COUNT = 1;
+const CHUNK_PRESETS: Record<
   "snippets" | "balanced" | "rich",
-  { excerptWords: number; keywordWindowWords: number }
+  { chunkWords: number; chunkCount: number }
 > = {
-  snippets: { excerptWords: 220, keywordWindowWords: 80 },
-  balanced: { excerptWords: 400, keywordWindowWords: 120 },
-  rich: { excerptWords: 1500, keywordWindowWords: 180 },
+  snippets: { chunkWords: 1000, chunkCount: 1 },
+  balanced: { chunkWords: 1000, chunkCount: 2 },
+  rich: { chunkWords: 1000, chunkCount: 4 },
 };
 const BRIGHTDATA_SERP_COST_USD = 0.0015;
 const BRIGHTDATA_UNLOCKER_COST_USD = 0;
@@ -111,48 +111,11 @@ function isolateMainHtml(html: string): string {
   return contentDiv ? contentDiv[0] : html;
 }
 
-function splitSentences(text: string): string[] {
-  return text
-    .split(/(?<=[.!?])\s+/)
-    .map((sentence) => sentence.trim())
-    .filter(Boolean);
-}
-
 function countOccurrences(text: string, term: string): number {
   if (!term) return 0;
   const pattern = new RegExp(term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi");
   const matches = text.match(pattern);
   return matches ? matches.length : 0;
-}
-
-function computeSentenceScore(sentence: string, keywords: string[]): number {
-  const text = sentence.toLowerCase();
-  const keywordMatches = keywords.reduce((sum, keyword) => sum + countOccurrences(text, keyword.toLowerCase()), 0);
-  const numericMatches = (sentence.match(/\d+/g) || []).length;
-  return keywordMatches * 2 + numericMatches * 0.5;
-}
-
-function truncateWords(text: string, limit: number): string {
-  const words = text.split(/\s+/).filter(Boolean);
-  if (words.length <= limit) return text;
-  return words.slice(0, limit).join(" ") + "...";
-}
-
-function extractHighValueSentences(
-  text: string,
-  keywords: string[],
-  excerptWords: number
-): string {
-  const sentences = splitSentences(text);
-  const scored = sentences
-    .map((sentence) => ({
-      sentence,
-      score: computeSentenceScore(sentence, keywords),
-    }))
-    .filter((item) => item.score > 0);
-  if (!scored.length) return "";
-  scored.sort((a, b) => b.score - a.score);
-  return truncateWords(scored[0].sentence, excerptWords);
 }
 
 function computeContentScore(text: string, keywords: string[]): number {
@@ -239,33 +202,22 @@ function truncateText(text: string, maxChars: number): string {
   return text.slice(0, maxChars);
 }
 
-function makeStartExcerpt(text: string, excerptWords: number): string {
-  const words = text.split(/\s+/).filter(Boolean);
-  return words.slice(0, excerptWords).join(" ");
-}
-
-function makeKeywordExcerpt(text: string, keywords: string[], excerptWords: number, keywordWindowWords: number): string {
-  if (!keywords.length) {
-    return makeStartExcerpt(text, excerptWords);
+function sliceTextIntoChunks(text: string, chunkWords: number, chunkCount: number): string[] {
+  if (!text || chunkWords <= 0 || chunkCount <= 0) return [];
+  const cleaned = normalizeWhitespace(text);
+  if (!cleaned) return [];
+  const words = cleaned.split(/\s+/).filter(Boolean);
+  if (!words.length) return [];
+  const totalWords = words.length;
+  const chunks: string[] = [];
+  for (let i = 0; i < chunkCount; i++) {
+    const start = i * chunkWords;
+    if (start >= totalWords) break;
+    const sliceWords = words.slice(start, Math.min(start + chunkWords, totalWords));
+    if (!sliceWords.length) break;
+    chunks.push(sliceWords.join(" "));
   }
-  const words = text.split(/\s+/).filter(Boolean);
-  if (!words.length) return "";
-  const lowerWords = words.map((w) => w.toLowerCase());
-  const windowSize = Math.min(keywordWindowWords, words.length);
-  let bestScore = -1;
-  let bestStart = 0;
-
-  for (let i = 0; i <= lowerWords.length - windowSize; i++) {
-    const window = lowerWords.slice(i, i + windowSize);
-    const matchCount = window.reduce((count, word) => count + (keywords.includes(word) ? 1 : 0), 0);
-    if (matchCount > bestScore) {
-      bestScore = matchCount;
-      bestStart = i;
-    }
-  }
-
-  const start = Math.max(0, bestStart - Math.floor((excerptWords - windowSize) / 2));
-  return words.slice(start, start + excerptWords).join(" ");
+  return chunks;
 }
 
 async function fetchWithTimeout(url: string, timeoutMs: number): Promise<Response> {
@@ -488,10 +440,9 @@ export async function runWebSearchPipeline(
     options.excerptMode === "auto" || typeof options.excerptMode === "undefined"
       ? queryWriterResult?.excerptMode ?? "balanced"
       : options.excerptMode;
-  const excerptPreset = EXCERPT_PRESETS[resolvedExcerptMode ?? "balanced"] ?? EXCERPT_PRESETS.balanced;
-  const excerptWords = options.excerptWords ?? excerptPreset.excerptWords ?? DEFAULT_EXCERPT_WORDS;
-  const keywordWindowWords =
-    options.keywordWindowWords ?? excerptPreset.keywordWindowWords ?? DEFAULT_KEYWORD_WINDOW_WORDS;
+  const chunkPreset = CHUNK_PRESETS[resolvedExcerptMode ?? "balanced"] ?? CHUNK_PRESETS.balanced;
+  const chunkWords = options.chunkWords ?? chunkPreset.chunkWords ?? DEFAULT_CHUNK_WORDS;
+  const chunkCount = options.chunkCount ?? chunkPreset.chunkCount ?? DEFAULT_CHUNK_COUNT;
   const explicitEvidenceLimit = options.maxEvidenceSources;
   const targetUsablePages = Math.max(
     1,
@@ -507,6 +458,8 @@ export async function runWebSearchPipeline(
     resolvedExcerptMode,
     explicitEvidenceLimit,
     targetUsablePages,
+    chunkWords,
+    chunkCount,
   });
   if (!shouldUseWebSearch && canSkip) {
     const reason = queryWriterResult?.reason ?? "Search not needed";
@@ -600,31 +553,11 @@ export async function runWebSearchPipeline(
 
   const chunks: WebPipelineChunk[] = [];
   for (const card of evidenceCards) {
-    const sentenceExcerpt = extractHighValueSentences(card.text, queryKeywords, excerptWords);
-    if (sentenceExcerpt) {
+    const chunkTexts = sliceTextIntoChunks(card.text, chunkWords, chunkCount);
+    for (const chunkText of chunkTexts) {
+      if (!chunkText) continue;
       chunks.push({
-        text: sentenceExcerpt,
-        url: card.url,
-        title: card.title,
-        domain: card.domain,
-        score: card.relevanceScore,
-      });
-      continue;
-    }
-    const excerptA = makeStartExcerpt(card.text, excerptWords);
-    const excerptB = makeKeywordExcerpt(card.text, queryKeywords, excerptWords, keywordWindowWords);
-    if (excerptA) {
-      chunks.push({
-        text: excerptA,
-        url: card.url,
-        title: card.title,
-        domain: card.domain,
-        score: card.relevanceScore,
-      });
-    }
-    if (excerptB) {
-      chunks.push({
-        text: excerptB,
+        text: chunkText,
         url: card.url,
         title: card.title,
         domain: card.domain,
