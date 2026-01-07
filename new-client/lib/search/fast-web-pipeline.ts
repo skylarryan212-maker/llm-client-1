@@ -90,7 +90,7 @@ const EXCERPT_PRESETS: Record<
 > = {
   snippets: { excerptWords: 220, keywordWindowWords: 80 },
   balanced: { excerptWords: 400, keywordWindowWords: 120 },
-  rich: { excerptWords: 650, keywordWindowWords: 180 },
+  rich: { excerptWords: 1500, keywordWindowWords: 180 },
 };
 const BRIGHTDATA_SERP_COST_USD = 0.0015;
 const BRIGHTDATA_UNLOCKER_COST_USD = 0;
