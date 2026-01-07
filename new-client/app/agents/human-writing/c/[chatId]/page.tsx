@@ -32,6 +32,13 @@ type HumanizerSettings = {
   customStyleId?: string;
 };
 
+type TimelineStatus = "pending" | "active" | "done" | "error";
+type TimelineItem = {
+  id: "humanizing" | "reviewing" | "patches" | "done";
+  label: string;
+  status: TimelineStatus;
+};
+
 const baseBottomSpacerPx = 28;
 
 function ChatInner({ params }: PageProps) {
@@ -49,6 +56,7 @@ function ChatInner({ params }: PageProps) {
   const [isHumanizing, setIsHumanizing] = useState(false);
   const [activeActionId, setActiveActionId] = useState<string | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [timelineItems, setTimelineItems] = useState<TimelineItem[]>([]);
   const sidebarDismissedRef = useRef(false);
   const [humanizerSettings, setHumanizerSettings] = useState<HumanizerSettings>({
     model: "undetectable",
@@ -658,17 +666,23 @@ function ChatInner({ params }: PageProps) {
     if (!draftText || isHumanizing) return;
 
     sidebarDismissedRef.current = false;
+    setIsSidebarOpen(true);
+    setTimelineItems([
+      { id: "humanizing", label: "Humanizing…", status: "active" },
+      { id: "reviewing", label: "Reviewing…", status: "pending" },
+      { id: "patches", label: "Applying minimal patches…", status: "pending" },
+      { id: "done", label: "Done!", status: "pending" },
+    ]);
     const runId = `humanize-${Date.now()}`;
-    const reviewMessageId = `${runId}-review`;
     setIsHumanizing(true);
     setActiveActionId(actionId);
-      setMessages((prev) => {
-        const next = prev.map((msg) =>
-          msg.id === actionId ? { ...msg, progressLabel: "Running the humanizer..." } : msg
-        );
-        messagesRef.current = next;
-        return next;
-      });
+    setMessages((prev) => {
+      const next = prev.map((msg) =>
+        msg.id === actionId ? { ...msg, progressLabel: "Running the humanizer..." } : msg
+      );
+      messagesRef.current = next;
+      return next;
+    });
 
     try {
       const resolvedModel =
@@ -707,59 +721,75 @@ function ChatInner({ params }: PageProps) {
       ]
         .filter(Boolean)
         .join(" • ")}_`;
-      const reviewContent = edited
-        ? `**Model review (edits applied)**\n\n${reviewed}${summaryLine}`
-        : `**Model review**\n\nLooks good — no changes needed.${summaryLine}`;
       const label = edited ? "Review applied" : "Review looks good";
 
+      setTimelineItems((prev) =>
+        prev.map((item) =>
+          item.id === "humanizing"
+            ? { ...item, status: "done" }
+            : item.id === "reviewing"
+              ? { ...item, status: "active" }
+              : item
+        )
+      );
+
+      // Only show the final text in the chat window
+      const finalText = edited ? reviewed : humanized;
       setMessages((prev) => {
-        const updated = prev.map((msg) =>
-          msg.id === actionId ? { ...msg, progressLabel: "Checking the draft..." } : msg
+        const next = prev.map((msg) =>
+          msg.id === actionId
+            ? { ...msg, status: "done" as const, progressLabel: label }
+            : msg
         );
-        const humanizedMessage: Message = {
+        const finalMessage: Message = {
           id: runId,
           role: "assistant",
-          content: `**Humanized draft**\n\n${humanized}`,
+          content: `**Humanized draft**\n\n${finalText}`,
         };
-        const reviewPlaceholder: Message = {
-          id: reviewMessageId,
-          role: "assistant",
-          content: "Checking the draft...",
-        };
-        const next = [...updated, humanizedMessage, reviewPlaceholder];
-        messagesRef.current = next;
-        return next;
+        const combined = [...next, finalMessage];
+        messagesRef.current = combined;
+        return combined;
       });
       setIsAutoScroll(true);
       setShowScrollToBottom(false);
       scrollToBottom("smooth");
 
-      const applyReviewUpdate = () => {
-        setMessages((prev) => {
-          const next = prev.map((msg) => {
-            if (msg.id === reviewMessageId) {
-              return { ...msg, content: reviewContent };
-            }
-            if (msg.id === actionId) {
-              return {
-                ...msg,
-                status: "done" as const,
-                progressLabel: label,
-              };
-            }
-            return msg;
-          });
-          messagesRef.current = next;
-          return next;
+      // Update timeline for review and patches if edits were applied
+      setTimelineItems((prev) => {
+        const base = prev.map((item) => {
+          if (item.id === "humanizing") return { ...item, status: "done" };
+          if (item.id === "reviewing") return { ...item, status: "done" };
+          return item;
         });
-        setIsAutoScroll(true);
-        setShowScrollToBottom(false);
-        scrollToBottom("smooth");
-      };
 
-      setTimeout(() => {
-        applyReviewUpdate();
-      }, 180);
+        if (edited) {
+          const withoutDone = base.filter((item) => item.id !== "done");
+          return [
+            ...withoutDone,
+            { id: "patches", label: "Applying minimal patches…", status: "active" },
+            { id: "done", label: "Done!", status: "pending" },
+          ];
+        }
+
+        return base.map((item) => {
+          if (item.id === "patches") return { ...item, status: "done" };
+          if (item.id === "done") return { ...item, status: "done" };
+          return item;
+        });
+      });
+
+      // Finalize timeline completion
+      if (edited) {
+        setTimeout(() => {
+          setTimelineItems((prev) =>
+            prev.map((item) => {
+              if (item.id === "patches") return { ...item, status: "done" };
+              if (item.id === "done") return { ...item, status: "done" };
+              return item;
+            })
+          );
+        }, 140);
+      }
 
       // Persist CTA state as completed
       try {
@@ -802,6 +832,15 @@ function ChatInner({ params }: PageProps) {
         messagesRef.current = combined;
         return combined;
       });
+      setTimelineItems((prev) =>
+        prev.map((item) =>
+          item.id === "humanizing"
+            ? { ...item, status: "error" }
+            : item.id === "reviewing" || item.id === "patches" || item.id === "done"
+              ? { ...item, status: "pending" }
+              : item
+        )
+      );
       setIsAutoScroll(true);
       setShowScrollToBottom(false);
       scrollToBottom("smooth");
@@ -921,8 +960,8 @@ function ChatInner({ params }: PageProps) {
           <aside className="hidden w-[380px] flex-none flex-col border-l border-white/10 bg-black/50 px-5 py-6 text-white/60 shadow-[0_12px_40px_rgba(0,0,0,0.45)] animate-[hw-sidebar-in_260ms_cubic-bezier(0.16,1,0.3,1)] md:flex">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <div className="text-xs uppercase tracking-[0.25em] text-white/35">Sidebar</div>
-                <p className="text-sm text-white/70">Placeholder — coming soon</p>
+                <div className="text-xs uppercase tracking-[0.25em] text-white/35">Status</div>
+                <p className="text-sm text-white/80">Humanizer timeline</p>
               </div>
               <Button
                 variant="ghost"
@@ -936,7 +975,50 @@ function ChatInner({ params }: PageProps) {
                 <X className="h-4 w-4" />
               </Button>
             </div>
-            <div className="mt-4 flex-1 rounded-xl border border-dashed border-white/10 bg-white/5" />
+            <div className="mt-4 flex-1 rounded-xl border border-white/10 bg-white/5 px-4 py-3">
+              {timelineItems.length === 0 ? (
+                <p className="text-sm text-white/60">Waiting for a run to start…</p>
+              ) : (
+                <div className="space-y-3">
+                  {timelineItems.map((item) => {
+                    const isDone = item.status === "done";
+                    const isActive = item.status === "active";
+                    const isError = item.status === "error";
+                    const dotClass = isDone
+                      ? "bg-emerald-400"
+                      : isError
+                        ? "bg-rose-400"
+                        : isActive
+                          ? "bg-amber-300 animate-pulse"
+                          : "bg-white/30";
+                    const textClass = isDone
+                      ? "text-emerald-200"
+                      : isError
+                        ? "text-rose-200"
+                        : isActive
+                          ? "text-white"
+                          : "text-white/60";
+                    return (
+                      <div key={item.id} className="flex items-start gap-3">
+                        <span className={`mt-1 h-2.5 w-2.5 rounded-full ${dotClass}`} />
+                        <div className={`text-sm ${textClass}`}>
+                          <div className="font-semibold">{item.label}</div>
+                          <div className="text-xs text-white/50">
+                            {isDone
+                              ? "Completed"
+                              : isError
+                                ? "Failed"
+                                : isActive
+                                  ? "In progress"
+                                  : "Pending"}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           </aside>
         )}
       </div>
