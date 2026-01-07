@@ -659,16 +659,13 @@ function ChatInner({ params }: PageProps) {
 
     sidebarDismissedRef.current = false;
     const runId = `humanize-${Date.now()}`;
+    const reviewMessageId = `${runId}-review`;
     setIsHumanizing(true);
     setActiveActionId(actionId);
     setMessages((prev) => {
-      const updated = prev.map((msg) =>
+      const next = prev.map((msg) =>
         msg.id === actionId ? { ...msg, progressLabel: "Running the humanizer..." } : msg
       );
-      const next: Message[] = [
-        ...updated,
-        { id: runId, role: "assistant", content: "Running Rephrasy Humanizer..." },
-      ];
       messagesRef.current = next;
       return next;
     });
@@ -698,48 +695,100 @@ function ChatInner({ params }: PageProps) {
         typeof data?.humanized === "string" && data.humanized.trim().length
           ? data.humanized
           : (data?.output as string) || "Humanizer returned no output.";
-      const reviewed =
-        typeof data?.reviewed === "string" && data.reviewed.trim().length
-          ? data.reviewed
-          : humanized;
-      const edited = Boolean(data?.edited);
-      const summaryLine = `\n\n_${[
-        edited ? "Model review applied" : "Model review: no changes",
-        resolvedModel ? `Model: ${resolvedModel}` : null,
-        humanizerSettings.language ? `Language: ${humanizerSettings.language}` : null,
-      ]
-        .filter(Boolean)
-        .join(" • ")}_`;
+
       setMessages((prev) => {
-        const updated = prev.map((msg) => {
-          if (msg.id === actionId) {
-            return {
-              ...msg,
-              status: "done" as const,
-              progressLabel: "Reviewing the draft...",
-            };
-          }
-          if (msg.id === runId) {
-            return {
-              ...msg,
-              content: `**Humanized draft**\n\n${humanized}`,
-            };
-          }
-          return msg;
-        });
-
-        const reviewMessage: Message = {
-          id: `${runId}-review`,
+        const updated = prev.map((msg) =>
+          msg.id === actionId ? { ...msg, progressLabel: "Checking the draft..." } : msg
+        );
+        const humanizedMessage: Message = {
+          id: runId,
           role: "assistant",
-          content: edited
-            ? `**Model review (edits applied)**\n\n${reviewed}${summaryLine}`
-            : `**Model review**\n\nLooks good — no changes needed.${summaryLine}`,
+          content: `**Humanized draft**\n\n${humanized}`,
         };
-
-        const next = [...updated, reviewMessage];
+        const reviewPlaceholder: Message = {
+          id: reviewMessageId,
+          role: "assistant",
+          content: "Checking the draft...",
+        };
+        const next = [...updated, humanizedMessage, reviewPlaceholder];
         messagesRef.current = next;
         return next;
       });
+      setIsAutoScroll(true);
+      setShowScrollToBottom(false);
+      scrollToBottom("smooth");
+
+      let reviewed = humanized;
+      let edited = false;
+      let summaryLine = "";
+      let reviewError: string | null = null;
+      try {
+        const review = await reviewAndOptionallyEdit({
+          humanizedText: humanized,
+          originalText: draftText,
+        });
+        reviewed = review.finalText;
+        edited = review.edited;
+        summaryLine = `\n\n_${[
+          edited ? "Model review applied" : "Model review: no changes",
+          resolvedModel ? `Model: ${resolvedModel}` : null,
+          humanizerSettings.language ? `Language: ${humanizerSettings.language}` : null,
+        ]
+          .filter(Boolean)
+          .join(" • ")}_`;
+      } catch (reviewErr: any) {
+        console.warn("[human-writing][humanize][review_failed]", {
+          runId,
+          taskId,
+          message: reviewErr?.message,
+        });
+        reviewError = reviewErr?.message || "Review failed";
+      }
+
+      if (reviewError) {
+        setMessages((prev) => {
+          const next = prev.map((msg) => {
+            if (msg.id === reviewMessageId) {
+              return { ...msg, content: `Review error: ${reviewError}` };
+            }
+            if (msg.id === actionId) {
+              return {
+                ...msg,
+                status: "done" as const,
+                progressLabel: "Review failed",
+              };
+            }
+            return msg;
+          });
+          messagesRef.current = next;
+          return next;
+        });
+      } else {
+        const reviewContent = edited
+          ? `**Model review (edits applied)**\n\n${reviewed}${summaryLine}`
+          : `**Model review**\n\nLooks good — no changes needed.${summaryLine}`;
+        const label = edited ? "Review applied" : "Review looks good";
+        setMessages((prev) => {
+          const next = prev.map((msg) => {
+            if (msg.id === reviewMessageId) {
+              return { ...msg, content: reviewContent };
+            }
+            if (msg.id === actionId) {
+              return {
+                ...msg,
+                status: "done" as const,
+                progressLabel: label,
+              };
+            }
+            return msg;
+          });
+          messagesRef.current = next;
+          return next;
+        });
+      }
+      setIsAutoScroll(true);
+      setShowScrollToBottom(false);
+      scrollToBottom("smooth");
 
       // Persist CTA state as completed
       try {
@@ -761,23 +810,29 @@ function ChatInner({ params }: PageProps) {
       }
     } catch (error: any) {
       const message = error?.message || "Humanizer failed.";
-      setMessages((prev) =>
-        prev.map((msg) =>
-          msg.id === runId ? { ...msg, content: `Humanizer error: ${message}` } : msg
-        )
-      );
+      setMessages((prev) => {
+        const updated = prev.map((msg) =>
+          msg.id === actionId
+            ? { ...msg, status: "done", progressLabel: "Humanizer failed" }
+            : msg
+        );
+        const next = [
+          ...updated,
+          {
+            id: `humanizer-error-${Date.now()}`,
+            role: "assistant",
+            content: `Humanizer error: ${message}`,
+          },
+        ];
+        messagesRef.current = next;
+        return next;
+      });
+      setIsAutoScroll(true);
+      setShowScrollToBottom(false);
+      scrollToBottom("smooth");
     } finally {
       setIsHumanizing(false);
       setActiveActionId(null);
-      messagesRef.current = messagesRef.current.map((m) =>
-        m.id === actionId
-          ? {
-              ...m,
-              status: "done",
-              progressLabel: m.progressLabel || "Reviewing the draft...",
-            }
-          : m
-      );
       finalizeHumanizerFlow();
     }
   };
