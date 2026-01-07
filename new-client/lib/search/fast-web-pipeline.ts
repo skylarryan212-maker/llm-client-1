@@ -81,7 +81,6 @@ const DEFAULT_QUERY_COUNT = 1;
 const FETCH_CONCURRENCY = 12;
 const SERP_RESULTS_UNIT = 10;
 const PAGE_TIMEOUT_MS = 3_000;
-const MAX_PAGE_CHARS = 4_000;
 const DEFAULT_CHUNK_WORDS = 1000;
 const DEFAULT_CHUNK_COUNT = 1;
 const CHUNK_PRESETS: Record<
@@ -197,11 +196,6 @@ function computeRelevanceScore(title: string, text: string, queryKeywords: strin
   return score;
 }
 
-function truncateText(text: string, maxChars: number): string {
-  if (text.length <= maxChars) return text;
-  return text.slice(0, maxChars);
-}
-
 function sliceTextIntoChunks(text: string, chunkWords: number, chunkCount: number): string[] {
   if (!text || chunkWords <= 0 || chunkCount <= 0) return [];
   const cleaned = normalizeWhitespace(text);
@@ -245,7 +239,7 @@ async function extractPageText(url: string, timeoutMs: number): Promise<string> 
       { selector: "noscript", format: "skip" },
     ],
   });
-  return truncateText(normalizeWhitespace(text), MAX_PAGE_CHARS);
+  return normalizeWhitespace(text);
 }
 
 function detectBlockReason(text: string): string | null {
