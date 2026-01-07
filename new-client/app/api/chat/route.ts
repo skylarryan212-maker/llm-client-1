@@ -2555,12 +2555,15 @@ export async function POST(request: NextRequest) {
         const normalizedExternalChatIds = Array.isArray(simpleContextExternalChatIds)
           ? simpleContextExternalChatIds.filter((id) => typeof id === "string")
           : undefined;
-        const includeExternalChats = false;
+        const includeExternalChats =
+          typeof normalizedExternalChatIds !== "undefined"
+            ? true
+            : Boolean(personalizationSettings?.referenceChatHistory);
         return buildSimpleContextMessages(
           supabaseAny,
           conversationId,
           userId,
-          includeExternalChats && Boolean(personalizationSettings?.referenceChatHistory),
+          includeExternalChats,
           normalizedExternalChatIds,
           CONTEXT_LIMIT_TOKENS
         );
