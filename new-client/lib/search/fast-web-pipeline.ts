@@ -354,7 +354,6 @@ export async function runWebSearchPipeline(
     };
   }
 
-  const fallbackQuery = buildSearchQuery(trimmedPrompt, options.currentDate);
   const queryCount = Math.max(1, options.queryCount ?? DEFAULT_QUERY_COUNT);
   const location = options.locationName
     ? { city: options.locationName, countryCode: options.countryCode }
@@ -364,8 +363,8 @@ export async function runWebSearchPipeline(
 
   console.log("[fast-web-pipeline] invoking query writer", {
     prompt: trimmedPrompt,
-    fallbackQuery,
     queryCount,
+    recentMessages: options.recentMessages?.length ?? 0,
   });
   let queryWriterResult: Awaited<ReturnType<typeof writeSearchQueries>> | null = null;
   try {
@@ -391,7 +390,7 @@ export async function runWebSearchPipeline(
     .filter((entry) => entry.length > 0);
   const queries: string[] = cleanedWriterQueries.slice(0, queryCount);
   while (queries.length < queryCount) {
-    queries.push(fallbackQuery);
+    queries.push(trimmedPrompt);
   }
 
   const requestedResultCount = queryWriterResult?.resultCount === 20 ? 20 : 10;
