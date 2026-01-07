@@ -2222,7 +2222,7 @@ export async function POST(request: NextRequest) {
     }
     const personalizationSettingsPromise = loadPersonalizationSettingsServer(userId);
 
-    // Kick off early query-writer inputs (before billing) using prompt + last 6 + location
+    // Reserve a query-writer promise slot; the actual work starts after billing validation.
     let queryWriterPromise: Promise<QueryWriterResult | null> | null = null;
     const forceSpeedMode = Boolean(speedModeEnabled);
 
@@ -2247,26 +2247,7 @@ export async function POST(request: NextRequest) {
 
     const effectiveSimpleContextMode = forceSpeedMode ? true : simpleContextMode;
     const effectiveAdvancedContextTopicIds = forceSpeedMode ? [] : advancedContextTopicIds;
-
-    // Kick off simple context in parallel (only needs personalization + supabase + user/conversation ids)
-    const simpleContextPromise =
-      effectiveSimpleContextMode && personalizationSettingsPromise
-        ? (async () => {
-            const personalizationSettings = await personalizationSettingsPromise;
-            const normalizedExternalChatIds = Array.isArray(simpleContextExternalChatIds)
-              ? simpleContextExternalChatIds.filter((id) => typeof id === "string")
-              : undefined;
-            const includeExternalChats = false;
-            return buildSimpleContextMessages(
-              supabaseAny,
-              conversationId,
-              userId,
-              includeExternalChats && Boolean(personalizationSettings?.referenceChatHistory),
-              normalizedExternalChatIds,
-              CONTEXT_LIMIT_TOKENS
-            );
-          })()
-        : null;
+    let simpleContextPromise: Promise<any> | null = null;
 
     const conversation = conversationData as ConversationRow;
     const abortSignal = request.signal;
@@ -2497,136 +2478,6 @@ export async function POST(request: NextRequest) {
         ? recentMessages.filter((m: MessageRow) => m.id !== userMessageRow?.id)
         : [];
 
-      if (useCustomWebSearch && trimmedMessage) {
-        const recentMessagesForSearch = (recentMessagesForRouting || [])
-          .slice(-6)
-          .map((m: any) => ({
-            role: (m.role as "user" | "assistant" | "system") ?? "user",
-            content: m.content ?? "",
-          }));
-        const acceptLanguage = request.headers.get("accept-language") || "";
-        const primaryLang = acceptLanguage.split(",")[0]?.split("-")[0]?.toLowerCase() || "en";
-        const countryCode =
-          effectiveLocation?.countryCode?.toLowerCase() ||
-          headerGeo.location?.countryCode?.toLowerCase() ||
-          (request.headers.get("x-vercel-ip-country") || request.headers.get("cf-ipcountry") || "").toLowerCase() ||
-          undefined;
-        let preferredSourceUrls: string[] = [];
-        const { data: lastAssistantMeta } = await supabaseAny
-          .from("messages")
-          .select("metadata")
-          .eq("conversation_id", conversationId)
-          .eq("role", "assistant")
-          .order("created_at", { ascending: false })
-          .limit(1)
-          .maybeSingle();
-        const lastMeta = (lastAssistantMeta?.metadata || null) as AssistantMessageMetadata | null;
-        if (lastMeta?.webSearchSources && Array.isArray(lastMeta.webSearchSources)) {
-          const seen = new Set<string>();
-          preferredSourceUrls = lastMeta.webSearchSources
-            .map((s) => (typeof s?.url === "string" ? s.url.trim() : ""))
-            .filter((u) => {
-              if (!u) return false;
-              const key = u.toLowerCase();
-              if (seen.has(key)) return false;
-              seen.add(key);
-              return true;
-            });
-        }
-        customWebSearchInput = {
-          prompt: trimmedMessage,
-          recentMessages: recentMessagesForSearch,
-          currentDate: currentDateForSearch,
-          location: {
-            city: effectiveLocation?.city,
-        countryCode: countryCode ? countryCode.toLowerCase() : undefined,
-          languageCode: primaryLang || undefined,
-          },
-          preferredSourceUrls,
-          searchControls,
-        };
-        numericSourceLimit =
-          typeof customWebSearchInput.searchControls?.sourceLimit === "number"
-            ? customWebSearchInput.searchControls.sourceLimit
-            : undefined;
-        // Kick off query writer immediately; we'll reuse the result when running the pipeline later.
-        queryWriterPromise = writeSearchQueries({
-          prompt: customWebSearchInput.prompt,
-          count: Math.max(1, customWebSearchInput?.recentMessages?.length ? 1 : 1),
-          currentDate: customWebSearchInput.currentDate,
-          recentMessages: customWebSearchInput.recentMessages,
-          location: {
-            city: customWebSearchInput.location?.city,
-            countryCode: customWebSearchInput.location?.countryCode,
-          },
-        }).catch(() => null);
-
-        // Kick off the web pipeline immediately in parallel.
-        console.log("[chatApi] search controls received", {
-          sourceLimit: customWebSearchInput.searchControls?.sourceLimit ?? "auto",
-          excerptMode: customWebSearchInput.searchControls?.excerptMode ?? "auto",
-          numericSourceLimit,
-        });
-        webPipelinePromise = (async () => {
-          let result: WebPipelineResult | null = null;
-          let queryWriterResult: QueryWriterResult | null = null;
-          if (queryWriterPromise) {
-            try {
-              queryWriterResult = await queryWriterPromise;
-            } catch {
-              queryWriterResult = null;
-            }
-          }
-          try {
-            result = await runWebSearchPipeline(customWebSearchInput.prompt, {
-              recentMessages: customWebSearchInput.recentMessages,
-              currentDate: customWebSearchInput.currentDate,
-              locationName: customWebSearchInput.location?.city ?? effectiveLocation?.city ?? undefined,
-              languageCode: customWebSearchInput.location?.languageCode ?? undefined,
-              countryCode: customWebSearchInput.location?.countryCode ?? undefined,
-              preferredSourceUrls: customWebSearchInput.preferredSourceUrls,
-              resultsPerQueryOverride: numericSourceLimit,
-              maxEvidenceSources: numericSourceLimit,
-              targetUsablePages: numericSourceLimit,
-              excerptMode: customWebSearchInput.searchControls?.excerptMode,
-              allowSkip: !forceWebSearch,
-              precomputedQueryResult: queryWriterResult,
-              onSearchStart: ({ query }) => {
-                searchStarted = true;
-                sendStatusUpdate({ type: "search-start", query });
-              },
-              onProgress: (event) => {
-                if (!searchStarted) {
-                  return;
-                }
-                sendStatusUpdate({ type: "search-progress", count: event.searched });
-              },
-            });
-            return result;
-          } catch (searchErr) {
-            console.error("[web-pipeline] failed", searchErr);
-            if (searchStarted) {
-              sendStatusUpdate({
-                type: "search-error",
-                query: customWebSearchInput.prompt,
-                message: "Web search failed",
-              });
-            }
-            return null;
-          } finally {
-            if (searchStarted) {
-              const queryLabel =
-                result?.queries?.join(" | ")?.trim() || customWebSearchInput.prompt;
-              sendStatusUpdate({
-                type: "search-complete",
-                query: queryLabel,
-                results: result?.results?.length ?? 0,
-              });
-            }
-          }
-        })();
-      }
-
     // Check usage limits and calculate usage percentage for progressive restrictions
     const userPlan = await getUserPlan();
     const monthlySpending = await getMonthlySpending();
@@ -2636,7 +2487,7 @@ export async function POST(request: NextRequest) {
     if (hasExceededLimit(monthlySpending, userPlan)) {
       console.log(`[usageLimit] User ${userId} exceeded limit: $${monthlySpending.toFixed(4)} / $${planLimit}`);
       return NextResponse.json(
-        { 
+        {
           error: "Usage limit exceeded",
           message: `You've reached your monthly limit of $${planLimit.toFixed(2)}. Please upgrade your plan to continue.`,
           currentSpending: monthlySpending,
@@ -2646,6 +2497,154 @@ export async function POST(request: NextRequest) {
         },
         { status: 429 } // Too Many Requests
       );
+    }
+
+    if (effectiveSimpleContextMode && personalizationSettingsPromise) {
+      simpleContextPromise = (async () => {
+        const personalizationSettings = await personalizationSettingsPromise;
+        const normalizedExternalChatIds = Array.isArray(simpleContextExternalChatIds)
+          ? simpleContextExternalChatIds.filter((id) => typeof id === "string")
+          : undefined;
+        const includeExternalChats = false;
+        return buildSimpleContextMessages(
+          supabaseAny,
+          conversationId,
+          userId,
+          includeExternalChats && Boolean(personalizationSettings?.referenceChatHistory),
+          normalizedExternalChatIds,
+          CONTEXT_LIMIT_TOKENS
+        );
+      })();
+    }
+
+    if (useCustomWebSearch && trimmedMessage) {
+      const recentMessagesForSearch = (recentMessagesForRouting || [])
+        .slice(-6)
+        .map((m: any) => ({
+          role: (m.role as "user" | "assistant" | "system") ?? "user",
+          content: m.content ?? "",
+        }));
+      const acceptLanguage = request.headers.get("accept-language") || "";
+      const primaryLang = acceptLanguage.split(",")[0]?.split("-")[0]?.toLowerCase() || "en";
+      const countryCode =
+        effectiveLocation?.countryCode?.toLowerCase() ||
+        headerGeo.location?.countryCode?.toLowerCase() ||
+        (request.headers.get("x-vercel-ip-country") || request.headers.get("cf-ipcountry") || "").toLowerCase() ||
+        undefined;
+      let preferredSourceUrls: string[] = [];
+      const { data: lastAssistantMeta } = await supabaseAny
+        .from("messages")
+        .select("metadata")
+        .eq("conversation_id", conversationId)
+        .eq("role", "assistant")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      const lastMeta = (lastAssistantMeta?.metadata || null) as AssistantMessageMetadata | null;
+      if (lastMeta?.webSearchSources && Array.isArray(lastMeta.webSearchSources)) {
+        const seen = new Set<string>();
+        preferredSourceUrls = lastMeta.webSearchSources
+          .map((s) => (typeof s?.url === "string" ? s.url.trim() : ""))
+          .filter((u) => {
+            if (!u) return false;
+            const key = u.toLowerCase();
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+          });
+      }
+      customWebSearchInput = {
+        prompt: trimmedMessage,
+        recentMessages: recentMessagesForSearch,
+        currentDate: currentDateForSearch,
+        location: {
+          city: effectiveLocation?.city,
+      countryCode: countryCode ? countryCode.toLowerCase() : undefined,
+        languageCode: primaryLang || undefined,
+        },
+        preferredSourceUrls,
+        searchControls,
+      };
+      numericSourceLimit =
+        typeof customWebSearchInput.searchControls?.sourceLimit === "number"
+          ? customWebSearchInput.searchControls.sourceLimit
+          : undefined;
+      // Kick off query writer now that billing succeeded; we'll reuse the result during the pipeline.
+      queryWriterPromise = writeSearchQueries({
+        prompt: customWebSearchInput.prompt,
+        count: Math.max(1, customWebSearchInput?.recentMessages?.length ? 1 : 1),
+        currentDate: customWebSearchInput.currentDate,
+        recentMessages: customWebSearchInput.recentMessages,
+        location: {
+          city: customWebSearchInput.location?.city,
+          countryCode: customWebSearchInput.location?.countryCode,
+        },
+      }).catch(() => null);
+
+      // Kick off the web pipeline immediately in parallel.
+      console.log("[chatApi] search controls received", {
+        sourceLimit: customWebSearchInput.searchControls?.sourceLimit ?? "auto",
+        excerptMode: customWebSearchInput.searchControls?.excerptMode ?? "auto",
+        numericSourceLimit,
+      });
+      webPipelinePromise = (async () => {
+        let result: WebPipelineResult | null = null;
+        let queryWriterResult: QueryWriterResult | null = null;
+        if (queryWriterPromise) {
+          try {
+            queryWriterResult = await queryWriterPromise;
+          } catch {
+            queryWriterResult = null;
+          }
+        }
+        try {
+          result = await runWebSearchPipeline(customWebSearchInput.prompt, {
+            recentMessages: customWebSearchInput.recentMessages,
+            currentDate: customWebSearchInput.currentDate,
+            locationName: customWebSearchInput.location?.city ?? effectiveLocation?.city ?? undefined,
+            languageCode: customWebSearchInput.location?.languageCode ?? undefined,
+            countryCode: customWebSearchInput.location?.countryCode ?? undefined,
+            preferredSourceUrls: customWebSearchInput.preferredSourceUrls,
+            resultsPerQueryOverride: numericSourceLimit,
+            maxEvidenceSources: numericSourceLimit,
+            targetUsablePages: numericSourceLimit,
+            excerptMode: customWebSearchInput.searchControls?.excerptMode,
+            allowSkip: !forceWebSearch,
+            precomputedQueryResult: queryWriterResult,
+            onSearchStart: ({ query }) => {
+              searchStarted = true;
+              sendStatusUpdate({ type: "search-start", query });
+            },
+            onProgress: (event) => {
+              if (!searchStarted) {
+                return;
+              }
+              sendStatusUpdate({ type: "search-progress", count: event.searched });
+            },
+          });
+          return result;
+        } catch (searchErr) {
+          console.error("[web-pipeline] failed", searchErr);
+          if (searchStarted) {
+            sendStatusUpdate({
+              type: "search-error",
+              query: customWebSearchInput.prompt,
+              message: "Web search failed",
+            });
+          }
+          return null;
+        } finally {
+          if (searchStarted) {
+            const queryLabel =
+              result?.queries?.join(" | ")?.trim() || customWebSearchInput.prompt;
+            sendStatusUpdate({
+              type: "search-complete",
+              query: queryLabel,
+              results: result?.results?.length ?? 0,
+            });
+          }
+        }
+      })();
     }
 
     // Validate and normalize model settings with progressive restrictions based on usage
