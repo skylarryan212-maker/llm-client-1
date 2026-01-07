@@ -241,11 +241,8 @@ async function extractPageText(url: string, timeoutMs: number): Promise<string> 
   return normalizeWhitespace(text);
 }
 
-function detectBlockReason(text: string): string | null {
-  const lower = text.toLowerCase();
-  if (lower.includes("captcha")) return "captcha";
-  if (lower.includes("access denied") || lower.includes("forbidden")) return "access_denied";
-  if (lower.includes("enable javascript")) return "js_required";
+function detectBlockReason(_text: string): string | null {
+  // Accept all pages; do not block on content heuristics.
   return null;
 }
 
@@ -258,33 +255,6 @@ async function fetchSourceCard(
   const title = result.title || url;
   try {
     const text = await extractPageText(url, PAGE_TIMEOUT_MS);
-    const blockedReason = detectBlockReason(text);
-    if (blockedReason) {
-      if (result.description) {
-        return {
-          url,
-          domain,
-          title,
-          description: result.description,
-          position: result.position,
-          status: "ok",
-          blockedReason,
-          text: normalizeWhitespace(result.description),
-          relevanceScore: computeRelevanceScore(title, result.description, queryKeywords),
-        };
-      }
-      return {
-        url,
-        domain,
-        title,
-        description: result.description,
-        position: result.position,
-        status: "blocked",
-        blockedReason,
-        text: "",
-        relevanceScore: 0,
-      };
-    }
     const score = computeRelevanceScore(title, text, queryKeywords);
     return {
       url,
