@@ -24,6 +24,7 @@ export type BrightDataSerpResponse = {
 
 const DEFAULT_DEPTH = 10;
 const DEFAULT_ENGINE = "google.com";
+const LOG_RAW_SERP = process.env.BRIGHTDATA_LOG_SERP_RAW === "true";
 
 function getCredentials() {
   const apiKey = process.env.BRIGHTDATA_SERP_API_KEY;
@@ -154,6 +155,14 @@ export async function fetchGoogleOrganicSerp(
         : data;
 
   const results = inner ? parseResults(inner) : [];
+  if (LOG_RAW_SERP) {
+    console.log("[brightdata] raw SERP", {
+      keyword: request.keyword,
+      depth,
+      raw: data ?? bodyText,
+      parsedResults: results.length,
+    });
+  }
   if (!results.length) {
     console.warn("[brightdata] SERP returned no items", {
       keyword: request.keyword,
