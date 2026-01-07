@@ -24,7 +24,10 @@ export type BrightDataSerpResponse = {
 
 const DEFAULT_DEPTH = 10;
 const DEFAULT_ENGINE = "google.com";
-const LOG_RAW_SERP = process.env.BRIGHTDATA_LOG_SERP_RAW === "true";
+const LOG_RAW_SERP =
+  typeof process.env.BRIGHTDATA_LOG_SERP_RAW === "undefined"
+    ? true
+    : process.env.BRIGHTDATA_LOG_SERP_RAW === "true";
 
 function getCredentials() {
   const apiKey = process.env.BRIGHTDATA_SERP_API_KEY;
