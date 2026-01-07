@@ -260,6 +260,19 @@ async function fetchSourceCard(
     const text = await extractPageText(url, PAGE_TIMEOUT_MS);
     const blockedReason = detectBlockReason(text);
     if (blockedReason) {
+      if (result.description) {
+        return {
+          url,
+          domain,
+          title,
+          description: result.description,
+          position: result.position,
+          status: "ok",
+          blockedReason,
+          text: normalizeWhitespace(result.description),
+          relevanceScore: computeRelevanceScore(title, result.description, queryKeywords),
+        };
+      }
       return {
         url,
         domain,
@@ -285,6 +298,19 @@ async function fetchSourceCard(
     };
   } catch (error: any) {
     const status: SourceCard["status"] = error?.name === "AbortError" ? "timeout" : "error";
+    if (result.description) {
+      return {
+        url,
+        domain,
+        title,
+        description: result.description,
+        position: result.position,
+        status: "ok",
+        blockedReason: status,
+        text: normalizeWhitespace(result.description),
+        relevanceScore: computeRelevanceScore(title, result.description, queryKeywords),
+      };
+    }
     return {
       url,
       domain,
