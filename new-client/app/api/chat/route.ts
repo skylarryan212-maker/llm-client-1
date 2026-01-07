@@ -2223,52 +2223,6 @@ export async function POST(request: NextRequest) {
     }
     const personalizationSettingsPromise = loadPersonalizationSettingsServer(userId);
 
-    // Check usage limits and calculate usage percentage for progressive restrictions
-    const userPlan = await getUserPlan();
-    const monthlySpending = await getMonthlySpending();
-    const planLimit = getPlanLimit(userPlan);
-    const usagePercentage = (monthlySpending / planLimit) * 100;
-    
-    if (hasExceededLimit(monthlySpending, userPlan)) {
-      console.log(`[usageLimit] User ${userId} exceeded limit: $${monthlySpending.toFixed(4)} / $${planLimit}`);
-      return NextResponse.json(
-        { 
-          error: "Usage limit exceeded",
-          message: `You've reached your monthly limit of $${planLimit.toFixed(2)}. Please upgrade your plan to continue.`,
-          currentSpending: monthlySpending,
-          limit: planLimit,
-          planType: userPlan,
-          forceLimitReachedLabel: true,
-        },
-        { status: 429 } // Too Many Requests
-      );
-    }
-
-    // Validate and normalize model settings with progressive restrictions based on usage
-    let modelFamily = normalizeModelFamily(modelFamilyOverride ?? "auto");
-    const forceSpeedMode = Boolean(speedModeEnabled);
-    const speedMode = normalizeSpeedMode(speedModeOverride ?? "auto");
-    const reasoningEffortHint = reasoningEffortOverride;
-    if (forceSpeedMode && modelFamily === "auto") {
-      modelFamily = "gpt-5-nano";
-    }
-    
-    // Progressive model restrictions based on usage percentage
-    if (usagePercentage >= 95) {
-      // At 95%+: Only allow Nano
-      if (modelFamily !== "gpt-5-nano") {
-        console.log(`[usageLimit] User at ${usagePercentage.toFixed(1)}% usage - forcing Nano model`);
-        modelFamily = "gpt-5-nano";
-      }
-    } else if (usagePercentage >= 90) {
-      // At 90-95%: Disable GPT 5.2, allow Mini and Nano
-      if (modelFamily === "gpt-5.2") {
-        console.log(`[usageLimit] User at ${usagePercentage.toFixed(1)}% usage - downgrading from 5.1 to Mini`);
-        modelFamily = "gpt-5-mini";
-      }
-    }
-    // Note: Flex processing will be enabled at 80%+ (handled later in the code)
-
     const supabase = await supabaseServer();
     const supabaseAny = supabase as any;
 
@@ -2670,8 +2624,54 @@ export async function POST(request: NextRequest) {
         })();
       }
 
-      const resolvedMarketInstanceId =
-        (marketAgentContext as any)?.instanceId ??
+    // Check usage limits and calculate usage percentage for progressive restrictions
+    const userPlan = await getUserPlan();
+    const monthlySpending = await getMonthlySpending();
+    const planLimit = getPlanLimit(userPlan);
+    const usagePercentage = (monthlySpending / planLimit) * 100;
+    
+    if (hasExceededLimit(monthlySpending, userPlan)) {
+      console.log(`[usageLimit] User ${userId} exceeded limit: $${monthlySpending.toFixed(4)} / $${planLimit}`);
+      return NextResponse.json(
+        { 
+          error: "Usage limit exceeded",
+          message: `You've reached your monthly limit of $${planLimit.toFixed(2)}. Please upgrade your plan to continue.`,
+          currentSpending: monthlySpending,
+          limit: planLimit,
+          planType: userPlan,
+          forceLimitReachedLabel: true,
+        },
+        { status: 429 } // Too Many Requests
+      );
+    }
+
+    // Validate and normalize model settings with progressive restrictions based on usage
+    let modelFamily = normalizeModelFamily(modelFamilyOverride ?? "auto");
+    const forceSpeedMode = Boolean(speedModeEnabled);
+    const speedMode = normalizeSpeedMode(speedModeOverride ?? "auto");
+    const reasoningEffortHint = reasoningEffortOverride;
+    if (forceSpeedMode && modelFamily === "auto") {
+      modelFamily = "gpt-5-nano";
+    }
+    
+    // Progressive model restrictions based on usage percentage
+    if (usagePercentage >= 95) {
+      // At 95%+: Only allow Nano
+      if (modelFamily !== "gpt-5-nano") {
+        console.log(`[usageLimit] User at ${usagePercentage.toFixed(1)}% usage - forcing Nano model`);
+        modelFamily = "gpt-5-nano";
+      }
+    } else if (usagePercentage >= 90) {
+      // At 90-95%: Disable GPT 5.2, allow Mini and Nano
+      if (modelFamily === "gpt-5.2") {
+        console.log(`[usageLimit] User at ${usagePercentage.toFixed(1)}% usage - downgrading from 5.1 to Mini`);
+        modelFamily = "gpt-5-mini";
+      }
+    }
+    // Note: Flex processing will be enabled at 80%+ (handled later in the code)
+
+    const resolvedMarketInstanceId =
+      (marketAgentContext as any)?.instanceId ??
       ((userMessageRow?.metadata as any)?.market_agent_instance_id as string | null) ??
       (conversationMetadata && typeof conversationMetadata.market_agent_instance_id === "string"
         ? (conversationMetadata.market_agent_instance_id as string)
