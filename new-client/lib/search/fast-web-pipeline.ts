@@ -244,7 +244,6 @@ async function extractPageText(url: string, timeoutMs: number): Promise<string> 
 function detectBlockReason(text: string): string | null {
   const lower = text.toLowerCase();
   if (lower.includes("captcha")) return "captcha";
-  if (lower.includes("subscribe") || lower.includes("sign in") || lower.includes("log in")) return "auth_wall";
   if (lower.includes("access denied") || lower.includes("forbidden")) return "access_denied";
   if (lower.includes("enable javascript")) return "js_required";
   return null;
