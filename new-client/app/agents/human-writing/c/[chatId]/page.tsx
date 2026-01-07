@@ -764,18 +764,18 @@ function ChatInner({ params }: PageProps) {
 
         if (edited) {
           const withoutDone = base.filter((item) => item.id !== "done");
-          return [
+          return ([
             ...withoutDone,
-            { id: "patches", label: "Applying minimal patches…", status: "active" },
-            { id: "done", label: "Done!", status: "pending" },
-          ];
+            { id: "patches", label: "Applying minimal patches…", status: "active" } as TimelineItem,
+            { id: "done", label: "Done!", status: "pending" } as TimelineItem,
+          ] as TimelineItem[]);
         }
 
         return base.map((item) => {
           if (item.id === "patches") return { ...item, status: "done" };
           if (item.id === "done") return { ...item, status: "done" };
           return item;
-        });
+        }) as TimelineItem[];
       });
 
       // Finalize timeline completion
