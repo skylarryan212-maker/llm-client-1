@@ -143,7 +143,7 @@ function UpgradePageContent() {
                           disabled={!canDirectChange || isProcessing}
                           title={
                             canDirectChange
-                              ? `Switch to ${plan.name}`
+                              ? `Upgrade to ${plan.name}`
                               : "Direct upgrades are currently disabled. Please use unlock code."
                           }
                           onClick={async () => {
@@ -160,9 +160,7 @@ function UpgradePageContent() {
                           }}
                         >
                           {canDirectChange
-                            ? isUpgradeFromFree
-                              ? `Upgrade to ${plan.name}`
-                              : `Switch to ${plan.name}`
+                            ? `Upgrade to ${plan.name}`
                             : `Upgrade to ${plan.name}`}
                         </Button>
                         {!canDirectChange && (
