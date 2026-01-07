@@ -358,9 +358,10 @@ function selectEvidenceSources(cards: SourceCard[], serpCount: number, explicitL
     .sort((a, b) => b.combinedScore - a.combinedScore);
   const fallbackLimit = Math.max(1, Math.floor(serpCount / 2) || 1);
   const candidateCount = scored.length;
-  const limit = typeof explicitLimit === "number" && Number.isFinite(explicitLimit)
+  const baseLimit = typeof explicitLimit === "number" && Number.isFinite(explicitLimit)
     ? Math.max(1, Math.min(candidateCount, explicitLimit))
     : Math.max(1, Math.min(candidateCount, fallbackLimit));
+  const limit = Math.min(candidateCount, Math.max(5, baseLimit));
   return scored.slice(0, limit).map((entry) => entry.card);
 }
 
