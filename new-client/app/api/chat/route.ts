@@ -71,8 +71,7 @@ function formatWebPipelineContext(result: WebPipelineResult) {
     .map((source, index) => `[${index + 1}] ${source.title} - ${source.url}`)
     .join("\n");
   const chunkLines = result.chunks.map((chunk, index) => {
-    const excerpt = chunk.text.length > 900 ? `${chunk.text.slice(0, 900)}...` : chunk.text;
-    return `Chunk ${index + 1} (${chunk.url}): ${excerpt}`;
+    return `Chunk ${index + 1} (${chunk.url}): ${chunk.text}`;
   });
   const evidence = chunkLines.join("\n\n");
   return [

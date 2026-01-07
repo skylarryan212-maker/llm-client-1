@@ -20,9 +20,12 @@ export type BrightDataSerpResponse = {
   taskId: string | null;
   results: BrightDataOrganicResult[];
   raw: unknown;
+  requestCount: number;
 };
 
 const DEFAULT_DEPTH = 10;
+const MAX_DEPTH = 30;
+const PAGE_SIZE = 10;
 const DEFAULT_ENGINE = "google.com";
 const LOG_RAW_SERP =
   typeof process.env.BRIGHTDATA_LOG_SERP_RAW === "undefined"
@@ -93,20 +96,20 @@ export async function fetchGoogleOrganicSerp(
 ): Promise<BrightDataSerpResponse> {
   const credentials = getCredentials();
   if (!credentials) {
-    return { taskId: null, results: [], raw: null };
+    return { taskId: null, results: [], raw: null, requestCount: 0 };
   }
 
-  const targetUrl = new URL("https://www.google.com/search");
+  const baseUrl = new URL("https://www.google.com/search");
   const keyword = request.keyword.trim();
   if (keyword) {
-    targetUrl.searchParams.set("q", keyword);
+    baseUrl.searchParams.set("q", keyword);
   }
-  const depth = Math.min(Math.max(request.depth ?? DEFAULT_DEPTH, 1), 10);
+  const depth = Math.min(Math.max(request.depth ?? DEFAULT_DEPTH, 1), MAX_DEPTH);
   if (request.gl) {
-    targetUrl.searchParams.set("gl", request.gl.toLowerCase());
+    baseUrl.searchParams.set("gl", request.gl.toLowerCase());
   }
   if (request.hl) {
-    targetUrl.searchParams.set("hl", request.hl.toLowerCase());
+    baseUrl.searchParams.set("hl", request.hl.toLowerCase());
   }
   if (request.searchEngine && request.searchEngine !== DEFAULT_ENGINE) {
     console.warn("[brightdata] Non-default search engine ignored; using google.com", {
@@ -114,65 +117,102 @@ export async function fetchGoogleOrganicSerp(
     });
   }
 
-  const response = await fetch("https://api.brightdata.com/request", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${credentials.apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      zone: credentials.zone,
-      url: targetUrl.toString(),
-      format: "json",
-    }),
-  });
+  const totalPages = Math.max(1, Math.ceil(depth / PAGE_SIZE));
+  const allResults: BrightDataOrganicResult[] = [];
+  const seen = new Set<string>();
+  const rawPages: unknown[] = [];
+  let requestCount = 0;
 
-  const bodyText = await response.text();
-  let data: any = null;
-  try {
-    data = bodyText ? JSON.parse(bodyText) : null;
-  } catch {
-    data = null;
-  }
+  for (let pageIndex = 0; pageIndex < totalPages; pageIndex += 1) {
+    const start = pageIndex * PAGE_SIZE;
+    const targetUrl = new URL(baseUrl.toString());
+    if (start > 0) {
+      targetUrl.searchParams.set("start", String(start));
+    }
 
-  if (!response.ok) {
-    console.error("[brightdata] SERP error", {
-      status: response.status,
-      statusText: response.statusText,
-      body: bodyText,
+    const response = await fetch("https://api.brightdata.com/request", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${credentials.apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        zone: credentials.zone,
+        url: targetUrl.toString(),
+        format: "json",
+      }),
     });
-    return { taskId: null, results: [], raw: data ?? bodyText };
+    requestCount += 1;
+
+    const bodyText = await response.text();
+    let data: any = null;
+    try {
+      data = bodyText ? JSON.parse(bodyText) : null;
+    } catch {
+      data = null;
+    }
+
+    rawPages.push(data ?? bodyText);
+
+    if (!response.ok) {
+      console.error("[brightdata] SERP error", {
+        status: response.status,
+        statusText: response.statusText,
+        body: bodyText,
+        start,
+      });
+      break;
+    }
+
+    const inner =
+      typeof data?.body === "string"
+        ? (() => {
+            try {
+              return JSON.parse(data.body);
+            } catch {
+              return null;
+            }
+          })()
+        : data?.body && typeof data.body === "object"
+          ? data.body
+          : data;
+
+    const pageResults = inner ? parseResults(inner) : [];
+    if (LOG_RAW_SERP) {
+      console.log("[brightdata] raw SERP", {
+        keyword: request.keyword,
+        depth,
+        pageIndex,
+        start,
+        raw: data ?? bodyText,
+        parsedResults: pageResults.length,
+      });
+    }
+    if (!pageResults.length) {
+      console.warn("[brightdata] SERP returned no items", {
+        keyword: request.keyword,
+        depth,
+        pageIndex,
+        start,
+        raw: data ?? bodyText,
+      });
+      break;
+    }
+
+    for (const item of pageResults) {
+      if (!item.url || seen.has(item.url)) continue;
+      seen.add(item.url);
+      allResults.push(item);
+      if (allResults.length >= depth) break;
+    }
+
+    if (allResults.length >= depth) break;
   }
 
-  const inner =
-    typeof data?.body === "string"
-      ? (() => {
-          try {
-            return JSON.parse(data.body);
-          } catch {
-            return null;
-          }
-        })()
-      : data?.body && typeof data.body === "object"
-        ? data.body
-        : data;
-
-  const results = inner ? parseResults(inner) : [];
-  if (LOG_RAW_SERP) {
-    console.log("[brightdata] raw SERP", {
-      keyword: request.keyword,
-      depth,
-      raw: data ?? bodyText,
-      parsedResults: results.length,
-    });
-  }
-  if (!results.length) {
-    console.warn("[brightdata] SERP returned no items", {
-      keyword: request.keyword,
-      depth,
-      raw: data ?? bodyText,
-    });
-  }
-
-  return { taskId: null, results, raw: data ?? bodyText };
+  return {
+    taskId: null,
+    results: allResults.slice(0, depth),
+    raw: rawPages.length === 1 ? rawPages[0] : rawPages,
+    requestCount,
+  };
 }

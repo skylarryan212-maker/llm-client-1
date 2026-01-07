@@ -79,7 +79,6 @@ const DEFAULT_TARGET_USABLE_PAGES = 10;
 const MAX_SERP_RESULTS = 30;
 const DEFAULT_QUERY_COUNT = 1;
 const FETCH_CONCURRENCY = 12;
-const SERP_RESULTS_UNIT = 10;
 const PAGE_TIMEOUT_MS = 3_000;
 const DEFAULT_CHUNK_WORDS = 1000;
 const DEFAULT_CHUNK_COUNT = 1;
@@ -493,7 +492,7 @@ export async function runWebSearchPipeline(
       gl: options.countryCode,
       hl: options.languageCode,
     });
-    serpRequests += 1;
+    serpRequests += serpResponse.requestCount ?? 1;
     const count = Array.isArray(serpResponse.results) ? serpResponse.results.length : 0;
     console.log("[fast-web-pipeline] fetched SERP", {
       query,
@@ -505,8 +504,7 @@ export async function runWebSearchPipeline(
       allSerpResults.push(...serpResponse.results);
     }
   }
-  const resultMultiplier = resultsPerQuery / SERP_RESULTS_UNIT;
-  const serpEstimatedUsd = serpRequests * resultMultiplier * BRIGHTDATA_SERP_COST_USD;
+  const serpEstimatedUsd = serpRequests * BRIGHTDATA_SERP_COST_USD;
 
   const maxSerpItems = Math.min(MAX_SERP_RESULTS, resultsPerQuery * queries.length);
   const serpResults = selectSerpResults(allSerpResults, maxSerpItems);
