@@ -20,6 +20,7 @@ interface Message {
   content: string;
   kind?: MessageKind;
   status?: "pending" | "done";
+  progressLabel?: string;
   draftText?: string;
 }
 
@@ -210,6 +211,17 @@ function ChatInner({ params }: PageProps) {
     pinToPromptRef.current = false;
     pinnedScrollTopRef.current = null;
     setPinSpacerHeight(0);
+  };
+
+  // Reset the scroll constraints once the humanizer flow is finished.
+  const finalizeHumanizerFlow = () => {
+    releasePinning();
+    lockedScrollHeightRef.current = null;
+    setBottomSpacerPx(baseBottomSpacerPx);
+    setPinSpacerHeight(0);
+    setIsAutoScroll(true);
+    setShowScrollToBottom(false);
+    scrollToBottom("smooth");
   };
 
   const computeRequiredSpacerForMessage = useCallback(
@@ -649,10 +661,17 @@ function ChatInner({ params }: PageProps) {
     const runId = `humanize-${Date.now()}`;
     setIsHumanizing(true);
     setActiveActionId(actionId);
-    setMessages((prev) => [
-      ...prev,
-      { id: runId, role: "assistant", content: "Running Rephrasy Humanizer..." },
-    ]);
+    setMessages((prev) => {
+      const updated = prev.map((msg) =>
+        msg.id === actionId ? { ...msg, progressLabel: "Running the humanizer..." } : msg
+      );
+      const next: Message[] = [
+        ...updated,
+        { id: runId, role: "assistant", content: "Running Rephrasy Humanizer..." },
+      ];
+      messagesRef.current = next;
+      return next;
+    });
 
     try {
       const resolvedModel =
@@ -694,7 +713,11 @@ function ChatInner({ params }: PageProps) {
       setMessages((prev) => {
         const updated = prev.map((msg) => {
           if (msg.id === actionId) {
-            return { ...msg, status: "done" as const };
+            return {
+              ...msg,
+              status: "done" as const,
+              progressLabel: "Reviewing the draft...",
+            };
           }
           if (msg.id === runId) {
             return {
@@ -713,7 +736,9 @@ function ChatInner({ params }: PageProps) {
             : `**Model review**\n\nLooks good — no changes needed.${summaryLine}`,
         };
 
-        return [...updated, reviewMessage];
+        const next = [...updated, reviewMessage];
+        messagesRef.current = next;
+        return next;
       });
 
       // Persist CTA state as completed
@@ -745,8 +770,15 @@ function ChatInner({ params }: PageProps) {
       setIsHumanizing(false);
       setActiveActionId(null);
       messagesRef.current = messagesRef.current.map((m) =>
-        m.id === actionId ? { ...m, status: "done" } : m
+        m.id === actionId
+          ? {
+              ...m,
+              status: "done",
+              progressLabel: m.progressLabel || "Reviewing the draft...",
+            }
+          : m
       );
+      finalizeHumanizerFlow();
     }
   };
 
@@ -796,15 +828,16 @@ function ChatInner({ params }: PageProps) {
                       }
 
                       if (msg.kind === "cta") {
-                        return (
-                          <PipelineActionMessage
-                            key={msg.id}
-                            content={msg.content}
-                            status={msg.status}
-                            disabled={isHumanizing || !msg.draftText}
-                            isRunning={isHumanizing && activeActionId === msg.id}
-                            onConfirm={() => msg.draftText && handleRunHumanizer(msg.draftText, msg.id)}
-                          />
+                          return (
+                            <PipelineActionMessage
+                              key={msg.id}
+                              content={msg.content}
+                              status={msg.status}
+                              progressLabel={msg.progressLabel}
+                              disabled={isHumanizing || !msg.draftText}
+                              isRunning={isHumanizing && activeActionId === msg.id}
+                              onConfirm={() => msg.draftText && handleRunHumanizer(msg.draftText, msg.id)}
+                            />
                         );
                       }
 
@@ -887,23 +920,26 @@ function PipelineActionMessage({
   disabled,
   isRunning,
   onConfirm,
+  progressLabel,
 }: {
   content: string;
   status?: "pending" | "done";
   disabled?: boolean;
   isRunning?: boolean;
   onConfirm: () => void;
+  progressLabel?: string;
 }) {
   const isDone = status === "done";
   const headline = isDone ? "Humanizer completed" : "Run the humanizer now?";
+  const description = isDone
+    ? progressLabel ?? "Completed"
+    : progressLabel ?? content ?? "No detector or loop yet - just humanize the draft and show it.";
   return (
     <div className="rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-white/80 shadow-inner shadow-black/20">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <p className="text-sm font-semibold text-white">{headline}</p>
-          <p className="text-xs text-white/60">
-            {isDone ? "Completed" : content || "No detector or loop yet - just humanize the draft and show it."}
-          </p>
+          <p className="text-xs text-white/60">{description}</p>
         </div>
         <div className="flex items-center gap-2">
           {isDone ? (
