@@ -667,10 +667,11 @@ function ChatInner({ params }: PageProps) {
 
     sidebarDismissedRef.current = false;
     setIsSidebarOpen(true);
+    // Initialize timeline with only the steps that will definitely run.
+    // The `patches` step is added later only if edits are applied.
     setTimelineItems([
       { id: "humanizing", label: "Humanizing…", status: "active" },
       { id: "reviewing", label: "Reviewing…", status: "pending" },
-      { id: "patches", label: "Applying minimal patches…", status: "pending" },
       { id: "done", label: "Done!", status: "pending" },
     ]);
     const runId = `humanize-${Date.now()}`;
@@ -723,14 +724,14 @@ function ChatInner({ params }: PageProps) {
         .join(" • ")}_`;
       const label = edited ? "Review applied" : "Review looks good";
 
+      // Mark humanizing finished. Set reviewing active only if we'll perform edits,
+      // otherwise mark reviewing as done immediately (so UI doesn't flash through states).
       setTimelineItems((prev) =>
-        prev.map((item) =>
-          item.id === "humanizing"
-            ? { ...item, status: "done" }
-            : item.id === "reviewing"
-              ? { ...item, status: "active" }
-              : item
-        )
+        prev.map((item) => {
+          if (item.id === "humanizing") return { ...item, status: "done" as TimelineStatus };
+          if (item.id === "reviewing") return { ...item, status: (edited ? "active" : "done") as TimelineStatus };
+          return item;
+        })
       );
 
       // Only show the final text in the chat window
@@ -754,41 +755,41 @@ function ChatInner({ params }: PageProps) {
       setShowScrollToBottom(false);
       scrollToBottom("smooth");
 
-      // Update timeline for review and patches if edits were applied
-      setTimelineItems((prev) => {
-        const base = prev.map((item) => {
-          if (item.id === "humanizing") return { ...item, status: "done" };
-          if (item.id === "reviewing") return { ...item, status: "done" };
-          return item;
-        });
-
-        if (edited) {
-          const withoutDone = base.filter((item) => item.id !== "done");
-          return ([
-            ...withoutDone,
-            { id: "patches", label: "Applying minimal patches…", status: "active" } as TimelineItem,
-            { id: "done", label: "Done!", status: "pending" } as TimelineItem,
-          ] as TimelineItem[]);
-        }
-
-        return base.map((item) => {
-          if (item.id === "patches") return { ...item, status: "done" };
-          if (item.id === "done") return { ...item, status: "done" };
-          return item;
-        }) as TimelineItem[];
-      });
-
-      // Finalize timeline completion
+      // If edits were applied, reveal the patches step and sequence it after reviewing.
       if (edited) {
+        // After a short delay (so users can see 'reviewing' active), mark reviewing done
+        // and show 'patches' as active.
         setTimeout(() => {
-          setTimelineItems((prev) =>
-            prev.map((item) => {
-              if (item.id === "patches") return { ...item, status: "done" };
-              if (item.id === "done") return { ...item, status: "done" };
-              return item;
-            })
-          );
-        }, 140);
+          setTimelineItems((prev) => {
+            // Ensure we keep existing items and insert patches before the final 'done' item
+            const withoutDone = prev.filter((item) => item.id !== "done");
+            const doneItem = prev.find((i) => i.id === "done");
+            const next: TimelineItem[] = [
+              ...withoutDone.map((it) => (it.id === "reviewing" ? { ...it, status: "done" as TimelineStatus } : it)),
+              { id: "patches", label: "Applying minimal patches…", status: "active" } as TimelineItem,
+            ];
+            if (doneItem) next.push(doneItem);
+            return next;
+          });
+
+          // Finalize patches then mark done
+          setTimeout(() => {
+            setTimelineItems((prev) =>
+              prev.map((item) => {
+                if (item.id === "patches") return { ...item, status: "done" as TimelineStatus };
+                if (item.id === "done") return { ...item, status: "done" as TimelineStatus };
+                return item;
+              })
+            );
+          }, 400);
+        }, 300);
+      } else {
+        // No edits: mark reviewing and done as completed and ensure patches is not shown
+        setTimelineItems((prev) =>
+          prev
+            .filter((item) => item.id !== "patches")
+            .map((item) => (item.id === "reviewing" || item.id === "done" ? { ...item, status: "done" as TimelineStatus } : item))
+        );
       }
 
       // Persist CTA state as completed
