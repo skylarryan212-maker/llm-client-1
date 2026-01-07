@@ -115,12 +115,6 @@ export async function POST(request: NextRequest) {
         language: payload.language ?? "auto",
       });
       const humanized = await rephrasyHumanize(payload);
-        text,
-        model,
-        language: language === "auto" ? undefined : language,
-        costs: true,
-        words: true,
-      });
 
       let finalDraft = humanized.output;
       let edited = false;
