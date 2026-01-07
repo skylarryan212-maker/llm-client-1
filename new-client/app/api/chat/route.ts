@@ -2166,6 +2166,10 @@ export async function POST(request: NextRequest) {
       return nowForSearch.toISOString().slice(0, 10);
     })();
 
+    const sendStatusUpdate = (status: SearchStatusEvent) => {
+      enqueueJson({ status });
+    };
+
     const extractReasoningText = (reasoning: any): string => {
       if (!reasoning) return "";
       if (typeof reasoning === "string") return reasoning;
@@ -3858,9 +3862,6 @@ export async function POST(request: NextRequest) {
               }
             });
           }
-          const sendStatusUpdate = (status: SearchStatusEvent) => {
-            enqueueJson({ status });
-          };
         const recordLiveSearchDomain = (domain?: string | null) => {
           const label = domain?.trim();
           if (!label) {
