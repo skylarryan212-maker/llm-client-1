@@ -208,6 +208,9 @@ function readModelSelectionFromStorage(): string | null {
 type AutoStreamPrefs = {
   generationMode?: "chat" | "image";
   imageModel?: "nano-banana" | "nano-banana-pro";
+  modelDisplay?: string;
+  speedModeEnabled?: boolean;
+  searchControls?: SearchControls;
 };
 
 function saveAutoStreamPrefs(conversationId: string, prefs: AutoStreamPrefs | null) {
@@ -239,7 +242,17 @@ function readAutoStreamPrefs(conversationId: string): AutoStreamPrefs | null {
       parsed.imageModel === "nano-banana" || parsed.imageModel === "nano-banana-pro"
         ? (parsed.imageModel as "nano-banana" | "nano-banana-pro")
         : undefined;
-    return { generationMode, imageModel };
+    const modelDisplay = typeof parsed.modelDisplay === "string" ? parsed.modelDisplay : undefined;
+    const speedModeEnabled =
+      typeof parsed.speedModeEnabled === "boolean" ? parsed.speedModeEnabled : undefined;
+    const searchControls =
+      parsed.searchControls && typeof parsed.searchControls === "object"
+        ? (parsed.searchControls as SearchControls)
+        : undefined;
+    if (!generationMode && !imageModel && !modelDisplay && !searchControls && typeof speedModeEnabled !== "boolean") {
+      return null;
+    }
+    return { generationMode, imageModel, modelDisplay, speedModeEnabled, searchControls };
   } catch {
     return null;
   }
@@ -387,7 +400,7 @@ export default function ChatPageShell({
 	  const [guestWarning, setGuestWarning] = useState<string | null>(null);
 
   const [isSidebarOpen, setIsSidebarOpen] = usePersistentSidebarOpen();
-  const [currentModel, setCurrentModel] = useState("Auto");
+  const [currentModel, setCurrentModel] = useState(() => readModelSelectionFromStorage() ?? "Auto");
   const [isImageMode, setIsImageMode] = useState(false);
   const [currentImageModel, setCurrentImageModel] = useState<"nano-banana" | "nano-banana-pro">(
     "nano-banana"
@@ -2199,7 +2212,19 @@ export default function ChatPageShell({
             });
           saveAutoStreamPrefs(
             conversationId,
-            isImageMode ? { generationMode: "image", imageModel: currentImageModel } : null
+            isImageMode
+              ? {
+                  generationMode: "image",
+                  imageModel: currentImageModel,
+                  modelDisplay: currentModel,
+                  speedModeEnabled,
+                  searchControls: searchControlsPayload,
+                }
+              : {
+                  modelDisplay: currentModel,
+                  speedModeEnabled,
+                  searchControls: searchControlsPayload,
+                }
           );
 
           const mappedMessage: StoredMessage = {
@@ -2244,7 +2269,19 @@ export default function ChatPageShell({
             });
           saveAutoStreamPrefs(
             conversationId,
-            isImageMode ? { generationMode: "image", imageModel: currentImageModel } : null
+            isImageMode
+              ? {
+                  generationMode: "image",
+                  imageModel: currentImageModel,
+                  modelDisplay: currentModel,
+                  speedModeEnabled,
+                  searchControls: searchControlsPayload,
+                }
+              : {
+                  modelDisplay: currentModel,
+                  speedModeEnabled,
+                  searchControls: searchControlsPayload,
+                }
           );
 
           const mappedMessage: StoredMessage = {
@@ -3097,12 +3134,25 @@ export default function ChatPageShell({
       console.log("[chatDebug] Detected new chat with only user message, triggering stream");
 
       const prefs = readAutoStreamPrefs(activeConversationId);
+      if (prefs?.modelDisplay) {
+        setCurrentModel(prefs.modelDisplay);
+      }
+      if (typeof prefs?.speedModeEnabled === "boolean") {
+        setSpeedModeEnabled(prefs.speedModeEnabled);
+      }
+      if (prefs?.searchControls) {
+        setSearchControlsByChat((prev) => ({
+          ...prev,
+          [activeConversationId]: prefs.searchControls as SearchControls,
+        }));
+      }
       if (prefs?.generationMode === "image") {
         setIsImageMode(true);
         if (prefs.imageModel) {
           setCurrentImageModel(prefs.imageModel);
         }
       }
+      const searchControlsForAutoStream = prefs?.searchControls ?? activeSearchControls;
       saveAutoStreamPrefs(activeConversationId, null);
 
       // Mark as auto-streamed before triggering
@@ -3145,7 +3195,7 @@ export default function ChatPageShell({
           agentId: marketInstanceId ? "market-agent" : null,
           marketAgentContext: autoMarketContext,
           userMessageMetadata: userMessage.metadata as any,
-          searchControls: activeSearchControls,
+          searchControls: searchControlsForAutoStream,
         }
       ).catch((err: unknown) => {
         console.error("Failed to stream initial message:", err);
@@ -3155,6 +3205,7 @@ export default function ChatPageShell({
     activeConversationId,
     autoStreamHandled,
     buildAttachmentsFromMetadata,
+    activeSearchControls,
     clearConversationAutoStreamed,
     initialMessages,
     isConversationAutoStreamed,
@@ -3230,15 +3281,6 @@ export default function ChatPageShell({
     // Remove the assistant message from UI immediately (no lag)
     removeMessage(selectedChatId, messageId);
 
-    // Delete the old assistant message from Supabase in the background
-    fetch("/api/chat", {
-      method: "DELETE",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ messageId }),
-    }).catch((error) => {
-      console.error("Error deleting old assistant message:", error);
-    });
-
     // Wait for React to process the removal before adding new message
     await new Promise(resolve => setTimeout(resolve, 0));
 
@@ -3285,6 +3327,7 @@ export default function ChatPageShell({
           reasoningEffortOverride: retryReasoningOverride,
           speedModeEnabled,
           skipUserInsert: true,
+          retryOfAssistantMessageId: messageId,
           location: locationData,
           clientNow: Date.now(),
           timezone,

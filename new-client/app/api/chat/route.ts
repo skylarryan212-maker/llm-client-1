@@ -1218,6 +1218,7 @@ interface ChatRequestBody {
   speedModeEnabled?: boolean;
   forceWebSearch?: boolean;
   skipUserInsert?: boolean;
+  retryOfAssistantMessageId?: string;
   simpleContextMode?: boolean;
   simpleContextExternalChatIds?: string[];
   advancedContextTopicIds?: string[];
@@ -2110,6 +2111,7 @@ export async function POST(request: NextRequest) {
       generationMode: body.generationMode ?? "chat",
       imageModel: body.imageModel ?? null,
       skipUserInsert: body.skipUserInsert,
+      retryOfAssistantMessageId: body.retryOfAssistantMessageId ?? null,
       timestamp: Date.now(),
     });
 	    const {
@@ -2123,6 +2125,7 @@ export async function POST(request: NextRequest) {
         reasoningEffortOverride,
         speedModeEnabled = false,
         skipUserInsert,
+        retryOfAssistantMessageId,
         forceWebSearch = false,
         attachments,
         location,
@@ -2293,6 +2296,44 @@ export async function POST(request: NextRequest) {
         { error: "Project ID mismatch" },
         { status: 400 }
       );
+    }
+
+    // If this request is a retry, remove the previous assistant message server-side to avoid duplicates.
+    if (retryOfAssistantMessageId) {
+      try {
+        const { data: retryTarget, error: retryFetchError } = await supabaseAny
+          .from("messages")
+          .select("id, conversation_id, role")
+          .eq("id", retryOfAssistantMessageId)
+          .maybeSingle();
+
+        if (retryFetchError) {
+          console.error("[chatApi] Failed to load retry target message for deletion:", retryFetchError);
+        } else if (!retryTarget) {
+          console.warn("[chatApi] Retry requested but previous message not found", { retryOfAssistantMessageId });
+        } else if (retryTarget.conversation_id !== conversationId) {
+          console.warn("[chatApi] Retry target does not belong to this conversation; skipping delete", {
+            retryOfAssistantMessageId,
+            conversationId,
+            targetConversationId: retryTarget.conversation_id,
+          });
+        } else if (retryTarget.role !== "assistant") {
+          console.warn("[chatApi] Retry target is not an assistant message; skipping delete", {
+            retryOfAssistantMessageId,
+            role: retryTarget.role,
+          });
+        } else {
+          const { error: retryDeleteError } = await supabaseAny
+            .from("messages")
+            .delete()
+            .eq("id", retryOfAssistantMessageId);
+          if (retryDeleteError) {
+            console.error("[chatApi] Failed to delete previous assistant message on retry:", retryDeleteError);
+          }
+        }
+      } catch (retryCleanupErr) {
+        console.error("[chatApi] Exception while deleting previous assistant message on retry:", retryCleanupErr);
+      }
     }
 
     // Conversation metadata (used for CI sessions and vector store).
