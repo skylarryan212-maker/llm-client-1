@@ -100,7 +100,21 @@ export async function POST(request: NextRequest) {
     const conversationId = convo?.[0]?.id ?? null;
 
     try {
-      const humanized = await rephrasyHumanize({
+      const payload = {
+        text,
+        model,
+        language: language === "auto" ? undefined : language,
+        costs: true,
+        words: true,
+      };
+      console.info("[human-writing][humanize][request]", {
+        runId,
+        taskId,
+        payloadPreview: `${payload.text.slice(0, 400)}${payload.text.length > 400 ? "…" : ""}`,
+        model: payload.model,
+        language: payload.language ?? "auto",
+      });
+      const humanized = await rephrasyHumanize(payload);
         text,
         model,
         language: language === "auto" ? undefined : language,
