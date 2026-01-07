@@ -2166,9 +2166,7 @@ export async function POST(request: NextRequest) {
       return nowForSearch.toISOString().slice(0, 10);
     })();
 
-    const sendStatusUpdate = (status: SearchStatusEvent) => {
-      enqueueJson({ status });
-    };
+    let sendStatusUpdate: (status: SearchStatusEvent) => void = () => {};
 
     const extractReasoningText = (reasoning: any): string => {
       if (!reasoning) return "";
@@ -3850,6 +3848,7 @@ export async function POST(request: NextRequest) {
           const enqueueJson = (payload: Record<string, unknown>) => {
             controller.enqueue(encoder.encode(`${JSON.stringify(payload)}\n`));
           };
+          sendStatusUpdate = (status: SearchStatusEvent) => enqueueJson({ status });
           if (await stopIfAborted()) {
             return;
           }
