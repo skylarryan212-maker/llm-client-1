@@ -7,20 +7,17 @@ import { rephrasyHumanize } from "@/lib/rephrasy";
 import { createOpenAIClient, getOpenAIRequestId } from "@/lib/openai/client";
 import type { Json, MessageInsert } from "@/lib/supabase/types";
 
-async function reviewAndOptionallyEdit(params: {
-  humanizedText: string;
-  originalText: string;
-}) {
+async function reviewOnly(params: { humanizedText: string; originalText: string }) {
   const { humanizedText, originalText } = params;
   const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) return { finalText: humanizedText, edited: false };
+  if (!apiKey) return { needsEdits: false, notes: "", requestId: null };
 
   const client = createOpenAIClient({ apiKey });
   const instructions = [
-    "You are a reviewer. Return the draft unchanged unless you find major, obvious issues.",
-    "Only edit for clear grammatical errors, illogical statements, or conflicts with user intent.",
-    "Do not change tone, style, or phrasing just to sound different.",
-    "If you edit, keep changes minimal. Return only the final draft text.",
+    "You are a careful reviewer. Inspect the 'Humanized draft' against the 'Original user text'.",
+    "If the draft requires changes (grammar, factual inconsistencies, or clear errors),",
+    "return a JSON object ONLY with keys: `needsEdits` (true/false) and `notes` (string) where `notes` briefly explains what should change.",
+    "If no changes are needed, return `{\"needsEdits\": false, \"notes\": \"Looks good\"}`.",
   ].join(" ");
 
   const { data: response, response: raw } = await client.responses
@@ -36,10 +33,12 @@ async function reviewAndOptionallyEdit(params: {
             "",
             "Humanized draft to review:",
             humanizedText,
+            "",
+            "Respond with strict JSON: {\"needsEdits\": true|false, \"notes\": \"...\"}",
           ].join("\n"),
         },
       ],
-      max_output_tokens: 1200,
+      max_output_tokens: 600,
       store: false,
     })
     .withResponse();
@@ -59,15 +58,75 @@ async function reviewAndOptionallyEdit(params: {
   }
 
   const rawOutput = response.output_text;
-  const outputArray = Array.isArray(rawOutput)
-    ? rawOutput
-    : typeof rawOutput === "string"
-      ? [rawOutput]
-      : [];
-  const finalText = outputArray.join("").trim() || humanizedText;
-  const edited = finalText.trim() !== humanizedText.trim();
+  const outputText = Array.isArray(rawOutput) ? rawOutput.join("") : String(rawOutput || "");
+  let parsed: { needsEdits: boolean; notes: string } | null = null;
+  try {
+    // Try to extract JSON blob from output
+    const jsonStart = outputText.indexOf("{");
+    const jsonEnd = outputText.lastIndexOf("}");
+    if (jsonStart !== -1 && jsonEnd !== -1 && jsonEnd > jsonStart) {
+      const maybe = outputText.slice(jsonStart, jsonEnd + 1);
+      parsed = JSON.parse(maybe) as { needsEdits: boolean; notes: string };
+    }
+  } catch (e) {
+    parsed = null;
+  }
 
-  return { finalText, edited, requestId };
+  if (!parsed) {
+    // Fallback heuristics
+    const lower = outputText.toLowerCase();
+    const needs = /true|yes|edit|change|fix/.test(lower);
+    parsed = { needsEdits: needs, notes: outputText.trim().slice(0, 1000) };
+  }
+
+  return { needsEdits: Boolean(parsed.needsEdits), notes: String(parsed.notes || ""), requestId, raw: outputText };
+}
+
+async function applyPatches(params: { humanizedText: string; reviewerNotes: string }) {
+  const { humanizedText, reviewerNotes } = params;
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) return { finalText: humanizedText, requestId: null };
+
+  const client = createOpenAIClient({ apiKey });
+  const instructions = [
+    "You are an editor. Apply minimal, careful edits to the provided 'Humanized draft' following the reviewer's notes.",
+    "Keep tone and phrasing intact; only make changes that fix clear issues. Return only the final edited draft text.",
+  ].join(" ");
+
+  const { data: response, response: raw } = await client.responses
+    .create({
+      model: "gpt-5-nano",
+      instructions,
+      input: [
+        {
+          role: "user",
+          content: [
+            "Humanized draft:",
+            humanizedText,
+            "",
+            "Reviewer notes (apply these changes):",
+            reviewerNotes,
+          ].join("\n"),
+        },
+      ],
+      max_output_tokens: 1200,
+      store: false,
+    })
+    .withResponse();
+
+  const requestId = getOpenAIRequestId(response, raw);
+  const usage = response.usage as any;
+  if (usage) {
+    console.info("[human-writing][apply-patches][cost]", {
+      requestId,
+      totalCost: usage.total_cost ?? usage.totalCost ?? null,
+      totalTokens: usage.total_tokens ?? usage.totalTokens ?? null,
+    });
+  }
+
+  const rawOutput = response.output_text;
+  const finalText = Array.isArray(rawOutput) ? rawOutput.join("").trim() : String(rawOutput || "").trim();
+  return { finalText: finalText || humanizedText, requestId, raw: rawOutput };
 }
 
 export async function POST(request: NextRequest) {
@@ -142,19 +201,34 @@ export async function POST(request: NextRequest) {
 
       let finalDraft = humanized.output;
       let edited = false;
+      let reviewNotes = "";
+      let reviewRequestId: string | null = null;
+      let applyRequestId: string | null = null;
       try {
-        const review = await reviewAndOptionallyEdit({
-          humanizedText: humanized.output,
-          originalText: text,
-        });
-        finalDraft = review.finalText;
-        edited = review.edited;
+        const review = await reviewOnly({ humanizedText: humanized.output, originalText: text });
+        reviewNotes = review.notes || "";
+        reviewRequestId = review.requestId ?? null;
+
+        if (review.needsEdits) {
+          // If reviewer indicates edits needed, call a separate patching call to apply edits.
+          const patched = await applyPatches({ humanizedText: humanized.output, reviewerNotes: reviewNotes });
+          finalDraft = patched.finalText;
+          applyRequestId = patched.requestId ?? null;
+          edited = finalDraft.trim() !== (humanized.output || "").trim();
+        } else {
+          // No edits needed
+          finalDraft = "Looks good — no changes needed.";
+          edited = false;
+        }
       } catch (reviewErr: any) {
         console.warn("[human-writing][humanize][review_failed]", {
           runId,
           taskId,
           message: reviewErr?.message,
         });
+        // fallback: keep finalDraft as humanized output and edited=false
+        finalDraft = humanized.output;
+        edited = false;
       }
 
       if (conversationId) {
