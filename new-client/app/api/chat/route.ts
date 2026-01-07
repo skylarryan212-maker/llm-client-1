@@ -43,6 +43,7 @@ import { buildOpenAIClientOptions } from "@/lib/openai/client";
 import { runDecisionRouter } from "@/lib/router/decision-router";
 import { runWriterRouter } from "@/lib/router/write-router";
 import { runWebSearchPipeline, type WebPipelineResult } from "@/lib/search/fast-web-pipeline";
+import { writeSearchQueries, type QueryWriterResult } from "@/lib/search/search-llm";
 import { estimateTokens } from "@/lib/tokens/estimateTokens";
 import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
@@ -2147,6 +2148,7 @@ export async function POST(request: NextRequest) {
     let webPipelinePromise: Promise<WebPipelineResult | null> | null = null;
     let searchStarted = false;
     let numericSourceLimit: number | undefined = undefined;
+    let queryWriterPromise: Promise<QueryWriterResult | null> | null = null;
     const nowForSearch = typeof clientNow === "string" || typeof clientNow === "number"
       ? new Date(clientNow)
       : new Date();
@@ -2590,6 +2592,17 @@ export async function POST(request: NextRequest) {
           typeof customWebSearchInput.searchControls?.sourceLimit === "number"
             ? customWebSearchInput.searchControls.sourceLimit
             : undefined;
+        // Kick off query writer immediately; we'll reuse the result when running the pipeline later.
+        queryWriterPromise = writeSearchQueries({
+          prompt: customWebSearchInput.prompt,
+          count: Math.max(1, customWebSearchInput?.recentMessages?.length ? 1 : 1),
+          currentDate: customWebSearchInput.currentDate,
+          recentMessages: customWebSearchInput.recentMessages,
+          location: {
+            city: customWebSearchInput.location?.city,
+            countryCode: customWebSearchInput.location?.countryCode,
+          },
+        }).catch(() => null);
 
         // Kick off the web pipeline immediately in parallel.
         console.log("[chatApi] search controls received", {
@@ -2599,6 +2612,14 @@ export async function POST(request: NextRequest) {
         });
         webPipelinePromise = (async () => {
           let result: WebPipelineResult | null = null;
+          let queryWriterResult: QueryWriterResult | null = null;
+          if (queryWriterPromise) {
+            try {
+              queryWriterResult = await queryWriterPromise;
+            } catch {
+              queryWriterResult = null;
+            }
+          }
           try {
             result = await runWebSearchPipeline(customWebSearchInput.prompt, {
               recentMessages: customWebSearchInput.recentMessages,
@@ -2612,6 +2633,7 @@ export async function POST(request: NextRequest) {
               targetUsablePages: numericSourceLimit,
               excerptMode: customWebSearchInput.searchControls?.excerptMode,
               allowSkip: !forceWebSearch,
+              precomputedQueryResult: queryWriterResult,
               onSearchStart: ({ query }) => {
                 searchStarted = true;
                 sendStatusUpdate({ type: "search-start", query });

@@ -4,7 +4,7 @@ import {
   fetchGoogleOrganicSerp,
   type BrightDataOrganicResult,
 } from "@/lib/search/brightdata-serp";
-import { writeSearchQueries } from "@/lib/search/search-llm";
+import { writeSearchQueries, type QueryWriterResult } from "@/lib/search/search-llm";
 
 export type WebPipelineChunk = {
   text: string;
@@ -59,6 +59,7 @@ type PipelineOptions = {
   keywordWindowWords?: number;
   onSearchStart?: (event: { query: string; queries: string[] }) => void;
   onProgress?: (event: { type: "page_fetch_progress"; searched: number }) => void;
+  precomputedQueryResult?: QueryWriterResult | null;
 };
 
 type SourceCard = {
@@ -366,17 +367,19 @@ export async function runWebSearchPipeline(
     queryCount,
     recentMessages: options.recentMessages?.length ?? 0,
   });
-  let queryWriterResult: Awaited<ReturnType<typeof writeSearchQueries>> | null = null;
-  try {
-    queryWriterResult = await writeSearchQueries({
-      prompt: trimmedPrompt,
-      count: queryCount,
-      currentDate: options.currentDate,
-      recentMessages: options.recentMessages,
-      location,
-    });
-  } catch (error) {
-    console.warn("[fast-web-pipeline] query writer failed", error);
+  let queryWriterResult: QueryWriterResult | null = options.precomputedQueryResult ?? null;
+  if (!queryWriterResult) {
+    try {
+      queryWriterResult = await writeSearchQueries({
+        prompt: trimmedPrompt,
+        count: queryCount,
+        currentDate: options.currentDate,
+        recentMessages: options.recentMessages,
+        location,
+      });
+    } catch (error) {
+      console.warn("[fast-web-pipeline] query writer failed", error);
+    }
   }
 
   const shouldUseWebSearch = queryWriterResult?.useWebSearch ?? true;
