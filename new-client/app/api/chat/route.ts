@@ -2144,6 +2144,9 @@ export async function POST(request: NextRequest) {
           };
         }
       | null = null;
+    let webPipelinePromise: Promise<WebPipelineResult | null> | null = null;
+    let searchStarted = false;
+    let numericSourceLimit: number | undefined = undefined;
     const nowForSearch = typeof clientNow === "string" || typeof clientNow === "number"
       ? new Date(clientNow)
       : new Date();
@@ -2581,6 +2584,66 @@ export async function POST(request: NextRequest) {
           preferredSourceUrls,
           searchControls,
         };
+        numericSourceLimit =
+          typeof customWebSearchInput.searchControls?.sourceLimit === "number"
+            ? customWebSearchInput.searchControls.sourceLimit
+            : undefined;
+
+        // Kick off the web pipeline immediately in parallel.
+        console.log("[chatApi] search controls received", {
+          sourceLimit: customWebSearchInput.searchControls?.sourceLimit ?? "auto",
+          excerptMode: customWebSearchInput.searchControls?.excerptMode ?? "auto",
+          numericSourceLimit,
+        });
+        webPipelinePromise = (async () => {
+          let result: WebPipelineResult | null = null;
+          try {
+            result = await runWebSearchPipeline(customWebSearchInput.prompt, {
+              recentMessages: customWebSearchInput.recentMessages,
+              currentDate: customWebSearchInput.currentDate,
+              locationName: customWebSearchInput.location?.city ?? effectiveLocation?.city ?? undefined,
+              languageCode: customWebSearchInput.location?.languageCode ?? undefined,
+              countryCode: customWebSearchInput.location?.countryCode ?? undefined,
+              preferredSourceUrls: customWebSearchInput.preferredSourceUrls,
+              resultsPerQueryOverride: numericSourceLimit,
+              maxEvidenceSources: numericSourceLimit,
+              targetUsablePages: numericSourceLimit,
+              excerptMode: customWebSearchInput.searchControls?.excerptMode,
+              allowSkip: !forceWebSearch,
+              onSearchStart: ({ query }) => {
+                searchStarted = true;
+                sendStatusUpdate({ type: "search-start", query });
+              },
+              onProgress: (event) => {
+                if (!searchStarted) {
+                  return;
+                }
+                sendStatusUpdate({ type: "search-progress", count: event.searched });
+              },
+            });
+            return result;
+          } catch (searchErr) {
+            console.error("[web-pipeline] failed", searchErr);
+            if (searchStarted) {
+              sendStatusUpdate({
+                type: "search-error",
+                query: customWebSearchInput.prompt,
+                message: "Web search failed",
+              });
+            }
+            return null;
+          } finally {
+            if (searchStarted) {
+              const queryLabel =
+                result?.queries?.join(" | ")?.trim() || customWebSearchInput.prompt;
+              sendStatusUpdate({
+                type: "search-complete",
+                query: queryLabel,
+                results: result?.results?.length ?? 0,
+              });
+            }
+          }
+        })();
       }
 
       const resolvedMarketInstanceId =
@@ -3838,78 +3901,16 @@ export async function POST(request: NextRequest) {
         let customWebSearchContext: string | null = null;
         let customWebSearchDomains: string[] = [];
         let pipelineSkipped = false;
-        let searchStarted = false;
-        let webPipelinePromise: Promise<WebPipelineResult | null> | null = null;
 
         if (customWebSearchInput) {
-          const numericSourceLimit =
-            typeof customWebSearchInput.searchControls?.sourceLimit === "number"
-              ? customWebSearchInput.searchControls.sourceLimit
-              : undefined;
-          console.log("[chatApi] search controls received", {
-            sourceLimit: customWebSearchInput.searchControls?.sourceLimit ?? "auto",
-            excerptMode: customWebSearchInput.searchControls?.excerptMode ?? "auto",
-            numericSourceLimit,
-          });
-          // Kick off the web pipeline immediately in parallel.
-          webPipelinePromise = (async () => {
-            let result: WebPipelineResult | null = null;
+          if (webPipelinePromise) {
             try {
-              result = await runWebSearchPipeline(customWebSearchInput.prompt, {
-                recentMessages: customWebSearchInput.recentMessages,
-                currentDate: customWebSearchInput.currentDate,
-                locationName: customWebSearchInput.location?.city ?? effectiveLocation?.city ?? undefined,
-                languageCode: customWebSearchInput.location?.languageCode ?? undefined,
-                countryCode: customWebSearchInput.location?.countryCode ?? undefined,
-              preferredSourceUrls: customWebSearchInput.preferredSourceUrls,
-              resultsPerQueryOverride: numericSourceLimit,
-              maxEvidenceSources: numericSourceLimit,
-              targetUsablePages: numericSourceLimit,
-              excerptMode: customWebSearchInput.searchControls?.excerptMode,
-              allowSkip: !forceWebSearch,
-              onSearchStart: ({ query }) => {
-                searchStarted = true;
-                sendStatusUpdate({ type: "search-start", query });
-              },
-                onProgress: (event) => {
-                  if (!searchStarted) {
-                    return;
-                  }
-                  sendStatusUpdate({ type: "search-progress", count: event.searched });
-                },
-              });
-              return result;
+              customWebSearchResult = await webPipelinePromise;
+              console.log("[web-pipeline] completed for prompt");
             } catch (searchErr) {
               console.error("[web-pipeline] failed", searchErr);
-              if (searchStarted) {
-                sendStatusUpdate({
-                  type: "search-error",
-                  query: customWebSearchInput.prompt,
-                  message: "Web search failed",
-                });
-              }
-              return null;
-            } finally {
-              if (searchStarted) {
-                const queryLabel =
-                  result?.queries?.join(" | ")?.trim() || customWebSearchInput.prompt;
-                sendStatusUpdate({
-                  type: "search-complete",
-                  query: queryLabel,
-                  results: result?.results?.length ?? 0,
-                });
-              }
+              customWebSearchResult = null;
             }
-          })();
-        }
-
-        if (webPipelinePromise) {
-          try {
-            customWebSearchResult = await webPipelinePromise;
-            console.log("[web-pipeline] completed for prompt");
-          } catch (searchErr) {
-            console.error("[web-pipeline] failed", searchErr);
-            customWebSearchResult = null;
           }
           pipelineGate = customWebSearchResult?.gate?.enoughEvidence === true;
           pipelineSkipped = customWebSearchResult?.skipped === true;
