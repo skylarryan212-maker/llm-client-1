@@ -3926,7 +3926,7 @@ export async function POST(request: NextRequest) {
           }
           if (searchStarted) {
             const queryLabel =
-              customWebSearchResult?.queries?.join(" | ")?.trim() || customWebSearchInput.prompt;
+              customWebSearchResult?.queries?.join(" | ")?.trim() || customWebSearchInput?.prompt || "";
             sendStatusUpdate({
               type: "search-complete",
               query: queryLabel,
