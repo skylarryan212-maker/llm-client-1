@@ -695,6 +695,22 @@ function ChatInner({ params }: PageProps) {
         typeof data?.humanized === "string" && data.humanized.trim().length
           ? data.humanized
           : (data?.output as string) || "Humanizer returned no output.";
+      const reviewed =
+        typeof data?.reviewed === "string" && data.reviewed.trim().length
+          ? data.reviewed
+          : humanized;
+      const edited = Boolean(data?.edited);
+      const summaryLine = `\n\n_${[
+        edited ? "Model review applied" : "Model review: no changes",
+        resolvedModel ? `Model: ${resolvedModel}` : null,
+        humanizerSettings.language ? `Language: ${humanizerSettings.language}` : null,
+      ]
+        .filter(Boolean)
+        .join(" • ")}_`;
+      const reviewContent = edited
+        ? `**Model review (edits applied)**\n\n${reviewed}${summaryLine}`
+        : `**Model review**\n\nLooks good — no changes needed.${summaryLine}`;
+      const label = edited ? "Review applied" : "Review looks good";
 
       setMessages((prev) => {
         const updated = prev.map((msg) =>
@@ -718,56 +734,7 @@ function ChatInner({ params }: PageProps) {
       setShowScrollToBottom(false);
       scrollToBottom("smooth");
 
-      let reviewed = humanized;
-      let edited = false;
-      let summaryLine = "";
-      let reviewError: string | null = null;
-      try {
-        const review = await reviewAndOptionallyEdit({
-          humanizedText: humanized,
-          originalText: draftText,
-        });
-        reviewed = review.finalText;
-        edited = review.edited;
-        summaryLine = `\n\n_${[
-          edited ? "Model review applied" : "Model review: no changes",
-          resolvedModel ? `Model: ${resolvedModel}` : null,
-          humanizerSettings.language ? `Language: ${humanizerSettings.language}` : null,
-        ]
-          .filter(Boolean)
-          .join(" • ")}_`;
-      } catch (reviewErr: any) {
-        console.warn("[human-writing][humanize][review_failed]", {
-          runId,
-          taskId,
-          message: reviewErr?.message,
-        });
-        reviewError = reviewErr?.message || "Review failed";
-      }
-
-      if (reviewError) {
-        setMessages((prev) => {
-          const next = prev.map((msg) => {
-            if (msg.id === reviewMessageId) {
-              return { ...msg, content: `Review error: ${reviewError}` };
-            }
-            if (msg.id === actionId) {
-              return {
-                ...msg,
-                status: "done" as const,
-                progressLabel: "Review failed",
-              };
-            }
-            return msg;
-          });
-          messagesRef.current = next;
-          return next;
-        });
-      } else {
-        const reviewContent = edited
-          ? `**Model review (edits applied)**\n\n${reviewed}${summaryLine}`
-          : `**Model review**\n\nLooks good — no changes needed.${summaryLine}`;
-        const label = edited ? "Review applied" : "Review looks good";
+      const applyReviewUpdate = () => {
         setMessages((prev) => {
           const next = prev.map((msg) => {
             if (msg.id === reviewMessageId) {
@@ -785,10 +752,14 @@ function ChatInner({ params }: PageProps) {
           messagesRef.current = next;
           return next;
         });
-      }
-      setIsAutoScroll(true);
-      setShowScrollToBottom(false);
-      scrollToBottom("smooth");
+        setIsAutoScroll(true);
+        setShowScrollToBottom(false);
+        scrollToBottom("smooth");
+      };
+
+      setTimeout(() => {
+        applyReviewUpdate();
+      }, 180);
 
       // Persist CTA state as completed
       try {
@@ -808,34 +779,34 @@ function ChatInner({ params }: PageProps) {
       } catch (err) {
         console.warn("[human-writing][cta][persist-status] failed", err);
       }
-    } catch (error: any) {
-      const message = error?.message || "Humanizer failed.";
-      setMessages((prev) => {
-        const updated = prev.map((msg) =>
-          msg.id === actionId
-            ? { ...msg, status: "done", progressLabel: "Humanizer failed" }
-            : msg
-        );
-        const next = [
-          ...updated,
-          {
-            id: `humanizer-error-${Date.now()}`,
-            role: "assistant",
-            content: `Humanizer error: ${message}`,
-          },
-        ];
-        messagesRef.current = next;
-        return next;
-      });
-      setIsAutoScroll(true);
-      setShowScrollToBottom(false);
-      scrollToBottom("smooth");
-    } finally {
-      setIsHumanizing(false);
-      setActiveActionId(null);
-      finalizeHumanizerFlow();
-    }
-  };
+      } catch (error: any) {
+        const message = error?.message || "Humanizer failed.";
+        setMessages((prev) => {
+          const updated = prev.map((msg) =>
+            msg.id === actionId
+              ? { ...msg, status: "done", progressLabel: "Humanizer failed" }
+              : msg
+          );
+          const next = [
+            ...updated,
+            {
+              id: `humanizer-error-${Date.now()}`,
+              role: "assistant",
+              content: `Humanizer error: ${message}`,
+            },
+          ];
+          messagesRef.current = next;
+          return next;
+        });
+        setIsAutoScroll(true);
+        setShowScrollToBottom(false);
+        scrollToBottom("smooth");
+      } finally {
+        setIsHumanizing(false);
+        setActiveActionId(null);
+        finalizeHumanizerFlow();
+      }
+    };
 
   useEffect(() => {
     if (isSidebarOpen) return;
