@@ -322,11 +322,9 @@ async function collectSources(
   onProgress?: PipelineOptions["onProgress"]
 ): Promise<SourceCard[]> {
   const collected: SourceCard[] = [];
-  let usableCount = 0;
   let cursor = 0;
   const workers = Array.from({ length: Math.min(FETCH_CONCURRENCY, serpResults.length) }, async () => {
     while (true) {
-      if (usableCount >= targetUsablePages) return;
       const current = cursor;
       cursor += 1;
       if (current >= serpResults.length) return;
@@ -334,9 +332,6 @@ async function collectSources(
       const quality = card.text ? computeContentScore(card.text, queryKeywords) : 0;
       card.contentScore = quality;
       collected.push(card);
-      if (card.status === "ok" && card.text) {
-        usableCount += 1;
-      }
       if (onProgress) {
         onProgress({ type: "page_fetch_progress", searched: collected.length });
       }
@@ -346,7 +341,7 @@ async function collectSources(
   return collected;
 }
 
-function selectEvidenceSources(cards: SourceCard[], serpCount: number, explicitLimit?: number): SourceCard[] {
+function selectEvidenceSources(cards: SourceCard[], targetCount: number): SourceCard[] {
   const okCards = cards.filter((card) => card.status === "ok" && card.text);
   if (!okCards.length) return [];
   const scored = okCards
@@ -355,13 +350,8 @@ function selectEvidenceSources(cards: SourceCard[], serpCount: number, explicitL
       combinedScore: card.relevanceScore + (card.contentScore ?? 0) * 20,
     }))
     .sort((a, b) => b.combinedScore - a.combinedScore);
-  const fallbackLimit = Math.max(1, Math.floor(serpCount / 2) || 1);
-  const candidateCount = scored.length;
-  const baseLimit = typeof explicitLimit === "number" && Number.isFinite(explicitLimit)
-    ? Math.max(1, Math.min(candidateCount, explicitLimit))
-    : Math.max(1, Math.min(candidateCount, fallbackLimit));
-  const limit = Math.min(candidateCount, Math.max(5, baseLimit));
-  return scored.slice(0, limit).map((entry) => entry.card);
+  const desired = Math.max(1, Math.min(scored.length, Math.max(1, targetCount)));
+  return scored.slice(0, desired).map((entry) => entry.card);
 }
 
 export async function runWebSearchPipeline(
@@ -541,8 +531,17 @@ export async function runWebSearchPipeline(
 
   const queryKeywords = extractKeywords(queries.join(" "));
   const collected = await collectSources(serpResults, queryKeywords, targetUsablePages, options.onProgress);
-  const usable = collected.filter((card) => card.status === "ok" && card.text).slice(0, targetUsablePages);
-  const evidenceCards = selectEvidenceSources(usable, serpResults.length, explicitEvidenceLimit);
+  const usable = collected.filter((card) => card.status === "ok" && card.text);
+  const desiredEvidenceCount = Math.max(
+    1,
+    Math.min(
+      targetUsablePages,
+      typeof explicitEvidenceLimit === "number" && Number.isFinite(explicitEvidenceLimit)
+        ? explicitEvidenceLimit
+        : targetUsablePages
+    )
+  );
+  const evidenceCards = selectEvidenceSources(usable, desiredEvidenceCount);
 
   const chunks: WebPipelineChunk[] = [];
   for (const card of evidenceCards) {
