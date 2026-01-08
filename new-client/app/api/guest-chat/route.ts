@@ -107,9 +107,10 @@ export async function POST(request: NextRequest) {
           )
         : [];
 
-    // Allow built-in tools. Include web and file search so the model can call them.
-    const tools: Tool[] = [{ type: "web_search" as any }, { type: "file_search" as any }];
+    // Use only file search (web search is handled by our fast-web-pipeline, not OpenAI's built-in tool).
+    const tools: Tool[] = [{ type: "file_search" as any }];
 
+    console.log("[guest-chat] Tools configured:", tools);
     const stream = client.responses.stream({
       model,
       store: true,
@@ -208,17 +209,28 @@ export async function POST(request: NextRequest) {
         // Stream text deltas
         if (typedEvent.type === "response.output_text.delta" && typedEvent.delta) {
           emittedToken = true;
+          console.log("[guest-chat] Token delta:", (typedEvent.delta as string).substring(0, 50));
           enqueue({ token: typedEvent.delta });
+        } else if (typedEvent.type === "response.output_text.delta") {
+          console.log("[guest-chat] output_text.delta event received but no delta property");
         }
 
-        // Fallback: if completed and we never emitted tokens, send the full text
-        if (
-          typedEvent.type === "response.completed" &&
-          !emittedToken &&
-          (typedEvent as any)?.response?.output_text
-        ) {
-          emittedToken = true;
-          enqueue({ token: (typedEvent as any).response.output_text });
+        // Log all response.completed events to diagnose
+        if (typedEvent.type === "response.completed") {
+          console.log("[guest-chat] response.completed event", {
+            emittedToken,
+            hasOutputText: !!(typedEvent as any)?.response?.output_text,
+            outputTextLength: ((typedEvent as any)?.response?.output_text || "").length,
+          });
+          // Fallback: if completed and we never emitted tokens, send the full text
+          if (
+            !emittedToken &&
+            (typedEvent as any)?.response?.output_text
+          ) {
+            emittedToken = true;
+            console.log("[guest-chat] Emitting fallback output_text:", (typedEvent as any).response.output_text.substring(0, 50));
+            enqueue({ token: (typedEvent as any).response.output_text });
+          }
         }
 
         if (typedEvent.type === "response.completed") {

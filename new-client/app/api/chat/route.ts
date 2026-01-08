@@ -3768,7 +3768,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Use generic Tool to avoid strict preview-only type union on WebSearchTool in SDK types
-    const webSearchTool: Tool = { type: "web_search" as any };
+    // NOTE: web_search tool is NOT used; we use our fast-web-pipeline instead
     const fileSearchTool = {
       type: "file_search" as const,
       ...(vectorStoreIdsForRequest.length ? { vector_store_ids: vectorStoreIdsForRequest } : {}),
@@ -4037,18 +4037,13 @@ export async function POST(request: NextRequest) {
         );
 
         const toolsForRequest: any[] = [];
-        if (allowWebSearch) {
-          toolsForRequest.push(webSearchTool);
-        }
+        // Use only our fast-web-pipeline for web search, not OpenAI's built-in web_search tool
         if (vectorStoreIdsForRequest.length) {
           toolsForRequest.push(fileSearchTool as Tool);
         }
         toolsForRequest.push(codeInterpreterTool);
-        const toolChoice: ToolChoiceOptions | undefined = allowWebSearch
-          ? requireWebSearch
-            ? "required"
-            : "auto"
-          : undefined;
+        // Do not use OpenAI's web_search tool; web search is handled by our fast-web-pipeline callback
+        const toolChoice: ToolChoiceOptions | undefined = undefined;
 
         // Progressive flex processing: free users always, all users at 80%+ usage,
         // and GPT-5 Pro forces flex for non-Dev plans.
