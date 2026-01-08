@@ -1978,8 +1978,13 @@ export default function ChatPageShell({
 	      };
 	      while (true) {
 	        const { done, value } = await reader.read();
-	        if (done) break;
-	        ndjsonBuffer += decoder.decode(value, { stream: true });
+	        if (done) {
+	          console.log("[guest] stream reader done");
+	          break;
+	        }
+	        const chunk = decoder.decode(value, { stream: true });
+	        console.log("[guest] received chunk, length:", chunk.length, "preview:", chunk.substring(0, 100));
+	        ndjsonBuffer += chunk;
           while (true) {
             const newlineIndex = ndjsonBuffer.indexOf("\n");
             if (newlineIndex === -1) break;
@@ -1987,12 +1992,16 @@ export default function ChatPageShell({
             ndjsonBuffer = ndjsonBuffer.slice(newlineIndex + 1);
             if (!line.trim()) continue;
 	          try {
+	            console.log("[guest] parsing line:", line.substring(0, 80));
 	            const parsed = JSON.parse(line);
+	            console.log("[guest] parsed keys:", Object.keys(parsed));
 	            if (parsed.response_id) {
 	              guestResponseIdsRef.current[chatId] = parsed.response_id as string;
 	            }
             if (parsed.token) {
+              console.log("[guest] got token, length:", parsed.token.length, "preview:", parsed.token.substring(0, 40));
               assistantContent += parsed.token;
+              console.log("[guest] assistantContent now:", assistantContent.substring(0, 60));
               if (!firstTokenSeen) {
                 firstTokenSeen = true;
                 messageMetadata = recordFirstTokenTiming(
@@ -2015,6 +2024,7 @@ export default function ChatPageShell({
               scheduleGuestUpdate(assistantContent, messageMetadata);
             }
 	            if (parsed.done) {
+	              console.log("[guest] done received, assistantContent length:", assistantContent.length);
 	              if (assistantContent.length > 0) {
                 const finalMeta = mergeThinkingTimingIntoMetadata(
                   messageMetadata,
