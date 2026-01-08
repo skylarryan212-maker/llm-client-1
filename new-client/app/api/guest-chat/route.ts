@@ -1,4 +1,5 @@
-"use server";
+// Use the Node.js runtime so the OpenAI Node client and Node APIs work correctly
+export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
 import { createOpenAIClient } from "@/lib/openai/client";
