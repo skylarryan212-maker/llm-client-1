@@ -5,6 +5,7 @@ import "./globals.css";
 import { ProjectsProvider } from "@/components/projects/projects-provider";
 import { ChatProvider, StoredChat } from "@/components/chat/chat-provider";
 import { AccentColorProvider } from "@/components/accent-color-provider";
+import { LoginProvider } from "@/lib/auth/login-context";
 import { getProjectsForUser } from "@/lib/data/projects";
 import { getConversationsForUser } from "@/lib/data/conversations";
 import { getUserPreferences } from "@/lib/data/user-preferences";
@@ -100,13 +101,15 @@ export default async function RootLayout({
         <UserIdentityProvider identity={identity}>
           <UsageSnapshotProvider value={usageSnapshot}>
             <AccentColorProvider initialAccentColor={initialAccentColor}>
-              <ProjectsProvider initialProjects={initialProjectSummaries} userId={identity.userId ?? ""}>
-                <ChatProvider initialChats={initialChats} userId={identity.userId ?? ""}>
-                  <LocationPermissionWrapper />
-                  <OptionalSpeedInsights />
-                  {children}
-                </ChatProvider>
-              </ProjectsProvider>
+              <LoginProvider>
+                <ProjectsProvider initialProjects={initialProjectSummaries} userId={identity.userId ?? ""}>
+                  <ChatProvider initialChats={initialChats} userId={identity.userId ?? ""}>
+                    <LocationPermissionWrapper />
+                    <OptionalSpeedInsights />
+                    {children}
+                  </ChatProvider>
+                </ProjectsProvider>
+              </LoginProvider>
             </AccentColorProvider>
           </UsageSnapshotProvider>
         </UserIdentityProvider>

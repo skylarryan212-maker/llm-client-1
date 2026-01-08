@@ -4,6 +4,7 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { useUserIdentity } from "@/components/user-identity-provider";
+import { useLoginModal } from "@/lib/auth/login-context";
 import { Virtuoso, VirtuosoHandle } from "react-virtuoso";
 
 import { ChatSidebar } from "@/components/chat-sidebar";
@@ -369,6 +370,7 @@ export default function ChatPageShell({
   const baseBottomSpacerPx = 28;
   const MESSAGE_PAGE_SIZE = 200;
   const router = useRouter();
+  const { openLoginModal } = useLoginModal();
   const mainPanelRef = useRef<HTMLDivElement | null>(null);
   const chatBodyRef = useRef<HTMLDivElement | null>(null);
   const prefersReducedMotion =
@@ -4219,7 +4221,7 @@ export default function ChatPageShell({
                         <Button
                           size="sm"
                           className="h-9 rounded-full px-3 text-sm font-semibold"
-                          onClick={() => router.push("/login")}
+                          onClick={openLoginModal}
                         >
                           Log in
                         </Button>
@@ -4227,7 +4229,7 @@ export default function ChatPageShell({
                           variant="ghost"
                           size="sm"
                           className="h-9 rounded-full px-3 text-sm font-semibold border border-border"
-                          onClick={() => router.push("/login")}
+                          onClick={openLoginModal}
                         >
                           Sign up for free
                         </Button>
@@ -4291,7 +4293,7 @@ export default function ChatPageShell({
                   variant="outline"
                   size="sm"
                   className="h-9 px-3 text-sm font-semibold rounded-full"
-                  onClick={() => router.push("/login")}
+                  onClick={openLoginModal}
                 >
                   Log in
                 </Button>
@@ -4299,7 +4301,7 @@ export default function ChatPageShell({
                   variant="ghost"
                   size="sm"
                   className="h-9 px-3 text-sm font-semibold rounded-full border border-border"
-                  onClick={() => router.push("/login")}
+                  onClick={openLoginModal}
                 >
                   Sign up for free
                 </Button>

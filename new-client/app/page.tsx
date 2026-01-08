@@ -5,9 +5,11 @@ import { Suspense, useMemo } from "react";
 import { useSearchParams } from "next/navigation";
 import ChatPageShell from "@/components/chat/chat-page-shell";
 import { LoginOverlay } from "@/components/auth/login-overlay";
+import { useLoginModal } from "@/lib/auth/login-context";
 
 function HomeShell() {
   const searchParams = useSearchParams();
+  const { isLoginModalOpen } = useLoginModal();
   const searchParamsObject = useMemo(() => {
     const entries = Array.from(searchParams.entries());
     return entries.reduce<Record<string, string | string[]>>((acc, [key, value]) => {
@@ -20,7 +22,7 @@ function HomeShell() {
       return acc;
     }, {});
   }, [searchParams]);
-  const showLogin = searchParams.get("login") === "1" || searchParams.get("auth") === "1";
+  const showLogin = isLoginModalOpen || searchParams.get("login") === "1" || searchParams.get("auth") === "1";
 
   return (
     <>

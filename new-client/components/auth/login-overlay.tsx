@@ -2,10 +2,11 @@
 
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Copy } from "lucide-react";
+import { Copy, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { useLoginModal } from "@/lib/auth/login-context";
 import supabaseClient from "@/lib/supabase/browser-client";
 import { SUPABASE_PKCE_VERIFIER_KEY } from "@/lib/supabase/constants";
 import { buildTokenAuthEmail } from "@/lib/auth/tokenAuth";
@@ -35,6 +36,7 @@ export function LoginOverlay() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const nextPath = searchParams.get("next") ?? "/";
+  const { closeLoginModal } = useLoginModal();
 
   const [googleLoading, setGoogleLoading] = useState(false);
   const [googleError, setGoogleError] = useState<string | null>(null);
@@ -170,7 +172,7 @@ export function LoginOverlay() {
   };
 
   const closeOverlay = () => {
-    router.replace("/");
+    closeLoginModal();
   };
 
   useEffect(() => {
