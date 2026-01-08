@@ -4020,8 +4020,6 @@ export async function POST(request: NextRequest) {
         const webSearchInstructionParts = [
           ...(useCustomWebSearch && pipelineGate
             ? [
-                "Use the provided web search context for any live/factual claims. Do NOT call the web_search tool.",
-                "You must cite sources from the provided context using markdown links [text](url) and include a final 'Sources:' section listing all cited links.",
                 "Every factual claim must include an inline citation immediately after the claim (same sentence).",
               ]
             : []),
