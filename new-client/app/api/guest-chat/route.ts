@@ -132,138 +132,141 @@ export async function POST(request: NextRequest) {
         const enqueue = (obj: Record<string, unknown>) =>
           controller.enqueue(encoder.encode(JSON.stringify(obj) + "\n"));
         try {
-      console.log("[guest-chat] Starting to stream chunks");
-      let responseId: string | undefined;
-      let emittedToken = false;
-      let inputTokens = 0;
-      let cachedTokens = 0;
-      let outputTokens = 0;
+          console.log("[guest-chat] Starting to stream chunks");
+          let responseId: string | undefined;
+          let emittedToken = false;
+          let inputTokens = 0;
+          let cachedTokens = 0;
+          let outputTokens = 0;
 
-      // Kick off query writer and web pipeline in parallel so we can emit search status events
-      let queryWriterPromise = writeSearchQueriesAndTime({
-        prompt: message,
-        count: Math.max(1, historyInput?.length ? 1 : 1),
-        currentDate: new Date().toISOString(),
-        recentMessages: historyInput as any,
-      }).catch(() => null);
-
-      let webPipelineStarted = false;
-      const startWebPipelineIfNeeded = async () => {
-        let queryWriterResult: any = null;
-        try {
-          queryWriterResult = await queryWriterPromise;
-        } catch {}
-        try {
-          const webResult = await runWebSearchPipeline(message, {
-            recentMessages: historyInput as any,
+          // Kick off query writer and web pipeline in parallel so we can emit search status events
+          let queryWriterPromise = writeSearchQueriesAndTime({
+            prompt: message,
+            count: Math.max(1, historyInput?.length ? 1 : 1),
             currentDate: new Date().toISOString(),
-            precomputedQueryResult: queryWriterResult ?? undefined,
-            onSearchStart: ({ query }) => {
-              webPipelineStarted = true;
-              enqueue({ toolStatus: { type: "search-start", query } });
-            },
-            onProgress: (event: any) => {
-              if (!webPipelineStarted) return;
-              enqueue({ toolStatus: { type: "search-progress", count: event.searched } });
-            },
-          });
-          if (webPipelineStarted) {
-            const qLabel = (webResult?.queries?.join(" | ") || message).trim();
-            enqueue({ toolStatus: { type: "search-complete", query: qLabel, results: webResult?.results?.length ?? 0 } });
-          }
-        } catch (err) {
-          if (webPipelineStarted) {
-            enqueue({ toolStatus: { type: "search-error", query: message, message: String(err) } });
-          }
-        }
-      };
+            recentMessages: historyInput as any,
+          }).catch(() => null);
 
-      // Fire-and-forget the pipeline (runs concurrently with streaming)
-      startWebPipelineIfNeeded().catch(() => null);
-
-      for await (const event of stream) {
-        const typedEvent = event as ResponseStreamEvent;
-        // Capture response id for chaining
-        const maybeId = (typedEvent as any)?.response?.id ?? (typedEvent as any)?.id;
-        if (maybeId && !responseId) {
-          responseId = maybeId as string;
-          enqueue({ response_id: responseId });
-        }
-
-        // Capture usage if available
-        const usage = (typedEvent as any)?.response?.usage;
-        if (usage) {
-          inputTokens =
-            usage.input_tokens ??
-            usage.prompt_tokens ??
-            usage.total_tokens ??
-            inputTokens;
-          cachedTokens =
-            usage.input_tokens_details?.cached_tokens ??
-            usage.input_tokens_details?.cache_read_input_tokens ??
-            usage.cached_input_tokens ??
-            cachedTokens;
-          outputTokens = usage.output_tokens ?? usage.completion_tokens ?? outputTokens;
-        }
-
-        // Stream text deltas
-        if (typedEvent.type === "response.output_text.delta" && typedEvent.delta) {
-          emittedToken = true;
-          console.log("[guest-chat] Token delta:", (typedEvent.delta as string).substring(0, 50));
-          enqueue({ token: typedEvent.delta });
-        } else if (typedEvent.type === "response.output_text.delta") {
-          console.log("[guest-chat] output_text.delta event received but no delta property");
-        }
-
-        // Log all response.completed events to diagnose
-        if (typedEvent.type === "response.completed") {
-          console.log("[guest-chat] response.completed event", {
-            emittedToken,
-            hasOutputText: !!(typedEvent as any)?.response?.output_text,
-            outputTextLength: ((typedEvent as any)?.response?.output_text || "").length,
-          });
-          // Fallback: if completed and we never emitted tokens, send the full text
-          if (
-            !emittedToken &&
-            (typedEvent as any)?.response?.output_text
-          ) {
-            emittedToken = true;
-            console.log("[guest-chat] Emitting fallback output_text:", (typedEvent as any).response.output_text.substring(0, 50));
-            enqueue({ token: (typedEvent as any).response.output_text });
-          }
-        }
-
-        if (typedEvent.type === "response.completed") {
-          try {
-            const estimatedCost = calculateCost(model, inputTokens, cachedTokens, outputTokens);
-            const totalTokens = (inputTokens || 0) + (cachedTokens || 0) + (outputTokens || 0);
-            if (supabase && session) {
-              await addGuestUsage(
-                supabase,
-                session.id,
-                (session as any)?.token_count,
-                (session as any)?.estimated_cost,
-                totalTokens,
-                estimatedCost
-              );
+          let webPipelineStarted = false;
+          const startWebPipelineIfNeeded = async () => {
+            let queryWriterResult: any = null;
+            try {
+              queryWriterResult = await queryWriterPromise;
+            } catch {}
+            try {
+              const webResult = await runWebSearchPipeline(message, {
+                recentMessages: historyInput as any,
+                currentDate: new Date().toISOString(),
+                precomputedQueryResult: queryWriterResult ?? undefined,
+                onSearchStart: ({ query }) => {
+                  webPipelineStarted = true;
+                  enqueue({ toolStatus: { type: "search-start", query } });
+                },
+                onProgress: (event: any) => {
+                  if (!webPipelineStarted) return;
+                  enqueue({ toolStatus: { type: "search-progress", count: event.searched } });
+                },
+              });
+              if (webPipelineStarted) {
+                const qLabel = (webResult?.queries?.join(" | ") || message).trim();
+                enqueue({ toolStatus: { type: "search-complete", query: qLabel, results: webResult?.results?.length ?? 0 } });
+              }
+            } catch (err) {
+              if (webPipelineStarted) {
+                enqueue({ toolStatus: { type: "search-error", query: message, message: String(err) } });
+              }
             }
-          } catch (usageErr) {
-            console.error("[guest-chat] Failed to log guest usage:", usageErr);
-          }
-          enqueue({ done: true });
-          console.log("[guest-chat] Stream completed successfully");
-          return;
-        }
+          };
+
+          // Fire-and-forget the pipeline (runs concurrently with streaming)
+          startWebPipelineIfNeeded().catch(() => null);
+
+          for await (const event of stream) {
+            const typedEvent = event as ResponseStreamEvent;
+            // Capture response id for chaining
+            const maybeId = (typedEvent as any)?.response?.id ?? (typedEvent as any)?.id;
+            if (maybeId && !responseId) {
+              responseId = maybeId as string;
+              enqueue({ response_id: responseId });
+            }
+
+            // Capture usage if available
+            const usage = (typedEvent as any)?.response?.usage;
+            if (usage) {
+              inputTokens =
+                usage.input_tokens ??
+                usage.prompt_tokens ??
+                usage.total_tokens ??
+                inputTokens;
+              cachedTokens =
+                usage.input_tokens_details?.cached_tokens ??
+                usage.input_tokens_details?.cache_read_input_tokens ??
+                usage.cached_input_tokens ??
+                cachedTokens;
+              outputTokens = usage.output_tokens ?? usage.completion_tokens ?? outputTokens;
+            }
+
+            // Stream text deltas
+            if (typedEvent.type === "response.output_text.delta" && typedEvent.delta) {
+              emittedToken = true;
+              console.log("[guest-chat] Token delta:", (typedEvent.delta as string).substring(0, 50));
+              enqueue({ token: typedEvent.delta });
+            } else if (typedEvent.type === "response.output_text.delta") {
+              console.log("[guest-chat] output_text.delta event received but no delta property");
+            }
+
+            // Log all response.completed events to diagnose
+            if (typedEvent.type === "response.completed") {
+              console.log("[guest-chat] response.completed event", {
+                emittedToken,
+                hasOutputText: !!(typedEvent as any)?.response?.output_text,
+                outputTextLength: ((typedEvent as any)?.response?.output_text || "").length,
+              });
+              // Fallback: if completed and we never emitted tokens, send the full text
+              if (
+                !emittedToken &&
+                (typedEvent as any)?.response?.output_text
+              ) {
+                emittedToken = true;
+                console.log("[guest-chat] Emitting fallback output_text:", (typedEvent as any).response.output_text.substring(0, 50));
+                enqueue({ token: (typedEvent as any).response.output_text });
+              }
+            }
+
+            if (typedEvent.type === "response.completed") {
+              try {
+                const estimatedCost = calculateCost(model, inputTokens, cachedTokens, outputTokens);
+                const totalTokens = (inputTokens || 0) + (cachedTokens || 0) + (outputTokens || 0);
+                if (supabase && session) {
+                  await addGuestUsage(
+                    supabase,
+                    session.id,
+                    (session as any)?.token_count,
+                    (session as any)?.estimated_cost,
+                    totalTokens,
+                    estimatedCost
+                  );
+                }
+              } catch (usageErr) {
+                console.error("[guest-chat] Failed to log guest usage:", usageErr);
+              }
+              enqueue({ done: true });
+              console.log("[guest-chat] Stream completed successfully");
+              controller.close();
+              return;
+            }
 
             if (typedEvent.type === "error" && typedEvent.message) {
               enqueue({ error: typedEvent.message });
             }
           }
+          // If loop exited without explicit return, we still need to close
           enqueue({ done: true });
+          controller.close();
         } catch (err: any) {
           console.error("[guest-chat] Stream error:", err);
           enqueue({ error: err?.message || "guest_chat_error" });
-        } finally {
+          enqueue({ done: true });
           controller.close();
         }
       },
