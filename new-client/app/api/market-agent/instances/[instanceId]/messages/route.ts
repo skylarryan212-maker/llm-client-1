@@ -95,7 +95,7 @@ const buildSuggestionOutcomeMessage = (outcome?: SuggestionOutcomePayload) => {
   const reasonText = reason?.trim() ? ` Reason: ${reason.trim()}.` : "";
   return `${base} ${statements.join(" ")}${reasonText}`;
 };
-const WEB_SEARCH_TOOL: Tool = { type: "web_search_preview" };
+const WEB_SEARCH_TOOL: Tool = { type: "web_search" };
 
 const extractTimezoneFromState = (state: unknown): string | undefined => {
   if (!state || typeof state !== "object" || Array.isArray(state)) {
@@ -353,7 +353,7 @@ export async function POST(
           );
           console.log("[market-agent] OpenAI stream started", {
             model: MODEL_ID,
-            tools: ["web_search_preview"],
+            tools: ["web_search"],
           });
 
           for await (const event of stream) {
