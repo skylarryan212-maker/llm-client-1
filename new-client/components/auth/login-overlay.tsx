@@ -32,6 +32,15 @@ const GoogleIcon = () => (
   </svg>
 );
 
+const MailIcon = () => (
+  <svg aria-hidden="true" viewBox="0 0 24 24" className="h-5 w-5">
+    <path
+      fill="currentColor"
+      d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 4l-8 5-8-5V6l8 5 8-5v2z"
+    />
+  </svg>
+);
+
 export function LoginOverlay() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -44,6 +53,20 @@ export function LoginOverlay() {
   const [tokenActionLoading, setTokenActionLoading] = useState(false);
   const [tokenActionError, setTokenActionError] = useState<string | null>(null);
   const [tokenModalToken, setTokenModalToken] = useState<string | null>(null);
+  const [authMode, setAuthMode] = useState<
+    | "main"
+    | "email"
+    | "email-password"
+    | "email-sent"
+    | "email-verify"
+    | "create-password"
+  >("main");
+  const [emailValue, setEmailValue] = useState("");
+  const [emailError, setEmailError] = useState<string | null>(null);
+  const [passwordValue, setPasswordValue] = useState("");
+  const [isNewEmail, setIsNewEmail] = useState<boolean | null>(null);
+  const [otpValue, setOtpValue] = useState("");
+  const [createPasswordValue, setCreatePasswordValue] = useState("");
   const [copyStatus, setCopyStatus] = useState<"idle" | "copied">("idle");
   const copyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -253,7 +276,216 @@ export function LoginOverlay() {
             </span>
             {googleLoading ? "Redirecting..." : "Continue with Google"}
           </Button>
+          <Button
+            variant="ghost"
+            className="w-full justify-start gap-3 rounded-full border border-white/20 bg-white/5 px-5 py-3 text-base font-medium text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.1)] transition hover:bg-white/10"
+            onClick={() => {
+              setAuthMode("email");
+              setEmailError(null);
+            }}
+          >
+            <span className="flex h-8 w-8 items-center justify-center">
+              <MailIcon />
+            </span>
+            Continue with email
+          </Button>
         </div>
+
+        {authMode === "email" && (
+          <div className="mt-4">
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault();
+                setEmailError(null);
+                const email = emailValue.trim();
+                if (!email) {
+                  setEmailError("Please enter an email address");
+                  return;
+                }
+
+                try {
+                  const res = await fetch("/api/auth/check-email", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ email }),
+                  });
+                  const payload = await res.json();
+                  if (!res.ok) throw new Error(payload?.error ?? "Failed to check email");
+                  if (payload.exists) {
+                    setIsNewEmail(false);
+                    setAuthMode("email-password");
+                  } else {
+                    setIsNewEmail(true);
+                    // send magic link / OTP for new account
+                    const { error } = await supabaseClient.auth.signInWithOtp({ email });
+                    if (error) {
+                      setEmailError(error.message ?? String(error));
+                      return;
+                    }
+                    setAuthMode("email-verify");
+                  }
+                } catch (err: any) {
+                  setEmailError(err?.message ?? "Error checking email");
+                }
+              }}
+              className="space-y-3"
+            >
+              <Input
+                id="continue-email"
+                value={emailValue}
+                onChange={(e) => setEmailValue(e.target.value)}
+                placeholder="you@example.com"
+                className="bg-white/5 text-white placeholder:text-white/40"
+              />
+              {emailError && <p className="text-sm text-destructive">{emailError}</p>}
+              <div className="flex gap-3">
+                <Button type="submit" className="flex-1 rounded-full bg-white text-black">
+                  Continue
+                </Button>
+                <Button
+                  variant="ghost"
+                  className="flex-1 rounded-full border border-white/10"
+                  onClick={() => setAuthMode("main")}
+                >
+                  Back
+                </Button>
+              </div>
+            </form>
+          </div>
+        )}
+
+        {authMode === "email-password" && (
+          <div className="mt-4">
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault();
+                setTokenActionError(null);
+                try {
+                  const { data, error } = await supabaseClient.auth.signInWithPassword({
+                    email: emailValue.trim(),
+                    password: passwordValue,
+                  });
+                  if (error) throw error;
+                  // successful sign in
+                  window.location.assign(nextPath);
+                } catch (err: any) {
+                  setTokenActionError(err?.message ?? "Failed to sign in");
+                }
+              }}
+              className="space-y-3"
+            >
+              <Input
+                id="continue-email-password"
+                value={passwordValue}
+                onChange={(e) => setPasswordValue(e.target.value)}
+                placeholder="Password"
+                type="password"
+                className="bg-white/5 text-white placeholder:text-white/40"
+              />
+              {tokenActionError && <p className="text-sm text-destructive">{tokenActionError}</p>}
+              <div className="flex gap-3">
+                <Button type="submit" className="flex-1 rounded-full bg-white text-black">
+                  Sign in
+                </Button>
+                <Button
+                  variant="ghost"
+                  className="flex-1 rounded-full border border-white/10"
+                  onClick={() => setAuthMode("email")}
+                >
+                  Back
+                </Button>
+              </div>
+            </form>
+          </div>
+        )}
+        {authMode === "email-verify" && (
+          <div className="mt-4">
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault();
+                setEmailError(null);
+                const code = otpValue.trim();
+                if (!code) {
+                  setEmailError("Please enter the code from your email");
+                  return;
+                }
+                try {
+                  // Try to verify OTP (type may be 'signup' or 'magiclink' depending on Supabase settings)
+                  // The SDK may return a session upon successful verification.
+                  // @ts-ignore
+                  const { data, error } = await supabaseClient.auth.verifyOtp({ email: emailValue.trim(), token: code, type: "signup" });
+                  if (error) throw error;
+                  // If new user flow, prompt to create password
+                  if (isNewEmail) {
+                    setAuthMode("create-password");
+                    return;
+                  }
+                  // otherwise reload / redirect since verification may have created a session
+                  window.location.assign(nextPath);
+                } catch (err: any) {
+                  setEmailError(err?.message ?? "Failed to verify code");
+                }
+              }}
+              className="space-y-3"
+            >
+              <Input
+                id="otp-code"
+                value={otpValue}
+                onChange={(e) => setOtpValue(e.target.value)}
+                placeholder="Enter code"
+                className="bg-white/5 text-white placeholder:text-white/40"
+              />
+              {emailError && <p className="text-sm text-destructive">{emailError}</p>}
+              <div className="flex gap-3">
+                <Button type="submit" className="flex-1 rounded-full bg-white text-black">Verify</Button>
+                <Button variant="ghost" className="flex-1 rounded-full border border-white/10" onClick={() => setAuthMode("email")}>Back</Button>
+              </div>
+            </form>
+          </div>
+        )}
+
+        {authMode === "create-password" && (
+          <div className="mt-4">
+            <form
+              onSubmit={async (e) => {
+                e.preventDefault();
+                setEmailError(null);
+                const pw = createPasswordValue.trim();
+                if (pw.length < 8) {
+                  setEmailError("Password must be at least 8 characters");
+                  return;
+                }
+                try {
+                  // Update user's password. This requires a valid session after OTP verification.
+                  // If no session exists, attempt to sign in with email+password after setting password server-side would be required.
+                  const { data, error } = await supabaseClient.auth.updateUser({ password: pw });
+                  if (error) throw error;
+                  // after password set, redirect
+                  window.location.assign(nextPath);
+                } catch (err: any) {
+                  setEmailError(err?.message ?? "Failed to set password");
+                }
+              }}
+              className="space-y-3"
+            >
+              <Input
+                id="create-password"
+                value={createPasswordValue}
+                onChange={(e) => setCreatePasswordValue(e.target.value)}
+                placeholder="Create a password"
+                type="password"
+                className="bg-white/5 text-white placeholder:text-white/40"
+              />
+              {emailError && <p className="text-sm text-destructive">{emailError}</p>}
+              <div className="flex gap-3">
+                <Button type="submit" className="flex-1 rounded-full bg-white text-black">Create password</Button>
+                <Button variant="ghost" className="flex-1 rounded-full border border-white/10" onClick={() => setAuthMode("email")}>
+                  Back
+                </Button>
+              </div>
+            </form>
+          </div>
+        )}
 
         {googleError ? (
           <p className="mt-4 text-sm text-destructive" role="alert">
