@@ -131,14 +131,16 @@ export async function POST(request: NextRequest) {
       async start(controller) {
         const enqueue = (obj: Record<string, unknown>) =>
           controller.enqueue(encoder.encode(JSON.stringify(obj) + "\n"));
+        // Hoist buffer/interval so catch/finally can access them
+        let tokenBuffer = "";
+        let flushTimer: any = null;
         try {
           console.log("[guest-chat] Starting to stream chunks");
           // Emit an immediate marker so clients know the stream started.
           enqueue({ stream: "start" });
           // Buffer small token deltas and flush on interval to avoid many tiny writes.
-          let tokenBuffer = "";
           const flushIntervalMs = 40;
-          const flushTimer = setInterval(() => {
+          flushTimer = setInterval(() => {
             if (tokenBuffer.length > 0) {
               enqueue({ token: tokenBuffer });
               tokenBuffer = "";
@@ -268,7 +270,7 @@ export async function POST(request: NextRequest) {
                 enqueue({ token: tokenBuffer });
                 tokenBuffer = "";
               }
-              clearInterval(flushTimer);
+              if (flushTimer != null) clearInterval(flushTimer);
               enqueue({ done: true });
               console.log("[guest-chat] Stream completed successfully");
               controller.close();
@@ -284,7 +286,7 @@ export async function POST(request: NextRequest) {
             enqueue({ token: tokenBuffer });
             tokenBuffer = "";
           }
-          clearInterval(flushTimer);
+          if (flushTimer != null) clearInterval(flushTimer);
           enqueue({ done: true });
           controller.close();
         } catch (err: any) {
@@ -294,7 +296,7 @@ export async function POST(request: NextRequest) {
             enqueue({ token: tokenBuffer });
             tokenBuffer = "";
           }
-          clearInterval(flushTimer);
+          if (flushTimer != null) clearInterval(flushTimer);
           enqueue({ done: true });
           controller.close();
         }
