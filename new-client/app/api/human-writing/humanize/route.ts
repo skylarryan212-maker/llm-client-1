@@ -45,20 +45,24 @@ async function reviewOnly(params: { humanizedText: string; originalText: string 
 
   const requestId = getOpenAIRequestId(response, raw);
   const usage = response.usage as any;
-  if (usage) {
-    console.info("[human-writing][review][cost]", {
-      requestId,
-      totalCost: usage.total_cost ?? usage.totalCost ?? null,
-      totalTokens: usage.total_tokens ?? usage.totalTokens ?? null,
-      promptTokens: usage.prompt_tokens ?? usage.promptTokens ?? null,
-      completionTokens: usage.completion_tokens ?? usage.completionTokens ?? null,
-    });
-  } else {
-    console.info("[human-writing][review][cost]", { requestId, totalCost: null });
-  }
+  const usageSummary = usage
+    ? {
+        totalCost: usage.total_cost ?? usage.totalCost ?? null,
+        totalTokens: usage.total_tokens ?? usage.totalTokens ?? null,
+        promptTokens: usage.prompt_tokens ?? usage.promptTokens ?? null,
+        completionTokens: usage.completion_tokens ?? usage.completionTokens ?? null,
+      }
+    : null;
+  console.info("[human-writing][review][cost]", { requestId, usage: usageSummary });
 
+  // Log reviewer response (truncated) for auditing
   const rawOutput = response.output_text;
   const outputText = Array.isArray(rawOutput) ? rawOutput.join("") : String(rawOutput || "");
+  try {
+    console.info("[human-writing][review][response]", { requestId, raw: outputText.slice(0, 2000) });
+  } catch (err) {
+    console.info("[human-writing][review][response]", { requestId, raw: String(outputText).slice(0, 2000) });
+  }
   let parsed: { needsEdits: boolean; notes: string } | null = null;
   try {
     // Try to extract JSON blob from output
@@ -79,7 +83,13 @@ async function reviewOnly(params: { humanizedText: string; originalText: string 
     parsed = { needsEdits: needs, notes: outputText.trim().slice(0, 1000) };
   }
 
-  return { needsEdits: Boolean(parsed.needsEdits), notes: String(parsed.notes || ""), requestId, raw: outputText };
+  return {
+    needsEdits: Boolean(parsed.needsEdits),
+    notes: String(parsed.notes || ""),
+    requestId,
+    raw: outputText,
+    usage: usageSummary,
+  } as any;
 }
 
 async function applyPatches(params: { humanizedText: string; reviewerNotes: string }) {
@@ -116,17 +126,26 @@ async function applyPatches(params: { humanizedText: string; reviewerNotes: stri
 
   const requestId = getOpenAIRequestId(response, raw);
   const usage = response.usage as any;
-  if (usage) {
-    console.info("[human-writing][apply-patches][cost]", {
-      requestId,
-      totalCost: usage.total_cost ?? usage.totalCost ?? null,
-      totalTokens: usage.total_tokens ?? usage.totalTokens ?? null,
-    });
-  }
+  const usageSummary = usage
+    ? {
+        totalCost: usage.total_cost ?? usage.totalCost ?? null,
+        totalTokens: usage.total_tokens ?? usage.totalTokens ?? null,
+        promptTokens: usage.prompt_tokens ?? usage.promptTokens ?? null,
+        completionTokens: usage.completion_tokens ?? usage.completionTokens ?? null,
+      }
+    : null;
+  console.info("[human-writing][apply-patches][cost]", { requestId, usage: usageSummary });
 
   const rawOutput = response.output_text;
+  const rawStr = Array.isArray(rawOutput) ? rawOutput.join("") : String(rawOutput || "");
+  try {
+    console.info("[human-writing][apply-patches][response]", { requestId, raw: rawStr.slice(0, 2000) });
+  } catch (err) {
+    console.info("[human-writing][apply-patches][response]", { requestId, raw: String(rawStr).slice(0, 2000) });
+  }
+
   const finalText = Array.isArray(rawOutput) ? rawOutput.join("").trim() : String(rawOutput || "").trim();
-  return { finalText: finalText || humanizedText, requestId, raw: rawOutput };
+  return { finalText: finalText || humanizedText, requestId, raw: rawOutput, usage: usageSummary } as any;
 }
 
 export async function POST(request: NextRequest) {
@@ -187,7 +206,7 @@ export async function POST(request: NextRequest) {
       });
       const humanized = await rephrasyHumanize(payload);
 
-      // Log Rephrasy cost if present
+      // Log Rephrasy cost if present and persist to DB
       const humanizeCosts = (humanized.raw as any)?.costs ?? (humanized.raw as any)?.cost ?? null;
       if (humanizeCosts) {
         console.info("[human-writing][humanize][cost]", {
@@ -197,6 +216,39 @@ export async function POST(request: NextRequest) {
           language,
           costs: humanizeCosts,
         });
+      }
+      // Log rephrasy/raw response for auditing (truncated)
+      let humanizeRawStr = "";
+      try {
+        humanizeRawStr = typeof humanized.raw === "string" ? humanized.raw : JSON.stringify(humanized.raw);
+        console.info("[human-writing][humanize][response]", { runId, taskId, raw: humanizeRawStr.slice(0, 2000) });
+      } catch (err) {
+        humanizeRawStr = String(humanized.raw);
+        console.info("[human-writing][humanize][response]", { runId, taskId, raw: humanizeRawStr.slice(0, 2000) });
+      }
+
+      // Persist humanize call usage to `user_api_usage`
+      try {
+        const insert = await supabase.from("user_api_usage").insert([
+          {
+            user_id: userId,
+            conversation_id: conversationId,
+            task_id: taskId,
+            run_id: runId,
+            step: "humanize",
+            model: model,
+            request_id: (humanized.raw as any)?._request_id ?? null,
+            total_cost: humanizeCosts ?? null,
+            total_tokens: (humanized.raw as any)?.total_tokens ?? null,
+            raw: humanizeRawStr.slice(0, 2000),
+            created_at: new Date().toISOString(),
+          },
+        ]);
+        if (insert?.error) {
+          console.error("[human-writing][humanize][persist_cost] humanize insert error", insert.error);
+        }
+      } catch (e) {
+        console.error("[human-writing][humanize][persist_cost] humanize insert failed", e);
       }
 
       let finalDraft = humanized.output;
@@ -208,6 +260,32 @@ export async function POST(request: NextRequest) {
         const review = await reviewOnly({ humanizedText: humanized.output, originalText: text });
         reviewNotes = review.notes || "";
         reviewRequestId = review.requestId ?? null;
+        // Persist review usage
+        try {
+          const reviewRaw = String(review.raw ?? "");
+          const insert = await supabase.from("user_api_usage").insert([
+            {
+              user_id: userId,
+              conversation_id: conversationId,
+              task_id: taskId,
+              run_id: runId,
+              step: "review",
+              model: "gpt-5-nano",
+              request_id: reviewRequestId,
+              total_cost: (review as any)?.usage?.totalCost ?? null,
+              total_tokens: (review as any)?.usage?.totalTokens ?? null,
+              prompt_tokens: (review as any)?.usage?.promptTokens ?? null,
+              completion_tokens: (review as any)?.usage?.completionTokens ?? null,
+              raw: reviewRaw.slice(0, 2000),
+              created_at: new Date().toISOString(),
+            },
+          ]);
+          if (insert?.error) {
+            console.error("[human-writing][humanize][persist_cost] review insert error", insert.error);
+          }
+        } catch (e) {
+          console.error("[human-writing][humanize][persist_cost] review insert failed", e);
+        }
 
         if (review.needsEdits) {
           // If reviewer indicates edits needed, call a separate patching call to apply edits.
@@ -215,6 +293,33 @@ export async function POST(request: NextRequest) {
           finalDraft = patched.finalText;
           applyRequestId = patched.requestId ?? null;
           edited = finalDraft.trim() !== (humanized.output || "").trim();
+
+          // Persist patch usage
+          try {
+            const patchRaw = String(patched.raw ?? "");
+            const insert = await supabase.from("user_api_usage").insert([
+              {
+                user_id: userId,
+                conversation_id: conversationId,
+                task_id: taskId,
+                run_id: runId,
+                step: "patch",
+                model: "gpt-5-nano",
+                request_id: applyRequestId,
+                total_cost: (patched as any)?.usage?.totalCost ?? null,
+                total_tokens: (patched as any)?.usage?.totalTokens ?? null,
+                prompt_tokens: (patched as any)?.usage?.promptTokens ?? null,
+                completion_tokens: (patched as any)?.usage?.completionTokens ?? null,
+                raw: patchRaw.slice(0, 2000),
+                created_at: new Date().toISOString(),
+              },
+            ]);
+            if (insert?.error) {
+              console.error("[human-writing][humanize][persist_cost] patch insert error", insert.error);
+            }
+          } catch (e) {
+            console.error("[human-writing][humanize][persist_cost] patch insert failed", e);
+          }
         } else {
           // No edits needed
           finalDraft = "Looks good — no changes needed.";
