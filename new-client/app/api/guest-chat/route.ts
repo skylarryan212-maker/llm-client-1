@@ -3,6 +3,8 @@ export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
 import { createOpenAIClient } from "@/lib/openai/client";
+import { runWebSearchPipeline } from "@/lib/search/fast-web-pipeline";
+import { writeSearchQueriesAndTime } from "@/lib/search/search-llm";
 import { supabaseServerAdmin } from "@/lib/supabase/server";
 import {
   ensureGuestSession,
@@ -105,8 +107,8 @@ export async function POST(request: NextRequest) {
           )
         : [];
 
-    // Allow built-in tools. File search requires a vector store id; guests don't create one here, so keep web search only.
-    const tools: Tool[] = [{ type: "web_search" as any }];
+    // Allow built-in tools. Include web and file search so the model can call them.
+    const tools: Tool[] = [{ type: "web_search" as any }, { type: "file_search" as any }];
 
     const stream = client.responses.stream({
       model,
@@ -135,6 +137,49 @@ export async function POST(request: NextRequest) {
       let inputTokens = 0;
       let cachedTokens = 0;
       let outputTokens = 0;
+
+      // Kick off query writer and web pipeline in parallel so we can emit search status events
+      let queryWriterPromise = writeSearchQueriesAndTime({
+        prompt: message,
+        count: Math.max(1, historyInput?.length ? 1 : 1),
+        currentDate: new Date().toISOString(),
+        recentMessages: historyInput as any,
+      }).catch(() => null);
+
+      let webPipelineStarted = false;
+      const startWebPipelineIfNeeded = async () => {
+        let queryWriterResult: any = null;
+        try {
+          queryWriterResult = await queryWriterPromise;
+        } catch {}
+        try {
+          const webResult = await runWebSearchPipeline(message, {
+            recentMessages: historyInput as any,
+            currentDate: new Date().toISOString(),
+            precomputedQueryResult: queryWriterResult ?? undefined,
+            onSearchStart: ({ query }) => {
+              webPipelineStarted = true;
+              enqueue({ toolStatus: { type: "search-start", query } });
+            },
+            onProgress: (event: any) => {
+              if (!webPipelineStarted) return;
+              enqueue({ toolStatus: { type: "search-progress", count: event.searched } });
+            },
+          });
+          if (webPipelineStarted) {
+            const qLabel = (webResult?.queries?.join(" | ") || message).trim();
+            enqueue({ toolStatus: { type: "search-complete", query: qLabel, results: webResult?.results?.length ?? 0 } });
+          }
+        } catch (err) {
+          if (webPipelineStarted) {
+            enqueue({ toolStatus: { type: "search-error", query: message, message: String(err) } });
+          }
+        }
+      };
+
+      // Fire-and-forget the pipeline (runs concurrently with streaming)
+      startWebPipelineIfNeeded().catch(() => null);
+
       for await (const event of stream) {
         const typedEvent = event as ResponseStreamEvent;
         // Capture response id for chaining
