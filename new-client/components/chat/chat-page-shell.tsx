@@ -1946,6 +1946,7 @@ export default function ChatPageShell({
 	      let updateTimer: ReturnType<typeof setTimeout> | null = null;
 
       flushGuestUpdate = () => {
+        console.log("[guest] flushGuestUpdate called, pendingUpdate:", pendingUpdate ? `content length ${pendingUpdate.content.length}` : "null");
         if (updateTimer) {
           clearTimeout(updateTimer);
           updateTimer = null;
@@ -1953,6 +1954,7 @@ export default function ChatPageShell({
         if (!pendingUpdate) return;
 	        const { content, metadata } = pendingUpdate;
 	        pendingUpdate = null;
+	        console.log("[guest] calling updateMessage with content length:", content.length, "preview:", content.substring(0, 60));
 	        updateMessage(chatId, assistantId, {
 	          content,
 	          ...(metadata ? { metadata } : {}),
@@ -1963,9 +1965,14 @@ export default function ChatPageShell({
         content: string,
         metadata: AssistantMessageMetadata | null
       ) => {
+        console.log("[guest] scheduleGuestUpdate called, content length:", content.length, "preview:", content.substring(0, 60));
         pendingUpdate = { content, metadata };
-        if (updateTimer) return;
+        if (updateTimer) {
+          console.log("[guest] update timer already pending, returning");
+          return;
+        }
 	        updateTimer = setTimeout(() => {
+	          console.log("[guest] update timer fired");
 	          updateTimer = null;
 	          if (!pendingUpdate) return;
 	          const { content, metadata } = pendingUpdate;
@@ -2003,6 +2010,7 @@ export default function ChatPageShell({
               assistantContent += parsed.token;
               console.log("[guest] assistantContent now:", assistantContent.substring(0, 60));
               if (!firstTokenSeen) {
+                console.log("[guest] FIRST TOKEN RECEIVED");
                 firstTokenSeen = true;
                 messageMetadata = recordFirstTokenTiming(
                   chatId,
@@ -2015,6 +2023,7 @@ export default function ChatPageShell({
                   messageMetadata = { ...messageMetadata, isGuest: true } as AssistantMessageMetadata;
                 }
                 // As soon as first token hits, drop transient indicators (thinking/search/file) without clearing timing.
+                console.log("[guest] calling hideThinkingIndicator");
                 hideThinkingIndicator();
                 clearSearchIndicator();
                 clearFileReadingIndicator();
