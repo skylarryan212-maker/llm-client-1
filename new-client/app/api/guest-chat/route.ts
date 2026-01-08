@@ -129,8 +129,11 @@ export async function POST(request: NextRequest) {
     const encoder = new TextEncoder();
     const readable = new ReadableStream({
       async start(controller) {
-        const enqueue = (obj: Record<string, unknown>) =>
-          controller.enqueue(encoder.encode(JSON.stringify(obj) + "\n"));
+        const enqueue = (obj: Record<string, unknown>) => {
+          const json = JSON.stringify(obj);
+          console.log("[guest-chat] Enqueueing:", json.substring(0, 80));
+          controller.enqueue(encoder.encode(json + "\n"));
+        };
         // Hoist buffer/interval so catch/finally can access them
         let tokenBuffer = "";
         let flushTimer: any = null;
@@ -142,6 +145,7 @@ export async function POST(request: NextRequest) {
           const flushIntervalMs = 40;
           flushTimer = setInterval(() => {
             if (tokenBuffer.length > 0) {
+              console.log("[guest-chat] Interval flush, buffer length:", tokenBuffer.length);
               enqueue({ token: tokenBuffer });
               tokenBuffer = "";
             }
@@ -267,6 +271,7 @@ export async function POST(request: NextRequest) {
               }
               // Flush any buffered tokens before finishing.
               if (tokenBuffer.length > 0) {
+                console.log("[guest-chat] Final flush before done, buffer length:", tokenBuffer.length);
                 enqueue({ token: tokenBuffer });
                 tokenBuffer = "";
               }
