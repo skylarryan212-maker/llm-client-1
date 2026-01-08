@@ -248,7 +248,7 @@ export function LoginOverlay() {
             onClick={handleGoogleLogin}
             disabled={googleLoading}
           >
-            <span className="flex h-8 w-8 items-center justify-center rounded-full bg-white">
+            <span className="flex h-8 w-8 items-center justify-center">
               <GoogleIcon />
             </span>
             {googleLoading ? "Redirecting..." : "Continue with Google"}
