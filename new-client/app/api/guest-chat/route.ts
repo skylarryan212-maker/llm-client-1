@@ -107,8 +107,8 @@ export async function POST(request: NextRequest) {
           )
         : [];
 
-    // Use only file search (web search is handled by our fast-web-pipeline, not OpenAI's built-in tool).
-    const tools: Tool[] = [{ type: "file_search" as any }];
+    // No tools for guest chat (guests are unauthenticated; web search is handled by our fast-web-pipeline)
+    const tools: Tool[] = [];
 
     console.log("[guest-chat] Tools configured:", tools);
     const stream = client.responses.stream({
