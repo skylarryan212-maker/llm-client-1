@@ -130,7 +130,7 @@ export async function POST(request: NextRequest) {
         }
       }
       if (!clientSecret) {
-        clientSecret = await resolveClientSecretFromInvoice(invoiceId);
+        clientSecret = await resolveClientSecretFromInvoice(invoiceId) || undefined;
       }
     }
     if (!subscriptionRes.ok || !clientSecret) {
