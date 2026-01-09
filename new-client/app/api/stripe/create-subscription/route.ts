@@ -55,8 +55,6 @@ export async function POST(request: NextRequest) {
     subscriptionParams.append("items[0][price]", priceId);
     subscriptionParams.append("payment_behavior", "default_incomplete");
     subscriptionParams.append("payment_settings[save_default_payment_method]", "on_subscription");
-    // Enable Stripe to choose the best available methods (wallets/card) via top-level APM.
-    subscriptionParams.append("automatic_payment_methods[enabled]", "true");
     subscriptionParams.append("expand[]", "latest_invoice.payment_intent");
     subscriptionParams.append("metadata[user_id]", userId);
     subscriptionParams.append("metadata[plan]", plan);
