@@ -4171,6 +4171,9 @@ export async function POST(request: NextRequest) {
             ...(userMessageRow?.id ? { message_id: userMessageRow.id } : {}),
           },
         };
+        if (isGrokModel) {
+          delete streamOptions.metadata; // xAI does not accept a metadata field
+        }
         const styleTuning = getStyleTuning(personalizationSettings?.baseStyle);
         if (styleTuning.textVerbosity) {
           streamOptions.text = { format: { type: "text" }, verbosity: styleTuning.textVerbosity };
