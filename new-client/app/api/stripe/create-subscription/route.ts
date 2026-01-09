@@ -55,6 +55,7 @@ export async function POST(request: NextRequest) {
     subscriptionParams.append("items[0][price]", priceId);
     subscriptionParams.append("payment_behavior", "default_incomplete");
     subscriptionParams.append("payment_settings[save_default_payment_method]", "on_subscription");
+    subscriptionParams.append("payment_settings[payment_method_types][0]", "card");
     subscriptionParams.append("expand[]", "latest_invoice.payment_intent");
     subscriptionParams.append("metadata[user_id]", userId);
     subscriptionParams.append("metadata[plan]", plan);
@@ -124,7 +125,7 @@ export async function POST(request: NextRequest) {
       piParams.append("amount", amount.toString());
       piParams.append("currency", currency);
       piParams.append("customer", invoiceData.customer || customerData.id || "");
-      piParams.append("automatic_payment_methods[enabled]", "true");
+      piParams.append("payment_method_types[0]", "card");
       piParams.append("metadata[user_id]", userId);
       piParams.append("metadata[plan]", plan);
       piParams.append("setup_future_usage", "off_session");

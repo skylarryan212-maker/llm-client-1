@@ -1,13 +1,12 @@
 "use client";
 
-import { useState, Suspense, type FormEvent } from "react";
+import { useEffect, useState, Suspense, type FormEvent } from "react";
 import { ArrowLeft, Check, Lock, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { loadStripe } from "@stripe/stripe-js";
 import { Elements, PaymentElement, useElements, useStripe } from "@stripe/react-stripe-js";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Dialog } from "@/components/ui/dialog";
 import { unlockPlanWithCode, type PlanType } from "@/app/actions/plan-actions";
 import { useUserPlan } from "@/lib/hooks/use-user-plan";
 
@@ -17,11 +16,11 @@ const plans = [
     name: "Plus",
     price: 20,
     description: "Everyday plan with generous limits.",
-      features: [
-        "Core models and Human Writing agent",
-        "Adds Market agent",
-        "File uploads and image generation with higher allowances",
-      ],
+    features: [
+      "Core models and Human Writing agent",
+      "Adds Market agent",
+      "File uploads and image generation with higher allowances",
+    ],
     recommended: false,
     gradientFrom: "from-purple-400/5",
     gradientTo: "to-fuchsia-700/5",
@@ -52,6 +51,7 @@ type CheckoutState = {
   clientSecret: string | null;
   planId: PlanType | null;
   planName: string | null;
+  subscriptionId: string | null;
 };
 
 function StripePaymentForm({
@@ -88,9 +88,9 @@ function StripePaymentForm({
       const status = paymentIntent?.status;
       if (status === "succeeded" || status === "processing") {
         await onSuccess();
-      } else {
-        setFormError("Payment was not completed. Please try again.");
+        return;
       }
+      setFormError("Payment was not completed. Please try again.");
     } finally {
       setIsSubmitting(false);
     }
@@ -101,7 +101,7 @@ function StripePaymentForm({
       <PaymentElement
         options={{
           layout: "tabs",
-          paymentMethodOrder: ["apple_pay", "google_pay", "link", "card"],
+          paymentMethodOrder: ["apple_pay", "google_pay", "card"],
         }}
       />
       {formError && <p className="text-sm text-red-500">{formError}</p>}
@@ -126,6 +126,7 @@ function UpgradePageContent() {
     clientSecret: null,
     planId: null,
     planName: null,
+    subscriptionId: null,
   });
 
   const handleOpenUnlockDialog = (planId: Exclude<PlanType, "free">) => {
@@ -164,8 +165,12 @@ function UpgradePageContent() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ plan: planId }),
       });
-      const data = (await res.json().catch(() => ({}))) as { clientSecret?: string; error?: string };
-      if (!res.ok || !data?.clientSecret) {
+      const data = (await res.json().catch(() => ({}))) as {
+        clientSecret?: string;
+        subscriptionId?: string;
+        error?: string;
+      };
+      if (!res.ok || !data?.clientSecret || !data?.subscriptionId) {
         throw new Error(data?.error || "Failed to start checkout");
       }
       setCheckoutState({
@@ -173,6 +178,7 @@ function UpgradePageContent() {
         clientSecret: data.clientSecret,
         planId,
         planName,
+        subscriptionId: data.subscriptionId,
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unable to start checkout. Please try again.";
@@ -186,43 +192,70 @@ function UpgradePageContent() {
     }
   };
 
-  const startHostedCheckout = async (planId: PlanType, planName: string) => {
-    setIsProcessing(true);
-    try {
-      const res = await fetch("/api/stripe/create-checkout-session", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ plan: planId }),
-      });
-      const data = (await res.json().catch(() => ({}))) as { url?: string; error?: string };
-      if (!res.ok || !data?.url) {
-        throw new Error(data?.error || "Failed to start hosted checkout");
-      }
-      window.location.href = data.url;
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Unable to open hosted checkout.";
-      setSuccessDialog({
-        open: true,
-        title: `Could not start ${planName} checkout`,
-        message,
-      });
-    } finally {
-      setIsProcessing(false);
-    }
+  const closeCheckout = () => {
+    setCheckoutState({ open: false, clientSecret: null, planId: null, planName: null, subscriptionId: null });
   };
 
-  const closeCheckout = () => {
-    setCheckoutState({ open: false, clientSecret: null, planId: null, planName: null });
+  useEffect(() => {
+    if (!checkoutState.open) return;
+    const handleKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeCheckout();
+      }
+    };
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, [checkoutState.open, closeCheckout]);
+
+  const syncSubscriptionPlan = async (subscriptionId: string) => {
+    const res = await fetch("/api/stripe/sync-subscription", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ subscriptionId }),
+    });
+    const data = (await res.json().catch(() => ({}))) as { error?: string; plan?: PlanType };
+    if (!res.ok) {
+      const error = data?.error;
+      if (error === "subscription_not_active") {
+        throw new Error("Payment was received, but the subscription is not active yet. Try again in a few seconds.");
+      }
+      throw new Error(data?.error || "Unable to confirm subscription.");
+    }
+    return data?.plan;
   };
 
   const handleCheckoutSuccess = async () => {
-    closeCheckout();
-    setSuccessDialog({
-      open: true,
-      message: "Payment received. Your plan will activate after Stripe confirms the subscription.",
-      title: "Payment processing",
-    });
-    await refreshPlan();
+    const planName = checkoutState.planName;
+    const subscriptionId = checkoutState.subscriptionId;
+    if (!planName || !subscriptionId) {
+      closeCheckout();
+      setSuccessDialog({
+        open: true,
+        title: "Payment received",
+        message: "Payment was received, but we could not confirm the subscription details.",
+      });
+      return;
+    }
+
+    try {
+      await syncSubscriptionPlan(subscriptionId);
+      await refreshPlan();
+      closeCheckout();
+      setSuccessDialog({
+        open: true,
+        title: `Upgraded to ${planName}`,
+        message: "Payment accepted and your plan is now active.",
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to confirm the subscription.";
+      closeCheckout();
+      setSuccessDialog({
+        open: true,
+        title: "Payment received",
+        message,
+      });
+    }
   };
 
   const filteredPlans = plans.filter(() => true);
@@ -331,76 +364,69 @@ function UpgradePageContent() {
         </button>
       </div>
 
-      <Dialog
-        open={checkoutState.open}
-        onClose={closeCheckout}
-        contentClassName="w-full max-w-4xl p-6"
-      >
-        <div className="space-y-4">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <h3 className="text-lg font-semibold text-foreground">
-                {checkoutState.planName ? `Checkout - ${checkoutState.planName}` : "Checkout"}
-              </h3>
-              <p className="text-sm text-muted-foreground">
-                Complete payment to activate your plan. We’ll update your account once Stripe confirms payment.
-              </p>
-            </div>
-            <Button variant="ghost" size="icon" onClick={closeCheckout} aria-label="Close checkout">
-              <X className="h-4 w-4" />
-            </Button>
-          </div>
+      {checkoutState.open && (
+        <div className="fixed inset-0 z-[1000] flex items-start justify-center px-4 py-6 overflow-y-auto lg:items-center">
+          <div
+            className="absolute inset-0 bg-black/60 backdrop-blur"
+            onClick={closeCheckout}
+          />
+          <div
+            className="relative z-10 flex w-full max-w-5xl flex-col items-stretch gap-6 lg:flex-row"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="w-full rounded-2xl border border-border bg-popover p-6 shadow-2xl lg:max-w-2xl max-h-[calc(100vh-6rem)] overflow-y-auto">
+              <div className="space-y-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <h3 className="text-lg font-semibold text-foreground">
+                      {checkoutState.planName ? `Checkout - ${checkoutState.planName}` : "Checkout"}
+                    </h3>
+                    <p className="text-sm text-muted-foreground">
+                      Complete payment to activate your plan.
+                    </p>
+                  </div>
+                  <Button variant="ghost" size="icon" onClick={closeCheckout} aria-label="Close checkout">
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
 
-          {!stripePromise && (
-            <p className="text-sm text-red-500">
-              Stripe publishable key is missing. Set `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`.
-            </p>
-          )}
+                {!stripePromise && (
+                  <p className="text-sm text-red-500">
+                    Stripe publishable key is missing. Set `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`.
+                  </p>
+                )}
 
-          {stripePromise && !checkoutState.clientSecret && (
-            <p className="text-sm text-muted-foreground">Preparing secure payment form...</p>
-          )}
+                {stripePromise && !checkoutState.clientSecret && (
+                  <p className="text-sm text-muted-foreground">Preparing secure payment form...</p>
+                )}
 
-          <div className="grid grid-cols-1 md:grid-cols-[3fr_2fr] gap-4 items-start">
-            <div className="space-y-4">
-              {stripePromise && checkoutState.clientSecret && checkoutState.planName && (
-                <Elements
-                  stripe={stripePromise}
-                  options={{
-                    clientSecret: checkoutState.clientSecret,
-                    appearance: {
-                      theme: "night",
-                      variables: {
-                        colorBackground: "#0b0b0f",
-                        colorText: "#e5e7eb",
-                        colorPrimary: "#8b5cf6",
-                        colorTextSecondary: "#9ca3af",
-                        colorDanger: "#f87171",
-                        borderRadius: "12px",
-                        spacingUnit: "6px",
+                {stripePromise && checkoutState.clientSecret && checkoutState.planName && (
+                  <Elements
+                    stripe={stripePromise}
+                    options={{
+                      clientSecret: checkoutState.clientSecret,
+                      appearance: {
+                        theme: "night",
+                        variables: {
+                          colorBackground: "#0b0b0f",
+                          colorText: "#e5e7eb",
+                          colorPrimary: "#8b5cf6",
+                          colorTextSecondary: "#9ca3af",
+                          colorDanger: "#f87171",
+                          borderRadius: "12px",
+                          spacingUnit: "6px",
+                        },
                       },
-                    },
-                  }}
-                >
-                  <StripePaymentForm planName={checkoutState.planName} onSuccess={handleCheckoutSuccess} />
-                </Elements>
-              )}
-              <div className="text-xs text-muted-foreground space-y-1">
-                <p>Prefer a simpler flow? You can also</p>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="w-full"
-                  disabled={isProcessing}
-                  onClick={() => checkoutState.planId && startHostedCheckout(checkoutState.planId, checkoutState.planName || "Plan")}
-                >
-                  Open Stripe hosted checkout
-                </Button>
+                    }}
+                  >
+                    <StripePaymentForm planName={checkoutState.planName} onSuccess={handleCheckoutSuccess} />
+                  </Elements>
+                )}
               </div>
             </div>
 
             {checkoutState.planId && checkoutState.planName && (
-              <div className="rounded-2xl border border-border bg-card/80 p-4 shadow-lg">
+              <div className="w-full rounded-2xl border border-border bg-card/80 p-5 shadow-lg lg:max-w-sm">
                 <div className="space-y-2">
                   <div className="flex items-start justify-between">
                     <div>
@@ -450,7 +476,7 @@ function UpgradePageContent() {
             )}
           </div>
         </div>
-      </Dialog>
+      )}
 
       {/* Success Dialog */}
       {successDialog.open && (
