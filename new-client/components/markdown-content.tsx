@@ -925,7 +925,10 @@ export const MarkdownContent = memo(function MarkdownContent({ content, messageI
   )
 
     return (
-      <div className="prose prose-invert max-w-none prose-p:leading-relaxed prose-pre:p-0 prose-pre:bg-transparent w-full max-w-full min-w-0 break-words prose-a:break-words prose-ol:list-inside prose-ul:list-inside">
+      <div
+        className="prose prose-invert max-w-none prose-p:leading-relaxed prose-pre:p-0 prose-pre:bg-transparent w-full max-w-full min-w-0 break-words prose-a:break-words prose-ol:list-inside prose-ul:list-inside prose-ol:ml-0 prose-ul:ml-0 prose-li:pl-0"
+        style={{ listStylePosition: "inside" }}
+      >
         {markdownNode}
         {typeof document !== 'undefined' && lightboxNode ? createPortal(lightboxNode, document.body) : null}
       </div>
