@@ -1,10 +1,13 @@
 "use client";
 
-import { useState, Suspense } from "react";
+import { useState, Suspense, type FormEvent } from "react";
 import { ArrowLeft, Check, Lock, X } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { loadStripe } from "@stripe/stripe-js";
+import { Elements, PaymentElement, useElements, useStripe } from "@stripe/react-stripe-js";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Dialog } from "@/components/ui/dialog";
 import { unlockPlanWithCode, type PlanType } from "@/app/actions/plan-actions";
 import { useUserPlan } from "@/lib/hooks/use-user-plan";
 
@@ -40,6 +43,70 @@ const plans = [
   },
 ];
 
+const stripePromise = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
+  ? loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY)
+  : null;
+
+type CheckoutState = {
+  open: boolean;
+  clientSecret: string | null;
+  planId: PlanType | null;
+  planName: string | null;
+};
+
+function StripePaymentForm({
+  planName,
+  onSuccess,
+}: {
+  planName: string;
+  onSuccess: () => Promise<void>;
+}) {
+  const stripe = useStripe();
+  const elements = useElements();
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+
+  const handleSubmit = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!stripe || !elements) return;
+    setIsSubmitting(true);
+    setFormError(null);
+    try {
+      const returnUrl =
+        typeof window !== "undefined"
+          ? `${window.location.origin}/upgrade?stripe=return`
+          : "/upgrade?stripe=return";
+      const { error, paymentIntent } = await stripe.confirmPayment({
+        elements,
+        confirmParams: { return_url: returnUrl },
+        redirect: "if_required",
+      });
+      if (error) {
+        setFormError(error.message ?? "Payment failed. Please try again.");
+        return;
+      }
+      const status = paymentIntent?.status;
+      if (status === "succeeded" || status === "processing") {
+        await onSuccess();
+      } else {
+        setFormError("Payment was not completed. Please try again.");
+      }
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-4">
+      <PaymentElement />
+      {formError && <p className="text-sm text-red-500">{formError}</p>}
+      <Button type="submit" className="w-full" disabled={!stripe || !elements || isSubmitting}>
+        {isSubmitting ? "Processing..." : `Pay for ${planName}`}
+      </Button>
+    </form>
+  );
+}
+
 function UpgradePageContent() {
   const router = useRouter();
   const { plan: currentPlan, refreshPlan } = useUserPlan();
@@ -49,6 +116,12 @@ function UpgradePageContent() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [successDialog, setSuccessDialog] = useState<{ open: boolean; message: string; title: string }>({ open: false, message: "", title: "" });
+  const [checkoutState, setCheckoutState] = useState<CheckoutState>({
+    open: false,
+    clientSecret: null,
+    planId: null,
+    planName: null,
+  });
 
   const handleOpenUnlockDialog = (planId: Exclude<PlanType, "free">) => {
     setSelectedPlanForUnlock(planId);
@@ -81,16 +154,21 @@ function UpgradePageContent() {
   const startStripeCheckout = async (planId: PlanType, planName: string) => {
     setIsProcessing(true);
     try {
-      const res = await fetch("/api/stripe/create-checkout-session", {
+      const res = await fetch("/api/stripe/create-subscription", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ plan: planId }),
       });
-      const data = (await res.json().catch(() => ({}))) as { url?: string; error?: string };
-      if (!res.ok || !data?.url) {
+      const data = (await res.json().catch(() => ({}))) as { clientSecret?: string; error?: string };
+      if (!res.ok || !data?.clientSecret) {
         throw new Error(data?.error || "Failed to start checkout");
       }
-      window.location.href = data.url;
+      setCheckoutState({
+        open: true,
+        clientSecret: data.clientSecret,
+        planId,
+        planName,
+      });
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unable to start checkout. Please try again.";
       setSuccessDialog({
@@ -101,6 +179,20 @@ function UpgradePageContent() {
     } finally {
       setIsProcessing(false);
     }
+  };
+
+  const closeCheckout = () => {
+    setCheckoutState({ open: false, clientSecret: null, planId: null, planName: null });
+  };
+
+  const handleCheckoutSuccess = async () => {
+    closeCheckout();
+    setSuccessDialog({
+      open: true,
+      message: "Payment received. Your plan will activate after Stripe confirms the subscription.",
+      title: "Payment processing",
+    });
+    await refreshPlan();
   };
 
   const filteredPlans = plans.filter(() => true);
@@ -208,6 +300,44 @@ function UpgradePageContent() {
           Click here
         </button>
       </div>
+
+      <Dialog
+        open={checkoutState.open}
+        onClose={closeCheckout}
+        contentClassName="max-w-lg p-6"
+      >
+        <div className="space-y-4">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h3 className="text-lg font-semibold text-foreground">
+                {checkoutState.planName ? `Checkout - ${checkoutState.planName}` : "Checkout"}
+              </h3>
+              <p className="text-sm text-muted-foreground">
+                Complete payment to activate your plan.
+              </p>
+            </div>
+            <Button variant="ghost" size="icon" onClick={closeCheckout} aria-label="Close checkout">
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
+
+          {!stripePromise && (
+            <p className="text-sm text-red-500">
+              Stripe publishable key is missing. Set `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`.
+            </p>
+          )}
+
+          {stripePromise && !checkoutState.clientSecret && (
+            <p className="text-sm text-muted-foreground">Preparing secure payment form...</p>
+          )}
+
+          {stripePromise && checkoutState.clientSecret && checkoutState.planName && (
+            <Elements stripe={stripePromise} options={{ clientSecret: checkoutState.clientSecret }}>
+              <StripePaymentForm planName={checkoutState.planName} onSuccess={handleCheckoutSuccess} />
+            </Elements>
+          )}
+        </div>
+      </Dialog>
 
       {/* Success Dialog */}
       {successDialog.open && (
