@@ -924,12 +924,12 @@ export const MarkdownContent = memo(function MarkdownContent({ content, messageI
     </MarkdownErrorBoundary>
   )
 
-  return (
-    <div className="prose prose-invert max-w-none prose-p:leading-relaxed prose-pre:p-0 prose-pre:bg-transparent w-full max-w-full min-w-0 break-words prose-a:break-words">
-      {markdownNode}
-      {typeof document !== 'undefined' && lightboxNode ? createPortal(lightboxNode, document.body) : null}
-    </div>
-  )
-});
+    return (
+      <div className="prose prose-invert max-w-none prose-p:leading-relaxed prose-pre:p-0 prose-pre:bg-transparent w-full max-w-full min-w-0 break-words prose-a:break-words prose-ol:list-inside prose-ul:list-inside">
+        {markdownNode}
+        {typeof document !== 'undefined' && lightboxNode ? createPortal(lightboxNode, document.body) : null}
+      </div>
+    )
+  });
 
 MarkdownContent.displayName = "MarkdownContent";
