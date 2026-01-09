@@ -5,7 +5,7 @@ import { ArrowLeft, Check, Lock, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { unlockPlanWithCode, upgradeToPlan, type PlanType } from "@/app/actions/plan-actions";
+import { unlockPlanWithCode, type PlanType } from "@/app/actions/plan-actions";
 import { useUserPlan } from "@/lib/hooks/use-user-plan";
 
 const plans = [
@@ -78,6 +78,32 @@ function UpgradePageContent() {
     setIsProcessing(false);
   };
 
+  const startStripeCheckout = async (planId: PlanType, planName: string) => {
+    setIsProcessing(true);
+    try {
+      const res = await fetch("/api/stripe/create-checkout-session", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ plan: planId }),
+      });
+      const data = (await res.json().catch(() => ({}))) as { url?: string; error?: string };
+      if (!res.ok || !data?.url) {
+        throw new Error(data?.error || "Failed to start checkout");
+      }
+      window.location.href = data.url;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Unable to start checkout. Please try again.";
+      setCheckoutError(message);
+      setSuccessDialog({
+        open: true,
+        title: `Could not start ${planName} checkout`,
+        message,
+      });
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
   const filteredPlans = plans.filter(() => true);
 
   return (
@@ -99,7 +125,6 @@ function UpgradePageContent() {
           {filteredPlans.map((plan) => {
             const isCurrent = currentPlan === plan.id;
             const canDirectChange = currentPlan !== plan.id;
-            const isUpgradeFromFree = currentPlan === "free" && plan.id === "plus";
             return (
               <div
                 key={plan.id}
@@ -148,15 +173,7 @@ function UpgradePageContent() {
                           }
                           onClick={async () => {
                             if (!canDirectChange) return;
-                            setIsProcessing(true);
-                            const result = await upgradeToPlan(plan.id, currentPlan);
-                            if (result.success) await refreshPlan();
-                            setIsProcessing(false);
-                            setSuccessDialog({
-                              open: true,
-                              message: result.message,
-                              title: result.success ? `Switched to ${plan.name}` : "Plan change failed",
-                            });
+                            await startStripeCheckout(plan.id, plan.name);
                           }}
                         >
                           {canDirectChange
