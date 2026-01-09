@@ -115,6 +115,36 @@ export async function POST(request: NextRequest) {
         invoiceStatus = invoiceData.status;
         invoicePaid = Boolean(invoiceData.paid);
         latestPaymentIntent = invoiceData.payment_intent;
+      } else {
+        console.error("[stripe-sync] Failed to fetch invoice", {
+          subscriptionId,
+          status: invoiceRes.status,
+          body: invoiceData,
+        });
+      }
+    } else if (!subscription?.latest_invoice) {
+      const invoiceRes = await fetch(
+        `https://api.stripe.com/v1/invoices?subscription=${subscriptionId}&limit=1&expand[]=data.payment_intent`,
+        { headers: { Authorization: `Bearer ${secretKey}` } }
+      );
+      const invoiceData = (await invoiceRes.json()) as {
+        data?: Array<{
+          status?: string;
+          paid?: boolean;
+          payment_intent?: string | { status?: string } | null;
+        }>;
+      };
+      if (invoiceRes.ok && invoiceData.data && invoiceData.data.length > 0) {
+        const latest = invoiceData.data[0];
+        invoiceStatus = latest.status;
+        invoicePaid = Boolean(latest.paid);
+        latestPaymentIntent = latest.payment_intent;
+      } else if (!invoiceRes.ok) {
+        console.error("[stripe-sync] Failed to list invoices", {
+          subscriptionId,
+          status: invoiceRes.status,
+          body: invoiceData,
+        });
       }
     }
 
@@ -143,10 +173,25 @@ export async function POST(request: NextRequest) {
       (status === "past_due" && isPaidLike);
 
     if (!plan) {
+      console.warn("[stripe-sync] Plan unresolved", {
+        subscriptionId,
+        userId,
+        status,
+        priceId: subscription?.items?.data?.[0]?.price?.id,
+        metadataPlan: subscription?.metadata?.plan,
+      });
       return NextResponse.json({ error: "plan_unresolved" }, { status: 409 });
     }
 
     if (!isActive) {
+      console.warn("[stripe-sync] Subscription not active", {
+        subscriptionId,
+        userId,
+        status,
+        invoiceStatus,
+        invoicePaid,
+        paymentIntentStatus,
+      });
       return NextResponse.json({ error: "subscription_not_active" }, { status: 409 });
     }
 
