@@ -43,7 +43,7 @@ import {
   type PermanentInstructionCacheItem,
 } from "@/lib/permanentInstructions";
 import type { RouterDecision } from "@/lib/router/types";
-import { buildContextForMainModel } from "@/lib/context/buildContextForMainModel";
+import { buildContextForMainModel, type ContextMessage } from "@/lib/context/buildContextForMainModel";
 import { updateTopicSnapshot } from "@/lib/topics/updateTopicSnapshot";
 import { toFile } from "openai";
 import { buildOpenAIClientOptions } from "@/lib/openai/client";
@@ -71,6 +71,7 @@ const ALLOWED_ASSISTANT_IMAGE_MIME_TYPES = new Set([
 const CROSS_CHAT_TOPIC_TOKEN_LIMIT = 200_000;
 const MAX_FOREIGN_CONVERSATIONS = 12;
 const MAX_FOREIGN_TOPICS = 50;
+const CONTEXT_CACHE_TAIL_MESSAGE_COUNT = 0;
 const GROK_FAST_FAMILY = "grok-4-1-fast";
 const GROK_FAST_NON_REASONING_MODEL_ID = "grok-4-1-fast-non-reasoning-latest";
 const GROK_FAST_REASONING_MODEL_ID = "grok-4-1-fast-reasoning-latest";
@@ -1705,6 +1706,16 @@ function buildSystemPromptWithPersonalization(
   }
 
   return prompt;
+}
+
+function buildMemoryBlock(memories: MemoryItem[]): string | null {
+  if (!memories.length) return null;
+  let block = "**Saved Memories (User Context):**";
+  for (const mem of memories) {
+    block += `\n- [${mem.type}] ${mem.title}: ${mem.content} (id: ${mem.id})`;
+  }
+  block += "\n\nUse these memories to personalize your responses and maintain context about the user's preferences and information.";
+  return block;
 }
 
 type TextVerbosity = "low" | "medium" | "high";
@@ -3724,35 +3735,47 @@ export async function POST(request: NextRequest) {
     // saved-memory referencing (privacy). Only the memory blocks themselves are gated.
     const memoryReferenceEnabled = Boolean(personalizationSettings?.referenceSavedMemories);
 
-    const baseSystemInstructionParts = [
+    // Keep the cached prefix stable: static identity + workspace + modality guidance.
+    const cachedSystemInstructionParts = [
       memoryReferenceEnabled
         ? BASE_SYSTEM_PROMPT
         : stripMemoryBehaviorBlock(BASE_SYSTEM_PROMPT),
       workspaceInstruction,
       `When it is helpful to show images (e.g., the user asks for pictures), you may include inline images using Markdown image syntax like ![alt](https://...direct-image-url). Limit to at most ${MAX_ASSISTANT_IMAGES_PER_MESSAGE} images per message.\n- Prefer DIRECT image URLs that return an image content-type (image/jpeg, image/png, image/webp, image/gif).\n- Avoid unstable random-image endpoints like source.unsplash.com (they often fail or change). If you use Unsplash, prefer direct images.unsplash.com URLs or a normal page URL with an OG image.\n- If you only have a page URL, include it as an image URL (the server will try to resolve an OG image).`,
       "You can inline-read files when the user includes tokens like <<file:relative/path/to/file>> in their prompt. Replace those tokens with the file content and use it in your reasoning.",
-      ...(effectiveLocation ? [`User's location: ${effectiveLocation.city} (${effectiveLocation.lat.toFixed(4)}, ${effectiveLocation.lng.toFixed(4)}). Use this for location-specific queries like weather, local events, or "near me" searches.`] : []),
-      ...(effectiveTimezone
-        ? [
-            (() => {
-              let localTimeInfo = "";
-              try {
-                const ts = typeof clientNow === "number" ? clientNow : Date.now();
-                localTimeInfo = new Date(ts).toLocaleString("en-US", {
-                  timeZone: effectiveTimezone,
-                  dateStyle: "full",
-                  timeStyle: "long",
-                });
-              } catch {
-                localTimeInfo = "";
-              }
-              return `User timezone: ${effectiveTimezone}. ${
-                localTimeInfo ? `Current local date/time (user): ${localTimeInfo}. ` : ""
-              }Always interpret relative dates ("today", "tomorrow", etc.) using this timezone and current local time. Do NOT assume UTC.`;
-            })()
-          ]
-        : []),
     ];
+
+    let liveInstructionParts: string[] = [];
+    if (effectiveLocation) {
+      liveInstructionParts.push(
+        `User's location: ${effectiveLocation.city} (${effectiveLocation.lat.toFixed(4)}, ${effectiveLocation.lng.toFixed(4)}). Use this for location-specific queries like weather, local events, or "near me" searches.`
+      );
+    }
+    if (effectiveTimezone) {
+      let localTimeInfo = "";
+      try {
+        const ts = typeof clientNow === "number" ? clientNow : Date.now();
+        localTimeInfo = new Date(ts).toLocaleString("en-US", {
+          timeZone: effectiveTimezone,
+          dateStyle: "full",
+          timeStyle: "long",
+        });
+      } catch {
+        localTimeInfo = "";
+      }
+      liveInstructionParts.push(
+        `User timezone: ${effectiveTimezone}. ${localTimeInfo ? `Current local date/time (user): ${localTimeInfo}. ` : ""}Always interpret relative dates ("today", "tomorrow", etc.) using this timezone and current local time. Do NOT assume UTC.`
+      );
+    }
+
+    const cachedSystemInstructions = buildSystemPromptWithPersonalization(
+      cachedSystemInstructionParts.join("\n\n"),
+      personalizationSettings ?? {},
+      [],
+      permanentInstructions
+    );
+
+    const memoryBlock = memoryReferenceEnabled ? buildMemoryBlock(relevantMemories) : null;
 
     // Build user content with native image inputs when available to leverage model vision
     const userContentParts: any[] = [
@@ -3791,14 +3814,31 @@ export async function POST(request: NextRequest) {
       } catch {}
     }
 
-    const messagesForAPI = [
-      ...contextMessages,
-      {
-        role: "user" as const,
-        content: userContentParts,
-        type: "message",
-      },
-    ];
+    const tailStartIndex = Math.max(0, contextMessages.length - CONTEXT_CACHE_TAIL_MESSAGE_COUNT);
+    const cachedContextMessages = contextMessages.slice(0, tailStartIndex);
+    const liveContextMessages = contextMessages.slice(tailStartIndex);
+
+    const cacheablePrefixMessages = isGrokModel
+      ? cachedContextMessages
+      : cachedContextMessages.map((msg: ContextMessage) => ({
+          ...msg,
+          cache_control: { type: "ephemeral" as const },
+        }));
+
+    const baseMessagesForAPI = [...cacheablePrefixMessages, ...liveContextMessages];
+
+    const cacheablePrefixFingerprint = [
+      cachedSystemInstructions,
+      ...cachedContextMessages.map((m: ContextMessage) =>
+        typeof m.content === "string" ? `${m.role}:${m.content}` : `${m.role}:${JSON.stringify(m.content)}`
+      ),
+    ].join("\n\n");
+
+    const userMessageForAPI = {
+      role: "user" as const,
+      content: userContentParts,
+      type: "message" as const,
+    };
 
     // Initialize OpenAI client - use dynamic import to avoid hard dependency at build time
     let openai: OpenAIClient;
@@ -4106,12 +4146,25 @@ export async function POST(request: NextRequest) {
           ...(allowWebSearch && forceWebSearch ? [FORCE_WEB_SEARCH_PROMPT] : []),
           ...(allowWebSearch && requireWebSearch && !forceWebSearch ? [EXPLICIT_WEB_SEARCH_PROMPT] : []),
         ];
-        const systemInstructions = buildSystemPromptWithPersonalization(
-          [...baseSystemInstructionParts, ...webSearchInstructionParts].join("\n\n"),
-          personalizationSettings ?? {},
-          memoryReferenceEnabled ? relevantMemories : [],
-          permanentInstructions
-        );
+
+        const turnInstructionParts = [
+          ...liveInstructionParts,
+          ...(memoryBlock ? [memoryBlock] : []),
+          ...webSearchInstructionParts,
+        ].filter((part) => typeof part === "string" && part.trim().length > 0) as string[];
+
+        const liveInstructionMessages =
+          turnInstructionParts.length > 0
+            ? [
+                {
+                  role: "assistant" as const,
+                  content: turnInstructionParts.join("\n\n"),
+                  type: "message" as const,
+                },
+              ]
+            : [];
+
+        const messagesForAPI = [...baseMessagesForAPI, ...liveInstructionMessages, userMessageForAPI];
 
         const toolsForRequest: any[] = [];
         if (!isGrokModel) {
@@ -4139,9 +4192,11 @@ export async function POST(request: NextRequest) {
         }
 
         const rawPromptKey = `${conversationId}:${resolvedTopicDecision.primaryTopicId || "none"}`;
-        let promptCacheKey = rawPromptKey;
-        if (rawPromptKey.length > 64) {
-          promptCacheKey = (await sha256Hex(rawPromptKey)).slice(0, 64);
+        const prefixHashInput = cacheablePrefixFingerprint || cachedSystemInstructions || "";
+        const prefixHash = prefixHashInput ? (await sha256Hex(prefixHashInput)).slice(0, 32) : "";
+        let promptCacheKey = prefixHash ? `${rawPromptKey}:${prefixHash}` : rawPromptKey;
+        if (promptCacheKey.length > 64) {
+          promptCacheKey = (await sha256Hex(promptCacheKey)).slice(0, 64);
         }
         const extendedCacheModels = new Set([
           "gpt-5.2",
@@ -4153,9 +4208,17 @@ export async function POST(request: NextRequest) {
         ]);
         const supportsExtendedCache = extendedCacheModels.has(modelConfig.model);
 
+        console.log("[promptCache] prepared", {
+          cacheablePrefixMessages: cacheablePrefixMessages.length,
+          liveContextMessages: liveContextMessages.length,
+          liveInstructionMessages: liveInstructionMessages.length,
+          promptCacheKey,
+          supportsExtendedCache,
+        });
+
         const streamOptions: any = {
           model: modelConfig.model,
-          instructions: systemInstructions,
+          instructions: cachedSystemInstructions,
           input: messagesForAPI,
           stream: true,
           store: true,

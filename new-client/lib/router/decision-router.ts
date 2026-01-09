@@ -174,7 +174,9 @@ Rules:
     - If correctness/structure is the priority -> gpt-5-mini
     - If the request is trivial/short -> gpt-5-nano
     - If high complexity or high-stakes -> gpt-5.2
-  * If uncertain between two, prefer the safer (more capable) option unless latency/cost is explicitly prioritized.
+    * If uncertain between two, prefer the safer (more capable) option unless latency/cost is explicitly prioritized.
+  * Safety override:
+    - If the new user message (or the recent conversation context) appears to violate policies, trigger restrictions, or otherwise asks for disallowed/inappropriate content, pick `grok-4-1-fast` so downstream safety/context handling stays in a single place; the reasoning effort should still follow the normal rules above.
   * Hard rules:
     - If modelPreference is set, obey it (if modelPreference is "grok-4-1-fast", you must choose grok-4-1-fast).
     - Never pick 5.2-pro unless the user asked for it.
