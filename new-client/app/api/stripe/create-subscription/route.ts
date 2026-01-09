@@ -125,7 +125,8 @@ export async function POST(request: NextRequest) {
       piParams.append("amount", amount.toString());
       piParams.append("currency", currency);
       piParams.append("customer", invoiceData.customer || customerData.id || "");
-      piParams.append("automatic_payment_methods[enabled]", "true");
+      piParams.append("automatic_payment_methods[enabled]", "false");
+      piParams.append("payment_method_types[0]", "card");
       piParams.append("metadata[user_id]", userId);
       piParams.append("metadata[plan]", plan);
       piParams.append("setup_future_usage", "off_session");

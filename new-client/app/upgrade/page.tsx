@@ -98,7 +98,12 @@ function StripePaymentForm({
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
-      <PaymentElement />
+      <PaymentElement
+        options={{
+          layout: "tabs",
+          paymentMethodOrder: ["card"],
+        }}
+      />
       {formError && <p className="text-sm text-red-500">{formError}</p>}
       <Button type="submit" className="w-full" disabled={!stripe || !elements || isSubmitting}>
         {isSubmitting ? "Processing..." : `Pay for ${planName}`}
@@ -331,11 +336,28 @@ function UpgradePageContent() {
             <p className="text-sm text-muted-foreground">Preparing secure payment form...</p>
           )}
 
-          {stripePromise && checkoutState.clientSecret && checkoutState.planName && (
-            <Elements stripe={stripePromise} options={{ clientSecret: checkoutState.clientSecret }}>
-              <StripePaymentForm planName={checkoutState.planName} onSuccess={handleCheckoutSuccess} />
-            </Elements>
-          )}
+        {stripePromise && checkoutState.clientSecret && checkoutState.planName && (
+          <Elements
+            stripe={stripePromise}
+            options={{
+              clientSecret: checkoutState.clientSecret,
+              appearance: {
+                theme: "night",
+                variables: {
+                  colorBackground: "#0b0b0f",
+                  colorText: "#e5e7eb",
+                  colorPrimary: "#8b5cf6",
+                  colorTextSecondary: "#9ca3af",
+                  colorDanger: "#f87171",
+                  borderRadius: "12px",
+                  spacingUnit: "6px",
+                },
+              },
+            }}
+          >
+            <StripePaymentForm planName={checkoutState.planName} onSuccess={handleCheckoutSuccess} />
+          </Elements>
+        )}
         </div>
       </Dialog>
 
