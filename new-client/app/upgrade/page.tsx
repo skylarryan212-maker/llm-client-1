@@ -5,11 +5,8 @@ import { ArrowLeft, Check, Lock, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { loadStripe } from "@stripe/stripe-js";
 import {
-  CardCvcElement,
-  CardExpiryElement,
-  CardNumberElement,
   Elements,
-  LinkAuthenticationElement,
+  PaymentElement,
   useElements,
   useStripe,
 } from "@stripe/react-stripe-js";
@@ -66,86 +63,57 @@ const PAYMENT_FORM_ID = "stripe-payment-form";
 
 function StripePaymentForm({
   planName,
-  clientSecret,
   onSuccess,
   useLink,
+  onEnableLink,
   onSubmittingChange,
   onReadyChange,
+  onCompleteChange,
 }: {
   planName: string;
-  clientSecret: string | null;
   onSuccess: () => Promise<void>;
   useLink: boolean;
+  onEnableLink?: () => void;
   onSubmittingChange?: (submitting: boolean) => void;
   onReadyChange?: (ready: boolean) => void;
+  onCompleteChange?: (complete: boolean) => void;
 }) {
   const stripe = useStripe();
   const elements = useElements();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
-  const [postalCode, setPostalCode] = useState("");
-  const [country, setCountry] = useState("");
 
   useEffect(() => {
     onSubmittingChange?.(isSubmitting);
   }, [isSubmitting, onSubmittingChange]);
 
   useEffect(() => {
-    if (!stripe || !elements) {
-      onReadyChange?.(false);
-      return;
-    }
-    const cardElement = elements.getElement(CardNumberElement);
-    onReadyChange?.(Boolean(cardElement));
+    onReadyChange?.(Boolean(stripe && elements));
   }, [stripe, elements, onReadyChange]);
 
-  const cardElementOptions = useMemo(
+  const paymentElementOptions = useMemo(
     () => ({
-      style: {
-        base: {
-          color: "#e5e7eb",
-          fontSize: "14px",
-          fontFamily: "inherit",
-          "::placeholder": { color: "#9ca3af" },
-        },
-        invalid: { color: "#f87171" },
-      },
+      layout: "tabs" as const,
+      paymentMethodOrder: useLink ? ["link", "card"] : ["card"],
     }),
-    []
+    [useLink]
   );
 
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
     if (!stripe || !elements) return;
-    if (!clientSecret) {
-      setFormError("Payment is not ready yet. Please try again.");
-      return;
-    }
     setIsSubmitting(true);
     setFormError(null);
     try {
-      const cardElement = elements.getElement(CardNumberElement);
-      if (!cardElement) {
-        setFormError("Card entry is not ready. Please try again.");
-        return;
-      }
-
       const returnUrl =
         typeof window !== "undefined"
           ? `${window.location.origin}/upgrade?stripe=return`
           : "/upgrade?stripe=return";
 
-      const { error, paymentIntent } = await stripe.confirmCardPayment(clientSecret, {
-        payment_method: {
-          card: cardElement,
-          billing_details: {
-            address: {
-              postal_code: postalCode || undefined,
-              country: country || undefined,
-            },
-          },
-        },
-        return_url: returnUrl,
+      const { error, paymentIntent } = await stripe.confirmPayment({
+        elements,
+        confirmParams: { return_url: returnUrl },
+        redirect: "if_required",
       });
       if (error) {
         setFormError(error.message ?? "Payment failed. Please try again.");
@@ -164,61 +132,25 @@ function StripePaymentForm({
 
   return (
     <form id={PAYMENT_FORM_ID} onSubmit={handleSubmit} className="space-y-4">
-      {useLink && (
-        <div className="space-y-2">
-          <label className="text-sm font-medium text-foreground">Link</label>
-          <div className="rounded-md border border-input bg-transparent px-3 py-2">
-            <LinkAuthenticationElement
-              options={{
-                defaultValues: { email: "" },
-              }}
-            />
-          </div>
-        </div>
-      )}
-      <div className="space-y-2">
-        <label className="text-sm font-medium text-foreground">Card number</label>
-        <div className="rounded-md border border-input bg-transparent px-3 py-2">
-          <CardNumberElement
-            options={cardElementOptions}
-            onReady={() => onReadyChange?.(true)}
-          />
-        </div>
+      <div className="flex items-center justify-between">
+        <p className="text-sm font-medium text-foreground">Card details</p>
+        {!useLink && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={onEnableLink}
+            className="h-7 rounded-full border border-primary/30 bg-primary/10 px-3 text-xs text-primary hover:bg-primary/20"
+          >
+            Autofill with Link
+          </Button>
+        )}
       </div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <div className="space-y-2">
-          <label className="text-sm font-medium text-foreground">Expiration date</label>
-          <div className="rounded-md border border-input bg-transparent px-3 py-2">
-            <CardExpiryElement options={cardElementOptions} />
-          </div>
-        </div>
-        <div className="space-y-2">
-          <label className="text-sm font-medium text-foreground">Security code</label>
-          <div className="rounded-md border border-input bg-transparent px-3 py-2">
-            <CardCvcElement options={cardElementOptions} />
-          </div>
-        </div>
-      </div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <div className="space-y-2">
-          <label className="text-sm font-medium text-foreground">Country</label>
-          <Input
-            type="text"
-            placeholder="United States"
-            value={country}
-            onChange={(event) => setCountry(event.target.value)}
-          />
-        </div>
-        <div className="space-y-2">
-          <label className="text-sm font-medium text-foreground">ZIP code</label>
-          <Input
-            type="text"
-            placeholder="12345"
-            value={postalCode}
-            onChange={(event) => setPostalCode(event.target.value)}
-          />
-        </div>
-      </div>
+      <PaymentElement
+        key={`payment-element-${useLink ? "link" : "card"}`}
+        options={paymentElementOptions}
+        onChange={(event) => onCompleteChange?.(event.complete)}
+      />
       {formError && <p className="text-sm text-red-500">{formError}</p>}
     </form>
   );
@@ -237,6 +169,7 @@ function UpgradePageContent() {
   const [isSubmittingPayment, setIsSubmittingPayment] = useState(false);
   const [canSubmitPayment, setCanSubmitPayment] = useState(false);
   const [isSyncingSubscription, setIsSyncingSubscription] = useState(false);
+  const [isPaymentComplete, setIsPaymentComplete] = useState(false);
   const [checkoutState, setCheckoutState] = useState<CheckoutState>({
     open: false,
     clientSecret: null,
@@ -299,6 +232,7 @@ function UpgradePageContent() {
       setCanSubmitPayment(false);
       setIsSubmittingPayment(false);
       setUseLinkCheckout(false);
+      setIsPaymentComplete(false);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unable to start checkout. Please try again.";
       setSuccessDialog({
@@ -316,6 +250,7 @@ function UpgradePageContent() {
     setIsSubmittingPayment(false);
     setCanSubmitPayment(false);
     setUseLinkCheckout(false);
+    setIsPaymentComplete(false);
   };
 
   useEffect(() => {
@@ -567,30 +502,47 @@ function UpgradePageContent() {
                   >
                     <StripePaymentForm
                       planName={checkoutState.planName}
-                      clientSecret={checkoutState.clientSecret}
                       onSuccess={handleCheckoutSuccess}
                       useLink={useLinkCheckout}
+                      onEnableLink={() => setUseLinkCheckout(true)}
                       onSubmittingChange={setIsSubmittingPayment}
                       onReadyChange={setCanSubmitPayment}
+                      onCompleteChange={setIsPaymentComplete}
                     />
                   </Elements>
                 )}
-                <div className="space-y-2 pt-2">
-                  <label className="flex items-start gap-2 text-sm text-foreground">
-                    <input
-                      type="checkbox"
-                      className="mt-1 h-4 w-4 accent-primary"
-                      checked={useLinkCheckout}
-                      onChange={(e) => setUseLinkCheckout(e.target.checked)}
-                    />
-                    <span>Save my information for faster checkout</span>
-                  </label>
-                  {useLinkCheckout && (
-                    <p className="text-xs text-muted-foreground">
-                      Link will securely store your details so future checkouts are faster. You can switch back to card anytime.
-                    </p>
-                  )}
-                </div>
+                {isPaymentComplete && (
+                  <div className="pt-2">
+                    <label className="flex items-center justify-between gap-4 rounded-xl border border-border/60 bg-muted/20 px-4 py-3">
+                      <div>
+                        <p className="text-sm font-medium text-foreground">
+                          Save my information for faster checkout
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          Securely stored with Link for future payments.
+                        </p>
+                      </div>
+                      <input
+                        type="checkbox"
+                        className="sr-only"
+                        checked={useLinkCheckout}
+                        onChange={(e) => setUseLinkCheckout(e.target.checked)}
+                      />
+                      <span
+                        aria-hidden="true"
+                        className={`relative inline-flex h-6 w-11 items-center rounded-full transition ${
+                          useLinkCheckout ? "bg-primary" : "bg-muted-foreground/30"
+                        }`}
+                      >
+                        <span
+                          className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition ${
+                            useLinkCheckout ? "translate-x-5" : "translate-x-0.5"
+                          }`}
+                        />
+                      </span>
+                    </label>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -653,7 +605,7 @@ function UpgradePageContent() {
                     {isSubmittingPayment ? (
                       <span className="flex items-center justify-center gap-2">
                         <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/60 border-t-transparent" />
-                        <span>Processing…</span>
+                        <span>Processing...</span>
                       </span>
                     ) : (
                       `Subscribe to ${checkoutState.planName}`
