@@ -96,13 +96,42 @@ export async function POST(request: NextRequest) {
 
     const plan = resolvePlanFromSubscription(subscription);
     const status = subscription?.status as string | undefined;
-    const invoiceStatus = subscription?.latest_invoice?.status as string | undefined;
-    const paymentIntentStatus =
-      typeof subscription?.latest_invoice?.payment_intent === "object"
-        ? subscription?.latest_invoice?.payment_intent?.status
-        : undefined;
+    let invoiceStatus = subscription?.latest_invoice?.status as string | undefined;
+    let invoicePaid = Boolean(subscription?.latest_invoice?.paid);
+    let latestPaymentIntent = subscription?.latest_invoice?.payment_intent;
+    let paymentIntentStatus: string | undefined;
 
+    if (typeof subscription?.latest_invoice === "string") {
+      const invoiceRes = await fetch(
+        `https://api.stripe.com/v1/invoices/${subscription.latest_invoice}?expand[]=payment_intent`,
+        { headers: { Authorization: `Bearer ${secretKey}` } }
+      );
+      const invoiceData = (await invoiceRes.json()) as {
+        status?: string;
+        paid?: boolean;
+        payment_intent?: string | { status?: string } | null;
+      };
+      if (invoiceRes.ok) {
+        invoiceStatus = invoiceData.status;
+        invoicePaid = Boolean(invoiceData.paid);
+        latestPaymentIntent = invoiceData.payment_intent;
+      }
+    }
+
+    if (latestPaymentIntent && typeof latestPaymentIntent === "object") {
+      paymentIntentStatus = latestPaymentIntent.status as string | undefined;
+    } else if (typeof latestPaymentIntent === "string") {
+      const intentRes = await fetch(
+        `https://api.stripe.com/v1/payment_intents/${latestPaymentIntent}`,
+        { headers: { Authorization: `Bearer ${secretKey}` } }
+      );
+      const intentData = (await intentRes.json()) as { status?: string };
+      if (intentRes.ok) {
+        paymentIntentStatus = intentData.status;
+      }
+    }
     const isPaidLike =
+      invoicePaid ||
       invoiceStatus === "paid" ||
       paymentIntentStatus === "succeeded" ||
       paymentIntentStatus === "processing";

@@ -3,8 +3,16 @@
 import { useEffect, useMemo, useState, Suspense, type FormEvent } from "react";
 import { ArrowLeft, Check, Lock, X } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { loadStripe, type StripePaymentElementOptions } from "@stripe/stripe-js";
-import { Elements, PaymentElement, useElements, useStripe } from "@stripe/react-stripe-js";
+import { loadStripe } from "@stripe/stripe-js";
+import {
+  CardCvcElement,
+  CardExpiryElement,
+  CardNumberElement,
+  Elements,
+  LinkAuthenticationElement,
+  useElements,
+  useStripe,
+} from "@stripe/react-stripe-js";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { unlockPlanWithCode, type PlanType } from "@/app/actions/plan-actions";
@@ -58,12 +66,14 @@ const PAYMENT_FORM_ID = "stripe-payment-form";
 
 function StripePaymentForm({
   planName,
+  clientSecret,
   onSuccess,
   useLink,
   onSubmittingChange,
   onReadyChange,
 }: {
   planName: string;
+  clientSecret: string | null;
   onSuccess: () => Promise<void>;
   useLink: boolean;
   onSubmittingChange?: (submitting: boolean) => void;
@@ -73,50 +83,69 @@ function StripePaymentForm({
   const elements = useElements();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [postalCode, setPostalCode] = useState("");
+  const [country, setCountry] = useState("");
 
   useEffect(() => {
     onSubmittingChange?.(isSubmitting);
   }, [isSubmitting, onSubmittingChange]);
 
   useEffect(() => {
-    onReadyChange?.(Boolean(stripe && elements));
+    if (!stripe || !elements) {
+      onReadyChange?.(false);
+      return;
+    }
+    const cardElement = elements.getElement(CardNumberElement);
+    onReadyChange?.(Boolean(cardElement));
   }, [stripe, elements, onReadyChange]);
 
-  const paymentElementOptions: StripePaymentElementOptions = useMemo(() => {
-    const paymentMethodOrder = useLink
-      ? ["link", "apple_pay", "google_pay", "card"]
-      : ["card"];
-
-    const paymentMethodTypes = useLink ? ["link", "card"] : ["card"];
-
-    return {
-      layout: "tabs",
-      paymentMethodOrder,
-      paymentMethodTypes,
-      defaultValues: {
-        billingDetails: {},
+  const cardElementOptions = useMemo(
+    () => ({
+      style: {
+        base: {
+          color: "#e5e7eb",
+          fontSize: "14px",
+          fontFamily: "inherit",
+          "::placeholder": { color: "#9ca3af" },
+        },
+        invalid: { color: "#f87171" },
       },
-      wallets: {
-        applePay: "auto",
-        googlePay: "auto",
-      },
-    };
-  }, [useLink]);
+    }),
+    []
+  );
 
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
     if (!stripe || !elements) return;
+    if (!clientSecret) {
+      setFormError("Payment is not ready yet. Please try again.");
+      return;
+    }
     setIsSubmitting(true);
     setFormError(null);
     try {
+      const cardElement = elements.getElement(CardNumberElement);
+      if (!cardElement) {
+        setFormError("Card entry is not ready. Please try again.");
+        return;
+      }
+
       const returnUrl =
         typeof window !== "undefined"
           ? `${window.location.origin}/upgrade?stripe=return`
           : "/upgrade?stripe=return";
-      const { error, paymentIntent } = await stripe.confirmPayment({
-        elements,
-        confirmParams: { return_url: returnUrl },
-        redirect: "if_required",
+
+      const { error, paymentIntent } = await stripe.confirmCardPayment(clientSecret, {
+        payment_method: {
+          card: cardElement,
+          billing_details: {
+            address: {
+              postal_code: postalCode || undefined,
+              country: country || undefined,
+            },
+          },
+        },
+        return_url: returnUrl,
       });
       if (error) {
         setFormError(error.message ?? "Payment failed. Please try again.");
@@ -135,10 +164,61 @@ function StripePaymentForm({
 
   return (
     <form id={PAYMENT_FORM_ID} onSubmit={handleSubmit} className="space-y-4">
-      <PaymentElement
-        key={`payment-element-${useLink ? "link" : "card"}`}
-        options={paymentElementOptions}
-      />
+      {useLink && (
+        <div className="space-y-2">
+          <label className="text-sm font-medium text-foreground">Link</label>
+          <div className="rounded-md border border-input bg-transparent px-3 py-2">
+            <LinkAuthenticationElement
+              options={{
+                defaultValues: { email: "" },
+              }}
+            />
+          </div>
+        </div>
+      )}
+      <div className="space-y-2">
+        <label className="text-sm font-medium text-foreground">Card number</label>
+        <div className="rounded-md border border-input bg-transparent px-3 py-2">
+          <CardNumberElement
+            options={cardElementOptions}
+            onReady={() => onReadyChange?.(true)}
+          />
+        </div>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div className="space-y-2">
+          <label className="text-sm font-medium text-foreground">Expiration date</label>
+          <div className="rounded-md border border-input bg-transparent px-3 py-2">
+            <CardExpiryElement options={cardElementOptions} />
+          </div>
+        </div>
+        <div className="space-y-2">
+          <label className="text-sm font-medium text-foreground">Security code</label>
+          <div className="rounded-md border border-input bg-transparent px-3 py-2">
+            <CardCvcElement options={cardElementOptions} />
+          </div>
+        </div>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div className="space-y-2">
+          <label className="text-sm font-medium text-foreground">Country</label>
+          <Input
+            type="text"
+            placeholder="United States"
+            value={country}
+            onChange={(event) => setCountry(event.target.value)}
+          />
+        </div>
+        <div className="space-y-2">
+          <label className="text-sm font-medium text-foreground">ZIP code</label>
+          <Input
+            type="text"
+            placeholder="12345"
+            value={postalCode}
+            onChange={(event) => setPostalCode(event.target.value)}
+          />
+        </div>
+      </div>
       {formError && <p className="text-sm text-red-500">{formError}</p>}
     </form>
   );
@@ -487,6 +567,7 @@ function UpgradePageContent() {
                   >
                     <StripePaymentForm
                       planName={checkoutState.planName}
+                      clientSecret={checkoutState.clientSecret}
                       onSuccess={handleCheckoutSuccess}
                       useLink={useLinkCheckout}
                       onSubmittingChange={setIsSubmittingPayment}
