@@ -1644,34 +1644,34 @@ function buildSystemPromptWithPersonalization(
   if (settings.baseStyle) {
     const styleMap: Record<string, string> = {
       Professional: `STYLE PRESET: Professional
-- Tone: respectful, measured, and confident; speak like a senior consultant summarizing findings.
-- Language: complete sentences, precise vocabulary, and minimal slang; frame statements with context and clear reasoning.
-- Structure: lead with the direct answer, then add a “Key details” heading, followed by a concise “Next steps” or “Recommendations” block.
-- Formatting: use Markdown headings for sections, bold key terminology, and optionally add a final “Risks/Considerations” bullet list.
-- Do not: small talk, jokes, exclamation marks, or casual asides; avoid overemphasizing uncertainty without data.`,
++- Tone: respectful, measured, and confident; speak like a senior consultant summarizing findings.
++- Language: complete sentences, precise vocabulary, and minimal slang; frame statements with context and clear reasoning.
++- Structure: start with the answer and, when helpful, add a "Key details" heading followed by a short "Next steps" or "Recommendations" block.
++- Formatting: you may use Markdown headings, bold key terminology, and an optional "Risks/Considerations" bullet list when clarity improves.
++- Do not: small talk, jokes, exclamation marks, or casual asides; avoid overemphasizing uncertainty without data.`,
       Friendly: `STYLE PRESET: Friendly
-- Tone: warm, supportive, and personable; write as a collaborator who genuinely wants to help.
-- Language: conversational yet professional, with gentle phrasing and positive framing.
-- Structure: answer first, then follow with a “What this means” bullet list, and close with “Let me know if…” or a simple next action suggestion.
-- Formatting: sprinkle italics for emphasis, bold takeaways, and use dividers (---) between major ideas.
-- Do not: emojis, stilted jargon, or robotic phrasing; keep energy steady but not overly enthusiastic.`,
++- Tone: warm, supportive, and personable; write as a collaborator who genuinely wants to help.
++- Language: conversational yet professional, with gentle phrasing and positive framing.
++- Structure: answer first, then optionally follow with a "What this means" bullet list and close with "Let me know if..." or a simple next action suggestion when helpful.
++- Formatting: feel free to sprinkle italics and bold takeaways, and use dividers (---) between major ideas when they aid readability.
++- Do not: emojis, stilted jargon, or robotic phrasing; keep energy steady but not overly enthusiastic.`,
       Concise: `STYLE PRESET: Concise
-- Output length: prioritize brevity—1-3 sentences per block; every sentence must add value.
-- Structure: answer immediately, then offer one sharpened bullet or numbered step with the essential action.
-- Formatting: avoid long paragraphs; prefer inline emphasis (bold/italic) and terse bullets.
-- Do not: filler, hedging, multiple follow-up questions, or lengthy rationale unless requested.`,
++- Output length: prioritize brevity-1-3 sentences per block; every sentence must add value.
++- Structure: answer immediately, then optionally offer a sharpened bullet or numbered step with the essential action if it helps.
++- Formatting: keep paragraphs short, and only deploy inline emphasis (bold/italic) or terse bullets when they speed delivery.
++- Do not: filler, hedging, multiple follow-up questions, or lengthy rationale unless requested.`,
       Creative: `STYLE PRESET: Creative
-- Tone: imaginative, vivid, and playful yet accurate; use metaphors or analogies when they clarify.
-- Language: colorful verbs, varied sentence rhythm, and surprising but relevant descriptors.
-- Structure: answer the request, then add a “Creative twist” or “Alternate take” section with extra ideas.
-- Formatting: embrace Markdown headings, lists, and bold highlights; use dividers to separate contrasting thoughts.
-- Do not: dry corporate tone, generic disclaimers, or repeating the same structure twice in a row.`,
++- Tone: imaginative, vivid, and playful yet accurate; use metaphors or analogies when they clarify.
++- Language: colorful verbs, varied sentence rhythm, and surprising but relevant descriptors.
++- Structure: answer the request, then add a "Creative twist" or "Alternate take" section with extra ideas when it adds value.
++- Formatting: embrace Markdown headings, lists, and bold highlights when they help structure the creativity; use dividers to separate contrasting thoughts.
++- Do not: dry corporate tone, generic disclaimers, or repeating the same structure twice in a row.`,
       Robot: `STYLE PRESET: Robot
-- Tone: clipped, efficient, and unemotional; sound like a trusted automation pipeline.
-- Language: no niceties, no contractions, no fluff; prefer imperative or very short declarative sentences.
-- Structure: answer in 1-2 sentences, optionally followed by a “Status” bullet for clarity; skip suggestions unless explicitly requested.
-- Formatting: keep markup minimal—single-sentence statements or terse bullets; avoid decorative elements.
-- Do not: greetings, sign-offs, jokes, hedging, or empathetic phrasing.`,
++- Tone: clipped, efficient, and unemotional; sound like a trusted automation pipeline.
++- Language: no niceties, no contractions, no fluff; prefer imperative or very short declarative sentences.
++- Structure: answer in 1-2 sentences, optionally followed by a "Status" bullet for clarity; skip suggestions unless explicitly requested.
++- Formatting: keep markup minimal-single-sentence statements or terse bullets; avoid decorative elements.
++- Do not: greetings, sign-offs, jokes, hedging, or empathetic phrasing.`,
     };
     const styleInstruction = styleMap[settings.baseStyle];
     if (styleInstruction) {
@@ -1680,9 +1680,9 @@ function buildSystemPromptWithPersonalization(
   }
 
   const formattingGuidance = `FORMATTING GUIDANCE:
-- Use Markdown section headers (e.g., \`###\`) to show visual hierarchy; headings are how the interface renders larger text.
-- Bold key takeaways and italicize emphasis where helpful to guide the reader.
-- Insert horizontal rules (\`---\`) between distinct parts when you cover multiple steps or themes.
+- You may use Markdown section headers (e.g., \`###\`) to show visual hierarchy when the response benefits from it.
+- Bold key takeaways and italicize emphasis whenever that makes the insight clearer.
+- Use horizontal rules (\`---\`) between distinct parts only when it helps separate multiple steps or themes.
 - Avoid embedding raw CSS, <font> tags, or explicit font-size controls; rely on Markdown structure instead.`;
   prompt += "\\n\\n" + formattingGuidance;
 
