@@ -1686,6 +1686,11 @@ function buildSystemPromptWithPersonalization(
 - Avoid embedding raw CSS, <font> tags, or explicit font-size controls; rely on Markdown structure instead.`;
   prompt += "\\n\\n" + formattingGuidance;
 
+  const smallTalkGuidance = `SMALL TALK / NON-FACTUAL REQUESTS:
+- For greetings or casual check-ins (e.g., "how are you?"), reply in one short sentence without headings, bullets, or "Action" labels.
+- Skip citations for chit-chat; only cite when giving factual claims.`;
+  prompt += "\\n\\n" + smallTalkGuidance;
+
   // Add custom instructions
   if (settings.customInstructions && settings.customInstructions.trim()) {
     prompt += "\\n\\n**Custom Instructions:**\\n" + settings.customInstructions.trim();
