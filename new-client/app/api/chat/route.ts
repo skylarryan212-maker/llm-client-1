@@ -3818,14 +3818,9 @@ export async function POST(request: NextRequest) {
     const cachedContextMessages = contextMessages.slice(0, tailStartIndex);
     const liveContextMessages = contextMessages.slice(tailStartIndex);
 
-    const cacheablePrefixMessages = isGrokModel
-      ? cachedContextMessages
-      : cachedContextMessages.map((msg: ContextMessage) => ({
-          ...msg,
-          cache_control: { type: "ephemeral" as const },
-        }));
+    const cacheablePrefixMessages = cachedContextMessages;
 
-    const baseMessagesForAPI = [...cacheablePrefixMessages, ...liveContextMessages];
+    const baseMessagesForAPI = [...cachedContextMessages, ...liveContextMessages];
 
     const cacheablePrefixFingerprint = [
       cachedSystemInstructions,
