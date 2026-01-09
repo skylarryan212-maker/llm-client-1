@@ -70,23 +70,67 @@ export async function POST(request: NextRequest) {
 
     const subscriptionData = (await subscriptionRes.json()) as {
       id?: string;
-      latest_invoice?: { id?: string; payment_intent?: { client_secret?: string } };
+      latest_invoice?: {
+        id?: string;
+        payment_intent?: { id?: string; client_secret?: string } | string | null;
+      };
     };
-    let clientSecret = subscriptionData.latest_invoice?.payment_intent?.client_secret;
-    if (subscriptionRes.ok && !clientSecret && subscriptionData.latest_invoice?.id) {
+    const invoiceId = subscriptionData.latest_invoice?.id;
+    let clientSecret =
+      typeof subscriptionData.latest_invoice?.payment_intent === "object"
+        ? subscriptionData.latest_invoice?.payment_intent?.client_secret
+        : undefined;
+
+    const resolveClientSecretFromInvoice = async (sourceInvoiceId: string) => {
       const invoiceRes = await fetch(
-        `https://api.stripe.com/v1/invoices/${subscriptionData.latest_invoice.id}?expand[]=payment_intent`,
+        `https://api.stripe.com/v1/invoices/${sourceInvoiceId}?expand[]=payment_intent`,
         {
-          headers: {
-            Authorization: `Bearer ${secretKey}`,
-          },
+          headers: { Authorization: `Bearer ${secretKey}` },
         }
       );
       const invoiceData = (await invoiceRes.json()) as {
-        payment_intent?: { client_secret?: string };
+        payment_intent?: { id?: string; client_secret?: string } | string | null;
       };
-      if (invoiceRes.ok) {
-        clientSecret = invoiceData.payment_intent?.client_secret;
+      if (!invoiceRes.ok) return null;
+      if (typeof invoiceData.payment_intent === "string") {
+        const intentRes = await fetch(
+          `https://api.stripe.com/v1/payment_intents/${invoiceData.payment_intent}`,
+          { headers: { Authorization: `Bearer ${secretKey}` } }
+        );
+        const intentData = (await intentRes.json()) as { client_secret?: string };
+        return intentRes.ok ? intentData.client_secret ?? null : null;
+      }
+      return invoiceData.payment_intent?.client_secret ?? null;
+    };
+
+    if (subscriptionRes.ok && !clientSecret && invoiceId) {
+      // Ensure the invoice is finalized so a payment intent is generated.
+      const finalizeRes = await fetch(
+        `https://api.stripe.com/v1/invoices/${invoiceId}/finalize?expand[]=payment_intent`,
+        {
+          method: "POST",
+          headers: { Authorization: `Bearer ${secretKey}` },
+        }
+      );
+      const finalized = (await finalizeRes.json()) as {
+        payment_intent?: { id?: string; client_secret?: string } | string | null;
+      };
+      if (finalizeRes.ok) {
+        if (typeof finalized.payment_intent === "string") {
+          const intentRes = await fetch(
+            `https://api.stripe.com/v1/payment_intents/${finalized.payment_intent}`,
+            { headers: { Authorization: `Bearer ${secretKey}` } }
+          );
+          const intentData = (await intentRes.json()) as { client_secret?: string };
+          if (intentRes.ok) {
+            clientSecret = intentData.client_secret;
+          }
+        } else {
+          clientSecret = finalized.payment_intent?.client_secret;
+        }
+      }
+      if (!clientSecret) {
+        clientSecret = await resolveClientSecretFromInvoice(invoiceId);
       }
     }
     if (!subscriptionRes.ok || !clientSecret) {
