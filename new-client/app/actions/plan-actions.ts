@@ -46,9 +46,8 @@ function normalizePlanType(value: string | null | undefined): PlanType {
   }
 }
 
-function toStoragePlanType(plan: PlanType): PlanType | "dev" {
-  // Database check constraint still expects legacy values. Store compatible values.
-  if (plan === "max") return "dev";
+function toStoragePlanType(plan: PlanType): PlanType {
+  // Write the exact plan value; Supabase must allow "max" in plan_type.
   return plan;
 }
 
