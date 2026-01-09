@@ -55,6 +55,7 @@ export async function POST(request: NextRequest) {
     subscriptionParams.append("items[0][price]", priceId);
     subscriptionParams.append("payment_behavior", "default_incomplete");
     subscriptionParams.append("payment_settings[save_default_payment_method]", "on_subscription");
+    subscriptionParams.append("payment_settings[payment_method_types][0]", "card");
     subscriptionParams.append("expand[]", "latest_invoice.payment_intent");
     subscriptionParams.append("metadata[user_id]", userId);
     subscriptionParams.append("metadata[plan]", plan);
@@ -103,6 +104,45 @@ export async function POST(request: NextRequest) {
       return invoiceData.payment_intent?.client_secret ?? null;
     };
 
+    const createPaymentIntentForInvoice = async (sourceInvoiceId: string) => {
+      // Fetch invoice for amount/currency
+      const invoiceRes = await fetch(
+        `https://api.stripe.com/v1/invoices/${sourceInvoiceId}`,
+        { headers: { Authorization: `Bearer ${secretKey}` } }
+      );
+      const invoiceData = (await invoiceRes.json()) as {
+        amount_due?: number;
+        currency?: string;
+        customer?: string;
+        total?: number;
+      };
+      if (!invoiceRes.ok) return null;
+      const amount = invoiceData.total ?? invoiceData.amount_due;
+      const currency = invoiceData.currency;
+      if (!amount || !currency) return null;
+
+      const piParams = new URLSearchParams();
+      piParams.append("amount", amount.toString());
+      piParams.append("currency", currency);
+      piParams.append("customer", invoiceData.customer || customerData.id || "");
+      piParams.append("automatic_payment_methods[enabled]", "true");
+      piParams.append("metadata[user_id]", userId);
+      piParams.append("metadata[plan]", plan);
+      piParams.append("setup_future_usage", "off_session");
+
+      const piRes = await fetch("https://api.stripe.com/v1/payment_intents", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${secretKey}`,
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body: piParams.toString(),
+      });
+      const piData = (await piRes.json()) as { client_secret?: string };
+      if (!piRes.ok) return null;
+      return piData.client_secret ?? null;
+    };
+
     if (subscriptionRes.ok && !clientSecret && invoiceId) {
       // Ensure the invoice is finalized so a payment intent is generated.
       const finalizeRes = await fetch(
@@ -130,7 +170,10 @@ export async function POST(request: NextRequest) {
         }
       }
       if (!clientSecret) {
-        clientSecret = await resolveClientSecretFromInvoice(invoiceId) || undefined;
+        clientSecret =
+          (await resolveClientSecretFromInvoice(invoiceId)) ||
+          (await createPaymentIntentForInvoice(invoiceId)) ||
+          undefined;
       }
     }
     if (!subscriptionRes.ok || !clientSecret) {
