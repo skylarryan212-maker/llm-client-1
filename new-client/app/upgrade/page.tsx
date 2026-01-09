@@ -93,7 +93,6 @@ function UpgradePageContent() {
       window.location.href = data.url;
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unable to start checkout. Please try again.";
-      setCheckoutError(message);
       setSuccessDialog({
         open: true,
         title: `Could not start ${planName} checkout`,

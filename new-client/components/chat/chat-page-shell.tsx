@@ -2282,8 +2282,9 @@ export default function ChatPageShell({
 
           const targetUrl = `/projects/${targetProjectId}/c/${newChatId}`;
           if (typeof window !== "undefined" && !window.location.pathname.includes(`/c/${newChatId}`)) {
+            router.replace(targetUrl);
             persistModelSelection(currentModel);
-            void navigateWithMainPanelFade(router, targetUrl);
+            void navigateWithMainPanelFade(router, targetUrl, "replace");
           }
         } else {
           const { conversationId, message: createdMessage, conversation } =
@@ -2336,10 +2337,11 @@ export default function ChatPageShell({
 
           triggerAutoNaming(conversationId, message, conversation.title ?? undefined);
 
-          if (typeof window !== "undefined" && !window.location.pathname.includes(`/c/${newChatId}`)) {
-            persistModelSelection(currentModel);
-            void navigateWithMainPanelFade(router, `/c/${newChatId}`);
-          }
+        if (typeof window !== "undefined" && !window.location.pathname.includes(`/c/${newChatId}`)) {
+          router.replace(`/c/${newChatId}`);
+          persistModelSelection(currentModel);
+          void navigateWithMainPanelFade(router, `/c/${newChatId}`, "replace");
+        }
         }
         newChatSuccess = true;
         setPendingNewChatMessages(null);
