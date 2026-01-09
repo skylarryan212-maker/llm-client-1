@@ -54,7 +54,6 @@ type CheckoutState = {
   subscriptionId: string | null;
 };
 
-const LINK_PREF_KEY = "checkout_link_preference";
 const PAYMENT_FORM_ID = "stripe-payment-form";
 
 function StripePaymentForm({
@@ -86,7 +85,7 @@ function StripePaymentForm({
   const paymentElementOptions: StripePaymentElementOptions = useMemo(() => {
     const paymentMethodOrder = useLink
       ? ["link", "apple_pay", "google_pay", "card"]
-      : ["apple_pay", "google_pay", "card"];
+      : ["card"];
 
     const paymentMethodTypes = useLink ? ["link", "card"] : ["card"];
 
@@ -173,17 +172,6 @@ function UpgradePageContent() {
     setErrorMessage("");
   };
 
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const saved = window.localStorage.getItem(LINK_PREF_KEY);
-    setUseLinkCheckout(saved === "link");
-  }, []);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    window.localStorage.setItem(LINK_PREF_KEY, useLinkCheckout ? "link" : "card");
-  }, [useLinkCheckout]);
-
   const handleUnlockWithCode = async () => {
     if (!selectedPlanForUnlock) return;
     setIsProcessing(true);
@@ -221,21 +209,22 @@ function UpgradePageContent() {
       if (!res.ok || !data?.clientSecret || !data?.subscriptionId) {
         throw new Error(data?.error || "Failed to start checkout");
       }
-    setCheckoutState({
-      open: true,
-      clientSecret: data.clientSecret,
-      planId,
-      planName,
-      subscriptionId: data.subscriptionId,
-    });
-    setCanSubmitPayment(false);
-    setIsSubmittingPayment(false);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Unable to start checkout. Please try again.";
-    setSuccessDialog({
-      open: true,
-      title: `Could not start ${planName} checkout`,
-      message,
+      setCheckoutState({
+        open: true,
+        clientSecret: data.clientSecret,
+        planId,
+        planName,
+        subscriptionId: data.subscriptionId,
+      });
+      setCanSubmitPayment(false);
+      setIsSubmittingPayment(false);
+      setUseLinkCheckout(false);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Unable to start checkout. Please try again.";
+      setSuccessDialog({
+        open: true,
+        title: `Could not start ${planName} checkout`,
+        message,
       });
     } finally {
       setIsProcessing(false);
@@ -246,6 +235,7 @@ function UpgradePageContent() {
     setCheckoutState({ open: false, clientSecret: null, planId: null, planName: null, subscriptionId: null });
     setIsSubmittingPayment(false);
     setCanSubmitPayment(false);
+    setUseLinkCheckout(false);
   };
 
   useEffect(() => {

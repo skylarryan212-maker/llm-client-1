@@ -102,7 +102,7 @@ export async function POST(request: NextRequest) {
         ? subscription?.latest_invoice?.payment_intent?.status
         : undefined;
 
-    const isPaid =
+    const isPaidLike =
       invoiceStatus === "paid" ||
       paymentIntentStatus === "succeeded" ||
       paymentIntentStatus === "processing";
@@ -110,10 +110,14 @@ export async function POST(request: NextRequest) {
     const isActive =
       status === "active" ||
       status === "trialing" ||
-      (status === "incomplete" && isPaid) ||
-      (status === "past_due" && isPaid);
+      (status === "incomplete" && isPaidLike) ||
+      (status === "past_due" && isPaidLike);
 
-    if (!isActive || !plan) {
+    if (!plan) {
+      return NextResponse.json({ error: "plan_unresolved" }, { status: 409 });
+    }
+
+    if (!isActive) {
       return NextResponse.json({ error: "subscription_not_active" }, { status: 409 });
     }
 
