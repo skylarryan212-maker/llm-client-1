@@ -75,7 +75,7 @@ export async function POST(request: NextRequest) {
     }
 
     const subscriptionRes = await fetch(
-      `https://api.stripe.com/v1/subscriptions/${subscriptionId}?expand[]=items.data.price`,
+      `https://api.stripe.com/v1/subscriptions/${subscriptionId}?expand[]=items.data.price&expand[]=latest_invoice.payment_intent`,
       {
         headers: { Authorization: `Bearer ${secretKey}` },
       }
@@ -96,7 +96,23 @@ export async function POST(request: NextRequest) {
 
     const plan = resolvePlanFromSubscription(subscription);
     const status = subscription?.status as string | undefined;
-    const isActive = status === "active" || status === "trialing";
+    const invoiceStatus = subscription?.latest_invoice?.status as string | undefined;
+    const paymentIntentStatus =
+      typeof subscription?.latest_invoice?.payment_intent === "object"
+        ? subscription?.latest_invoice?.payment_intent?.status
+        : undefined;
+
+    const isPaid =
+      invoiceStatus === "paid" ||
+      paymentIntentStatus === "succeeded" ||
+      paymentIntentStatus === "processing";
+
+    const isActive =
+      status === "active" ||
+      status === "trialing" ||
+      (status === "incomplete" && isPaid) ||
+      (status === "past_due" && isPaid);
+
     if (!isActive || !plan) {
       return NextResponse.json({ error: "subscription_not_active" }, { status: 409 });
     }

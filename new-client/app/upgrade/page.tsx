@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useState, Suspense, type FormEvent } from "react";
+import { useEffect, useMemo, useState, Suspense, type FormEvent } from "react";
 import { ArrowLeft, Check, Lock, X } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { loadStripe } from "@stripe/stripe-js";
+import { loadStripe, type StripePaymentElementOptions } from "@stripe/stripe-js";
 import { Elements, PaymentElement, useElements, useStripe } from "@stripe/react-stripe-js";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -54,17 +54,55 @@ type CheckoutState = {
   subscriptionId: string | null;
 };
 
+const LINK_PREF_KEY = "checkout_link_preference";
+const PAYMENT_FORM_ID = "stripe-payment-form";
+
 function StripePaymentForm({
   planName,
   onSuccess,
+  useLink,
+  onSubmittingChange,
+  onReadyChange,
 }: {
   planName: string;
   onSuccess: () => Promise<void>;
+  useLink: boolean;
+  onSubmittingChange?: (submitting: boolean) => void;
+  onReadyChange?: (ready: boolean) => void;
 }) {
   const stripe = useStripe();
   const elements = useElements();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+
+  useEffect(() => {
+    onSubmittingChange?.(isSubmitting);
+  }, [isSubmitting, onSubmittingChange]);
+
+  useEffect(() => {
+    onReadyChange?.(Boolean(stripe && elements));
+  }, [stripe, elements, onReadyChange]);
+
+  const paymentElementOptions: StripePaymentElementOptions = useMemo(() => {
+    const paymentMethodOrder = useLink
+      ? ["link", "apple_pay", "google_pay", "card"]
+      : ["apple_pay", "google_pay", "card"];
+
+    const paymentMethodTypes = useLink ? ["link", "card"] : ["card"];
+
+    return {
+      layout: "tabs",
+      paymentMethodOrder,
+      paymentMethodTypes,
+      defaultValues: {
+        billingDetails: {},
+      },
+      wallets: {
+        applePay: "auto",
+        googlePay: "auto",
+      },
+    };
+  }, [useLink]);
 
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
@@ -97,17 +135,12 @@ function StripePaymentForm({
   };
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
+    <form id={PAYMENT_FORM_ID} onSubmit={handleSubmit} className="space-y-4">
       <PaymentElement
-        options={{
-          layout: "tabs",
-          paymentMethodOrder: ["apple_pay", "google_pay", "card"],
-        }}
+        key={`payment-element-${useLink ? "link" : "card"}`}
+        options={paymentElementOptions}
       />
       {formError && <p className="text-sm text-red-500">{formError}</p>}
-      <Button type="submit" className="w-full" disabled={!stripe || !elements || isSubmitting}>
-        {isSubmitting ? "Processing..." : `Pay for ${planName}`}
-      </Button>
     </form>
   );
 }
@@ -121,6 +154,10 @@ function UpgradePageContent() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [successDialog, setSuccessDialog] = useState<{ open: boolean; message: string; title: string }>({ open: false, message: "", title: "" });
+  const [useLinkCheckout, setUseLinkCheckout] = useState(false);
+  const [isSubmittingPayment, setIsSubmittingPayment] = useState(false);
+  const [canSubmitPayment, setCanSubmitPayment] = useState(false);
+  const [isSyncingSubscription, setIsSyncingSubscription] = useState(false);
   const [checkoutState, setCheckoutState] = useState<CheckoutState>({
     open: false,
     clientSecret: null,
@@ -135,6 +172,17 @@ function UpgradePageContent() {
     setUnlockCode("");
     setErrorMessage("");
   };
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const saved = window.localStorage.getItem(LINK_PREF_KEY);
+    setUseLinkCheckout(saved === "link");
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(LINK_PREF_KEY, useLinkCheckout ? "link" : "card");
+  }, [useLinkCheckout]);
 
   const handleUnlockWithCode = async () => {
     if (!selectedPlanForUnlock) return;
@@ -173,19 +221,21 @@ function UpgradePageContent() {
       if (!res.ok || !data?.clientSecret || !data?.subscriptionId) {
         throw new Error(data?.error || "Failed to start checkout");
       }
-      setCheckoutState({
-        open: true,
-        clientSecret: data.clientSecret,
-        planId,
-        planName,
-        subscriptionId: data.subscriptionId,
-      });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Unable to start checkout. Please try again.";
-      setSuccessDialog({
-        open: true,
-        title: `Could not start ${planName} checkout`,
-        message,
+    setCheckoutState({
+      open: true,
+      clientSecret: data.clientSecret,
+      planId,
+      planName,
+      subscriptionId: data.subscriptionId,
+    });
+    setCanSubmitPayment(false);
+    setIsSubmittingPayment(false);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Unable to start checkout. Please try again.";
+    setSuccessDialog({
+      open: true,
+      title: `Could not start ${planName} checkout`,
+      message,
       });
     } finally {
       setIsProcessing(false);
@@ -194,6 +244,8 @@ function UpgradePageContent() {
 
   const closeCheckout = () => {
     setCheckoutState({ open: false, clientSecret: null, planId: null, planName: null, subscriptionId: null });
+    setIsSubmittingPayment(false);
+    setCanSubmitPayment(false);
   };
 
   useEffect(() => {
@@ -238,23 +290,47 @@ function UpgradePageContent() {
       return;
     }
 
+    const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+    const attempts = 4;
+    setIsSyncingSubscription(true);
     try {
-      await syncSubscriptionPlan(subscriptionId);
-      await refreshPlan();
-      closeCheckout();
-      setSuccessDialog({
-        open: true,
-        title: `Upgraded to ${planName}`,
-        message: "Payment accepted and your plan is now active.",
-      });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Unable to confirm the subscription.";
+      let upgraded = false;
+      let lastError: Error | null = null;
+      for (let i = 0; i < attempts; i++) {
+        try {
+          await syncSubscriptionPlan(subscriptionId);
+          upgraded = true;
+          break;
+        } catch (err) {
+          lastError = err instanceof Error ? err : new Error("Unable to confirm the subscription.");
+          if (i < attempts - 1) {
+            await delay(1200);
+            continue;
+          }
+        }
+      }
+
+      if (upgraded) {
+        await refreshPlan();
+        closeCheckout();
+        setSuccessDialog({
+          open: true,
+          title: `Upgraded to ${planName}`,
+          message: "Payment accepted and your plan is now active.",
+        });
+        return;
+      }
+
       closeCheckout();
       setSuccessDialog({
         open: true,
         title: "Payment received",
-        message,
+        message:
+          lastError?.message ||
+          "Payment was received, but the subscription is not active yet. Try again in a few seconds.",
       });
+    } finally {
+      setIsSyncingSubscription(false);
     }
   };
 
@@ -419,15 +495,37 @@ function UpgradePageContent() {
                       },
                     }}
                   >
-                    <StripePaymentForm planName={checkoutState.planName} onSuccess={handleCheckoutSuccess} />
+                    <StripePaymentForm
+                      planName={checkoutState.planName}
+                      onSuccess={handleCheckoutSuccess}
+                      useLink={useLinkCheckout}
+                      onSubmittingChange={setIsSubmittingPayment}
+                      onReadyChange={setCanSubmitPayment}
+                    />
                   </Elements>
                 )}
+                <div className="space-y-2 pt-2">
+                  <label className="flex items-start gap-2 text-sm text-foreground">
+                    <input
+                      type="checkbox"
+                      className="mt-1 h-4 w-4 accent-primary"
+                      checked={useLinkCheckout}
+                      onChange={(e) => setUseLinkCheckout(e.target.checked)}
+                    />
+                    <span>Save my information for faster checkout</span>
+                  </label>
+                  {useLinkCheckout && (
+                    <p className="text-xs text-muted-foreground">
+                      Link will securely store your details so future checkouts are faster. You can switch back to card anytime.
+                    </p>
+                  )}
+                </div>
               </div>
             </div>
 
             {checkoutState.planId && checkoutState.planName && (
-              <div className="w-full rounded-2xl border border-border bg-card/80 p-5 shadow-lg lg:max-w-sm">
-                <div className="space-y-2">
+              <div className="w-full rounded-2xl border border-border bg-card/80 p-5 shadow-lg lg:max-w-sm h-[560px] flex flex-col">
+                <div className="space-y-2 flex-1 overflow-hidden">
                   <div className="flex items-start justify-between">
                     <div>
                       <p className="text-lg font-semibold">{checkoutState.planName}</p>
@@ -441,7 +539,7 @@ function UpgradePageContent() {
                     </div>
                   </div>
 
-                  <div className="mt-3 space-y-2 text-sm text-foreground/90">
+                  <div className="mt-3 space-y-2 text-sm text-foreground/90 max-h-48 overflow-y-auto pr-1">
                     {(plans.find((p) => p.id === checkoutState.planId)?.features || []).slice(0, 4).map((feat, idx) => (
                       <div key={idx} className="flex items-start gap-2">
                         <div className="h-2 w-2 rounded-full bg-primary/70 mt-1.5" />
@@ -471,6 +569,33 @@ function UpgradePageContent() {
                       </span>
                     </div>
                   </div>
+                </div>
+                <div className="pt-4">
+                  <Button
+                    form={PAYMENT_FORM_ID}
+                    type="submit"
+                    className={`w-full relative overflow-hidden transition ${
+                      isSubmittingPayment ? "scale-[0.99] opacity-90" : ""
+                    }`}
+                    disabled={!canSubmitPayment || isProcessing || isSubmittingPayment || isSyncingSubscription}
+                  >
+                    {isSubmittingPayment ? (
+                      <span className="flex items-center justify-center gap-2">
+                        <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/60 border-t-transparent" />
+                        <span>Processing…</span>
+                      </span>
+                    ) : (
+                      `Subscribe to ${checkoutState.planName}`
+                    )}
+                    <span
+                      className={`pointer-events-none absolute inset-0 bg-gradient-to-r from-primary/20 via-white/10 to-primary/20 transition-all duration-500 ${
+                        isSubmittingPayment ? "translate-x-0 opacity-100" : "translate-x-full opacity-0"
+                      }`}
+                    />
+                  </Button>
+                  <p className="mt-2 text-xs text-muted-foreground text-center">
+                    Billed monthly. You can cancel anytime.
+                  </p>
                 </div>
               </div>
             )}
