@@ -56,12 +56,12 @@ const ROUTER_SYSTEM_PROMPT = `You are a lightweight routing assistant.
 
 You are NOT the assistant that replies to the user. You NEVER answer the user, never call tools, and never output explanations or markdown. Your ONLY job is to choose which model will answer, the reasoning effort level, and which memory categories to load or modify. Respond with ONE JSON object only.
 
-Available models: "gpt-5-nano", "gpt-5-mini", "gpt-5.2", "gpt-5.2-pro".
+Available models: "grok-4-1-fast", "gpt-5-nano", "gpt-5-mini", "gpt-5.2", "gpt-5.2-pro".
 Available efforts: "none" | "low" | "medium" | "high" | "xhigh" ( "none" is ONLY allowed when model === "gpt-5.2" or "gpt-5.2-pro"). NEVER emit any other spelling (e.g., "med" is invalid). If you mean medium effort, output the exact string "medium".
 
 Your JSON response MUST have this exact shape (no extra keys):
 {
-  "model": "gpt-5-nano" | "gpt-5-mini" | "gpt-5.2" | "gpt-5.2-pro",
+  "model": "grok-4-1-fast" | "gpt-5-nano" | "gpt-5-mini" | "gpt-5.2" | "gpt-5.2-pro",
   "effort": "none" | "low" | "medium" | "high" | "xhigh",
   "routedBy": string,
   "memoryTypesToLoad": string[],
@@ -74,12 +74,12 @@ Your JSON response MUST have this exact shape (no extra keys):
 Hard rules:
 1) routedBy: always set to a fixed identifier, e.g. "llm-router-v1".
 2) Model selection:
-   - Default to the cheapest model that can reliably handle the request.
-   - Use "gpt-5.2" when: user explicitly asks for best/deep reasoning/5.2, the task is high-stakes (legal/medical/financial/safety), or requires long multi-step reasoning or large-context reading.
-   - Use "gpt-5.2-pro" only when the user explicitly asks for Pro/strongest/hard thinking OR when the task is clearly the most complex/high-risk scenario that justifies extra cost.
-   - Use "gpt-5-mini" for non-trivial code, multi-step math, complex JSON transforms, or medium-length writing/editing that is not high-stakes.
-   - Use "gpt-5-nano" for short factual answers, simple rewrites, classifications, short summaries, or tiny JSON tasks.
-   - When unsure between two options, choose the cheaper model unless the task is high-stakes.
+   - "grok-4-1-fast" for conversational flow, natural tone, and longer back-and-forth where user experience is the priority.
+   - "gpt-5-mini" for precision tasks (clean code, structured answers, constrained requirements, academic/technical correctness).
+   - "gpt-5-nano" for short, low-risk, low-ambiguity requests.
+   - "gpt-5.2" when the user asks for best/deep reasoning/5.2, the task is high-stakes, or requires long multi-step reasoning.
+   - "gpt-5.2-pro" only when the user explicitly asks for Pro/strongest/hard thinking OR the task is the most complex/high-risk scenario that justifies extra cost.
+   - If uncertain between two, prefer the safer (more capable) option unless latency/cost is explicitly prioritized.
 3) Effort selection:
    - "none" only with model "gpt-5.2" or "gpt-5.2-pro" for trivial tasks.
    - "low": smallest effort for quick/cheap answers (best default for instant mode).
@@ -148,7 +148,10 @@ export async function routeWithLLM(
       type: "object",
       additionalProperties: false,
       properties: {
-        model: { type: "string", enum: ["gpt-5-nano", "gpt-5-mini", "gpt-5.2", "gpt-5.2-pro"] },
+        model: {
+          type: "string",
+          enum: ["grok-4-1-fast", "gpt-5-nano", "gpt-5-mini", "gpt-5.2", "gpt-5.2-pro"],
+        },
         effort: { type: "string", enum: ["none", "low", "medium", "high", "xhigh"] },
         memoryTypesToLoad: {
           type: "array",
@@ -255,6 +258,7 @@ export async function routeWithLLM(
 
     // Validate response
     const validModels: Array<Exclude<ModelFamily, "auto">> = [
+      "grok-4-1-fast",
       "gpt-5-nano",
       "gpt-5-mini",
       "gpt-5.2",

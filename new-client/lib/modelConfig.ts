@@ -9,6 +9,7 @@ import type {
 export type SpeedMode = "auto" | "instant" | "thinking";
 export type ModelFamily =
   | "auto"
+  | "grok-4-1-fast"
   | "gpt-5.2"
   | "gpt-5.2-pro"
   | "gpt-5-mini"
@@ -30,11 +31,18 @@ export interface ModelConfig {
 }
 
 const MODEL_ID_MAP: Record<Exclude<ModelFamily, "auto">, string> = {
+  "grok-4-1-fast": "grok-4-1-fast-non-reasoning-latest",
   "gpt-5.2": "gpt-5.2",
   "gpt-5.2-pro": "gpt-5.2-pro",
   "gpt-5-mini": "gpt-5-mini",
   "gpt-5-nano": "gpt-5-nano",
 };
+
+const isGrokFamily = (family: Exclude<ModelFamily, "auto">) =>
+  family === "grok-4-1-fast";
+
+const GROK_FAST_NON_REASONING_MODEL_ID = "grok-4-1-fast-non-reasoning-latest";
+const GROK_FAST_REASONING_MODEL_ID = "grok-4-1-fast-reasoning-latest";
 
 const LIGHT_REASONING_KEYWORDS = [
   "step by step",
@@ -253,6 +261,7 @@ function buildConfigFromRouterDecision(
   permanentInstructionsToDelete: PermanentInstructionToDelete[];
 } {
   const MODEL_ID_MAP_LOCAL: Record<Exclude<ModelFamily, "auto">, string> = {
+    "grok-4-1-fast": GROK_FAST_NON_REASONING_MODEL_ID,
     "gpt-5.2": "gpt-5.2",
     "gpt-5.2-pro": "gpt-5.2-pro",
     "gpt-5-mini": "gpt-5-mini",
@@ -280,10 +289,21 @@ function buildConfigFromRouterDecision(
   const permanentInstructionsToWrite = reusePermanent ? decision.permanentInstructionsToWrite : [];
   const permanentInstructionsToDelete = reusePermanent ? decision.permanentInstructionsToDelete : [];
 
+  const resolvedModel = MODEL_ID_MAP_LOCAL[decision.model];
+  const grokReasoning =
+    decision.model === "grok-4-1-fast" &&
+    (finalEffort === "medium" || finalEffort === "high" || finalEffort === "xhigh");
   return {
-    model: MODEL_ID_MAP_LOCAL[decision.model],
+    model: grokReasoning ? GROK_FAST_REASONING_MODEL_ID : resolvedModel,
     resolvedFamily: decision.model,
-    reasoning: finalEffort ? { effort: finalEffort } : undefined,
+    reasoning:
+      decision.model === "grok-4-1-fast"
+        ? grokReasoning && finalEffort
+          ? { effort: finalEffort }
+          : undefined
+        : finalEffort
+          ? { effort: finalEffort }
+          : undefined,
     routedBy: options?.routedBy ?? "llm",
     memoriesToWrite,
     memoriesToDelete,
@@ -301,6 +321,17 @@ export function getModelAndReasoningConfig(
   let resolvedFamily: Exclude<ModelFamily, "auto"> =
     modelFamily === "auto" ? "gpt-5-mini" : modelFamily;
   const trimmedPrompt = promptText.trim();
+
+  if (isGrokFamily(resolvedFamily)) {
+    const effort = reasoningEffortHint ?? (speedMode === "thinking" ? "medium" : "low");
+    const useReasoning =
+      effort === "medium" || effort === "high" || effort === "xhigh";
+    return {
+      model: useReasoning ? GROK_FAST_REASONING_MODEL_ID : GROK_FAST_NON_REASONING_MODEL_ID,
+      resolvedFamily,
+      reasoning: useReasoning ? { effort } : undefined,
+    };
+  }
 
   let chosenEffort: ReasoningEffort | null = null;
   const isFullFamily =
@@ -445,6 +476,8 @@ export async function getModelAndReasoningConfigWithLLM(
 
 export function describeModelFamily(family: ModelFamily) {
   switch (family) {
+    case "grok-4-1-fast":
+      return "Grok 4.1 Fast";
     case "gpt-5.2":
       return "GPT 5.2";
     case "gpt-5.2-pro":
@@ -461,6 +494,7 @@ export function describeModelFamily(family: ModelFamily) {
 // Validation utilities
 export const VALID_MODEL_FAMILIES: ModelFamily[] = [
   "auto",
+  "grok-4-1-fast",
   "gpt-5.2",
   "gpt-5.2-pro",
   "gpt-5-mini",
@@ -498,6 +532,7 @@ export function getModelSettingsFromDisplayName(displayName: string): ModelSetti
   if (displayName === "Instant") return { modelFamily: "auto", speedMode: "instant", reasoningEffort: "low" };
   if (displayName === "Thinking") return { modelFamily: "auto", speedMode: "thinking", reasoningEffort: "medium" };
   if (displayName === "Pro") return { modelFamily: "gpt-5.2-pro", speedMode: "auto" };
+  if (displayName === "Grok 4.1 Fast") return { modelFamily: "grok-4-1-fast", speedMode: "auto" };
 
   // GPT 5 Nano options
   if (displayName === "GPT 5 Nano Auto") return { modelFamily: "gpt-5-nano", speedMode: "auto" };

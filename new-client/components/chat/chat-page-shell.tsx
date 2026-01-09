@@ -294,6 +294,7 @@ function loadInitialSpeedModeEnabled(): boolean {
 
 function normalizeModelForSpeedMode(displayName: string): string {
   const normalized = (displayName || "").toLowerCase();
+  if (normalized.includes("grok")) return "Grok 4.1 Fast";
   if (normalized.includes("nano")) return "GPT 5 Nano";
   if (normalized.includes("mini")) return "GPT 5 Mini";
   if (normalized.includes("pro")) return "GPT 5.2 Pro";
@@ -304,6 +305,8 @@ function normalizeModelForSpeedMode(displayName: string): string {
 function getSpeedModeModelSettings(displayName: string): ModelSettings {
   const normalizedDisplay = normalizeModelForSpeedMode(displayName);
   switch (normalizedDisplay) {
+    case "Grok 4.1 Fast":
+      return { modelFamily: "grok-4-1-fast", speedMode: "auto" };
     case "GPT 5 Mini":
       return { modelFamily: "gpt-5-mini", speedMode: "auto", reasoningEffort: "low" };
     case "GPT 5.2":
@@ -3266,6 +3269,10 @@ export default function ChatPageShell({
       retryModelFamily = "gpt-5-nano";
       retrySpeedMode = "auto";
       retryReasoningOverride = speedModeEnabled ? "low" : undefined;
+    } else if (retryModelName === "Grok 4.1 Fast") {
+      retryModelFamily = "grok-4-1-fast";
+      retrySpeedMode = "auto";
+      retryReasoningOverride = undefined;
     } else if (retryModelName === "GPT 5 Mini") {
       retryModelFamily = "gpt-5-mini";
       retrySpeedMode = "auto";
@@ -4138,6 +4145,18 @@ export default function ChatPageShell({
                         </DropdownMenuItem>
                         <DropdownMenuItem
                           className="items-center gap-3 px-3 py-2"
+                          onSelect={() => setCurrentModel("Grok 4.1 Fast")}
+                        >
+                          <div className="flex flex-1 flex-col">
+                            <span className="font-medium leading-none">Grok 4.1 Fast</span>
+                            <span className="text-xs text-muted-foreground">Conversational flow</span>
+                          </div>
+                          <span className="flex w-4 justify-end">
+                            {effectiveModelDisplay === "Grok 4.1 Fast" && <Check className="h-4 w-4" />}
+                          </span>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          className="items-center gap-3 px-3 py-2"
                           onSelect={() => setCurrentModel("GPT 5.2")}
                         >
                           <div className="flex flex-1 flex-col">
@@ -4197,6 +4216,18 @@ export default function ChatPageShell({
                           </div>
                           <span className="flex w-4 justify-end">
                             {currentModel === "GPT 5 Mini" && <Check className="h-4 w-4" />}
+                          </span>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          className="items-center gap-3 px-3 py-2"
+                          onSelect={() => setCurrentModel("Grok 4.1 Fast")}
+                        >
+                          <div className="flex flex-1 flex-col">
+                            <span className="font-medium leading-none">Grok 4.1 Fast</span>
+                            <span className="text-xs text-muted-foreground">Conversational flow</span>
+                          </div>
+                          <span className="flex w-4 justify-end">
+                            {currentModel === "Grok 4.1 Fast" && <Check className="h-4 w-4" />}
                           </span>
                         </DropdownMenuItem>
                         <DropdownMenuItem

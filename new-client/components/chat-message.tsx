@@ -116,6 +116,7 @@ export const ChatMessage = memo(function ChatMessage({
     if (lower.includes('gemini-3-pro-image-preview')) return 'Nano Banana Pro'
     if (lower.includes('gemini')) return 'Gemini'
 
+    if (lower.includes('grok-4-1-fast')) return 'Grok 4.1 Fast'
     if (lower.includes('gpt-5-nano') || lower.includes('gpt 5 nano')) return 'GPT 5 Nano'
     if (lower.includes('gpt-5-mini') || lower.includes('gpt 5 mini')) return 'GPT 5 Mini'
     if (lower.includes('gpt-5.2-pro') || lower.includes('gpt 5.2 pro') || lower.includes('gpt-5.2 pro') || lower.includes('52-pro')) return 'GPT 5.2 Pro'
@@ -128,6 +129,7 @@ export const ChatMessage = memo(function ChatMessage({
   if (!resolvedFamily && modelUsed) {
     const lower = modelUsed.toLowerCase()
     if (lower.includes('gemini')) resolvedFamily = modelUsed
+    else if (lower.includes('grok-4-1-fast')) resolvedFamily = 'grok-4-1-fast'
     else if (lower.includes('gpt-5-nano') || lower.includes('gpt 5 nano')) resolvedFamily = 'gpt-5-nano'
     else if (lower.includes('gpt-5-mini') || lower.includes('gpt 5 mini')) resolvedFamily = 'gpt-5-mini'
     else if (lower.includes('gpt-5.2') || lower.includes('gpt 5.2')) resolvedFamily = 'gpt-5.2'
@@ -433,6 +435,10 @@ export const ChatMessage = memo(function ChatMessage({
                               <DropdownMenuRadioItem value="GPT 5 Mini">
                                 <span className="flex-1 whitespace-nowrap">Retry with GPT 5 Mini</span>
                                 {displayModelName === 'GPT 5 Mini' && <span className="text-xs text-muted-foreground ml-2">(current)</span>}
+                              </DropdownMenuRadioItem>
+                              <DropdownMenuRadioItem value="Grok 4.1 Fast">
+                                <span className="flex-1 whitespace-nowrap">Retry with Grok 4.1 Fast</span>
+                                {displayModelName === 'Grok 4.1 Fast' && <span className="text-xs text-muted-foreground ml-2">(current)</span>}
                               </DropdownMenuRadioItem>
                               <DropdownMenuRadioItem value="GPT 5.2">
                                 <span className="flex-1 whitespace-nowrap">Retry with GPT 5.2</span>

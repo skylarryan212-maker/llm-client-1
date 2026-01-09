@@ -22,7 +22,14 @@ import type {
   Tool,
   ToolChoiceOptions,
 } from "openai/resources/responses/responses";
-import { calculateCost, calculateGeminiImageCost, calculateVectorStorageCost, calculateToolCallCost, CODE_INTERPRETER_SESSION_COST } from "@/lib/pricing";
+import {
+  calculateCost,
+  calculateGeminiImageCost,
+  calculateVectorStorageCost,
+  calculateToolCallCost,
+  calculateGrokFastDeterministicCost,
+  CODE_INTERPRETER_SESSION_COST
+} from "@/lib/pricing";
 import { getUserPlan } from "@/app/actions/plan-actions";
 import { getMonthlySpending } from "@/app/actions/usage-actions";
 import { hasExceededLimit, getPlanLimit } from "@/lib/usage-limits";
@@ -64,6 +71,10 @@ const ALLOWED_ASSISTANT_IMAGE_MIME_TYPES = new Set([
 const CROSS_CHAT_TOPIC_TOKEN_LIMIT = 200_000;
 const MAX_FOREIGN_CONVERSATIONS = 12;
 const MAX_FOREIGN_TOPICS = 50;
+const GROK_FAST_FAMILY = "grok-4-1-fast";
+const GROK_FAST_NON_REASONING_MODEL_ID = "grok-4-1-fast-non-reasoning-latest";
+const GROK_FAST_REASONING_MODEL_ID = "grok-4-1-fast-reasoning-latest";
+const GROK_BASE_URL = "https://api.x.ai/v1";
 
 function formatWebPipelineContext(result: WebPipelineResult) {
   const queriesLine = result.queries.length ? `Queries: ${result.queries.join(" | ")}` : "";
@@ -3065,6 +3076,49 @@ export async function POST(request: NextRequest) {
     }
     console.log("[decision-router] output:", JSON.stringify(decision, null, 2));
 
+    const effortIsMediumOrHigher =
+      decision.effort === "medium" || decision.effort === "high" || decision.effort === "xhigh";
+    const grokRequested = decision.model === GROK_FAST_FAMILY;
+    if (grokRequested && effortIsMediumOrHigher) {
+      console.log("[modelOverride] Grok requested with medium/high effort; using Grok reasoning model");
+    }
+
+    if (userId && decision.model === GROK_FAST_FAMILY) {
+      try {
+        const { data: lastUsage } = await supabaseAny
+          .from("user_api_usage")
+          .select("input_tokens,cached_tokens,output_tokens")
+          .eq("user_id", userId)
+          .eq("conversation_id", conversationId)
+          .or("input_tokens.gt.0,output_tokens.gt.0")
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (lastUsage) {
+          const inputTokens = Number(lastUsage.input_tokens || 0);
+          const cachedTokens = Number(lastUsage.cached_tokens || 0);
+          const outputTokens = Number(lastUsage.output_tokens || 0);
+          const grokCost = calculateGrokFastDeterministicCost(
+            inputTokens,
+            cachedTokens,
+            outputTokens
+          );
+          const miniCost = calculateCost("gpt-5-mini", inputTokens, cachedTokens, outputTokens);
+          if (miniCost < grokCost) {
+            decision.model = "gpt-5-mini";
+            if (decision.effort === "none") {
+              decision.effort = "low";
+            }
+            console.log(
+              `[modelOverride] Switched Grok -> GPT-5 Mini based on last usage (mini=$${miniCost.toFixed(6)}, grok=$${grokCost.toFixed(6)})`
+            );
+          }
+        }
+      } catch (usageLookupErr) {
+        console.warn("[modelOverride] Failed to compute Grok vs Mini cost:", usageLookupErr);
+      }
+    }
+
     // Create a stub topic immediately for new-topic actions so downstream work (and the OpenAI call)
     // has a concrete topic_id. Writer router will refine metadata later.
     let resolvedPrimaryTopicId: string | null = decision.primaryTopicId ?? null;
@@ -3134,10 +3188,27 @@ export async function POST(request: NextRequest) {
       artifactsToLoad: [],
     };
 
-    const modelConfig = {
-      model: decision.model,
-      resolvedFamily: decision.model,
-      reasoning: { effort: decision.effort },
+    const grokByEffort =
+      grokRequested && effortIsMediumOrHigher
+        ? GROK_FAST_REASONING_MODEL_ID
+        : grokRequested
+          ? GROK_FAST_NON_REASONING_MODEL_ID
+          : decision.model;
+
+    let modelConfig: {
+      model: string;
+      resolvedFamily: string;
+      reasoning?: { effort: ReasoningEffort };
+      routedBy: "code";
+      availableMemoryTypes: string[];
+      memoriesToWrite: any[];
+      memoriesToDelete: any[];
+      permanentInstructionsToWrite: any[];
+      permanentInstructionsToDelete: any[];
+    } = {
+      model: grokByEffort,
+      resolvedFamily: grokRequested ? GROK_FAST_FAMILY : decision.model,
+      reasoning: grokRequested && !effortIsMediumOrHigher ? undefined : { effort: decision.effort },
       routedBy: "code" as const,
       availableMemoryTypes: decision.memoryTypesToLoad,
       memoriesToWrite: [] as any[],
@@ -3145,6 +3216,9 @@ export async function POST(request: NextRequest) {
       permanentInstructionsToWrite: [] as any[],
       permanentInstructionsToDelete: [] as any[],
     };
+    const isGrokModel =
+      modelConfig.model === GROK_FAST_NON_REASONING_MODEL_ID ||
+      modelConfig.model === GROK_FAST_REASONING_MODEL_ID;
     const reasoningEffort = decision.effort ?? "none";
 
     // Load personalization settings (used for both context building and memory selection)
@@ -3734,13 +3808,15 @@ export async function POST(request: NextRequest) {
     // Initialize OpenAI client - use dynamic import to avoid hard dependency at build time
     let openai: OpenAIClient;
     
-    // Debug: Check if API key is set
-    if (!process.env.OPENAI_API_KEY) {
-      console.error("OPENAI_API_KEY is not set in environment");
+    const selectedApiKey = isGrokModel ? process.env.GROK_API_KEY : process.env.OPENAI_API_KEY;
+    const selectedBaseUrl = isGrokModel ? GROK_BASE_URL : undefined;
+    if (!selectedApiKey) {
+      const missingKey = isGrokModel ? "GROK_API_KEY" : "OPENAI_API_KEY";
+      console.error(`${missingKey} is not set in environment`);
       return NextResponse.json(
         {
-          error: "OpenAI API key not configured",
-          details: "OPENAI_API_KEY environment variable is missing",
+          error: "Model API key not configured",
+          details: `${missingKey} environment variable is missing`,
         },
         { status: 500 }
       );
@@ -3749,10 +3825,13 @@ export async function POST(request: NextRequest) {
       const OpenAIClass = await getOpenAIConstructor();
       openai = new OpenAIClass(
         buildOpenAIClientOptions({
-          apiKey: process.env.OPENAI_API_KEY,
+          apiKey: selectedApiKey,
+          ...(selectedBaseUrl ? { baseURL: selectedBaseUrl } : {}),
         })
       );
-      console.log("OpenAI client initialized successfully");
+      console.log(
+        `OpenAI client initialized successfully (${isGrokModel ? "xAI" : "OpenAI"})`
+      );
     } catch (importError) {
       console.error(
         "OpenAI SDK not installed. Please run: npm install openai",
@@ -4023,6 +4102,11 @@ export async function POST(request: NextRequest) {
                 "Every factual claim must include an inline citation immediately after the claim (same sentence).",
               ]
             : []),
+          ...(customWebSearchContext
+            ? [
+                "A web search has already been run; use the provided sources/context instead of asking to run search again. If the fetched sources are empty, out-of-stock, or otherwise unusable, say that directly before offering to refresh the search.",
+              ]
+            : []),
           ...(customWebSearchContext ? [customWebSearchContext] : []),
           ...(allowWebSearch && forceWebSearch ? [FORCE_WEB_SEARCH_PROMPT] : []),
           ...(allowWebSearch && requireWebSearch && !forceWebSearch ? [EXPLICIT_WEB_SEARCH_PROMPT] : []),
@@ -4035,11 +4119,13 @@ export async function POST(request: NextRequest) {
         );
 
         const toolsForRequest: any[] = [];
-        // Use only our fast-web-pipeline for web search, not OpenAI's built-in web_search tool
-        if (vectorStoreIdsForRequest.length) {
-          toolsForRequest.push(fileSearchTool as Tool);
+        if (!isGrokModel) {
+          // Use only our fast-web-pipeline for web search, not OpenAI's built-in web_search tool
+          if (vectorStoreIdsForRequest.length) {
+            toolsForRequest.push(fileSearchTool as Tool);
+          }
+          toolsForRequest.push(codeInterpreterTool);
         }
-        toolsForRequest.push(codeInterpreterTool);
         // Do not use OpenAI's web_search tool; web search is handled by our fast-web-pipeline callback
         const toolChoice: ToolChoiceOptions | undefined = undefined;
 
@@ -4105,7 +4191,7 @@ export async function POST(request: NextRequest) {
         if (toolChoice) {
           streamOptions.tool_choice = toolChoice;
         }
-        if (modelConfig.reasoning) {
+        if (!isGrokModel && modelConfig.reasoning) {
           streamOptions.reasoning = { effort: modelConfig.reasoning.effort };
         }
         if (typeof useFlex !== "undefined" && useFlex) {
@@ -4418,17 +4504,31 @@ export async function POST(request: NextRequest) {
           // Log the full usage object structure to debug cache tokens
           console.log("[usage] Full usage object:", JSON.stringify(usage, null, 2));
           
-          const inputTokens = usage.input_tokens || 0;
+          const inputTokens =
+            Number(
+              usage.input_tokens ??
+              usage.prompt_tokens ??
+              usage.prompt_token_count ??
+              0
+            ) || 0;
           
           // Try multiple possible field names for cached tokens
           const cachedTokens = 
-            usage.input_tokens_details?.cached_tokens || 
+            usage.input_tokens_details?.cached_tokens ||
+            usage.prompt_tokens_details?.cached_tokens ||
             usage.input_tokens_details?.cache_read_input_tokens ||
+            usage.cache_read_input_tokens ||
             usage.cached_input_tokens ||
             usage.cache_read_tokens ||
             0;
           
-          const outputTokens = usage.output_tokens || 0;
+          const outputTokens =
+            Number(
+              usage.output_tokens ??
+              usage.completion_tokens ??
+              usage.candidates_token_count ??
+              0
+            ) || 0;
 
           console.log("[usage] Extracted tokens:", {
             inputTokens,

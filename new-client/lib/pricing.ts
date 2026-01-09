@@ -20,6 +20,16 @@ export const MODEL_PRICING = {
     cached: 0.005,
     output: 0.4,
   },
+  "grok-4-1-fast-non-reasoning-latest": {
+    input: 0.20,
+    cached: 0.05,
+    output: 0.50,
+  },
+  "grok-4-1-fast-reasoning-latest": {
+    input: 0.20,
+    cached: 0.05,
+    output: 0.50,
+  },
   // Cloudflare Workers AI @cf/meta/llama-3.2-1b-instruct (per 1M tokens, placeholder low-cost assumption)
   "@cf/meta/llama-3.2-1b-instruct": {
     input: 0.027,
@@ -83,6 +93,18 @@ export const TOOL_CALL_PRICING_PER_1K = {
   file_search: 2.5, // Responses API file_search tool calls
 } as const;
 
+const GROK_FAST_STANDARD_CONTEXT_LIMIT = 128_000;
+const GROK_FAST_STANDARD_PRICING = {
+  input: 0.20,
+  cached: 0.05,
+  output: 0.50,
+};
+const GROK_FAST_LONG_CONTEXT_PRICING = {
+  input: 0.40,
+  cached: 0.05,
+  output: 1.00,
+};
+
 // Gemini native image generation pricing (AI Studio) as of Dec 2025.
 // Note: image output is billed per-image (token-equivalent internally); we estimate per image.
 export const GEMINI_IMAGE_PRICING = {
@@ -112,7 +134,12 @@ export function calculateCost(
   cachedTokens: number,
   outputTokens: number
 ): number {
-  const pricing = MODEL_PRICING[model as keyof typeof MODEL_PRICING];
+  const pricing =
+    (model === "grok-4-1-fast-non-reasoning-latest" ||
+      model === "grok-4-1-fast-reasoning-latest") &&
+    inputTokens > GROK_FAST_STANDARD_CONTEXT_LIMIT
+      ? GROK_FAST_LONG_CONTEXT_PRICING
+      : MODEL_PRICING[model as keyof typeof MODEL_PRICING];
   if (!pricing) {
     console.warn(`Unknown model for pricing: ${model}`);
     return 0;
@@ -122,6 +149,21 @@ export function calculateCost(
   const cachedCost = (cachedTokens / 1_000_000) * pricing.cached;
   const outputCost = (outputTokens / 1_000_000) * pricing.output;
 
+  return inputCost + cachedCost + outputCost;
+}
+
+export function calculateGrokFastDeterministicCost(
+  inputTokens: number,
+  cachedTokens: number,
+  outputTokens: number
+): number {
+  const inputBelow = Math.min(inputTokens, GROK_FAST_STANDARD_CONTEXT_LIMIT);
+  const inputAbove = Math.max(0, inputTokens - GROK_FAST_STANDARD_CONTEXT_LIMIT);
+  const inputCost =
+    (inputBelow / 1_000_000) * GROK_FAST_STANDARD_PRICING.input +
+    (inputAbove / 1_000_000) * GROK_FAST_LONG_CONTEXT_PRICING.input;
+  const cachedCost = (cachedTokens / 1_000_000) * GROK_FAST_STANDARD_PRICING.cached;
+  const outputCost = (outputTokens / 1_000_000) * GROK_FAST_STANDARD_PRICING.output;
   return inputCost + cachedCost + outputCost;
 }
 

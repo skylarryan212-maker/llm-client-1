@@ -18,10 +18,11 @@ interface ModelSelectorProps {
 
 const MODEL_FAMILY_OPTIONS: { value: ModelFamily; label: string }[] = [
   { value: 'auto', label: 'Auto' },
+  { value: 'gpt-5-nano', label: 'GPT 5 Nano' },
+  { value: 'gpt-5-mini', label: 'GPT 5 Mini' },
+  { value: 'grok-4-1-fast', label: 'Grok 4.1 Fast' },
   { value: 'gpt-5.2', label: 'GPT 5.2' },
   { value: 'gpt-5.2-pro', label: 'GPT 5.2 Pro' },
-  { value: 'gpt-5-mini', label: 'GPT 5 Mini' },
-  { value: 'gpt-5-nano', label: 'GPT 5 Nano' },
 ]
 
 const SPEED_MODE_OPTIONS: { value: SpeedMode; label: string }[] = [

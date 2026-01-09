@@ -1,5 +1,5 @@
 import { getModelAndReasoningConfig } from "../modelConfig";
-import type { ReasoningEffort } from "../modelConfig";
+import type { ReasoningEffort, ModelFamily } from "../modelConfig";
 import { callDeepInfraLlama } from "../deepInfraLlama";
 import { computeTopicSemantics } from "../semantic/topicSimilarity";
 import { supabaseServerAdmin } from "../supabase/server";
@@ -10,7 +10,7 @@ export type DecisionRouterInput = {
   activeTopicId: string | null;
   currentConversationId: string;
   speedMode: "auto" | "instant" | "thinking";
-  modelPreference: "auto" | "gpt-5-nano" | "gpt-5-mini" | "gpt-5.2" | "gpt-5.2-pro";
+  modelPreference: ModelFamily;
   memories?: Array<{
     id: string;
     type: string;
@@ -45,7 +45,12 @@ export type DecisionRouterOutput = {
   primaryTopicId: string | null;
   secondaryTopicIds: string[];
   newParentTopicId: string | null;
-  model: "gpt-5-nano" | "gpt-5-mini" | "gpt-5.2" | "gpt-5.2-pro";
+  model:
+    | "grok-4-1-fast"
+    | "gpt-5-nano"
+    | "gpt-5-mini"
+    | "gpt-5.2"
+    | "gpt-5.2-pro";
   effort: ReasoningEffort;
   memoryTypesToLoad: string[];
 };
@@ -136,7 +141,7 @@ Output shape:
     "primaryTopicId": string | null,
     "secondaryTopicIds": string[],         // array, never null
     "newParentTopicId": string | null,
-    "model": "gpt-5-nano" | "gpt-5-mini" | "gpt-5.2" | "gpt-5.2-pro",
+    "model": "grok-4-1-fast" | "gpt-5-nano" | "gpt-5-mini" | "gpt-5.2" | "gpt-5.2-pro",
     "effort": "none" | "low" | "medium" | "high" | "xhigh",
     "memoryTypesToLoad": string[]
   }
@@ -155,14 +160,24 @@ Rules:
   * If an artifact is the strongest semantic match and it links to a topic, prefer reopen_existing with that linked topic unless the user explicitly wants a new topic.
 - secondaryTopicIds: subset of provided topic ids, exclude primary; may be empty.
 - newParentTopicId: null or a provided topic id.
-- Model selection:
-  * GPT-5 nano is the smallest, fastest, and cheapest GPT-5 model. It is ideal for high-volume, low-latency use and works best for simple tasks like short conversations, basic Q/A, paraphrasing, rewriting, summarizing short text, classification, extracting fields, and straightforward translations. It has limited deep reasoning ability and should not be used for complex multi-step logic, tricky coding, or long-document analysis.
-  * GPT-5 mini is a compact GPT-5 model optimized for everyday assistant tasks with moderate reasoning. It is suitable for most chatbots and assistants, general Q/A, short and medium-length content generation, light to moderate coding help, explanations, brainstorming, and planning with a few constraints. It balances quality, speed, and cost, but is weaker than GPT-5.2 on difficult reasoning, large codebases, and long-context analysis.
-  * GPT-5.2 is the most advanced and expensive model. It should be reserved for tasks that require strong reasoning, high accuracy, or long-context understanding. It works best for complex coding and debugging, multi-step math or logic, detailed analysis of long documents, multi-constraint planning, professional and enterprise workflows (finance, legal, research), and situations where mistakes are costly. Use it only when nano or mini would likely fail to fully solve the task.
-  * Strongly prefer gpt-5-nano when the ask is short/straightforward: greetings/acknowledgements, short factual Q/A, short rewrites/summaries, classification/tagging, simple comparisons or 1-2 step instructions, no code or only trivial code edits (<10 lines), and user text length under ~120 words. Default to nano unless there is a clear reason to upgrade.
-  * Use gpt-5-mini when the request needs multi-step reasoning (3-5 steps), small but non-trivial code (single file, short functions, small bug fixes), moderate math, medium-length writing/planning, or the user text is moderately long/ambiguous (~120-400 words) and needs reasoning. If unsure between nano vs mini, choose nano.
-  * Use gpt-5.2 only for clearly complex/long tasks: multi-file or large code changes, refactors, debugging with stack traces, long-form writing (>400 words), deep planning/architecture, heavy math/proofs, or high-stakes domains (legal/financial/safety/security/privacy). If unsure between mini vs 5.2, choose mini.
-  * ONLY use gpt-5.2-pro if the user explicitly prefers it AND the task is extremely high-stakes + complex. Otherwise downgrade to gpt-5.2/mini/nano.
+- Model selection (trade-offs, not a default):
+  * grok-4-1-fast: best for long, flowing dialog and nuanced human tone; maintains conversational coherence over extended chats.
+  * gpt-5-mini: best for precision tasks (clean code, structured answers, constrained requirements, academic/technical correctness).
+  * gpt-5-nano: fastest + cheapest for short, low-risk, low-ambiguity tasks.
+  * gpt-5.2: highest accuracy + best long-context reasoning; use for complex, multi-step work, larger code changes, or when mistakes are costly.
+  * gpt-5.2-pro: only if explicitly requested and the task is both complex and high-stakes.
+  * Reasoning vs structure:
+    - Use grok-4-1-fast for deep multi-step reasoning, long-context analysis, or tool-heavy agent workflows.
+    - Use gpt-5-mini for code-heavy tasks and strict instruction/format adherence.
+  * Choose by task risk and intent:
+    - If user experience/voice is the priority -> grok-4-1-fast
+    - If correctness/structure is the priority -> gpt-5-mini
+    - If the request is trivial/short -> gpt-5-nano
+    - If high complexity or high-stakes -> gpt-5.2
+  * If uncertain between two, prefer the safer (more capable) option unless latency/cost is explicitly prioritized.
+  * Hard rules:
+    - If modelPreference is set, obey it (if modelPreference is "grok-4-1-fast", you must choose grok-4-1-fast).
+    - Never pick 5.2-pro unless the user asked for it.
 - Effort selection:
   * Effort is for the downstream chat model's response (not for routing).
   * Default to low; use medium only when strong complexity indicators are present.
@@ -171,7 +186,7 @@ Rules:
     - medium: debugging, non-trivial code, math/proofs, multi-constraint planning, long-form outputs, high-stakes domains.
   * If unsure between low vs medium, choose low.
   * High or xhigh only when the request is clearly rare, intricate, or high-stakes, and you are confident it needs extra depth.
-  * For gpt-5-nano/gpt-5-mini: never emit "none"/"high"/"xhigh"; stay at low/medium. If a task would need high/xhigh, escalate the model instead of effort on nano/mini.
+  * For gpt-5-nano: never emit "none"/"high"/"xhigh"; stay at low/medium.
   * Speed mode:
     - instant -> effort MUST be one of: none, low (choose the lowest that fits the task).
     - thinking -> effort MUST be one of: medium, high, xhigh (choose the lowest that fits the task; prefer medium unless clearly needed).
@@ -220,7 +235,7 @@ Return only the "labels" object matching the output schema.`;
           primaryTopicId: { type: ["string", "null"] },
           secondaryTopicIds: { type: "array", items: { type: "string" }, default: [] },
           newParentTopicId: { type: ["string", "null"] },
-          model: { type: "string", enum: ["gpt-5-nano", "gpt-5-mini", "gpt-5.2", "gpt-5.2-pro"] },
+          model: { type: "string", enum: ["grok-4-1-fast", "gpt-5-nano", "gpt-5-mini", "gpt-5.2", "gpt-5.2-pro"] },
           effort: { type: "string", enum: ["none", "low", "medium", "high", "xhigh"] },
           memoryTypesToLoad: { type: "array", items: { type: "string" }, default: [] },
         },
@@ -305,7 +320,10 @@ Return only the "labels" object matching the output schema.`;
         !labels ||
         typeof labels.topicAction !== "string" ||
         !["continue_active", "new", "reopen_existing"].includes(labels.topicAction) ||
-        (labels.model && !["gpt-5-nano", "gpt-5-mini", "gpt-5.2", "gpt-5.2-pro"].includes(labels.model)) ||
+        (labels.model &&
+          !["grok-4-1-fast", "gpt-5-nano", "gpt-5-mini", "gpt-5.2", "gpt-5.2-pro"].includes(
+            labels.model
+          )) ||
         (labels.effort && !["none", "low", "medium", "high", "xhigh"].includes(labels.effort))
       ) {
         return false;
