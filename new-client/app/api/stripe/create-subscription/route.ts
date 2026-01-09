@@ -55,7 +55,7 @@ export async function POST(request: NextRequest) {
     subscriptionParams.append("items[0][price]", priceId);
     subscriptionParams.append("payment_behavior", "default_incomplete");
     subscriptionParams.append("payment_settings[save_default_payment_method]", "on_subscription");
-    subscriptionParams.append("expand[0]", "latest_invoice.payment_intent");
+    subscriptionParams.append("expand[]", "latest_invoice.payment_intent");
     subscriptionParams.append("metadata[user_id]", userId);
     subscriptionParams.append("metadata[plan]", plan);
 
@@ -70,9 +70,25 @@ export async function POST(request: NextRequest) {
 
     const subscriptionData = (await subscriptionRes.json()) as {
       id?: string;
-      latest_invoice?: { payment_intent?: { client_secret?: string } };
+      latest_invoice?: { id?: string; payment_intent?: { client_secret?: string } };
     };
-    const clientSecret = subscriptionData.latest_invoice?.payment_intent?.client_secret;
+    let clientSecret = subscriptionData.latest_invoice?.payment_intent?.client_secret;
+    if (subscriptionRes.ok && !clientSecret && subscriptionData.latest_invoice?.id) {
+      const invoiceRes = await fetch(
+        `https://api.stripe.com/v1/invoices/${subscriptionData.latest_invoice.id}?expand[]=payment_intent`,
+        {
+          headers: {
+            Authorization: `Bearer ${secretKey}`,
+          },
+        }
+      );
+      const invoiceData = (await invoiceRes.json()) as {
+        payment_intent?: { client_secret?: string };
+      };
+      if (invoiceRes.ok) {
+        clientSecret = invoiceData.payment_intent?.client_secret;
+      }
+    }
     if (!subscriptionRes.ok || !clientSecret) {
       console.error("[stripe] Failed to create subscription", {
         status: subscriptionRes.status,
