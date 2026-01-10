@@ -122,6 +122,16 @@ function StripePaymentForm({
     []
   );
 
+  const cardNumberOptions = useMemo(
+    () => ({
+      ...cardElementOptions,
+      showIcon: true,
+      iconStyle: "solid" as const,
+      disableLink: true,
+    }),
+    [cardElementOptions]
+  );
+
   const showSaveInfoToggle =
     cardNumberComplete &&
     cardExpiryComplete &&
@@ -173,9 +183,9 @@ function StripePaymentForm({
     <form id={PAYMENT_FORM_ID} onSubmit={handleSubmit} className="space-y-4">
       <div className="space-y-2">
         <label className="text-sm font-medium text-foreground">Card number</label>
-        <div className="rounded-md border border-input bg-transparent px-3 py-2">
+        <div className="rounded-md border border-input bg-transparent px-3 py-2 shadow-xs transition-[color,box-shadow] dark:bg-input/30 focus-within:border-ring focus-within:ring-ring/50 focus-within:ring-[3px]">
           <CardNumberElement
-            options={cardElementOptions}
+            options={cardNumberOptions}
             onChange={(event) => setCardNumberComplete(Boolean(event.complete))}
           />
         </div>
@@ -183,7 +193,7 @@ function StripePaymentForm({
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div className="space-y-2">
           <label className="text-sm font-medium text-foreground">Expiration date</label>
-          <div className="rounded-md border border-input bg-transparent px-3 py-2">
+          <div className="rounded-md border border-input bg-transparent px-3 py-2 shadow-xs transition-[color,box-shadow] dark:bg-input/30 focus-within:border-ring focus-within:ring-ring/50 focus-within:ring-[3px]">
             <CardExpiryElement
               options={cardElementOptions}
               onChange={(event) => setCardExpiryComplete(Boolean(event.complete))}
@@ -192,7 +202,7 @@ function StripePaymentForm({
         </div>
         <div className="space-y-2">
           <label className="text-sm font-medium text-foreground">Security code</label>
-          <div className="rounded-md border border-input bg-transparent px-3 py-2">
+          <div className="rounded-md border border-input bg-transparent px-3 py-2 shadow-xs transition-[color,box-shadow] dark:bg-input/30 focus-within:border-ring focus-within:ring-ring/50 focus-within:ring-[3px]">
             <CardCvcElement
               options={cardElementOptions}
               onChange={(event) => setCardCvcComplete(Boolean(event.complete))}
@@ -239,12 +249,12 @@ function StripePaymentForm({
             />
             <span
               aria-hidden="true"
-              className={`relative inline-flex h-6 w-11 items-center rounded-full transition ${
-                useLink ? "bg-primary" : "bg-muted-foreground/30"
+              className={`relative inline-flex h-6 w-11 items-center rounded-full border transition ${
+                useLink ? "border-primary/50 bg-primary/40" : "border-border/60 bg-muted/30"
               }`}
             >
               <span
-                className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition ${
+                className={`inline-block h-5 w-5 transform rounded-full bg-foreground shadow-sm transition ${
                   useLink ? "translate-x-5" : "translate-x-0.5"
                 }`}
               />
