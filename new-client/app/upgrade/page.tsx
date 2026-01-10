@@ -583,7 +583,7 @@ function UpgradePageContent() {
   const filteredPlans = plans.filter(() => true);
 
   return (
-    <div className="min-h-screen bg-background text-foreground flex flex-col">
+    <div className="h-[100dvh] min-h-[100dvh] bg-background text-foreground flex flex-col overflow-y-auto overscroll-y-contain">
       <div className="flex-1">
           <div className="max-w-6xl mx-auto px-4 py-8 space-y-8">
           <div className="flex items-center gap-3">
