@@ -232,7 +232,6 @@ export function MarketAgentInstanceView({
   const [bottomSpacerPx, setBottomSpacerPx] = useState(baseBottomSpacerPx);
   const [timelineEvents, setTimelineEvents] = useState<MarketAgentFeedEvent[]>(events ?? []);
   const [selectedEventId, setSelectedEventId] = useState<string | null>(null);
-  const [seedLoading, setSeedLoading] = useState(false);
   const chatListRef = useRef<HTMLDivElement | null>(null);
   const [alignTrigger, setAlignTrigger] = useState(0);
   const pinnedMessageIdRef = useRef<string | null>(null);
@@ -291,39 +290,8 @@ export function MarketAgentInstanceView({
   const timelinePanelTransitionClass = isMobileView ? "transition-none" : "transition-all duration-300 ease-out";
   const timelinePanelOrderClass = isMobileView ? "order-2 md:order-none" : "";
   const reportPanelOrderClass = isMobileView ? "order-1 md:order-none" : "";
-  const isDev = process.env.NODE_ENV !== "production";
-  const canSeedDemo = isDev || plan === "max";
-
   const handleSelectEvent = (eventId: string) => {
     setSelectedEventId(eventId);
-  };
-
-  const handleGenerateDemoEvents = async () => {
-    if (!canSeedDemo) {
-      setStatusError("Demo seeding is unavailable for this plan.");
-      return;
-    }
-    setSeedLoading(true);
-    setStatusError(null);
-    try {
-      const res = await fetch(`/api/market-agent/instances/${instance.id}/workspace/seed`, {
-        method: "POST",
-      });
-      const payload = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        throw new Error(payload?.error ?? "Failed to generate demo events");
-      }
-      if (Array.isArray(payload?.events)) {
-        setTimelineEvents(payload.events);
-        if (payload.events[0]?.id) {
-          setSelectedEventId(payload.events[0].id);
-        }
-      }
-    } catch (err: any) {
-      setStatusError(err?.message ?? "Failed to generate demo data");
-    } finally {
-      setSeedLoading(false);
-    }
   };
 
   const formatTimestamp = (iso?: string | null) => {
@@ -1288,16 +1256,9 @@ export function MarketAgentInstanceView({
                               <p className="text-xs uppercase tracking-[0.3em] text-white/60">Timeline</p>
                               <p className="text-[11px] text-muted-foreground">Newest first</p>
                             </div>
-                            <div className="flex items-center gap-2">
-                              {canSeedDemo ? (
-                                <Button size="sm" variant="outline" onClick={handleGenerateDemoEvents} disabled={seedLoading}>
-                                  {seedLoading ? "Generating..." : "Generate demo"}
-                                </Button>
-                              ) : null}
-                              {statusError ? (
-                                <p className="text-[11px] text-rose-300">{statusError}</p>
-                              ) : null}
-                            </div>
+                            {statusError ? (
+                              <p className="text-[11px] text-rose-300">{statusError}</p>
+                            ) : null}
                           </div>
                           <div className="flex-1 min-h-0 overflow-y-auto space-y-2 pr-1">
                             {timelineEmpty ? (

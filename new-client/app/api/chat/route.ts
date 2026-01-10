@@ -4172,19 +4172,8 @@ export async function POST(request: NextRequest) {
         // Do not use OpenAI's web_search tool; web search is handled by our fast-web-pipeline callback
         const toolChoice: ToolChoiceOptions | undefined = undefined;
 
-        // Progressive flex processing: free users always, all users at 80%+ usage,
-        // and GPT-5 Pro forces flex for non-Dev plans.
-        const flexEligibleFamilies = ["gpt-5.2", "gpt-5.2-pro", "gpt-5-mini", "gpt-5-nano"];
-        const isPromptModel = flexEligibleFamilies.includes(modelConfig.resolvedFamily);
-        const forceProFlex = modelConfig.resolvedFamily === "gpt-5.2-pro" && userPlan !== "max";
-        const usageBasedFlex = (userPlan === "free" || usagePercentage >= 80) && isPromptModel;
-        const useFlex = (isPromptModel && forceProFlex) || usageBasedFlex;
-
-        if (useFlex && !forceProFlex && usagePercentage >= 80 && userPlan !== "free") {
-          console.log(`[usageLimit] User at ${usagePercentage.toFixed(1)}% usage - enabling flex processing`);
-        } else if (forceProFlex) {
-          console.log(`[usageLimit] Enforcing flex processing for GPT 5 Pro (${userPlan} plan)`);
-        }
+        // Flex tier disabled: all plans use standard service tier.
+        const useFlex = false;
 
         const rawPromptKey = `${conversationId}:${resolvedTopicDecision.primaryTopicId || "none"}`;
         const prefixHashInput = cacheablePrefixFingerprint || cachedSystemInstructions || "";
@@ -4250,9 +4239,7 @@ export async function POST(request: NextRequest) {
         if (!isGrokModel && modelConfig.reasoning) {
           streamOptions.reasoning = { effort: modelConfig.reasoning.effort };
         }
-        if (typeof useFlex !== "undefined" && useFlex) {
-          streamOptions.service_tier = "flex";
-        }
+        // service_tier left unset to use standard tier for all plans.
 
         console.log("[chatApi] LLM payload", {
           model: streamOptions.model,

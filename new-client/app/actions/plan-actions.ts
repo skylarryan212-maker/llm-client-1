@@ -112,15 +112,18 @@ export async function getUserPlan(): Promise<PlanType> {
     }
 
     const nowMs = Date.now();
+    const nowIso = new Date(nowMs).toISOString();
     const cancelAtIso = (data as any).cancel_at as string | null | undefined;
     const cancelAtPeriodEnd = Boolean((data as any).cancel_at_period_end);
 
     // Normalize / advance billing period so renewal dates don't drift.
     if (normalizedPlan !== "free") {
-      const currentPeriodStartIso =
-        ((data as any).current_period_start as string | null | undefined) ??
-        ((data as any).created_at as string | null | undefined) ??
-        new Date().toISOString();
+      let currentPeriodStartIso =
+        ((data as any).current_period_start as string | null | undefined) ?? null;
+      if (!currentPeriodStartIso) {
+        // If we upgraded from free and never set a period start, anchor it to now (not the old free created_at).
+        currentPeriodStartIso = nowIso;
+      }
 
       const next = computeNextPeriod(currentPeriodStartIso, nowMs);
       const existingEndMs = (data as any).current_period_end
@@ -377,15 +380,30 @@ export async function getUserPlanDetails(): Promise<{
     }
 
     const nowMs = Date.now();
+    const nowIso = new Date(nowMs).toISOString();
     let planType = normalizePlanType((data as any).plan_type as string | null | undefined);
 
     let currentPeriodStart: string | null = (data as any).current_period_start ?? null;
     let currentPeriodEnd: string | null = (data as any).current_period_end ?? null;
     if (planType !== "free") {
-      const baseStart = currentPeriodStart ?? (data as any).created_at ?? new Date().toISOString();
+      const baseStart = currentPeriodStart ?? nowIso;
       const next = computeNextPeriod(baseStart, nowMs);
       currentPeriodStart = next.currentPeriodStart;
       currentPeriodEnd = next.currentPeriodEnd;
+      // Persist the corrected period bounds if missing or stale.
+      if (
+        next.currentPeriodStart !== (data as any).current_period_start ||
+        next.currentPeriodEnd !== (data as any).current_period_end
+      ) {
+        await supabase
+          .from("user_plans")
+          .update({
+            current_period_start: next.currentPeriodStart,
+            current_period_end: next.currentPeriodEnd,
+            updated_at: nowIso,
+          })
+          .eq("user_id", userId);
+      }
     } else {
       currentPeriodStart = null;
       currentPeriodEnd = null;

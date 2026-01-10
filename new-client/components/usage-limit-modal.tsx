@@ -23,13 +23,12 @@ export function UsageLimitModal({ isOpen, onClose, currentSpending, limit, planT
   }
 
   const planRecommendations = {
-    free: { name: 'Plus', price: 15, limit: 10 },
-    plus: { name: 'Pro', price: 25, limit: 20 },
-    pro: { name: 'Dev', price: 100, limit: 80 },
-    dev: { name: 'Enterprise', price: null, limit: null },
-  }
+    free: { name: 'Plus', price: 12, limit: 12 },
+    plus: { name: 'Max', price: 120, limit: 120 },
+    max: { name: 'Max', price: 120, limit: 120 },
+  } as const
 
-  const recommendation = planRecommendations[planType as keyof typeof planRecommendations] || planRecommendations.free
+  const recommendation = (planRecommendations as any)[planType] || planRecommendations.free
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm px-4">

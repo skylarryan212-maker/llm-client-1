@@ -1,8 +1,8 @@
 // Monthly API usage limits per plan tier (in USD)
 export const PLAN_LIMITS = {
   free: 2.0, // $2/month
-  plus: 15.0, // Plus
-  max: 150.0, // Max (formerly Dev)
+  plus: 12.0, // Harmonized limits; only price/limit differ
+  max: 120.0, // Harmonized limits; only price/limit differ
 } as const;
 
 export type PlanType = keyof typeof PLAN_LIMITS;
