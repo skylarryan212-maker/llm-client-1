@@ -11,6 +11,55 @@ export interface UsageLogParams {
   cachedTokens?: number;
   outputTokens?: number;
   estimatedCost?: number;
+  eventType?: string;
+  metadata?: Record<string, unknown> | null;
+}
+
+export interface UsageEventParams {
+  userId?: string | null;
+  conversationId?: string | null;
+  eventType?: string;
+  model: string;
+  inputTokens?: number;
+  cachedTokens?: number;
+  outputTokens?: number;
+  costUsd?: number;
+  metadata?: Record<string, unknown> | null;
+}
+
+export async function logUsageEvent({
+  userId,
+  conversationId,
+  eventType = "llm",
+  model,
+  inputTokens = 0,
+  cachedTokens = 0,
+  outputTokens = 0,
+  costUsd = 0,
+  metadata = null,
+}: UsageEventParams) {
+  if (!userId) return;
+  try {
+    const supabase = await supabaseServerAdmin();
+    const payload = {
+      user_id: userId,
+      conversation_id: conversationId ?? null,
+      event_type: eventType,
+      model,
+      input_tokens: inputTokens,
+      cached_tokens: cachedTokens,
+      output_tokens: outputTokens,
+      cost_usd: costUsd,
+      metadata: metadata ?? {},
+      created_at: new Date().toISOString(),
+    };
+    const { error } = await (supabase as any).from("usage_events").insert(payload);
+    if (error) {
+      console.error("[usage] Failed to log usage event:", error);
+    }
+  } catch (error) {
+    console.error("[usage] Unexpected error logging usage event:", error);
+  }
 }
 
 export async function logUsageRecord({
@@ -21,6 +70,8 @@ export async function logUsageRecord({
   cachedTokens = 0,
   outputTokens = 0,
   estimatedCost,
+  eventType,
+  metadata,
 }: UsageLogParams) {
   if (!userId) return;
 
@@ -48,6 +99,17 @@ export async function logUsageRecord({
     if (error) {
       console.error("[usage] Failed to log usage:", error);
     }
+    await logUsageEvent({
+      userId,
+      conversationId,
+      eventType: eventType ?? "llm",
+      model,
+      inputTokens,
+      cachedTokens,
+      outputTokens,
+      costUsd: cost,
+      metadata,
+    });
   } catch (error) {
     console.error("[usage] Unexpected error logging usage:", error);
   }
@@ -95,5 +157,11 @@ export async function logGpt4oTranscribeUsageFromBytes({
     cachedTokens: 0,
     outputTokens: textTokens,
     estimatedCost: cost,
+    eventType: "transcribe",
+    metadata: {
+      durationSeconds: duration,
+      fileName: fileName ?? null,
+      mimeType: mimeType ?? null,
+    },
   });
 }

@@ -1,6 +1,7 @@
 import { performance } from "perf_hooks";
 import { callDeepInfraLlama } from "@/lib/deepInfraLlama";
 import { calculateCost } from "@/lib/pricing";
+import { logUsageRecord } from "@/lib/usage";
 
 export type QueryWriterResult = {
   queries: string[];
@@ -33,12 +34,39 @@ function logDeepInfraUsage(label: string, model: string, usage?: { input_tokens:
   });
 }
 
+async function logSearchUsageRecord(options: {
+  userId?: string | null;
+  conversationId?: string | null;
+  stage: string;
+  model: string;
+  usage?: { input_tokens: number; output_tokens: number };
+}) {
+  const { userId, conversationId, stage, model, usage } = options;
+  if (!userId || !usage) return;
+  const inputTokens = usage.input_tokens ?? 0;
+  const outputTokens = usage.output_tokens ?? 0;
+  const estimatedCost = calculateCost(model, inputTokens, 0, outputTokens);
+  await logUsageRecord({
+    userId,
+    conversationId,
+    model,
+    inputTokens,
+    cachedTokens: 0,
+    outputTokens,
+    estimatedCost,
+    eventType: "router",
+    metadata: { stage },
+  });
+}
+
 export async function writeSearchQueries(params: {
   prompt: string;
   count?: number;
   currentDate?: string;
   recentMessages?: Array<{ role: "user" | "assistant" | "system"; content: string }>;
   location?: { city?: string; countryCode?: string };
+  userId?: string | null;
+  conversationId?: string | null;
 }): Promise<QueryWriterResult> {
   const count = params.count ?? 2;
   const systemPrompt = `You are a search query writer for a web search pipeline.
@@ -110,6 +138,13 @@ Rules:
     ms: Math.round(performance.now() - start),
   });
   logDeepInfraUsage("query-writer", "openai/gpt-oss-20b", usage);
+  await logSearchUsageRecord({
+    userId: params.userId,
+    conversationId: params.conversationId,
+    stage: "query_writer",
+    model: "openai/gpt-oss-20b",
+    usage,
+  });
 
   let parsed: QueryWriterResult | null = null;
   try {
@@ -301,6 +336,8 @@ export async function writeSearchQueriesAndTime(params: {
   currentDate?: string;
   recentMessages?: Array<{ role: "user" | "assistant" | "system"; content: string }>;
   location?: { city?: string; countryCode?: string };
+  userId?: string | null;
+  conversationId?: string | null;
 }): Promise<QueryAndTimeResult> {
   const count = params.count ?? 2;
   const systemPrompt = `You decide if web search is needed AND write queries AND classify time-sensitivity.
@@ -370,6 +407,13 @@ Rules:
     ms: Math.round(performance.now() - start),
   });
   logDeepInfraUsage("query-and-time", "openai/gpt-oss-20b", usage);
+  await logSearchUsageRecord({
+    userId: params.userId,
+    conversationId: params.conversationId,
+    stage: "query_and_time",
+    model: "openai/gpt-oss-20b",
+    usage,
+  });
 
   let parsed: QueryAndTimeResult | null = null;
   try {

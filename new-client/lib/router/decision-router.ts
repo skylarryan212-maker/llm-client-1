@@ -3,6 +3,8 @@ import type { ReasoningEffort, ModelFamily } from "../modelConfig";
 import { callDeepInfraLlama } from "../deepInfraLlama";
 import { computeTopicSemantics } from "../semantic/topicSimilarity";
 import { supabaseServerAdmin } from "../supabase/server";
+import { calculateCost } from "../pricing";
+import { logUsageRecord } from "../usage";
 
 export type DecisionRouterInput = {
   userMessage: string;
@@ -58,6 +60,8 @@ export type DecisionRouterOutput = {
 export async function runDecisionRouter(params: {
   input: DecisionRouterInput;
   allowLLM?: boolean;
+  userId?: string | null;
+  conversationId?: string | null;
 }): Promise<DecisionRouterOutput> {
   const { input, allowLLM = true } = params;
   const recentMessages = Array.isArray(input.recentMessages)
@@ -83,7 +87,10 @@ export async function runDecisionRouter(params: {
     )
   );
   const semanticStart = Date.now();
-  const semanticMatches = await computeTopicSemantics(input.userMessage, input.topics, input.artifacts);
+  const semanticMatches = await computeTopicSemantics(input.userMessage, input.topics, input.artifacts, {
+    userId: params.userId,
+    conversationId: params.conversationId ?? input.currentConversationId,
+  });
   semanticMs = Date.now() - semanticStart;
   const highConfidenceMatches = (semanticMatches || []).filter((m) => typeof m.similarity === "number" && m.similarity >= 0.5);
   if (semanticMatches && semanticMatches.length) {
@@ -299,7 +306,7 @@ Return only the "labels" object matching the output schema.`;
     let usedFallback = false;
     const runRouterAttempt = async () => {
       const llmStart = Date.now();
-      const { text } = await callDeepInfraLlama({
+      const { text, usage } = await callDeepInfraLlama({
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt },
@@ -314,6 +321,22 @@ Return only the "labels" object matching the output schema.`;
         extraParams: { reasoning_effort: "low" },
       });
       llmMs = Date.now() - llmStart;
+      if (params.userId && usage) {
+        const inputTokens = usage.input_tokens ?? 0;
+        const outputTokens = usage.output_tokens ?? 0;
+        const estimatedCost = calculateCost("openai/gpt-oss-20b", inputTokens, 0, outputTokens);
+        await logUsageRecord({
+          userId: params.userId,
+          conversationId: params.conversationId ?? input.currentConversationId,
+          model: "openai/gpt-oss-20b",
+          inputTokens,
+          cachedTokens: 0,
+          outputTokens,
+          estimatedCost,
+          eventType: "router",
+          metadata: { stage: "decision_router", llmMs },
+        });
+      }
       return text;
     };
 

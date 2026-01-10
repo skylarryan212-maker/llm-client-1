@@ -2649,6 +2649,8 @@ export async function POST(request: NextRequest) {
           city: customWebSearchInput.location?.city,
           countryCode: customWebSearchInput.location?.countryCode,
         },
+        userId,
+        conversationId,
       }).catch(() => null);
 
       // Kick off the web pipeline immediately in parallel.
@@ -2681,6 +2683,8 @@ export async function POST(request: NextRequest) {
             excerptMode: customWebSearchInput.searchControls?.excerptMode,
             allowSkip: !forceWebSearch,
             precomputedQueryResult: queryWriterResult,
+            userId,
+            conversationId,
             onSearchStart: ({ query }) => {
               searchStarted = true;
               sendStatusUpdate({ type: "search-start", query });
@@ -3076,6 +3080,8 @@ export async function POST(request: NextRequest) {
         artifacts: Array.isArray(artifactsForRouter) ? artifactsForRouter : [],
       },
       allowLLM: allowLLMRouters,
+      userId,
+      conversationId,
     });
     if (await exitIfAborted()) {
       return;
@@ -3666,24 +3672,22 @@ export async function POST(request: NextRequest) {
         const storageEstimatedCost = calculateVectorStorageCost(totalFileUploadSize, 1);
         console.log(`[vectorStorage] Logging storage cost: ${totalFileUploadSize} bytes, cost: $${storageEstimatedCost.toFixed(6)}`);
         
-        const { error: storageUsageError } = await supabaseAny
-          .from("user_api_usage")
-          .insert({
-            id: crypto.randomUUID(),
-            user_id: userId,
-            conversation_id: conversationId,
-            model: "vector-storage",
-            input_tokens: 0,
-            cached_tokens: 0,
-            output_tokens: 0,
-            estimated_cost: storageEstimatedCost,
-          });
-        
-        if (storageUsageError) {
-          console.error("[vectorStorage] Insert error:", storageUsageError);
-        } else {
-          console.log(`[vectorStorage] Successfully logged storage cost: $${storageEstimatedCost.toFixed(6)}`);
-        }
+        await logUsageRecord({
+          userId,
+          conversationId,
+          model: "vector-storage",
+          inputTokens: 0,
+          cachedTokens: 0,
+          outputTokens: 0,
+          estimatedCost: storageEstimatedCost,
+          eventType: "storage",
+          metadata: {
+            bytes: totalFileUploadSize,
+            durationDays: 1,
+            source: "upload",
+          },
+        });
+        console.log(`[vectorStorage] Successfully logged storage cost: $${storageEstimatedCost.toFixed(6)}`);
 
         // Track cumulative bytes per user for daily logging
         try {
@@ -3919,17 +3923,19 @@ export async function POST(request: NextRequest) {
         console.warn("[code-interpreter] Failed to persist conversation metadata:", err);
       }
 
-      if (shouldLogCost) {
-        try {
-          await logUsageRecord({
-            userId,
-            conversationId,
-            model: "tool:code_interpreter",
-            inputTokens: 0,
-            cachedTokens: 0,
-            outputTokens: 0,
-            estimatedCost: CODE_INTERPRETER_SESSION_COST,
-          });
+        if (shouldLogCost) {
+          try {
+            await logUsageRecord({
+              userId,
+              conversationId,
+              model: "tool:code_interpreter",
+              inputTokens: 0,
+              cachedTokens: 0,
+              outputTokens: 0,
+              estimatedCost: CODE_INTERPRETER_SESSION_COST,
+              eventType: "tool",
+              metadata: { containerId },
+            });
           billedCiContainerIds.push(containerId);
           console.log(`[usage] Logged code_interpreter session container=${containerId} cost=$${CODE_INTERPRETER_SESSION_COST.toFixed(2)}`);
         } catch (err) {
@@ -3966,18 +3972,21 @@ export async function POST(request: NextRequest) {
         const days = lastUtc === null ? 1 : Math.max(0, Math.floor((todayUtc - lastUtc) / 86_400_000));
         if (days <= 0) return;
         const cost = calculateVectorStorageCost(totalBytes, days);
-        await supabaseAny
-          .from("user_api_usage")
-          .insert({
-            id: crypto.randomUUID(),
-            user_id: userId,
-            conversation_id: conversationId,
-            model: "vector-storage",
-            input_tokens: 0,
-            cached_tokens: 0,
-            output_tokens: 0,
-            estimated_cost: cost,
-          });
+        await logUsageRecord({
+          userId,
+          conversationId,
+          model: "vector-storage",
+          inputTokens: 0,
+          cachedTokens: 0,
+          outputTokens: 0,
+          estimatedCost: cost,
+          eventType: "storage",
+          metadata: {
+            bytes: totalBytes,
+            durationDays: days,
+            source: "daily",
+          },
+        });
         await supabaseAny
           .from("vector_storage_usage")
           .upsert({
@@ -4643,6 +4652,11 @@ export async function POST(request: NextRequest) {
                 cachedTokens: 0,
                 outputTokens: 0,
                 estimatedCost: serpCost,
+                eventType: "tool",
+                metadata: {
+                  source: "fast-web-pipeline",
+                  serpRequests: customWebSearchResult.cost.serpRequests ?? null,
+                },
               });
               console.log(
                 `[usage] Logged brightdata serp requests=${customWebSearchResult.cost.serpRequests} cost=$${serpCost.toFixed(6)}`
@@ -4664,6 +4678,11 @@ export async function POST(request: NextRequest) {
                 cachedTokens: 0,
                 outputTokens: 0,
                 estimatedCost: unlockerCost,
+                eventType: "tool",
+                metadata: {
+                  source: "fast-web-pipeline",
+                  unlockerRequests: customWebSearchResult.cost.brightdataUnlockerRequests ?? null,
+                },
               });
               console.log(
                 `[usage] Logged brightdata unlocker requests=${customWebSearchResult.cost.brightdataUnlockerRequests} cost=$${unlockerCost.toFixed(6)}`
@@ -4686,6 +4705,11 @@ export async function POST(request: NextRequest) {
                   cachedTokens: 0,
                   outputTokens: 0,
                   estimatedCost: webSearchCost,
+                  eventType: "tool",
+                  metadata: {
+                    source: "chat",
+                    callCount: webSearchCallCount,
+                  },
                 });
                 console.log(
                   `[usage] Logged web_search calls=${webSearchCallCount} cost=$${webSearchCost.toFixed(6)}`
@@ -4706,6 +4730,11 @@ export async function POST(request: NextRequest) {
                   cachedTokens: 0,
                   outputTokens: 0,
                   estimatedCost: fileSearchCost,
+                  eventType: "tool",
+                  metadata: {
+                    source: "chat",
+                    callCount: fileSearchCallCount,
+                  },
                 });
                 console.log(
                   `[usage] Logged file_search calls=${fileSearchCallCount} cost=$${fileSearchCost.toFixed(6)}`
@@ -4888,7 +4917,7 @@ export async function POST(request: NextRequest) {
                 },
               },
               decision.topicAction,
-              { allowLLM: allowLLMRouters }
+              { allowLLM: allowLLMRouters, userId, conversationId }
             );
             console.log("[writer-router] output (post-stream):", JSON.stringify(writer, null, 2));
           } catch (writerErr) {

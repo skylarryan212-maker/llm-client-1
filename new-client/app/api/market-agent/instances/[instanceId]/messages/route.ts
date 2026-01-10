@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createOpenAIClient } from "@/lib/openai/client";
 import type { ResponseStreamEvent, Tool } from "openai/resources/responses/responses";
 
-import { calculateCost } from "@/lib/pricing";
+import { calculateCost, calculateToolCallCost } from "@/lib/pricing";
 import { estimateTokens } from "@/lib/tokens/estimateTokens";
 import { logUsageRecord } from "@/lib/usage";
 import {
@@ -298,6 +298,7 @@ export async function POST(
         let inputTokens = 0;
         let cachedTokens = 0;
         let outputTokens = 0;
+        let webSearchCallCount = 0;
         let assistantText = "";
         let finalResponse: unknown = null;
         let cancelled = false;
@@ -404,6 +405,7 @@ export async function POST(
             ) {
               emitSearchStatus("search-start", (typedEvent as any)?.query);
             } else if (eventType === "response.web_search_call.completed") {
+              webSearchCallCount += 1;
               emitSearchStatus("search-complete", (typedEvent as any)?.query);
             }
           }
@@ -560,6 +562,8 @@ export async function POST(
               cachedTokens,
               outputTokens,
               estimatedCost,
+              eventType: "agent",
+              metadata: { agent: "market-agent" },
             });
             console.log("[market-agent] Usage logged (stream)", {
               inputTokens,
@@ -569,6 +573,33 @@ export async function POST(
             });
           } catch (usageErr) {
             console.error("[market-agent] Failed to log usage:", usageErr);
+          }
+        }
+        if (userId && webSearchCallCount > 0) {
+          const webSearchCost = calculateToolCallCost("web_search", webSearchCallCount);
+          if (webSearchCost > 0) {
+            try {
+              await logUsageRecord({
+                userId,
+                conversationId: conversation.id,
+                model: "tool:web_search",
+                inputTokens: 0,
+                cachedTokens: 0,
+                outputTokens: 0,
+                estimatedCost: webSearchCost,
+                eventType: "tool",
+                metadata: {
+                  callCount: webSearchCallCount,
+                  source: "market-agent",
+                },
+              });
+              console.log("[market-agent] Logged web_search tool usage", {
+                webSearchCallCount,
+                webSearchCost,
+              });
+            } catch (usageErr) {
+              console.error("[market-agent] Failed to log web_search tool usage:", usageErr);
+            }
           }
         }
 

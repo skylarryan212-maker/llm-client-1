@@ -48,6 +48,8 @@ type PipelineOptions = {
   languageCode?: string;
   countryCode?: string;
   recentMessages?: Array<{ role: "user" | "assistant" | "system"; content: string }>;
+  userId?: string | null;
+  conversationId?: string | null;
   preferredSourceUrls?: string[];
   allowSkip?: boolean;
   queryCount?: number;
@@ -388,6 +390,8 @@ export async function runWebSearchPipeline(
         currentDate: options.currentDate,
         recentMessages: options.recentMessages,
         location,
+        userId: options.userId ?? null,
+        conversationId: options.conversationId ?? null,
       });
     } catch (error) {
       console.warn("[fast-web-pipeline] query writer failed", error);

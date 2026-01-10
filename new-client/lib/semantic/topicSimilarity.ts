@@ -2,6 +2,7 @@ import type OpenAI from "openai";
 import { createOpenAIClient, getOpenAIRequestId } from "@/lib/openai/client";
 import { encodingForModel } from "js-tiktoken";
 import { calculateEmbeddingCost } from "@/lib/pricing";
+import { logUsageRecord } from "@/lib/usage";
 
 const EMBEDDING_MODEL = "text-embedding-3-small";
 const FALLBACK_MAX_ITEMS_PER_BATCH = 100;
@@ -104,7 +105,8 @@ export async function computeTopicSemantics(
     summary: string | null;
     snippet?: string | null;
     topic_id?: string | null;
-  }> = []
+  }> = [],
+  options?: { userId?: string | null; conversationId?: string | null }
 ): Promise<TopicSemanticMatch[] | null> {
   if (!userMessage || !userMessage.trim() || !Array.isArray(topics) || topics.length === 0) {
     return null;
@@ -268,6 +270,23 @@ export async function computeTopicSemantics(
         totalEmbeddingTokens,
         estimatedCost,
       });
+      if (options?.userId) {
+        try {
+          await logUsageRecord({
+            userId: options.userId,
+            conversationId: options.conversationId ?? null,
+            model: EMBEDDING_MODEL,
+            inputTokens: totalEmbeddingTokens,
+            cachedTokens: 0,
+            outputTokens: 0,
+            estimatedCost,
+            eventType: "embedding",
+            metadata: { source: "topic_similarity" },
+          });
+        } catch (err) {
+          console.warn("[semantic] Failed to log embedding usage:", err);
+        }
+      }
     }
 
     return allMatches.sort((a, b) => b.similarity - a.similarity);

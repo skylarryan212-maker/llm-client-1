@@ -1,4 +1,6 @@
 import { callDeepInfraLlama } from "../deepInfraLlama";
+import { calculateCost } from "../pricing";
+import { logUsageRecord } from "../usage";
 
 export type WriterRouterInput = {
   userMessageText: string;
@@ -110,7 +112,7 @@ function parseJsonLoose(raw: string) {
 export async function runWriterRouter(
   input: WriterRouterInput,
   topicAction: "continue_active" | "new" | "reopen_existing",
-  options?: { allowLLM?: boolean }
+  options?: { allowLLM?: boolean; userId?: string | null; conversationId?: string | null }
 ): Promise<WriterRouterOutput> {
   const systemPrompt = [
     "You decide topic metadata updates, artifacts, and memory/permanent instruction writes. Respond with ONE JSON object only.",
@@ -334,7 +336,7 @@ export async function runWriterRouter(
   }
 
   try {
-    const { text } = await callDeepInfraLlama({
+    const { text, usage } = await callDeepInfraLlama({
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt },
@@ -345,6 +347,22 @@ export async function runWriterRouter(
       model: "openai/gpt-oss-20b",
       maxTokens: null,
     });
+    if (options?.userId && usage) {
+      const inputTokens = usage.input_tokens ?? 0;
+      const outputTokens = usage.output_tokens ?? 0;
+      const estimatedCost = calculateCost("openai/gpt-oss-20b", inputTokens, 0, outputTokens);
+      await logUsageRecord({
+        userId: options.userId,
+        conversationId: options.conversationId ?? null,
+        model: "openai/gpt-oss-20b",
+        inputTokens,
+        cachedTokens: 0,
+        outputTokens,
+        estimatedCost,
+        eventType: "router",
+        metadata: { stage: "writer_router" },
+      });
+    }
     const cleaned = (text || "").trim();
     const parsed = parseJsonLoose(cleaned);
     if (!parsed || typeof parsed !== "object") {

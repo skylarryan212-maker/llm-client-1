@@ -5,6 +5,7 @@ import { supabaseServer } from "@/lib/supabase/server";
 import { requireUserIdServer } from "@/lib/supabase/user";
 import { rephrasyHumanize } from "@/lib/rephrasy";
 import { createOpenAIClient, getOpenAIRequestId } from "@/lib/openai/client";
+import { logUsageEvent } from "@/lib/usage";
 import type { Json, MessageInsert } from "@/lib/supabase/types";
 
 async function reviewOnly(params: { humanizedText: string; originalText: string }) {
@@ -208,6 +209,10 @@ export async function POST(request: NextRequest) {
 
       // Log Rephrasy cost if present and persist to DB
       const humanizeCosts = (humanized.raw as any)?.costs ?? (humanized.raw as any)?.cost ?? null;
+      const humanizeCostValue = typeof humanizeCosts === "number" ? humanizeCosts : null;
+      const humanizeTotalTokens =
+        typeof (humanized.raw as any)?.total_tokens === "number" ? (humanized.raw as any)?.total_tokens : null;
+      const humanizeRequestId = (humanized.raw as any)?._request_id ?? null;
       if (humanizeCosts) {
         console.info("[human-writing][humanize][cost]", {
           runId,
@@ -237,8 +242,9 @@ export async function POST(request: NextRequest) {
             run_id: runId,
             step: "humanize",
             model: model,
-            request_id: (humanized.raw as any)?._request_id ?? null,
+            request_id: humanizeRequestId,
             total_cost: humanizeCosts ?? null,
+            estimated_cost: humanizeCostValue ?? null,
             total_tokens: (humanized.raw as any)?.total_tokens ?? null,
             raw: humanizeRawStr.slice(0, 2000),
             created_at: new Date().toISOString(),
@@ -247,6 +253,24 @@ export async function POST(request: NextRequest) {
         if (insert?.error) {
           console.error("[human-writing][humanize][persist_cost] humanize insert error", insert.error);
         }
+        await logUsageEvent({
+          userId,
+          conversationId,
+          eventType: "external",
+          model: "rephrasy:humanize",
+          inputTokens: 0,
+          cachedTokens: 0,
+          outputTokens: humanizeTotalTokens ?? 0,
+          costUsd: humanizeCostValue ?? 0,
+          metadata: {
+            step: "humanize",
+            taskId,
+            runId,
+            requestId: humanizeRequestId,
+            totalTokens: humanizeTotalTokens,
+            costs: humanizeCostValue === null ? humanizeCosts : undefined,
+          },
+        });
       } catch (e) {
         console.error("[human-writing][humanize][persist_cost] humanize insert failed", e);
       }
@@ -269,20 +293,39 @@ export async function POST(request: NextRequest) {
               conversation_id: conversationId,
               task_id: taskId,
               run_id: runId,
-              step: "review",
-              model: "gpt-5-nano",
-              request_id: reviewRequestId,
-              total_cost: (review as any)?.usage?.totalCost ?? null,
-              total_tokens: (review as any)?.usage?.totalTokens ?? null,
-              prompt_tokens: (review as any)?.usage?.promptTokens ?? null,
-              completion_tokens: (review as any)?.usage?.completionTokens ?? null,
-              raw: reviewRaw.slice(0, 2000),
-              created_at: new Date().toISOString(),
+                step: "review",
+                model: "gpt-5-nano",
+                request_id: reviewRequestId,
+                total_cost: (review as any)?.usage?.totalCost ?? null,
+                estimated_cost: (review as any)?.usage?.totalCost ?? null,
+                total_tokens: (review as any)?.usage?.totalTokens ?? null,
+                prompt_tokens: (review as any)?.usage?.promptTokens ?? null,
+                completion_tokens: (review as any)?.usage?.completionTokens ?? null,
+                raw: reviewRaw.slice(0, 2000),
+                created_at: new Date().toISOString(),
             },
           ]);
           if (insert?.error) {
             console.error("[human-writing][humanize][persist_cost] review insert error", insert.error);
           }
+          const reviewUsage = (review as any)?.usage;
+          await logUsageEvent({
+            userId,
+            conversationId,
+            eventType: "human-writing",
+            model: "gpt-5-nano",
+            inputTokens: reviewUsage?.promptTokens ?? 0,
+            cachedTokens: 0,
+            outputTokens: reviewUsage?.completionTokens ?? 0,
+            costUsd: reviewUsage?.totalCost ?? 0,
+            metadata: {
+              step: "review",
+              taskId,
+              runId,
+              requestId: reviewRequestId,
+              totalTokens: reviewUsage?.totalTokens ?? null,
+            },
+          });
         } catch (e) {
           console.error("[human-writing][humanize][persist_cost] review insert failed", e);
         }
@@ -307,6 +350,7 @@ export async function POST(request: NextRequest) {
                 model: "gpt-5-nano",
                 request_id: applyRequestId,
                 total_cost: (patched as any)?.usage?.totalCost ?? null,
+                estimated_cost: (patched as any)?.usage?.totalCost ?? null,
                 total_tokens: (patched as any)?.usage?.totalTokens ?? null,
                 prompt_tokens: (patched as any)?.usage?.promptTokens ?? null,
                 completion_tokens: (patched as any)?.usage?.completionTokens ?? null,
@@ -317,6 +361,24 @@ export async function POST(request: NextRequest) {
             if (insert?.error) {
               console.error("[human-writing][humanize][persist_cost] patch insert error", insert.error);
             }
+            const patchUsage = (patched as any)?.usage;
+            await logUsageEvent({
+              userId,
+              conversationId,
+              eventType: "human-writing",
+              model: "gpt-5-nano",
+              inputTokens: patchUsage?.promptTokens ?? 0,
+              cachedTokens: 0,
+              outputTokens: patchUsage?.completionTokens ?? 0,
+              costUsd: patchUsage?.totalCost ?? 0,
+              metadata: {
+                step: "patch",
+                taskId,
+                runId,
+                requestId: applyRequestId,
+                totalTokens: patchUsage?.totalTokens ?? null,
+              },
+            });
           } catch (e) {
             console.error("[human-writing][humanize][persist_cost] patch insert failed", e);
           }

@@ -43,6 +43,8 @@ type PipelineOptions = {
   preferredSourceUrls?: string[];
   preferredSourceChunkLimit?: number;
   preferredSourceTokenBudget?: number;
+  userId?: string | null;
+  conversationId?: string | null;
 };
 
 export type WebPipelineChunk = {
@@ -1305,6 +1307,8 @@ export async function runWebSearchPipeline(prompt: string, options: PipelineOpti
       : config.countryCode
         ? { countryCode: config.countryCode }
         : undefined,
+    userId: options.userId ?? null,
+    conversationId: options.conversationId ?? null,
   });
   logTiming("query_and_time", queryStart, {
     queries: queryResult.queries.length,
