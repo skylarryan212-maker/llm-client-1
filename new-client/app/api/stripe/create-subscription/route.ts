@@ -43,12 +43,13 @@ export async function POST(request: NextRequest) {
     }
 
     const supabase = await supabaseServer();
-    const { data: existingPlan } = await supabase
+    const { data: existingPlanRow } = await supabase
       .from("user_plans")
       .select("stripe_customer_id")
       .eq("user_id", userId)
       .maybeSingle();
-    let stripeCustomerId = existingPlan?.stripe_customer_id ?? null;
+    let stripeCustomerId: string | null =
+      existingPlanRow?.stripe_customer_id ? String(existingPlanRow.stripe_customer_id) : null;
 
     if (!stripeCustomerId) {
       const customerParams = new URLSearchParams();
@@ -271,14 +272,16 @@ export async function POST(request: NextRequest) {
     }
     const isUpgradeOnExisting = activeSub && existingItemId && existingPriceId && existingPriceId !== priceId;
 
-    let subscriptionData:
+    type SubscriptionData =
       | {
           id?: string;
           latest_invoice?: { id?: string; payment_intent?: { id?: string; client_secret?: string } | string | null };
         }
-      | null = null;
+      | null;
 
-    if (isUpgradeOnExisting || isDowngradeOnExisting) {
+    let subscriptionData: SubscriptionData = null;
+
+    if ((isUpgradeOnExisting || isDowngradeOnExisting) && existingItemId) {
       // Update existing subscription to new price.
       const updateParams = new URLSearchParams();
       updateParams.append("items[0][id]", existingItemId);
@@ -315,7 +318,7 @@ export async function POST(request: NextRequest) {
         },
         body: updateParams.toString(),
       });
-      subscriptionData = (await updateRes.json()) as typeof subscriptionData;
+      subscriptionData = (await updateRes.json()) as SubscriptionData;
       if (!updateRes.ok) {
         console.error("[stripe] Failed to update subscription", {
           status: updateRes.status,
@@ -355,13 +358,7 @@ export async function POST(request: NextRequest) {
         body: subscriptionParams.toString(),
       });
 
-      subscriptionData = (await subscriptionRes.json()) as {
-        id?: string;
-        latest_invoice?: {
-          id?: string;
-          payment_intent?: { id?: string; client_secret?: string } | string | null;
-        };
-      };
+      subscriptionData = (await subscriptionRes.json()) as SubscriptionData;
 
       if (!subscriptionRes.ok) {
         console.error("[stripe] Failed to create subscription", {
@@ -375,6 +372,11 @@ export async function POST(request: NextRequest) {
         subscriptionId: subscriptionData?.id,
         reusedPm: Boolean(existingDefaultPaymentMethod),
       });
+    }
+
+    if (!subscriptionData) {
+      console.error("[stripe] Missing subscription data after creation/update");
+      return NextResponse.json({ error: "stripe_subscription_error" }, { status: 500 });
     }
 
     const invoiceRef = subscriptionData.latest_invoice;
@@ -392,6 +394,17 @@ export async function POST(request: NextRequest) {
         ? paymentIntentIdRaw?.client_secret
         : undefined;
 
+    type InvoiceSnapshot = {
+      id?: string;
+      status?: string;
+      paid?: boolean;
+      amount_due?: number;
+      total?: number;
+      currency?: string;
+      customer?: string;
+      payment_intent?: { id?: string; client_secret?: string } | string | null;
+    };
+
     const resolveClientSecretFromInvoice = async (sourceInvoiceId: string) => {
       const invoiceRes = await fetch(
         `https://api.stripe.com/v1/invoices/${sourceInvoiceId}?expand[]=payment_intent`,
@@ -399,14 +412,7 @@ export async function POST(request: NextRequest) {
           headers: { Authorization: `Bearer ${secretKey}` },
         }
       );
-      const invoiceData = (await invoiceRes.json()) as {
-        status?: string;
-        paid?: boolean;
-        amount_due?: number;
-        total?: number;
-        currency?: string;
-        payment_intent?: { id?: string; client_secret?: string } | string | null;
-      };
+      const invoiceData = (await invoiceRes.json()) as InvoiceSnapshot;
       if (!invoiceRes.ok) return { clientSecret: null, invoice: null };
       if (typeof invoiceData.payment_intent === "string") {
         const intentRes = await fetch(
@@ -426,12 +432,7 @@ export async function POST(request: NextRequest) {
     };
 
     const createPaymentIntentForInvoice = async (
-      invoice: {
-        amount_due?: number;
-        total?: number;
-        currency?: string;
-        customer?: string;
-      } | null
+      invoice: InvoiceSnapshot | null
     ) => {
       if (!invoice) return null;
       const amount = invoice.total ?? invoice.amount_due;
@@ -467,15 +468,7 @@ export async function POST(request: NextRequest) {
     };
 
     const hasSubscription = Boolean(subscriptionData?.id);
-    let invoiceSnapshot:
-      | {
-          status?: string;
-          paid?: boolean;
-          amount_due?: number;
-          total?: number;
-          payment_intent?: { id?: string; client_secret?: string } | string | null;
-        }
-      | null = null;
+    let invoiceSnapshot: InvoiceSnapshot | null = null;
     if (hasSubscription && !clientSecret && invoiceId) {
       // Ensure the invoice is finalized so a payment intent is generated.
       // Only finalize if still in draft.
@@ -491,13 +484,7 @@ export async function POST(request: NextRequest) {
             headers: { Authorization: `Bearer ${secretKey}` },
           }
         );
-        const finalized = (await finalizeRes.json()) as {
-          status?: string;
-          paid?: boolean;
-          amount_due?: number;
-          total?: number;
-          payment_intent?: { id?: string; client_secret?: string } | string | null;
-        };
+        const finalized = (await finalizeRes.json()) as InvoiceSnapshot;
         if (finalizeRes.ok) {
           invoiceSnapshot = finalized;
           if (typeof finalized.payment_intent === "string") {
@@ -536,13 +523,7 @@ export async function POST(request: NextRequest) {
             body: payParams.toString(),
           }
         );
-        const payData = (await payRes.json()) as {
-          status?: string;
-          paid?: boolean;
-          total?: number;
-          amount_due?: number;
-          payment_intent?: { id?: string; client_secret?: string } | string | null;
-        };
+        const payData = (await payRes.json()) as InvoiceSnapshot;
         if (payRes.ok) {
           invoiceSnapshot = payData;
           if (typeof payData.payment_intent === "string") {

@@ -73,6 +73,29 @@ const EXCERPT_OPTIONS: Array<{ value: SearchControls["excerptMode"]; label: stri
   { value: "rich", label: "Rich", description: "Longer excerpts" },
 ];
 
+const AUDIO_MIME_TYPE_EXTENSIONS: Record<string, string> = {
+  "audio/webm": "webm",
+  "audio/ogg": "ogg",
+  "audio/mpeg": "mp3",
+  "audio/mp3": "mp3",
+  "audio/mp4": "mp4",
+  "audio/x-m4a": "m4a",
+  "audio/m4a": "m4a",
+  "audio/aac": "aac",
+  "audio/wav": "wav",
+  "audio/x-wav": "wav",
+  "audio/flac": "flac",
+};
+
+function getVoiceMessageFileName(mimeType: string) {
+  const normalized = (mimeType.split(";")[0] || "").trim().toLowerCase();
+  const extension =
+    AUDIO_MIME_TYPE_EXTENSIONS[normalized] ??
+    normalized.split("/")[1] ??
+    "webm";
+  return `voice-message.${extension}`;
+}
+
 function readRestoreFocusFlag(): boolean {
   if (typeof window === "undefined") return false;
   try {
@@ -186,6 +209,7 @@ export function ChatComposer({
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const recordingChunksRef = useRef<Blob[]>([]);
+  const recordingMimeTypeRef = useRef<string>("audio/webm");
   const transcriptionAbortRef = useRef<AbortController | null>(null);
 	  const audioContextRef = useRef<AudioContext | null>(null);
 	  const audioSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
@@ -337,11 +361,17 @@ export function ChatComposer({
           const chunks = recordingChunksRef.current;
           recordingChunksRef.current = [];
           cleanupWaveformVisualizer();
+          const mimeType =
+            recordingMimeTypeRef.current ||
+            (chunks.length ? chunks[0].type : "") ||
+            "audio/webm";
           if (!shouldReturnBlob || chunks.length === 0) {
+            recordingMimeTypeRef.current = "audio/webm";
             resolve(null);
             return;
           }
-          resolve(new Blob(chunks, { type: "audio/webm" }));
+          recordingMimeTypeRef.current = "audio/webm";
+          resolve(new Blob(chunks, { type: mimeType }));
         };
         try {
           recorder.stop();
@@ -355,9 +385,12 @@ export function ChatComposer({
   );
 
   // Transcribe audio
-	  const transcribeAudio = useCallback(async (blob: Blob) => {
+  const transcribeAudio = useCallback(async (blob: Blob) => {
     const formData = new FormData();
-    formData.append("audio", blob, "voice-message.webm");
+    const mimeType = blob.type || "audio/webm";
+    const fileName = getVoiceMessageFileName(mimeType);
+    // Ensure the file extension lines up with the captured MIME type.
+    formData.append("audio", blob, fileName);
     const controller = new AbortController();
     transcriptionAbortRef.current = controller;
     try {
@@ -369,17 +402,17 @@ export function ChatComposer({
       if (!response.ok) {
         throw new Error("Transcription failed");
       }
-	      const payload = (await response.json()) as { transcript?: string; noSpeech?: boolean };
-	      const transcript = (payload.transcript || "").trim();
-	      if (payload.noSpeech) {
-	        setRecordingError("No speech detected in the recording.");
-	        return;
-	      }
-	      if (transcript) {
-	        setValue((prev) => {
-	          if (!prev) return transcript;
-	          return `${prev.trimEnd()} ${transcript}`.trim();
-	        });
+      const payload = (await response.json()) as { transcript?: string; noSpeech?: boolean };
+      const transcript = (payload.transcript || "").trim();
+      if (payload.noSpeech) {
+        setRecordingError("No speech detected in the recording.");
+        return;
+      }
+      if (transcript) {
+        setValue((prev) => {
+          if (!prev) return transcript;
+          return `${prev.trimEnd()} ${transcript}`.trim();
+        });
         setRecordingError(null);
       } else {
         setRecordingError("No speech detected in the recording.");
@@ -396,7 +429,7 @@ export function ChatComposer({
   }, []);
 
   // Start recording
-	  const startRecording = useCallback(async () => {
+  const startRecording = useCallback(async () => {
     if (typeof window === "undefined" || typeof MediaRecorder === "undefined") {
       setRecordingError("Voice input isn't supported in this browser.");
       return;
@@ -405,14 +438,18 @@ export function ChatComposer({
       setRecordingError("Microphone access is unavailable.");
       return;
     }
-	    try {
-	      setRecordingError(null);
-	      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-	      const recorder = new MediaRecorder(stream);
-	      recordingChunksRef.current = [];
+    try {
+      setRecordingError(null);
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream);
+      recordingChunksRef.current = [];
+      recordingMimeTypeRef.current = recorder.mimeType || "audio/webm";
       recorder.ondataavailable = (event) => {
         if (event.data && event.data.size > 0) {
           recordingChunksRef.current.push(event.data);
+          if (event.data.type) {
+            recordingMimeTypeRef.current = event.data.type;
+          }
         }
       };
       mediaStreamRef.current = stream;
@@ -437,18 +474,18 @@ export function ChatComposer({
   }, [startWaveformVisualizer]);
 
   // Finish recording and transcribe
-	  const finishRecordingAndTranscribe = useCallback(async () => {
-	    if (!isRecording) return;
-	    setIsRecording(false);
-	    setIsTranscribing(true);
-	    try {
-	      const blob = await stopRecording(true);
-	      if (blob) {
-	        await transcribeAudio(blob);
-	      } else {
-	        setRecordingError("Recording was too short.");
-	      }
-	    } catch (error) {
+  const finishRecordingAndTranscribe = useCallback(async () => {
+    if (!isRecording) return;
+    setIsRecording(false);
+    setIsTranscribing(true);
+    try {
+      const blob = await stopRecording(true);
+      if (blob) {
+        await transcribeAudio(blob);
+      } else {
+        setRecordingError("Recording was too short.");
+      }
+    } catch (error) {
       if ((error as DOMException)?.name !== "AbortError") {
         setRecordingError("Unable to capture audio.");
       }

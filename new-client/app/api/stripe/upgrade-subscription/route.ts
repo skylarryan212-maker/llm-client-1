@@ -47,7 +47,8 @@ export async function POST(request: NextRequest) {
       .select("stripe_customer_id")
       .eq("user_id", userId)
       .maybeSingle();
-    const stripeCustomerId = userPlanRow?.stripe_customer_id ?? null;
+    const stripeCustomerId: string | null =
+      userPlanRow?.stripe_customer_id ? String(userPlanRow.stripe_customer_id) : null;
     if (!stripeCustomerId) {
       return NextResponse.json({ error: "missing_customer" }, { status: 400 });
     }
@@ -60,6 +61,8 @@ export async function POST(request: NextRequest) {
       data?: Array<{
         id: string;
         status?: string;
+        current_period_start?: number;
+        current_period_end?: number;
         items?: { data?: Array<{ id: string; price?: { id?: string } | null }> };
         latest_invoice?: { id?: string; payment_intent?: any };
       }>;
@@ -216,7 +219,7 @@ export async function POST(request: NextRequest) {
             from_subscription: activeSub.id,
           }).toString(),
         });
-        const scheduleCreateData = (await scheduleCreate.json()) as { id?: string };
+        const scheduleCreateData = (await scheduleCreate.json()) as { id?: string; error?: { message?: string } };
         if (!scheduleCreate.ok || !scheduleCreateData.id) {
           console.error("[stripe] Failed to create downgrade schedule (create)", {
             status: scheduleCreate.status,
@@ -379,17 +382,14 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "stripe_subscription_error" }, { status: 500 });
     }
 
+    type InvoiceData = { id?: string; status?: string; paid?: boolean; payment_intent?: any };
+
     const fetchInvoice = async (invoiceId: string) => {
       const invoiceRes = await fetch(
         `https://api.stripe.com/v1/invoices/${invoiceId}?expand[]=payment_intent`,
         { headers: { Authorization: `Bearer ${secretKey}` } }
       );
-      const invoiceData = (await invoiceRes.json()) as {
-        id?: string;
-        status?: string;
-        paid?: boolean;
-        payment_intent?: any;
-      };
+      const invoiceData = (await invoiceRes.json()) as InvoiceData;
       if (!invoiceRes.ok) {
         console.warn("[stripe] Failed to fetch invoice", { invoiceId, status: invoiceRes.status, body: invoiceData });
         return null;
@@ -398,11 +398,11 @@ export async function POST(request: NextRequest) {
     };
 
     let invoiceRef = updateData.latest_invoice;
-    let invoice =
+    let invoice: InvoiceData | null =
       typeof invoiceRef === "string"
         ? await fetchInvoice(invoiceRef)
         : invoiceRef && typeof invoiceRef === "object"
-        ? invoiceRef
+        ? (invoiceRef as InvoiceData)
         : null;
 
     if (!isDowngrade && invoice && !invoice.payment_intent && invoice.id) {
@@ -413,12 +413,7 @@ export async function POST(request: NextRequest) {
           headers: { Authorization: `Bearer ${secretKey}` },
         }
       );
-      const finalizeData = (await finalizeRes.json()) as {
-        id?: string;
-        status?: string;
-        paid?: boolean;
-        payment_intent?: any;
-      };
+      const finalizeData = (await finalizeRes.json()) as InvoiceData;
       if (finalizeRes.ok) {
         invoice = finalizeData;
       } else {
@@ -453,12 +448,7 @@ export async function POST(request: NextRequest) {
           body: payParams.toString(),
         }
       );
-      const payData = (await payRes.json()) as {
-        id?: string;
-        status?: string;
-        paid?: boolean;
-        payment_intent?: any;
-      };
+      const payData = (await payRes.json()) as InvoiceData;
       if (payRes.ok) {
         invoice = payData;
         paymentIntent = invoice?.payment_intent;

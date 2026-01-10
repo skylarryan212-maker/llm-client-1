@@ -293,7 +293,7 @@ function UpgradePageContent() {
       setCheckoutState({
         open: true,
         mode: "full",
-        clientSecret: data.clientSecret,
+        clientSecret: data.clientSecret ?? null,
         customerSessionClientSecret: data.customerSessionClientSecret ?? null,
         stripeCustomerId: data.stripeCustomerId ?? null,
         ephemeralKeySecret: data.ephemeralKeySecret ?? null,
