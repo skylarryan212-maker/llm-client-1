@@ -1,13 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useState, Suspense, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, Suspense, type FormEvent } from "react";
 import { ArrowLeft, Check, Lock, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { loadStripe, type StripePaymentElementOptions } from "@stripe/stripe-js";
 import { Elements, PaymentElement, useElements, useStripe } from "@stripe/react-stripe-js";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { unlockPlanWithCode, type PlanType } from "@/app/actions/plan-actions";
+import { getUserPlanDetails, unlockPlanWithCode, type PlanType } from "@/app/actions/plan-actions";
 import { useUserPlan } from "@/lib/hooks/use-user-plan";
 
 const plans = [
@@ -42,13 +42,34 @@ const plans = [
   },
 ];
 
+const PLAN_PRICES: Record<PlanType, number> = {
+  free: 0,
+  plus: 20,
+  max: 200,
+};
+
+const PLAN_HIERARCHY: Record<PlanType, number> = {
+  free: 0,
+  plus: 1,
+  max: 2,
+};
+
+const BILLING_PERIOD_DAYS = 30;
+
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
 const stripePromise = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
   ? loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY)
   : null;
 
 type CheckoutState = {
   open: boolean;
+  mode: "full" | "one_click";
   clientSecret: string | null;
+  customerSessionClientSecret: string | null;
+  stripeCustomerId: string | null;
+  ephemeralKeySecret: string | null;
+  paymentMethodLabel: string | null;
   planId: PlanType | null;
   planName: string | null;
   subscriptionId: string | null;
@@ -145,12 +166,32 @@ function UpgradePageContent() {
   const [isSyncingSubscription, setIsSyncingSubscription] = useState(false);
   const [checkoutState, setCheckoutState] = useState<CheckoutState>({
     open: false,
+    mode: "full",
     clientSecret: null,
+    customerSessionClientSecret: null,
+    stripeCustomerId: null,
+    ephemeralKeySecret: null,
+    paymentMethodLabel: null,
     planId: null,
     planName: null,
     subscriptionId: null,
     paymentIntentId: null,
   });
+  const [planDetails, setPlanDetails] = useState<Awaited<ReturnType<typeof getUserPlanDetails>> | null>(null);
+  const isMountedRef = useRef(true);
+  const loadPlanDetails = useCallback(async () => {
+    try {
+      await refreshPlan().catch(() => {});
+      const details = await getUserPlanDetails();
+      if (isMountedRef.current) {
+        setPlanDetails(details);
+      }
+      return details;
+    } catch (error) {
+      console.error("[upgrade] Failed to load plan details", error);
+    }
+    return null;
+  }, []);
 
   const handleOpenUnlockDialog = (planId: Exclude<PlanType, "free">) => {
     setSelectedPlanForUnlock(planId);
@@ -183,6 +224,49 @@ function UpgradePageContent() {
   const startStripeCheckout = async (planId: PlanType, planName: string) => {
     setIsProcessing(true);
     try {
+      const latestDetails = planDetails ?? (await loadPlanDetails());
+      const currentPaidPlan = latestDetails?.planType ?? currentPlan;
+      const isUpgradeAttempt =
+        currentPaidPlan !== "free" && PLAN_HIERARCHY[planId] > PLAN_HIERARCHY[currentPaidPlan];
+      const isDowngradeAttempt =
+        currentPaidPlan !== "free" && PLAN_HIERARCHY[planId] < PLAN_HIERARCHY[currentPaidPlan];
+
+      if (isUpgradeAttempt || isDowngradeAttempt) {
+        setCheckoutState({
+          open: true,
+          mode: "one_click",
+          clientSecret: null,
+          customerSessionClientSecret: null,
+          stripeCustomerId: null,
+          ephemeralKeySecret: null,
+          paymentMethodLabel: "Saved card",
+          planId,
+          planName,
+          subscriptionId: null,
+          paymentIntentId: null,
+        });
+        setCanSubmitPayment(true);
+        setIsSubmittingPayment(false);
+
+        const previewRes = await fetch("/api/stripe/upgrade-preview", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ plan: planId }),
+        });
+        const previewData = (await previewRes.json().catch(() => ({}))) as {
+          oneClickAvailable?: boolean;
+          paymentMethodLabel?: string | null;
+          error?: string;
+        };
+        if (previewRes.ok && previewData.paymentMethodLabel) {
+          setCheckoutState((prev) => ({
+            ...prev,
+            paymentMethodLabel: previewData.paymentMethodLabel ?? prev.paymentMethodLabel,
+          }));
+        }
+        return;
+      }
+
       const res = await fetch("/api/stripe/create-subscription", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -191,18 +275,33 @@ function UpgradePageContent() {
       const data = (await res.json().catch(() => ({}))) as {
         clientSecret?: string;
         subscriptionId?: string;
+        customerSessionClientSecret?: string | null;
+        stripeCustomerId?: string | null;
+        ephemeralKeySecret?: string | null;
+        paymentMethodLabel?: string | null;
+        paymentIntentId?: string;
+        noPaymentRequired?: boolean;
         error?: string;
       };
-      if (!res.ok || !data?.clientSecret || !data?.subscriptionId) {
+      if (!res.ok || (!data?.clientSecret && !data?.noPaymentRequired) || !data?.subscriptionId) {
         throw new Error(data?.error || "Failed to start checkout");
+      }
+      if (data.noPaymentRequired) {
+        await finalizeUpgrade(data.subscriptionId, planName, data.paymentIntentId);
+        return;
       }
       setCheckoutState({
         open: true,
+        mode: "full",
         clientSecret: data.clientSecret,
+        customerSessionClientSecret: data.customerSessionClientSecret ?? null,
+        stripeCustomerId: data.stripeCustomerId ?? null,
+        ephemeralKeySecret: data.ephemeralKeySecret ?? null,
+        paymentMethodLabel: data.paymentMethodLabel ?? null,
         planId,
         planName,
         subscriptionId: data.subscriptionId,
-        paymentIntentId: null,
+        paymentIntentId: data.paymentIntentId ?? null,
       });
       setCanSubmitPayment(false);
       setIsSubmittingPayment(false);
@@ -218,11 +317,42 @@ function UpgradePageContent() {
     }
   };
 
-  const closeCheckout = () => {
-    setCheckoutState({ open: false, clientSecret: null, planId: null, planName: null, subscriptionId: null, paymentIntentId: null });
+  const closeCheckout = useCallback(() => {
+    setCheckoutState({
+      open: false,
+      mode: "full",
+      clientSecret: null,
+      customerSessionClientSecret: null,
+      stripeCustomerId: null,
+      ephemeralKeySecret: null,
+      paymentMethodLabel: null,
+      planId: null,
+      planName: null,
+      subscriptionId: null,
+      paymentIntentId: null,
+    });
     setIsSubmittingPayment(false);
     setCanSubmitPayment(false);
-  };
+  }, []);
+
+  useEffect(() => {
+    loadPlanDetails();
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, [loadPlanDetails]);
+
+  useEffect(() => {
+    const handleFocus = () => {
+      loadPlanDetails();
+    };
+    window.addEventListener("focus", handleFocus);
+    document.addEventListener("visibilitychange", handleFocus);
+    return () => {
+      window.removeEventListener("focus", handleFocus);
+      document.removeEventListener("visibilitychange", handleFocus);
+    };
+  }, [loadPlanDetails]);
 
 
   useEffect(() => {
@@ -254,23 +384,7 @@ function UpgradePageContent() {
     return data?.plan;
   };
 
-  const handleCheckoutSuccess = async (paymentIntentId?: string) => {
-    const planName = checkoutState.planName;
-    const subscriptionId = checkoutState.subscriptionId;
-    if (!planName || !subscriptionId) {
-      closeCheckout();
-      setSuccessDialog({
-        open: true,
-        title: "Payment received",
-        message: "Payment was received, but we could not confirm the subscription details.",
-      });
-      return;
-    }
-
-    if (paymentIntentId) {
-      setCheckoutState((prev) => ({ ...prev, paymentIntentId }));
-    }
-
+  const finalizeUpgrade = async (subscriptionId: string, planName: string, paymentIntentId?: string) => {
     const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
     const attempts = 4;
     setIsSyncingSubscription(true);
@@ -293,6 +407,7 @@ function UpgradePageContent() {
 
       if (upgraded) {
         await refreshPlan();
+        await loadPlanDetails();
         closeCheckout();
         setSuccessDialog({
           open: true,
@@ -315,6 +430,156 @@ function UpgradePageContent() {
     }
   };
 
+  const handleCheckoutSuccess = async (paymentIntentId?: string) => {
+    const planName = checkoutState.planName;
+    const subscriptionId = checkoutState.subscriptionId;
+    if (!planName || !subscriptionId) {
+      closeCheckout();
+      setSuccessDialog({
+        open: true,
+        title: "Payment received",
+        message: "Payment was received, but we could not confirm the subscription details.",
+      });
+      return;
+    }
+
+    if (paymentIntentId) {
+      setCheckoutState((prev) => ({ ...prev, paymentIntentId }));
+    }
+
+    const resolvedPaymentIntentId = paymentIntentId ?? checkoutState.paymentIntentId ?? undefined;
+    await finalizeUpgrade(subscriptionId, planName, resolvedPaymentIntentId);
+  };
+
+  const handleOneClickUpgrade = async () => {
+    if (!checkoutState.planId || !checkoutState.planName) return;
+    setIsProcessing(true);
+    try {
+      const res = await fetch("/api/stripe/upgrade-subscription", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ plan: checkoutState.planId }),
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        status?: "succeeded" | "processing" | "requires_action" | "payment_method_required" | "scheduled";
+        subscriptionId?: string;
+        clientSecret?: string;
+        paymentIntentId?: string;
+        switchAt?: number;
+        message?: string;
+        error?: string;
+      };
+      if (!res.ok) {
+        throw new Error(data?.message || data?.error || "Unable to change subscription.");
+      }
+
+      if (data.status === "scheduled") {
+        await refreshPlan();
+        await loadPlanDetails();
+        closeCheckout();
+        const switchDate =
+          data.switchAt && !Number.isNaN(data.switchAt)
+            ? new Date(data.switchAt * 1000).toLocaleString()
+            : "the next billing cycle";
+        setSuccessDialog({
+          open: true,
+          title: `Switch to ${checkoutState.planName} scheduled`,
+          message: `Your current plan will stay active. The switch will occur at ${switchDate}.`,
+        });
+        return;
+      }
+
+      if ((data.status === "requires_action" || data.status === "payment_method_required") && data.clientSecret) {
+        setCheckoutState((prev) => ({
+          ...prev,
+          mode: "full",
+          clientSecret: data.clientSecret ?? null,
+          subscriptionId: data.subscriptionId ?? prev.subscriptionId,
+          paymentIntentId: data.paymentIntentId ?? prev.paymentIntentId,
+        }));
+        setCanSubmitPayment(false);
+        return;
+      }
+
+      if (data.status === "payment_method_required") {
+        throw new Error("No saved payment method is available. Please add a card.");
+      }
+
+      if (!data.subscriptionId) {
+        throw new Error("Unable to confirm subscription.");
+      }
+
+      await finalizeUpgrade(data.subscriptionId, checkoutState.planName, data.paymentIntentId);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to upgrade subscription.";
+      const isDowngradeAttempt =
+        checkoutState.planId &&
+        PLAN_HIERARCHY[checkoutState.planId] < PLAN_HIERARCHY[currentPlan];
+      setSuccessDialog({
+        open: true,
+        title: isDowngradeAttempt ? "Switch failed" : "Upgrade failed",
+        message,
+      });
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const planUpgradeSummary = useMemo(() => {
+    if (!checkoutState.planId) {
+      return { selectedPrice: 0, credit: 0, totalDue: 0, hasCredit: false, isDowngrade: false };
+    }
+    const selectedPrice = PLAN_PRICES[checkoutState.planId] ?? 0;
+    const currentPrice = PLAN_PRICES[currentPlan] ?? 0;
+    const isUpgrade =
+      PLAN_HIERARCHY[checkoutState.planId] > PLAN_HIERARCHY[currentPlan];
+    const isDowngrade =
+      PLAN_HIERARCHY[checkoutState.planId] < PLAN_HIERARCHY[currentPlan];
+
+    if (isDowngrade) {
+      // Downgrades: no charge today, effective next billing cycle.
+      return { selectedPrice, credit: 0, totalDue: 0, hasCredit: false, isDowngrade: true };
+    }
+
+    if (!isUpgrade || currentPlan === "free") {
+      return { selectedPrice, credit: 0, totalDue: selectedPrice, hasCredit: false, isDowngrade: false };
+    }
+    const endIso = planDetails?.currentPeriodEnd;
+    if (!endIso) {
+      return { selectedPrice, credit: 0, totalDue: selectedPrice, hasCredit: false, isDowngrade: false };
+    }
+    const endMs = new Date(endIso).getTime();
+    const nowMs = Date.now();
+    if (Number.isNaN(endMs) || endMs <= nowMs) {
+      return { selectedPrice, credit: 0, totalDue: selectedPrice, hasCredit: false, isDowngrade: false };
+    }
+    const startIso = planDetails?.currentPeriodStart;
+    const startMs = startIso ? new Date(startIso).getTime() : endMs - BILLING_PERIOD_DAYS * MS_PER_DAY;
+    let periodLengthMs = endMs - startMs;
+    if (periodLengthMs <= 0) {
+      periodLengthMs = BILLING_PERIOD_DAYS * MS_PER_DAY;
+    }
+    const remainingMs = Math.min(endMs - nowMs, periodLengthMs);
+    const credit = Math.min(currentPrice, (currentPrice * remainingMs) / periodLengthMs);
+    const totalDue = Math.max(0, selectedPrice - credit);
+    return { selectedPrice, credit, totalDue, hasCredit: credit > 0, isDowngrade: false };
+  }, [checkoutState.planId, currentPlan, planDetails]);
+
+  const { selectedPrice, credit, totalDue, hasCredit, isDowngrade } = planUpgradeSummary;
+  const pendingSwitchInfo = useMemo(() => {
+    if (!planDetails?.pendingPlanType || !planDetails?.pendingSwitchAt) {
+      return null;
+    }
+    const dateLabel = new Date(planDetails.pendingSwitchAt).toLocaleDateString("en-US", {
+      month: "long",
+      day: "numeric",
+      year: "numeric",
+    });
+    return {
+      pendingPlanType: planDetails.pendingPlanType,
+      pendingSwitchLabel: dateLabel,
+    };
+  }, [planDetails?.pendingPlanType, planDetails?.pendingSwitchAt]);
   const filteredPlans = plans.filter(() => true);
 
   return (
@@ -331,11 +596,23 @@ function UpgradePageContent() {
             </div>
           </div>
 
+          {pendingSwitchInfo && (
+            <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+              {`Switch to ${pendingSwitchInfo.pendingPlanType} scheduled for ${pendingSwitchInfo.pendingSwitchLabel}.`}
+            </div>
+          )}
+
           <div className="max-w-6xl mx-auto flex justify-center px-2">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-10 w-full">
           {filteredPlans.map((plan) => {
             const isCurrent = currentPlan === plan.id;
-            const canDirectChange = currentPlan !== plan.id;
+            const pendingSwitchToPlan = pendingSwitchInfo?.pendingPlanType === plan.id;
+            const canDirectChange = currentPlan !== plan.id && !pendingSwitchToPlan;
+            const isDowngrade =
+              PLAN_HIERARCHY[currentPlan] > PLAN_HIERARCHY[plan.id];
+            const pendingSwitchLabel = pendingSwitchToPlan
+              ? pendingSwitchInfo?.pendingSwitchLabel
+              : null;
             return (
               <div
                 key={plan.id}
@@ -379,7 +656,9 @@ function UpgradePageContent() {
                           disabled={!canDirectChange || isProcessing}
                           title={
                             canDirectChange
-                              ? `Upgrade to ${plan.name}`
+                              ? isDowngrade
+                                ? `Switch to ${plan.name}`
+                                : `Upgrade to ${plan.name}`
                               : "Direct upgrades are currently disabled. Please use unlock code."
                           }
                           onClick={async () => {
@@ -387,10 +666,17 @@ function UpgradePageContent() {
                             await startStripeCheckout(plan.id, plan.name);
                           }}
                         >
-                          {canDirectChange
-                            ? `Upgrade to ${plan.name}`
+                          {pendingSwitchToPlan
+                            ? "Switch scheduled"
+                            : isDowngrade
+                            ? `Switch to ${plan.name}`
                             : `Upgrade to ${plan.name}`}
                         </Button>
+                        {pendingSwitchLabel && (
+                          <p className="text-xs text-amber-200 text-center">
+                            Switch scheduled for {pendingSwitchLabel}
+                          </p>
+                        )}
                         {!canDirectChange && (
                           <Button
                             variant="outline"
@@ -428,79 +714,117 @@ function UpgradePageContent() {
             onClick={closeCheckout}
           />
           <div
-            className="relative z-10 flex w-full max-w-5xl flex-col items-stretch gap-6 lg:flex-row"
+            className={`relative z-10 flex w-full flex-col items-stretch gap-6 ${
+              checkoutState.mode === "one_click" ? "max-w-sm" : "max-w-5xl lg:flex-row"
+            }`}
             onClick={(event) => event.stopPropagation()}
           >
-            <div className="w-full rounded-2xl border border-border bg-popover p-6 shadow-2xl lg:max-w-2xl max-h-[calc(100vh-6rem)] overflow-y-auto">
-              <div className="space-y-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <h3 className="text-lg font-semibold text-foreground">
-                      {checkoutState.planName ? `Checkout - ${checkoutState.planName}` : "Checkout"}
-                    </h3>
-                    <p className="text-sm text-muted-foreground">
-                      Complete payment to activate your plan.
-                    </p>
+            {checkoutState.mode === "full" && (
+              <div className="w-full rounded-2xl border border-border bg-popover p-6 shadow-2xl lg:max-w-2xl max-h-[calc(100vh-6rem)] overflow-y-auto">
+                <div className="space-y-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <h3 className="text-lg font-semibold text-foreground">
+                        {checkoutState.planName ? `Checkout - ${checkoutState.planName}` : "Checkout"}
+                      </h3>
+                      <p className="text-sm text-muted-foreground">
+                        Complete payment to activate your plan.
+                      </p>
+                    </div>
+                    <Button variant="ghost" size="icon" onClick={closeCheckout} aria-label="Close checkout">
+                      <X className="h-4 w-4" />
+                    </Button>
                   </div>
-                  <Button variant="ghost" size="icon" onClick={closeCheckout} aria-label="Close checkout">
-                    <X className="h-4 w-4" />
-                  </Button>
-                </div>
 
-                {!stripePromise && (
-                  <p className="text-sm text-red-500">
-                    Stripe publishable key is missing. Set `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`.
-                  </p>
-                )}
+                  {!stripePromise && (
+                    <p className="text-sm text-red-500">
+                      Stripe publishable key is missing. Set `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`.
+                    </p>
+                  )}
 
-                {stripePromise && !checkoutState.clientSecret && (
-                  <p className="text-sm text-muted-foreground">Preparing secure payment form...</p>
-                )}
+                  {stripePromise && !checkoutState.clientSecret && (
+                    <p className="text-sm text-muted-foreground">Preparing secure payment form...</p>
+                  )}
 
-                {stripePromise && checkoutState.clientSecret && checkoutState.planName && (
-                  <Elements
-                    stripe={stripePromise}
-                    options={{
-                      clientSecret: checkoutState.clientSecret,
-                      appearance: {
-                        theme: "night",
-                        variables: {
-                          colorBackground: "#0b0b0f",
-                          colorText: "#e5e7eb",
-                          colorPrimary: "#8b5cf6",
-                          colorTextSecondary: "#9ca3af",
-                          colorDanger: "#f87171",
-                          borderRadius: "12px",
-                          spacingUnit: "6px",
+                  {stripePromise && checkoutState.clientSecret && checkoutState.planName && (
+                    <Elements
+                      stripe={stripePromise}
+                      options={{
+                        clientSecret: checkoutState.clientSecret,
+                        ...(checkoutState.ephemeralKeySecret && checkoutState.stripeCustomerId
+                          ? {
+                              customerOptions: {
+                                customer: checkoutState.stripeCustomerId,
+                                ephemeralKey: checkoutState.ephemeralKeySecret,
+                              },
+                            }
+                          : {
+                              customerSessionClientSecret:
+                                checkoutState.customerSessionClientSecret ?? undefined,
+                            }),
+                        appearance: {
+                          theme: "night",
+                          variables: {
+                            colorBackground: "#0b0b0f",
+                            colorText: "#e5e7eb",
+                            colorPrimary: "#8b5cf6",
+                            colorTextSecondary: "#9ca3af",
+                            colorDanger: "#f87171",
+                            borderRadius: "12px",
+                            spacingUnit: "6px",
+                          },
                         },
-                      },
-                    }}
-                  >
-                      <StripePaymentForm
-                        onSuccess={(paymentIntentId) => handleCheckoutSuccess(paymentIntentId)}
-                        onSubmittingChange={setIsSubmittingPayment}
-                        onCompleteChange={setCanSubmitPayment}
-                      />
-                  </Elements>
-                )}
+                      }}
+                    >
+                        <StripePaymentForm
+                          onSuccess={(paymentIntentId) => handleCheckoutSuccess(paymentIntentId)}
+                          onSubmittingChange={setIsSubmittingPayment}
+                          onCompleteChange={setCanSubmitPayment}
+                        />
+                    </Elements>
+                  )}
+                </div>
               </div>
-            </div>
+            )}
 
             {checkoutState.planId && checkoutState.planName && (
               <div className="w-full rounded-2xl border border-border bg-card/80 p-5 shadow-lg lg:max-w-sm h-[560px] flex flex-col">
                 <div className="space-y-2 flex-1 overflow-hidden">
-                  <div className="flex items-start justify-between">
-                    <div>
-                      <p className="text-lg font-semibold">{checkoutState.planName}</p>
-                      <p className="text-sm text-muted-foreground">Monthly subscription</p>
+                  {checkoutState.mode === "one_click" ? (
+                    <>
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="text-lg font-semibold">{checkoutState.planName}</p>
+                          <p className="text-sm text-muted-foreground">Monthly subscription</p>
+                        </div>
+                        <Button variant="ghost" size="icon" onClick={closeCheckout} aria-label="Close checkout">
+                          <X className="h-4 w-4" />
+                        </Button>
+                      </div>
+                      <div className="flex items-start justify-between">
+                        <div />
+                        <div className="text-right">
+                          <p className="text-lg font-semibold">
+                            ${plans.find((p) => p.id === checkoutState.planId)?.price ?? "--"}
+                          </p>
+                          <p className="text-xs text-muted-foreground">USD / month</p>
+                        </div>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <p className="text-lg font-semibold">{checkoutState.planName}</p>
+                        <p className="text-sm text-muted-foreground">Monthly subscription</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-lg font-semibold">
+                          ${plans.find((p) => p.id === checkoutState.planId)?.price ?? "--"}
+                        </p>
+                        <p className="text-xs text-muted-foreground">USD / month</p>
+                      </div>
                     </div>
-                    <div className="text-right">
-                      <p className="text-lg font-semibold">
-                        ${plans.find((p) => p.id === checkoutState.planId)?.price ?? "--"}
-                      </p>
-                      <p className="text-xs text-muted-foreground">USD / month</p>
-                    </div>
-                  </div>
+                  )}
 
                   <div className="mt-3 space-y-2 text-sm text-foreground/90 max-h-48 overflow-y-auto pr-1">
                     {(plans.find((p) => p.id === checkoutState.planId)?.features || []).slice(0, 4).map((feat, idx) => (
@@ -515,32 +839,57 @@ function UpgradePageContent() {
                   <div className="text-sm text-foreground/90 space-y-2">
                     <div className="flex justify-between">
                       <span>Monthly subscription</span>
-                      <span>
-                        $
-                        {(plans.find((p) => p.id === checkoutState.planId)?.price ?? 0).toFixed(2)}
-                      </span>
+                      <span>${selectedPrice.toFixed(2)}</span>
                     </div>
                     <div className="flex justify-between text-muted-foreground">
                       <span>Estimated tax</span>
                       <span>$0.00</span>
                     </div>
+                    {isDowngrade && (
+                      <p className="text-xs text-muted-foreground">
+                        Downgrade will take effect at the next billing cycle. No charge today.
+                      </p>
+                    )}
+                    {!isDowngrade && hasCredit && (
+                      <div className="space-y-1">
+                        <div className="flex justify-between text-emerald-400">
+                          <span>Adjustment</span>
+                          <span>-${credit.toFixed(2)}</span>
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          Prorated credit for the remainder of your {currentPlan} subscription.
+                        </p>
+                      </div>
+                    )}
                     <div className="flex justify-between font-semibold text-foreground pt-2">
-                      <span>Due today</span>
-                      <span>
-                        $
-                        {(plans.find((p) => p.id === checkoutState.planId)?.price ?? 0).toFixed(2)}
-                      </span>
+                      <span>Total due today</span>
+                      <span>${totalDue.toFixed(2)}</span>
                     </div>
+                    {checkoutState.mode === "one_click" && checkoutState.paymentMethodLabel && (
+                      <div className="flex justify-between text-muted-foreground pt-3">
+                        <span>Payment Method</span>
+                        <span>{checkoutState.paymentMethodLabel}</span>
+                      </div>
+                    )}
                   </div>
                 </div>
                 <div className="pt-4">
                   <Button
-                    form={PAYMENT_FORM_ID}
-                    type="submit"
+                    form={checkoutState.mode === "full" ? PAYMENT_FORM_ID : undefined}
+                    type={checkoutState.mode === "full" ? "submit" : "button"}
                     className={`w-full relative overflow-hidden transition ${
                       isSubmittingPayment ? "scale-[0.99] opacity-90" : ""
                     }`}
-                    disabled={!canSubmitPayment || isProcessing || isSubmittingPayment || isSyncingSubscription}
+                    onClick={
+                      checkoutState.mode === "one_click"
+                        ? handleOneClickUpgrade
+                        : undefined
+                    }
+                    disabled={
+                      checkoutState.mode === "one_click"
+                        ? isProcessing || isSyncingSubscription
+                        : !canSubmitPayment || isProcessing || isSubmittingPayment || isSyncingSubscription
+                    }
                   >
                     {isSubmittingPayment ? (
                       <span className="flex items-center justify-center gap-2">

@@ -56,6 +56,8 @@ export function SettingsModal({ isOpen, onClose, initialTab = 'preferences' }: S
     cancelAt: string | null
     cancelAtPeriodEnd: boolean
     isActive: boolean
+    pendingPlanType: string | null
+    pendingSwitchAt: string | null
   } | null>(null)
   const [totalSpending, setTotalSpending] = useState<number | null>(null)
   const [monthlySpending, setMonthlySpending] = useState<number | null>(null)
@@ -581,6 +583,12 @@ export function SettingsModal({ isOpen, onClose, initialTab = 'preferences' }: S
                         ) : (
                           <>Your plan auto-renews on {new Date(planDetails.renewalDate).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}</>
                         )}
+                      </p>
+                    )}
+                    {planDetails?.pendingPlanType && planDetails?.pendingSwitchAt && (
+                      <p className="text-xs text-amber-200">
+                        Switch to {planDetails.pendingPlanType} scheduled for{" "}
+                        {new Date(planDetails.pendingSwitchAt).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })}
                       </p>
                     )}
                   </div>

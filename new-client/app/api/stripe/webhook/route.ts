@@ -59,21 +59,29 @@ async function applyPlanUpdate(userId: string, planType: "free" | "plus" | "max"
   const cancelAt = toIso(subscription?.cancel_at);
   const cancelAtPeriodEnd = Boolean(subscription?.cancel_at_period_end);
   const canceledAt = toIso(subscription?.canceled_at);
+  const customerId =
+    typeof subscription?.customer === "string"
+      ? subscription.customer
+      : typeof subscription?.customer?.id === "string"
+      ? subscription.customer.id
+      : null;
 
-  const { error } = await supabase.from("user_plans").upsert(
-    {
-      user_id: userId,
-      plan_type: planType,
-      is_active: !isFree,
-      cancel_at: cancelAt,
-      cancel_at_period_end: cancelAtPeriodEnd,
-      canceled_at: canceledAt,
-      current_period_start: currentPeriodStart,
-      current_period_end: currentPeriodEnd,
-      updated_at: new Date().toISOString(),
-    },
-    { onConflict: "user_id" }
-  );
+  const updatePayload: Record<string, unknown> = {
+    user_id: userId,
+    plan_type: planType,
+    is_active: !isFree,
+    cancel_at: cancelAt,
+    cancel_at_period_end: cancelAtPeriodEnd,
+    canceled_at: canceledAt,
+    current_period_start: currentPeriodStart,
+    current_period_end: currentPeriodEnd,
+    updated_at: new Date().toISOString(),
+  };
+  if (customerId) {
+    updatePayload.stripe_customer_id = customerId;
+  }
+
+  const { error } = await supabase.from("user_plans").upsert(updatePayload, { onConflict: "user_id" });
 
   if (error) {
     console.error("[stripe-webhook] Failed to update user_plans", error);

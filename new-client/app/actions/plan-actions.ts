@@ -6,6 +6,10 @@ import { getCurrentUserIdServer } from "@/lib/supabase/user";
 export type PlanType = "free" | "plus" | "max";
 
 const BILLING_PERIOD_DAYS = 30;
+const PLAN_PRICE_MAP: Record<Exclude<PlanType, "free">, string | undefined> = {
+  plus: process.env.STRIPE_PRICE_PLUS,
+  max: process.env.STRIPE_PRICE_MAX,
+};
 
 function addDaysIso(dateIso: string, days: number) {
   return new Date(new Date(dateIso).getTime() + days * 24 * 60 * 60 * 1000).toISOString();
@@ -44,6 +48,18 @@ function normalizePlanType(value: string | null | undefined): PlanType {
     default:
       return "free";
   }
+}
+
+function resolvePlanFromPriceId(priceId?: string | null): PlanType | null {
+  if (!priceId) return null;
+  if (priceId === PLAN_PRICE_MAP.plus) return "plus";
+  if (priceId === PLAN_PRICE_MAP.max) return "max";
+  return null;
+}
+
+function toIsoFromSeconds(value?: number | null) {
+  if (!value) return null;
+  return new Date(value * 1000).toISOString();
 }
 
 function toStoragePlanType(plan: PlanType): PlanType {
@@ -327,6 +343,10 @@ export async function getUserPlanDetails(): Promise<{
   cancelAt: string | null;
   cancelAtPeriodEnd: boolean;
   isActive: boolean;
+  currentPeriodStart: string | null;
+  currentPeriodEnd: string | null;
+  pendingPlanType: PlanType | null;
+  pendingSwitchAt: string | null;
 } | null> {
   try {
     const userId = await getCurrentUserIdServer();
@@ -337,7 +357,7 @@ export async function getUserPlanDetails(): Promise<{
     const supabase = await supabaseServer();
     const { data, error } = await supabase
       .from("user_plans")
-      .select("plan_type, is_active, created_at, cancel_at, cancel_at_period_end, current_period_start, current_period_end")
+      .select("plan_type, is_active, created_at, cancel_at, cancel_at_period_end, current_period_start, current_period_end, stripe_customer_id")
       .eq("user_id", userId)
       .eq("is_active", true)
       .single();
@@ -349,11 +369,15 @@ export async function getUserPlanDetails(): Promise<{
         cancelAt: null,
         cancelAtPeriodEnd: false,
         isActive: true,
+        currentPeriodStart: null,
+        currentPeriodEnd: null,
+        pendingPlanType: null,
+        pendingSwitchAt: null,
       };
     }
 
     const nowMs = Date.now();
-    const planType = normalizePlanType((data as any).plan_type as string | null | undefined);
+    let planType = normalizePlanType((data as any).plan_type as string | null | undefined);
 
     let currentPeriodStart: string | null = (data as any).current_period_start ?? null;
     let currentPeriodEnd: string | null = (data as any).current_period_end ?? null;
@@ -367,15 +391,87 @@ export async function getUserPlanDetails(): Promise<{
       currentPeriodEnd = null;
     }
 
-    const cancelAt = (data as any).cancel_at ? new Date((data as any).cancel_at).toISOString().split("T")[0] : null;
-    const cancelAtPeriodEnd = Boolean((data as any).cancel_at_period_end);
+    let cancelAt = (data as any).cancel_at ? new Date((data as any).cancel_at).toISOString() : null;
+    let cancelAtPeriodEnd = Boolean((data as any).cancel_at_period_end);
+    let pendingPlanType: PlanType | null = null;
+    let pendingSwitchAt: string | null = null;
+
+    const stripeCustomerId = (data as any).stripe_customer_id as string | null | undefined;
+    const secretKey = process.env.STRIPE_SECRET_KEY;
+    if (stripeCustomerId && secretKey) {
+      try {
+        const subRes = await fetch(
+          `https://api.stripe.com/v1/subscriptions?customer=${stripeCustomerId}&status=active&limit=1&expand[]=data.schedule&expand[]=data.items.data.price`,
+          { headers: { Authorization: `Bearer ${secretKey}` } }
+        );
+        const subData = (await subRes.json()) as {
+          data?: Array<{
+            current_period_start?: number;
+            current_period_end?: number;
+            cancel_at?: number | null;
+            cancel_at_period_end?: boolean;
+            schedule?: string | { id?: string };
+            items?: { data?: Array<{ price?: { id?: string } | null }> };
+          }>;
+        };
+        if (subRes.ok) {
+          const activeSub = subData.data?.[0];
+          const stripePlanType = resolvePlanFromPriceId(activeSub?.items?.data?.[0]?.price?.id ?? null);
+          if (stripePlanType) {
+            planType = stripePlanType;
+          }
+          const stripeStartIso = toIsoFromSeconds(activeSub?.current_period_start);
+          const stripeEndIso = toIsoFromSeconds(activeSub?.current_period_end);
+          currentPeriodStart = stripeStartIso ?? currentPeriodStart;
+          currentPeriodEnd = stripeEndIso ?? currentPeriodEnd;
+          cancelAt = toIsoFromSeconds(activeSub?.cancel_at) ?? cancelAt;
+          cancelAtPeriodEnd = Boolean(activeSub?.cancel_at_period_end);
+          const scheduleId =
+            typeof activeSub?.schedule === "string"
+              ? activeSub.schedule
+              : activeSub?.schedule?.id;
+          const currentPriceId = activeSub?.items?.data?.[0]?.price?.id ?? null;
+          if (scheduleId) {
+            const scheduleRes = await fetch(
+              `https://api.stripe.com/v1/subscription_schedules/${scheduleId}?expand[]=phases.items.price`,
+              { headers: { Authorization: `Bearer ${secretKey}` } }
+            );
+            const scheduleData = (await scheduleRes.json()) as {
+              phases?: Array<{
+                start_date?: number;
+                items?: Array<{ price?: { id?: string } | null }>;
+              }>;
+            };
+            if (scheduleRes.ok && scheduleData.phases?.length) {
+              const nowSeconds = Math.floor(Date.now() / 1000);
+              const nextPhase = scheduleData.phases.find(
+                (phase) => (phase.start_date ?? 0) > nowSeconds
+              );
+              const nextPriceId = nextPhase?.items?.[0]?.price?.id ?? null;
+              if (nextPriceId && nextPriceId !== currentPriceId) {
+                pendingPlanType = resolvePlanFromPriceId(nextPriceId);
+                pendingSwitchAt = nextPhase?.start_date
+                  ? new Date(nextPhase.start_date * 1000).toISOString()
+                  : null;
+              }
+            }
+          }
+        }
+      } catch (stripeError) {
+        console.warn("[plan-details] Failed to load pending schedule", stripeError);
+      }
+    }
 
     return {
       planType,
-      renewalDate: currentPeriodEnd ? currentPeriodEnd.split("T")[0] : null,
+      renewalDate: currentPeriodEnd ?? null,
       cancelAt,
       cancelAtPeriodEnd,
       isActive: Boolean((data as any).is_active),
+      currentPeriodStart,
+      currentPeriodEnd,
+      pendingPlanType,
+      pendingSwitchAt,
     };
   } catch (error) {
     console.error("Error fetching user plan details:", error);
