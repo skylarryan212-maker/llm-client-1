@@ -3,16 +3,8 @@
 import { useEffect, useMemo, useState, Suspense, type FormEvent } from "react";
 import { ArrowLeft, Check, Lock, X } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { loadStripe } from "@stripe/stripe-js";
-import {
-  CardCvcElement,
-  CardExpiryElement,
-  CardNumberElement,
-  Elements,
-  LinkAuthenticationElement,
-  useElements,
-  useStripe,
-} from "@stripe/react-stripe-js";
+import { loadStripe, type StripePaymentElementOptions } from "@stripe/stripe-js";
+import { Elements, PaymentElement, useElements, useStripe } from "@stripe/react-stripe-js";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { unlockPlanWithCode, type PlanType } from "@/app/actions/plan-actions";
@@ -60,90 +52,43 @@ type CheckoutState = {
   planId: PlanType | null;
   planName: string | null;
   subscriptionId: string | null;
+  paymentIntentId: string | null;
 };
 
 const PAYMENT_FORM_ID = "stripe-payment-form";
 
 function StripePaymentForm({
-  planName,
-  clientSecret,
-  useLink,
   onSuccess,
-  onToggleLink,
   onSubmittingChange,
-  onReadyChange,
+  onCompleteChange,
 }: {
-  planName: string;
-  clientSecret: string | null;
-  useLink: boolean;
-  onSuccess: () => Promise<void>;
-  onToggleLink: (value: boolean) => void;
+  onSuccess: (paymentIntentId?: string) => Promise<void>;
   onSubmittingChange?: (submitting: boolean) => void;
-  onReadyChange?: (ready: boolean) => void;
+  onCompleteChange?: (complete: boolean) => void;
 }) {
   const stripe = useStripe();
   const elements = useElements();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
-  const [cardNumberComplete, setCardNumberComplete] = useState(false);
-  const [cardExpiryComplete, setCardExpiryComplete] = useState(false);
-  const [cardCvcComplete, setCardCvcComplete] = useState(false);
-  const [postalCode, setPostalCode] = useState("");
-  const [country, setCountry] = useState("");
 
   useEffect(() => {
     onSubmittingChange?.(isSubmitting);
   }, [isSubmitting, onSubmittingChange]);
 
-  const canSubmit =
-    Boolean(stripe && elements && clientSecret) &&
-    cardNumberComplete &&
-    cardExpiryComplete &&
-    cardCvcComplete &&
-    Boolean(country.trim()) &&
-    Boolean(postalCode.trim());
-
-  useEffect(() => {
-    onReadyChange?.(canSubmit);
-  }, [canSubmit, onReadyChange]);
-
-  const cardElementOptions = useMemo(
+  const paymentElementOptions: StripePaymentElementOptions = useMemo(
     () => ({
-      style: {
-        base: {
-          color: "#e5e7eb",
-          fontSize: "14px",
-          fontFamily: "inherit",
-          "::placeholder": { color: "#9ca3af" },
-        },
-        invalid: { color: "#f87171" },
+      layout: "tabs",
+      paymentMethodOrder: ["card"],
+      wallets: {
+        link: "never" as const,
       },
     }),
     []
   );
 
-  const cardNumberOptions = useMemo(
-    () => ({
-      ...cardElementOptions,
-      showIcon: true,
-      iconStyle: "solid" as const,
-      disableLink: true,
-    }),
-    [cardElementOptions]
-  );
-
-  const showSaveInfoToggle =
-    cardNumberComplete &&
-    cardExpiryComplete &&
-    cardCvcComplete &&
-    Boolean(country.trim()) &&
-    Boolean(postalCode.trim());
-
   const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
-    if (!stripe || !elements || !clientSecret) return;
-    const cardElement = elements.getElement(CardNumberElement);
-    if (!cardElement) return;
+    if (!stripe || !elements) return;
     setIsSubmitting(true);
     setFormError(null);
     try {
@@ -152,17 +97,10 @@ function StripePaymentForm({
           ? `${window.location.origin}/upgrade?stripe=return`
           : "/upgrade?stripe=return";
 
-      const { error, paymentIntent } = await stripe.confirmCardPayment(clientSecret, {
-        payment_method: {
-          card: cardElement,
-          billing_details: {
-            address: {
-              country: country || undefined,
-              postal_code: postalCode || undefined,
-            },
-          },
-        },
-        return_url: returnUrl,
+      const { error, paymentIntent } = await stripe.confirmPayment({
+        elements,
+        confirmParams: { return_url: returnUrl },
+        redirect: "if_required",
       });
       if (error) {
         setFormError(error.message ?? "Payment failed. Please try again.");
@@ -170,7 +108,7 @@ function StripePaymentForm({
       }
       const status = paymentIntent?.status;
       if (status === "succeeded" || status === "processing") {
-        await onSuccess();
+        await onSuccess(paymentIntent?.id);
         return;
       }
       setFormError("Payment was not completed. Please try again.");
@@ -181,92 +119,10 @@ function StripePaymentForm({
 
   return (
     <form id={PAYMENT_FORM_ID} onSubmit={handleSubmit} className="space-y-4">
-      <div className="space-y-2">
-        <label className="text-sm font-medium text-foreground">Card number</label>
-        <div className="rounded-md border border-input bg-transparent px-3 py-2 shadow-xs transition-[color,box-shadow] dark:bg-input/30 focus-within:border-ring focus-within:ring-ring/50 focus-within:ring-[3px]">
-          <CardNumberElement
-            options={cardNumberOptions}
-            onChange={(event) => setCardNumberComplete(Boolean(event.complete))}
-          />
-        </div>
-      </div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <div className="space-y-2">
-          <label className="text-sm font-medium text-foreground">Expiration date</label>
-          <div className="rounded-md border border-input bg-transparent px-3 py-2 shadow-xs transition-[color,box-shadow] dark:bg-input/30 focus-within:border-ring focus-within:ring-ring/50 focus-within:ring-[3px]">
-            <CardExpiryElement
-              options={cardElementOptions}
-              onChange={(event) => setCardExpiryComplete(Boolean(event.complete))}
-            />
-          </div>
-        </div>
-        <div className="space-y-2">
-          <label className="text-sm font-medium text-foreground">Security code</label>
-          <div className="rounded-md border border-input bg-transparent px-3 py-2 shadow-xs transition-[color,box-shadow] dark:bg-input/30 focus-within:border-ring focus-within:ring-ring/50 focus-within:ring-[3px]">
-            <CardCvcElement
-              options={cardElementOptions}
-              onChange={(event) => setCardCvcComplete(Boolean(event.complete))}
-            />
-          </div>
-        </div>
-      </div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <div className="space-y-2">
-          <label className="text-sm font-medium text-foreground">Country</label>
-          <Input
-            type="text"
-            placeholder="United States"
-            value={country}
-            onChange={(event) => setCountry(event.target.value)}
-          />
-        </div>
-        <div className="space-y-2">
-          <label className="text-sm font-medium text-foreground">ZIP code</label>
-          <Input
-            type="text"
-            placeholder="12345"
-            value={postalCode}
-            onChange={(event) => setPostalCode(event.target.value)}
-          />
-        </div>
-      </div>
-      {showSaveInfoToggle && (
-        <div className="space-y-3">
-          <label className="flex items-center justify-between gap-4 rounded-xl border border-border/60 bg-muted/20 px-4 py-3">
-            <div>
-              <p className="text-sm font-medium text-foreground">
-                Save my information for faster checkout
-              </p>
-              <p className="text-xs text-muted-foreground">
-                Securely stored with Link for future payments.
-              </p>
-            </div>
-            <input
-              type="checkbox"
-              className="sr-only"
-              checked={useLink}
-              onChange={(e) => onToggleLink(e.target.checked)}
-            />
-            <span
-              aria-hidden="true"
-              className={`relative inline-flex h-6 w-11 items-center rounded-full border transition ${
-                useLink ? "border-primary/50 bg-primary/40" : "border-border/60 bg-muted/30"
-              }`}
-            >
-              <span
-                className={`inline-block h-5 w-5 transform rounded-full bg-foreground shadow-sm transition ${
-                  useLink ? "translate-x-5" : "translate-x-0.5"
-                }`}
-              />
-            </span>
-          </label>
-          {useLink && (
-            <div className="rounded-xl border border-border/60 bg-muted/10 px-4 py-3">
-              <LinkAuthenticationElement options={{ defaultValues: { email: "" } }} />
-            </div>
-          )}
-        </div>
-      )}
+      <PaymentElement
+        options={paymentElementOptions}
+        onChange={(event) => onCompleteChange?.(event.complete)}
+      />
       <p className="text-xs text-muted-foreground">
         By providing your card information, you allow New business sandbox to charge your card for future payments in accordance with their terms.
       </p>
@@ -284,7 +140,6 @@ function UpgradePageContent() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [successDialog, setSuccessDialog] = useState<{ open: boolean; message: string; title: string }>({ open: false, message: "", title: "" });
-  const [useLinkCheckout, setUseLinkCheckout] = useState(false);
   const [isSubmittingPayment, setIsSubmittingPayment] = useState(false);
   const [canSubmitPayment, setCanSubmitPayment] = useState(false);
   const [isSyncingSubscription, setIsSyncingSubscription] = useState(false);
@@ -294,6 +149,7 @@ function UpgradePageContent() {
     planId: null,
     planName: null,
     subscriptionId: null,
+    paymentIntentId: null,
   });
 
   const handleOpenUnlockDialog = (planId: Exclude<PlanType, "free">) => {
@@ -346,10 +202,10 @@ function UpgradePageContent() {
         planId,
         planName,
         subscriptionId: data.subscriptionId,
+        paymentIntentId: null,
       });
       setCanSubmitPayment(false);
       setIsSubmittingPayment(false);
-      setUseLinkCheckout(false);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unable to start checkout. Please try again.";
       setSuccessDialog({
@@ -363,17 +219,11 @@ function UpgradePageContent() {
   };
 
   const closeCheckout = () => {
-    setCheckoutState({ open: false, clientSecret: null, planId: null, planName: null, subscriptionId: null });
+    setCheckoutState({ open: false, clientSecret: null, planId: null, planName: null, subscriptionId: null, paymentIntentId: null });
     setIsSubmittingPayment(false);
     setCanSubmitPayment(false);
-    setUseLinkCheckout(false);
   };
 
-  useEffect(() => {
-    if (!checkoutState.open) {
-      setUseLinkCheckout(false);
-    }
-  }, [checkoutState.open]);
 
   useEffect(() => {
     if (!checkoutState.open) return;
@@ -387,11 +237,11 @@ function UpgradePageContent() {
     return () => window.removeEventListener("keydown", handleKey);
   }, [checkoutState.open, closeCheckout]);
 
-  const syncSubscriptionPlan = async (subscriptionId: string) => {
+  const syncSubscriptionPlan = async (subscriptionId: string, paymentIntentId?: string) => {
     const res = await fetch("/api/stripe/sync-subscription", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ subscriptionId }),
+      body: JSON.stringify({ subscriptionId, paymentIntentId }),
     });
     const data = (await res.json().catch(() => ({}))) as { error?: string; plan?: PlanType };
     if (!res.ok) {
@@ -404,7 +254,7 @@ function UpgradePageContent() {
     return data?.plan;
   };
 
-  const handleCheckoutSuccess = async () => {
+  const handleCheckoutSuccess = async (paymentIntentId?: string) => {
     const planName = checkoutState.planName;
     const subscriptionId = checkoutState.subscriptionId;
     if (!planName || !subscriptionId) {
@@ -417,6 +267,10 @@ function UpgradePageContent() {
       return;
     }
 
+    if (paymentIntentId) {
+      setCheckoutState((prev) => ({ ...prev, paymentIntentId }));
+    }
+
     const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
     const attempts = 4;
     setIsSyncingSubscription(true);
@@ -425,7 +279,7 @@ function UpgradePageContent() {
       let lastError: Error | null = null;
       for (let i = 0; i < attempts; i++) {
         try {
-          await syncSubscriptionPlan(subscriptionId);
+          await syncSubscriptionPlan(subscriptionId, paymentIntentId);
           upgraded = true;
           break;
         } catch (err) {
@@ -622,15 +476,11 @@ function UpgradePageContent() {
                       },
                     }}
                   >
-                    <StripePaymentForm
-                      planName={checkoutState.planName}
-                      clientSecret={checkoutState.clientSecret}
-                      onSuccess={handleCheckoutSuccess}
-                      useLink={useLinkCheckout}
-                      onToggleLink={setUseLinkCheckout}
-                      onSubmittingChange={setIsSubmittingPayment}
-                      onReadyChange={setCanSubmitPayment}
-                    />
+                      <StripePaymentForm
+                        onSuccess={(paymentIntentId) => handleCheckoutSuccess(paymentIntentId)}
+                        onSubmittingChange={setIsSubmittingPayment}
+                        onCompleteChange={setCanSubmitPayment}
+                      />
                   </Elements>
                 )}
               </div>

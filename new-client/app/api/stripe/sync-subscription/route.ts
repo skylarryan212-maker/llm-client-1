@@ -68,8 +68,12 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Stripe not configured" }, { status: 500 });
     }
 
-    const body = (await request.json().catch(() => null)) as { subscriptionId?: string } | null;
+    const body = (await request.json().catch(() => null)) as {
+      subscriptionId?: string;
+      paymentIntentId?: string;
+    } | null;
     const subscriptionId = typeof body?.subscriptionId === "string" ? body.subscriptionId : "";
+    const paymentIntentId = typeof body?.paymentIntentId === "string" ? body.paymentIntentId : undefined;
     if (!subscriptionId) {
       return NextResponse.json({ error: "Missing subscriptionId" }, { status: 400 });
     }
@@ -158,6 +162,22 @@ export async function POST(request: NextRequest) {
       const intentData = (await intentRes.json()) as { status?: string };
       if (intentRes.ok) {
         paymentIntentStatus = intentData.status;
+      }
+    }
+
+    if (!paymentIntentStatus && paymentIntentId) {
+      const intentRes = await fetch(`https://api.stripe.com/v1/payment_intents/${paymentIntentId}`, {
+        headers: { Authorization: `Bearer ${secretKey}` },
+      });
+      const intentData = (await intentRes.json()) as { status?: string };
+      if (intentRes.ok) {
+        paymentIntentStatus = intentData.status;
+      } else {
+        console.warn("[stripe-sync] Failed to fetch payment intent", {
+          paymentIntentId,
+          status: intentRes.status,
+          body: intentData,
+        });
       }
     }
     const isPaidLike =
