@@ -43,7 +43,6 @@ export interface BuildContextResult {
   debug?: {
     totalTopicTokens: number;
     summaryTokens: number;
-    artifactTokens: number;
     loadedMessageCount: number;
     trimmedMessageCount: number;
     budget: number;
@@ -185,7 +184,6 @@ export async function buildContextForMainModel({
   }
 
   const summaryMessages: ContextMessageWithId[] = [];
-  const artifactMessages: ContextMessageWithId[] = [];
   const conversationMessages: ContextMessageWithId[] = [];
   const includedTopics = new Set<string>([primaryTopic.id]);
   let summaryCount = 0;
@@ -260,15 +258,6 @@ export async function buildContextForMainModel({
       artifactBudget
     );
     for (const artifact of artifacts) {
-      const label = artifact.title || "Unnamed artifact";
-      artifactMessages.push({
-        message: {
-          role: "assistant",
-          content: `[Artifact: ${label}] ${artifact.content}`,
-          type: "message",
-        },
-        messageId: null,
-      });
       artifactCount += 1;
       if (artifact.topic_id) {
         includedTopics.add(artifact.topic_id);
@@ -293,13 +282,9 @@ export async function buildContextForMainModel({
     (sum, msg) => sum + estimateTokens(msg.message.content),
     0
   );
-  const artifactTokens = artifactMessages.reduce(
-    (sum, msg) => sum + estimateTokens(msg.message.content),
-    0
-  );
   let trimmedMessageCount = 0;
 
-  if (totalTopicTokens + artifactTokens <= maxContextTokens) {
+  if (totalTopicTokens <= maxContextTokens) {
     // Load all messages (no summaries needed) and cap with artifacts if necessary
     if (crossChatPrimaryNotice) {
       conversationMessages.push({ message: crossChatPrimaryNotice, messageId: null });
@@ -318,7 +303,7 @@ export async function buildContextForMainModel({
     summaryCount = 0;
   } else {
     // Too large: include summaries and trim messages to remaining budget
-    const budgetForMessages = Math.max(0, maxContextTokens - summaryTokens - artifactTokens);
+    const budgetForMessages = Math.max(0, maxContextTokens - summaryTokens);
     const { trimmed } = trimMessagesToBudget(allTopicMessages, budgetForMessages);
     trimmedMessageCount = allTopicMessages.length - trimmed.length;
     if (crossChatPrimaryNotice) {
@@ -338,7 +323,7 @@ export async function buildContextForMainModel({
 
   // Place the chronological conversation messages first to keep the prefix as stable as possible
   // for prompt caching. Summaries/artifacts are appended after to avoid shifting the leading tokens.
-  const combinedMessages = [...conversationMessages, ...summaryMessages, ...artifactMessages];
+  const combinedMessages = [...conversationMessages, ...summaryMessages];
   if (!combinedMessages.length) {
     const fallbackMessages = await loadFallbackMessages(supabase, conversationId, maxContextTokens);
     return {
@@ -383,7 +368,6 @@ export async function buildContextForMainModel({
     debug: {
       totalTopicTokens,
       summaryTokens,
-      artifactTokens,
       loadedMessageCount: conversationMessages.length,
       trimmedMessageCount,
       budget: maxContextTokens,

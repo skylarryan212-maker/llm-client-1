@@ -31,7 +31,7 @@ import { supabaseServer } from "@/lib/supabase/server";
 import { requireUserIdServer } from "@/lib/supabase/user";
 
 const MODEL_ID = "gpt-5-nano";
-const CONTEXT_LIMIT_TOKENS = 350_000;
+const CONTEXT_LIMIT_TOKENS = 400_000;
 const BASE_SYSTEM_PROMPT =
   "You are the Market Agent. Keep replies short and focused on helping the user configure the agent or understand the latest reports. Only propose watchlist or cadence changes when the user explicitly asks or when the report clearly supports a change.";
 const buildCadenceContext = (cadenceSeconds: number | null) =>

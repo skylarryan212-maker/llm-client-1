@@ -55,7 +55,7 @@ import { estimateTokens } from "@/lib/tokens/estimateTokens";
 import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
 
-const CONTEXT_LIMIT_TOKENS = 350_000;
+const CONTEXT_LIMIT_TOKENS = 400_000;
 const MEMORY_WRITES_ENABLED = true;
 const ASSISTANT_IMAGE_BUCKET = "assistant-images";
 const MAX_ASSISTANT_IMAGES_PER_MESSAGE = 20;

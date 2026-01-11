@@ -168,7 +168,7 @@ type ContextUsageSnapshot = {
 
 const CONTEXT_USAGE_STORAGE_KEY = "llm-client-context-usage";
 const PERSONALIZATION_SETTINGS_CACHE_KEY = "llm-client-personalization-settings-cache";
-const DEFAULT_CONTEXT_WINDOW_TOKENS = 350_000;
+const DEFAULT_CONTEXT_WINDOW_TOKENS = 400_000;
 const AUTO_STREAM_KEY_PREFIX = "llm-client-auto-stream:";
 const getAutoStreamKey = (conversationId: string) =>
   `${AUTO_STREAM_KEY_PREFIX}${conversationId}`;
