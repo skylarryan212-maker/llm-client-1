@@ -31,6 +31,7 @@ export async function startGlobalConversationAction(
   options?: {
     conversationMetadata?: Json | null;
     messageMetadata?: Json | null;
+    conversationId?: string | null;
   }
 ): Promise<{
   conversationId: string;
@@ -41,6 +42,7 @@ export async function startGlobalConversationAction(
     title: "New chat",
     firstMessageContent,
     attachments,
+    conversationId: options?.conversationId ?? null,
     conversationMetadata: options?.conversationMetadata ?? null,
     messageMetadata: options?.messageMetadata ?? null,
   });
@@ -77,6 +79,7 @@ export async function startProjectConversationAction(params: {
   firstMessageContent: string;
   attachments?: AttachmentInput[];
   conversationMetadata?: Json | null;
+  conversationId?: string | null;
   messageMetadata?: Json | null;
 }): Promise<{
   conversationId: string;
@@ -88,6 +91,7 @@ export async function startProjectConversationAction(params: {
       projectId: params.projectId,
       firstMessageContent: params.firstMessageContent,
       attachments: params.attachments,
+      conversationId: params.conversationId ?? null,
       conversationMetadata: params.conversationMetadata ?? null,
       messageMetadata: params.messageMetadata ?? null,
     });

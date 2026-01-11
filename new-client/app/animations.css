@@ -228,7 +228,8 @@
     -webkit-background-clip: text;
     background-clip: text;
     color: transparent;
-    animation: thinking-shimmer 1.4s linear infinite;
+    animation: thinking-shimmer 2.2s linear infinite;
+    will-change: background-position;
   }
 
   .status-wave-text {
@@ -242,7 +243,8 @@
     -webkit-background-clip: text;
     background-clip: text;
     color: transparent;
-    animation: thinking-shimmer 1.4s linear infinite;
+    animation: thinking-shimmer 2.2s linear infinite;
+    will-change: background-position;
   }
 
   .agent-chat-scroll-area {

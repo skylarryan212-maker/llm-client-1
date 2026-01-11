@@ -2,13 +2,20 @@ import { callDeepInfraLlama } from "../deepInfraLlama";
 import { calculateCost } from "../pricing";
 import { logUsageRecord } from "../usage";
 
+type TopicStub = {
+  id: string;
+  label: string;
+  summary: string | null;
+  description: string | null;
+};
+
 export type WriterRouterInput = {
   userMessageText: string;
   recentMessages: Array<{ role: "user" | "assistant" | "system"; content: string }>;
   memoryRelevantMessages?: Array<{ role: "user" | "assistant" | "system"; content: string }>;
   assistantMessageText?: string | null;
-  topics?: Array<{ id: string; label: string; summary: string | null; description: string | null }>;
-  currentTopic: { id: string | null; summary: string | null; description: string | null };
+  topics?: TopicStub[];
+  currentTopic: { id: string | null; summary: string | null; description: string | null; label?: string | null };
 };
 
 export type WriterRouterOutput = {
@@ -117,11 +124,12 @@ export async function runWriterRouter(
   const systemPrompt = [
     "You decide topic metadata updates, artifacts, and memory/permanent instruction writes. Respond with ONE JSON object only.",
     "CRITICAL: Return STRICT JSON matching the schema. No prose, no markdown, no comments.",
+    "Scope: ONLY write to the current topic. Do NOT create/update any other topics. additionalTopicWrites must stay empty.",
     "{",
     '  "topicWrite": {',
-    '    "action": "create" | "update" | "skip",',
-    '    "targetTopicId": "string|null",',
-    '    "label": "string|null",',
+      '    "action": "create" | "update" | "skip",',
+      '    "targetTopicId": "string|null",',
+      '    "label": "string|null",',
     '    "summary": "string|null",',
     '    "description": "string|null"',
     "  },",
@@ -142,7 +150,8 @@ export async function runWriterRouter(
     "- Do not write memory unless the same fact or preference appears in multiple turns or sessions, unless explicitly requested.",
     '- Memory type: choose a specific, descriptive type that matches the content (e.g., "name", "preference", "instruction", "task", "location", "code-snippet", "project-note"). Avoid generic types like "fact", "note", or "other".',
     '- Artifacts: only emit artifacts that would help future turns on this topic. Base them on the assistant reply content, not the user message. Skip if the assistant reply is too short (<80 chars) or doesn’t contain reusable material.',
-    "- Topic updates: you may update summaries/descriptions for multiple provided topics when recent messages materially change them. Leave label/summary/description null if no change.",
+    "- Topic updates: only update the current topic; additionalTopicWrites must remain empty. Leave label/summary/description null if no change.",
+    "- When updating summaries/descriptions, treat the existing summary as source of truth: add concise details and only replace clearly outdated parts. Never overwrite the whole field from limited context.",
     "- Arrays must be arrays (never null). No extra fields.",
   ].join("\n");
 
@@ -168,18 +177,9 @@ export async function runWriterRouter(
   const userPrompt = [
     `Topic action: ${topicAction}`,
     `Current topic id: ${input.currentTopic.id || "none"}`,
+    `Current topic label: ${input.currentTopic.label || "none"}`,
     `Current summary: ${input.currentTopic.summary || "none"}`,
     `Current description: ${input.currentTopic.description || "none"}`,
-    "",
-    "Other available topics (id | label | summary | description):",
-    (input.topics && input.topics.length
-      ? input.topics
-          .map(
-            (t) =>
-              `- ${t.id} | ${t.label} | ${t.summary ?? "none"} | ${t.description ?? "none"}`
-          )
-          .join("\n")
-      : "none"),
     "",
     "Recent messages (oldest->newest):",
     recentSection,
@@ -311,11 +311,12 @@ export async function runWriterRouter(
 
   const fallback = (): WriterRouterOutput => {
     const shouldCreate = topicAction === "new";
+    const fallbackLabel = shouldCreate ? autoLabelFromMessage(input.userMessageText) : null;
     return {
       topicWrite: {
         action: shouldCreate ? "create" : "skip",
         targetTopicId: shouldCreate ? null : input.currentTopic.id,
-        label: shouldCreate ? autoLabelFromMessage(input.userMessageText) : null,
+        label: fallbackLabel,
         summary: shouldCreate ? autoSummaryFromMessage(input.userMessageText) : null,
         description: shouldCreate ? autoSummaryFromMessage(input.userMessageText) : null,
       },
@@ -381,7 +382,7 @@ export async function runWriterRouter(
       action === "create" ? null : normalizeNullableId(topicWrite.targetTopicId ?? input.currentTopic.id);
     const label =
       action === "create"
-        ? normalizeNullableText(topicWrite.label) ?? autoLabelFromMessage(input.userMessageText)
+        ? normalizeNullableText(topicWrite.label)
         : null;
     const summary =
       action === "create"
@@ -400,19 +401,7 @@ export async function runWriterRouter(
         summary,
         description,
       },
-      additionalTopicWrites: Array.isArray(parsed.additionalTopicWrites)
-        ? parsed.additionalTopicWrites
-            .filter((tw: any) => tw && tw.action === "update")
-            .map((tw: any) => ({
-              action: "update" as const,
-              targetTopicId:
-                normalizeNullableId(tw.targetTopicId) ??
-                normalizeNullableId(input.currentTopic.id),
-              label: normalizeNullableText(tw.label),
-              summary: normalizeNullableText(tw.summary),
-              description: normalizeNullableText(tw.description),
-            }))
-        : [],
+      additionalTopicWrites: [],
       memoriesToWrite: Array.isArray(parsed.memoriesToWrite)
         ? parsed.memoriesToWrite.map((m: any) => ({
             ...m,

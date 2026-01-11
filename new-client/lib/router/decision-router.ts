@@ -96,6 +96,7 @@ export async function runDecisionRouter(params: {
   if (semanticMatches && semanticMatches.length) {
     console.log("[semantic] top topic matches", semanticMatches.slice(0, 4));
   }
+  const topicIds = new Set((input.topics || []).map((t) => t.id));
   const topicsById = new Map((input.topics || []).map((t) => [t.id, t]));
   const semanticSection =
     highConfidenceMatches && highConfidenceMatches.length
@@ -159,6 +160,7 @@ Rules:
   * continue_active: when the user is clearly continuing the active topic (follow-up, same intent, direct references like "that", "this", "continue", or replies to the last turn) and there is no stronger match elsewhere. Consider semantic scores, recent messages, topic labels, and mention of shared entity/context.
   * reopen_existing: when the user intent best matches a past topic in the provided topics/artifacts (same subject/entity/task), but the active topic is different or stale. Pick the best-matching previous topic as primaryTopicId.
   * new: when the request starts a new subject/task not covered by the active topic or any prior topic (no strong match).
+  * Hard rule: if the intent clearly matches an existing topic, do NOT choose "new"; use continue_active for the active topic or reopen_existing for another topic.
 - Use topic summaries/labels/descriptions plus artifacts to judge matching intent; prefer reuse when the fit is strong, otherwise start new.
 - Topics may include cross-chat items marked is_cross_conversation=true and conversation_title set.
   * Prefer current-chat topics unless the user clearly refers to another chat or asks about prior messages outside this conversation.
@@ -391,7 +393,6 @@ Return only the "labels" object matching the output schema.`;
     }
 
     // Basic validation/enforcement
-    const topicIds = new Set((input.topics || []).map((t) => t.id));
     let primaryTopicId = labels.primaryTopicId ?? null;
     if (labels.topicAction === "continue_active") {
       primaryTopicId = input.activeTopicId ?? null;
@@ -437,7 +438,13 @@ Return only the "labels" object matching the output schema.`;
       secondaryTopicIds = [];
       newParentTopicId = null;
     }
-
+    // Prevent reopen_existing from targeting the active topic; that should be continue_active.
+    if (topicAction === "reopen_existing" && input.activeTopicId && primaryTopicId === input.activeTopicId) {
+      topicAction = "continue_active";
+      primaryTopicId = input.activeTopicId;
+      secondaryTopicIds = secondaryTopicIds.filter((id: string) => id !== primaryTopicId);
+      newParentTopicId = null;
+    }
     const output: DecisionRouterOutput = {
       topicAction,
       primaryTopicId,

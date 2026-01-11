@@ -35,6 +35,7 @@ export async function createGlobalConversationWithFirstMessage(params: {
   firstMessageContent: string;
   attachments?: AttachmentInput[];
   conversationMetadata?: Json | null;
+  conversationId?: string | null;
   messageMetadata?: Json | null;
 }): Promise<{
   conversation: ConversationRow;
@@ -49,6 +50,7 @@ export async function createGlobalConversationWithFirstMessage(params: {
     .from("conversations")
     .insert([
       {
+        ...(params.conversationId ? { id: params.conversationId } : {}),
         user_id: userId,
         title: params.title ?? null,
         project_id: null,
@@ -97,6 +99,7 @@ export async function createProjectConversationWithFirstMessage(params: {
   firstMessageContent: string;
   attachments?: AttachmentInput[];
   conversationMetadata?: Json | null;
+  conversationId?: string | null;
   messageMetadata?: Json | null;
 }): Promise<{
   conversation: ConversationRow;
@@ -111,6 +114,7 @@ export async function createProjectConversationWithFirstMessage(params: {
     .from("conversations")
     .insert([
       {
+        ...(params.conversationId ? { id: params.conversationId } : {}),
         user_id: userId,
         title: "New chat",
         project_id: params.projectId,

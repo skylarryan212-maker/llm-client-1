@@ -2392,7 +2392,7 @@ export async function POST(request: NextRequest) {
       .select("*")
       .eq("conversation_id", conversationId)
       .order("created_at", { ascending: false })
-      .limit(6);
+      .limit(20);
 
     if (messagesError) {
       console.error("Failed to load messages:", messagesError);
@@ -3131,6 +3131,8 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    let topicCreatedEvent: { id: string; label: string } | null = null;
+
     // Create a stub topic immediately for new-topic actions so downstream work (and the OpenAI call)
     // has a concrete topic_id. Writer router will refine metadata later.
     let resolvedPrimaryTopicId: string | null = decision.primaryTopicId ?? null;
@@ -3156,6 +3158,7 @@ export async function POST(request: NextRequest) {
           console.error("[topic-router] Failed to create stub topic:", stubErr);
         } else {
           resolvedPrimaryTopicId = stubTopic.id;
+          topicCreatedEvent = { id: stubTopic.id, label: stubTopic.label || stubLabel };
           console.log(`[topic-router] Created stub topic ${stubTopic.id} label="${stubTopic.label}"`);
         }
       } catch (stubCreateErr) {
@@ -4877,32 +4880,60 @@ export async function POST(request: NextRequest) {
 	          }
 
           // Run writer router now that we have the assistant reply (topic metadata, memories, artifacts).
+          const WRITER_ROUTER_CONTINUE_INTERVAL = 5; // run every N user turns on continue_active so context remains in the 6-message window
+          const writerRouterGate = (() => {
+            if (decision.topicAction === "new" || decision.topicAction === "reopen_existing") {
+              return { run: true, reason: "topic_change", userTurnsSinceLast: 0 };
+            }
+            if (decision.topicAction !== "continue_active") {
+              return { run: false, reason: "unsupported_topic_action", userTurnsSinceLast: 0 };
+            }
+            const recent = Array.isArray(recentMessagesForRouting) ? recentMessagesForRouting : [];
+            let userTurnsSinceLast = 0;
+            for (let i = recent.length - 1; i >= 0; i--) {
+              const msg = recent[i] as any;
+              if (msg?.metadata?.writer_router_ran) break;
+              if (msg?.role === "user") {
+                userTurnsSinceLast += 1;
+              }
+            }
+            return {
+              run: userTurnsSinceLast >= WRITER_ROUTER_CONTINUE_INTERVAL,
+              reason: "continue_interval",
+              userTurnsSinceLast,
+            };
+          })();
+
           let writer: Awaited<ReturnType<typeof runWriterRouter>> | null = null;
-          try {
+          if (writerRouterGate.run) {
+            try {
             const writerRecentMessages: Array<{ role: "user" | "assistant" | "system"; content: string }> = (
               recentMessagesForRouting || []
             )
               .slice(-6)
               .map((m: any) => ({
-                role: (m.role as "user" | "assistant" | "system") ?? "user",
-                content: m.content ?? "",
-              }));
-            const writerMemoryMessages: Array<{ role: "user" | "assistant" | "system"; content: string }> = [
-              ...writerRecentMessages.filter((m) => m.role === "user"),
-              { role: "user", content: message },
-            ];
+                  role: (m.role as "user" | "assistant" | "system") ?? "user",
+                  content: m.content ?? "",
+                }));
+              const writerMemoryMessages: Array<{ role: "user" | "assistant" | "system"; content: string }> = [
+                ...writerRecentMessages.filter((m) => m.role === "user"),
+                { role: "user", content: message },
+              ];
             const writerTopicId = resolvedTopicDecision.primaryTopicId ?? activeTopicId ?? null;
-            const writerTopics =
-              Array.isArray(topicsForRouter) && topicsForRouter.length
-                ? topicsForRouter
-                    .slice(0, 8)
-                    .map((t: any) => ({
-                      id: t.id,
-                      label: t.label,
-                      summary: t.summary ?? null,
-                      description: t.description ?? null,
-                    }))
-                : [];
+            const writerTopicMeta =
+              writerTopicId && Array.isArray(topicsForRouter)
+                ? (topicsForRouter as any[]).find((t: any) => t.id === writerTopicId) ?? null
+                : null;
+            const writerTopics = writerTopicMeta
+              ? [
+                  {
+                    id: writerTopicMeta.id,
+                    label: writerTopicMeta.label,
+                    summary: writerTopicMeta.summary ?? null,
+                    description: writerTopicMeta.description ?? null,
+                  },
+                ]
+              : [];
             writer = await runWriterRouter(
               {
                 userMessageText: message,
@@ -4912,16 +4943,47 @@ export async function POST(request: NextRequest) {
                 topics: writerTopics,
                 currentTopic: {
                   id: writerTopicId ?? null,
-                  summary: currentTopicMeta?.summary ?? null,
-                  description: currentTopicMeta?.description ?? null,
+                  label: writerTopicMeta?.label ?? currentTopicMeta?.label ?? null,
+                  summary: writerTopicMeta?.summary ?? currentTopicMeta?.summary ?? null,
+                  description: writerTopicMeta?.description ?? currentTopicMeta?.description ?? null,
                 },
               },
-              decision.topicAction,
-              { allowLLM: allowLLMRouters, userId, conversationId }
+                decision.topicAction,
+                { allowLLM: allowLLMRouters, userId, conversationId }
+              );
+              console.log("[writer-router] output (post-stream):", JSON.stringify(writer, null, 2));
+              if (persistedAssistantRow?.id) {
+                try {
+                  const baseMeta =
+                    persistedAssistantRow.metadata &&
+                    typeof persistedAssistantRow.metadata === "object" &&
+                    !Array.isArray(persistedAssistantRow.metadata)
+                      ? (persistedAssistantRow.metadata as Record<string, unknown>)
+                      : {};
+                  const nextMeta = {
+                    ...baseMeta,
+                    writer_router_ran: true,
+                  };
+                  const { error: writerMetaErr } = await supabaseAny
+                    .from("messages")
+                    .update({ metadata: nextMeta })
+                    .eq("id", persistedAssistantRow.id);
+                  if (writerMetaErr) {
+                    console.warn("[writer-router] Failed to tag assistant message metadata:", writerMetaErr);
+                  } else {
+                    persistedAssistantRow = { ...persistedAssistantRow, metadata: nextMeta } as any;
+                  }
+                } catch (tagErr) {
+                  console.warn("[writer-router] Failed to tag writer run on message:", tagErr);
+                }
+              }
+            } catch (writerErr) {
+              console.error("[writer-router] failed post-stream:", writerErr);
+            }
+          } else {
+            console.log(
+              `[writer-router] skipped (reason=${writerRouterGate.reason}, userTurnsSinceLast=${writerRouterGate.userTurnsSinceLast})`
             );
-            console.log("[writer-router] output (post-stream):", JSON.stringify(writer, null, 2));
-          } catch (writerErr) {
-            console.error("[writer-router] failed post-stream:", writerErr);
           }
 
           // Apply topic metadata writes (create/update) from writer router.
@@ -4932,6 +4994,60 @@ export async function POST(request: NextRequest) {
             const lower = trimmed.toLowerCase();
             if (["none", "null", "n/a", "na", "skip"].includes(lower)) return null;
             return trimmed;
+          };
+          const topicMetaLookup = new Map(
+            (Array.isArray(topicsForRouter) ? topicsForRouter : []).map((t: any) => [t.id, t])
+          );
+          const findTopicMeta = (id?: string | null) => {
+            if (!id) return null;
+            return topicMetaLookup.get(id) ?? null;
+          };
+          const mergeTopicText = (
+            existing: string | null | undefined,
+            incoming: string | null | undefined,
+            limit: number
+          ): string | null => {
+            const existingClean = normalizeTopicText(existing);
+            const incomingClean = normalizeTopicText(incoming);
+            if (!incomingClean) return existingClean ?? null;
+            if (!existingClean) return incomingClean.slice(0, limit);
+
+            const tokenize = (value: string) =>
+              value
+                .toLowerCase()
+                .replace(/[^a-z0-9\s]/g, " ")
+                .split(/\s+/)
+                .filter(Boolean);
+            const a = tokenize(existingClean);
+            const b = tokenize(incomingClean);
+            const overlap = (() => {
+              if (!a.length || !b.length) return 0;
+              const setA = new Set(a);
+              let hit = 0;
+              for (const token of b) {
+                if (setA.has(token)) hit += 1;
+              }
+              const union = setA.size + b.length - hit;
+              return union > 0 ? hit / union : 0;
+            })();
+
+            // If the new text mostly overlaps or is a focused update, prefer replacement.
+            const shouldReplace =
+              overlap >= 0.5 ||
+              incomingClean.length <= Math.max(60, existingClean.length * 0.6) ||
+              incomingClean.toLowerCase().includes("updated") ||
+              existingClean.toLowerCase().includes(incomingClean.toLowerCase());
+
+            if (shouldReplace) {
+              return incomingClean.slice(0, limit);
+            }
+
+            if (incomingClean.toLowerCase().includes(existingClean.toLowerCase())) {
+              return incomingClean.slice(0, limit);
+            }
+
+            const combined = `${existingClean}; ${incomingClean}`;
+            return combined.slice(0, limit);
           };
           const topicIdSet = new Set(
             (Array.isArray(topicsForRouter) ? topicsForRouter : []).map((t: any) => t.id)
@@ -4957,26 +5073,49 @@ export async function POST(request: NextRequest) {
               const label =
                 normalizeTopicText(topicWrite.label) ||
                 buildAutoTopicLabel(message);
-              const description =
+              const descriptionInput =
                 normalizeTopicText(topicWrite.description) ||
                 buildAutoTopicDescription(message);
-              const summary =
+              const summaryInput =
                 normalizeTopicText(topicWrite.summary) ||
                 buildAutoTopicSummary(message);
 
               if (resolvedPrimaryTopicId) {
+                const existingMeta =
+                  findTopicMeta(resolvedPrimaryTopicId) ?? currentTopicMeta;
+                const nextDescription = mergeTopicText(
+                  existingMeta?.description,
+                  descriptionInput,
+                  500
+                );
+                const nextSummary = mergeTopicText(
+                  existingMeta?.summary,
+                  summaryInput,
+                  500
+                );
+                const normalizedExistingDescription = normalizeTopicText(existingMeta?.description);
+                const normalizedExistingSummary = normalizeTopicText(existingMeta?.summary);
+                const updatePayload: Record<string, any> = {
+                  label: label.slice(0, 120),
+                };
+                if (nextDescription && nextDescription !== normalizedExistingDescription) {
+                  updatePayload.description = nextDescription;
+                }
+                if (nextSummary && nextSummary !== normalizedExistingSummary) {
+                  updatePayload.summary = nextSummary;
+                }
                 const { error: updateErr } = await supabaseAny
                   .from("conversation_topics")
-                  .update({
-                    label: label.slice(0, 120),
-                    description: description?.slice(0, 500) ?? null,
-                    summary: summary?.slice(0, 500) ?? null,
-                  })
+                  .update(updatePayload)
                   .eq("id", resolvedPrimaryTopicId);
                 if (updateErr) {
                   console.error("[topic-router] Failed to update stub topic metadata:", updateErr);
                 } else {
                   console.log(`[topic-router] Updated stub topic ${resolvedPrimaryTopicId} metadata from writer router`);
+                  topicCreatedEvent = {
+                    id: resolvedPrimaryTopicId,
+                    label,
+                  };
                 }
               } else {
                 const { data: insertedTopic, error: topicErr } = await supabaseAny
@@ -4985,8 +5124,8 @@ export async function POST(request: NextRequest) {
                     {
                       conversation_id: conversationId,
                       label: label.slice(0, 120),
-                      description: description?.slice(0, 500) ?? null,
-                      summary: summary?.slice(0, 500) ?? null,
+                      description: mergeTopicText(null, descriptionInput, 500),
+                      summary: mergeTopicText(null, summaryInput, 500),
                       parent_topic_id: decision.newParentTopicId ?? null,
                     },
                   ])
@@ -4998,6 +5137,10 @@ export async function POST(request: NextRequest) {
                   resolvedPrimaryTopicId = insertedTopic.id;
                   topicIdSet.add(insertedTopic.id);
                   console.log(`[topic-router] Created topic ${insertedTopic.id} label="${insertedTopic.label}"`);
+                  topicCreatedEvent = {
+                    id: insertedTopic.id,
+                    label,
+                  };
                 }
               }
             } else if (topicWrite.action === "update") {
@@ -5010,11 +5153,14 @@ export async function POST(request: NextRequest) {
               }
               const updatePayload: Record<string, any> = {};
               const label = normalizeTopicText(topicWrite.label);
-              const summary = normalizeTopicText(topicWrite.summary);
-              const description = normalizeTopicText(topicWrite.description);
+              const targetMeta = findTopicMeta(targetId);
+              const summary = mergeTopicText(targetMeta?.summary, topicWrite.summary, 500);
+              const description = mergeTopicText(targetMeta?.description, topicWrite.description, 500);
               if (label) updatePayload.label = label.slice(0, 120);
-              if (summary) updatePayload.summary = summary.slice(0, 500) ?? null;
-              if (description) updatePayload.description = description.slice(0, 500) ?? null;
+              const normalizedExistingSummary = normalizeTopicText(targetMeta?.summary);
+              const normalizedExistingDescription = normalizeTopicText(targetMeta?.description);
+              if (summary && summary !== normalizedExistingSummary) updatePayload.summary = summary;
+              if (description && description !== normalizedExistingDescription) updatePayload.description = description;
               if (!Object.keys(updatePayload).length) continue;
               const { error: updateErr } = await supabaseAny
                 .from("conversation_topics")
@@ -5035,6 +5181,9 @@ export async function POST(request: NextRequest) {
             (modelConfig as any).permanentInstructionsToWrite = writer.permanentInstructionsToWrite || [];
             (modelConfig as any).permanentInstructionsToDelete = writer.permanentInstructionsToDelete || [];
             (modelConfig as any).artifactsToWrite = writer.artifactsToWrite || [];
+          }
+          if (topicCreatedEvent) {
+            (metadataPayload as any).topicCreated = topicCreatedEvent;
           }
           if (await exitIfAborted()) {
             return;

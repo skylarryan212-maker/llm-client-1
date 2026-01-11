@@ -36,4 +36,5 @@ export type AssistantMessageMetadata = {
     fileId: string;
     filename: string;
   }>;
+  topicCreated?: { id: string; label: string };
 };
