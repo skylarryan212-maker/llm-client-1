@@ -185,6 +185,9 @@ const ADVANCED_CONTEXT_TOPIC_SELECTION_KEY =
 const STREAMING_ACTIVE_STORAGE_KEY = "llm-client:streaming-active";
 const STREAMING_CHAT_ID_STORAGE_KEY = "llm-client:streaming-chat-id";
 const STREAM_UPDATE_INTERVAL_MS = 50;
+const COMPOSER_NAV_SLIDE_DURATION_MS = 240;
+const CENTERED_COMPOSER_OFFSET = "calc(-52vh + 120px)";
+let shouldAnimateCenterOnNextMount = false;
 const SEARCH_PROGRESS_THROTTLE_MS = 120;
 
 function persistModelSelection(displayName: string) {
@@ -373,6 +376,7 @@ export default function ChatPageShell({
   const baseBottomSpacerPx = 28;
   const MESSAGE_PAGE_SIZE = 200;
   const router = useRouter();
+  const pathname = usePathname();
   const { openLoginModal } = useLoginModal();
   const mainPanelRef = useRef<HTMLDivElement | null>(null);
   const chatBodyRef = useRef<HTMLDivElement | null>(null);
@@ -634,7 +638,18 @@ export default function ChatPageShell({
   const [pendingNewChatMessages, setPendingNewChatMessages] = useState<StoredMessage[] | null>(null);
   const centeredComposerRef = useRef<HTMLDivElement | null>(null);
   const stickyComposerRef = useRef<HTMLDivElement | null>(null);
-  const [composerDropOffsetPx, setComposerDropOffsetPx] = useState<number | null>(null);
+  const shouldAnimateCenterOnMount = shouldAnimateCenterOnNextMount && pathname === "/";
+  const [composerDockedPosition, setComposerDockedPosition] = useState<"bottom" | "center">(() => {
+    if (shouldAnimateCenterOnMount) {
+      return "bottom";
+    }
+    return pathname === "/" ? "center" : "bottom";
+  });
+  const [composerTransitionEnabled, setComposerTransitionEnabled] = useState(false);
+  const animateCenterOnMountRef = useRef(shouldAnimateCenterOnMount);
+  const prevShouldCenterRef = useRef<boolean | null>(null);
+  const navSlideInProgressRef = useRef(false);
+  const composerNavTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [isMobileComposer, setIsMobileComposer] = useState(false);
   const scrollRafRef = useRef<number | null>(null);
   const pendingScrollStateRef = useRef<{ scrollTop: number; clientHeight: number; target: HTMLDivElement } | null>(
@@ -663,6 +678,18 @@ export default function ChatPageShell({
   useEffect(() => {
     setIsHydrated(true);
   }, []);
+
+  useEffect(() => {
+    // Enable composer transitions after first paint to avoid animating on initial load
+    setComposerTransitionEnabled(true);
+  }, []);
+
+  useEffect(() => {
+    if (shouldAnimateCenterOnNextMount) {
+      shouldAnimateCenterOnNextMount = false;
+    }
+  }, []);
+
   useEffect(() => {
     isStreamingRef.current = isStreaming;
   }, [isStreaming]);
@@ -993,7 +1020,6 @@ export default function ChatPageShell({
   const useSimpleContext = currentContextMode === "simple";
 	  const advancedTopicIdsForActiveChat =
 	    (advancedTopicSelectionByChat[selectionKeyForContext] ?? null) ?? null;
-	  const pathname = usePathname();
   const effectiveModelDisplay = speedModeEnabled ? normalizeModelForSpeedMode(currentModel) : currentModel;
   const modelTriggerLabel = isImageMode
     ? currentImageModel === "nano-banana"
@@ -1633,27 +1659,61 @@ export default function ChatPageShell({
   const emptyStateTransform = shouldUseCenteredComposer ? `translateY(${baseEmptyOffset})` : undefined;
   const emptyStateJustifyClass = shouldUseCenteredComposer ? "justify-start" : "justify-center";
   const emptyStatePaddingTop = shouldUseCenteredComposer ? "calc(48vh - 180px)" : undefined;
-  const shouldAnimateComposerDrop = hasPendingNewChat && canAnimateComposerDrop;
-  const [composerDropStage, setComposerDropStage] = useState<"idle" | "start" | "end">("idle");
-  const composerDropTranslate =
-    shouldAnimateComposerDrop && typeof composerDropOffsetPx === "number"
-      ? composerDropStage === "start"
-        ? `${composerDropOffsetPx}px`
-        : "0px"
-      : null;
   const isNewChatComposer = !selectedChatId && showEmptyConversation;
   const composerAlignmentClass = isNewChatComposer ? "items-start" : "items-end";
 
+  useLayoutEffect(() => {
+    if (!shouldUseCenteredComposer) return;
+    if (!animateCenterOnMountRef.current) return;
+    setComposerDockedPosition("bottom");
+  }, [shouldUseCenteredComposer]);
+
   useEffect(() => {
-    if (!shouldAnimateComposerDrop) {
-      setComposerDropStage("idle");
-      setComposerDropOffsetPx(null);
+    const prev = prevShouldCenterRef.current;
+    prevShouldCenterRef.current = shouldUseCenteredComposer;
+    if (prev === null && animateCenterOnMountRef.current && shouldUseCenteredComposer) {
       return;
     }
-    setComposerDropStage("start");
-    const raf = requestAnimationFrame(() => setComposerDropStage("end"));
+    if (prev === null) {
+      setComposerDockedPosition(shouldUseCenteredComposer ? "center" : "bottom");
+      return;
+    }
+    if (navSlideInProgressRef.current && !shouldUseCenteredComposer) {
+      navSlideInProgressRef.current = false;
+      setComposerDockedPosition("bottom");
+      return;
+    }
+    if (prev === shouldUseCenteredComposer) return;
+    if (shouldUseCenteredComposer) {
+      setComposerDockedPosition("bottom");
+      const raf = requestAnimationFrame(() => setComposerDockedPosition("center"));
+      return () => cancelAnimationFrame(raf);
+    }
+    setComposerDockedPosition("center");
+    const raf = requestAnimationFrame(() => setComposerDockedPosition("bottom"));
     return () => cancelAnimationFrame(raf);
-  }, [shouldAnimateComposerDrop]);
+  }, [composerTransitionEnabled, shouldUseCenteredComposer]);
+
+  useEffect(() => {
+    if (!animateCenterOnMountRef.current) return;
+    if (!composerTransitionEnabled) return;
+    if (!shouldUseCenteredComposer) {
+      animateCenterOnMountRef.current = false;
+      return;
+    }
+    animateCenterOnMountRef.current = false;
+    setComposerDockedPosition("bottom");
+    const raf = requestAnimationFrame(() => setComposerDockedPosition("center"));
+    return () => cancelAnimationFrame(raf);
+  }, [composerTransitionEnabled, shouldUseCenteredComposer]);
+
+  useEffect(() => {
+    return () => {
+      if (composerNavTimerRef.current) {
+        clearTimeout(composerNavTimerRef.current);
+      }
+    };
+  }, []);
 
   const getEffectiveScrollBottom = useCallback(
     (viewport: HTMLDivElement) => {
@@ -2163,17 +2223,7 @@ export default function ChatPageShell({
         timestamp: new Date().toISOString(),
         metadata: { isPendingAssistant: true },
       };
-      if (canAnimateComposerDrop) {
-        const centeredRect = centeredComposerRef.current?.getBoundingClientRect() ?? null;
-        const stickyRect = stickyComposerRef.current?.getBoundingClientRect() ?? null;
-        if (centeredRect && stickyRect) {
-          setComposerDropOffsetPx(centeredRect.top - stickyRect.top);
-        }
-      }
       setPendingNewChatMessages([userMessage, assistantPlaceholder]);
-      if (canAnimateComposerDrop) {
-        setComposerDropStage("start");
-      }
       autoScrollEnabledRef.current = true;
       autoScrollLockedRef.current = false;
       autoScrollCooldownUntilRef.current = 0;
@@ -2431,6 +2481,26 @@ export default function ChatPageShell({
       updateChatTitle(conversationId, data.title);
     }
   };
+
+  const startComposerNavSlide = useCallback(
+    (navigate: () => void) => {
+      if (!shouldUseCenteredComposer || !canAnimateComposerDrop) {
+        navigate();
+        return;
+      }
+      navSlideInProgressRef.current = true;
+      setComposerDockedPosition("center");
+      const raf = requestAnimationFrame(() => setComposerDockedPosition("bottom"));
+      if (composerNavTimerRef.current) {
+        clearTimeout(composerNavTimerRef.current);
+      }
+      composerNavTimerRef.current = setTimeout(() => {
+        navigate();
+      }, COMPOSER_NAV_SLIDE_DURATION_MS);
+      return () => cancelAnimationFrame(raf);
+    },
+    [canAnimateComposerDrop, shouldUseCenteredComposer]
+  );
 
   const finalizeStreamingState = useCallback(
     () => {
@@ -3566,15 +3636,21 @@ export default function ChatPageShell({
 
   const handleChatSelect = (id: string) => {
     const chat = chats.find((item) => item.id === id);
-    if (chat?.projectId) {
-      void navigateWithChatBodyFade(router, `/projects/${chat.projectId}/c/${id}`);
-    } else {
-      void navigateWithChatBodyFade(router, `/c/${id}`);
-    }
+    const navigate = () => {
+      if (chat?.projectId) {
+        void navigateWithChatBodyFade(router, `/projects/${chat.projectId}/c/${id}`);
+      } else {
+        void navigateWithChatBodyFade(router, `/c/${id}`);
+      }
+    };
+    startComposerNavSlide(navigate);
   };
 
   const handleProjectChatSelect = (projectIdValue: string, chatId: string) => {
-    void navigateWithChatBodyFade(router, `/projects/${projectIdValue}/c/${chatId}`);
+    const navigate = () => {
+      void navigateWithChatBodyFade(router, `/projects/${projectIdValue}/c/${chatId}`);
+    };
+    startComposerNavSlide(navigate);
   };
 
   const handleNewChat = () => {
@@ -3582,6 +3658,7 @@ export default function ChatPageShell({
       setGuestWarning("Guest mode: sign in to save chats and projects.");
       return;
     }
+    shouldAnimateCenterOnNextMount = true;
     void navigateWithChatBodyFade(router, "/", "replace");
   };
 
@@ -4399,9 +4476,11 @@ export default function ChatPageShell({
                 </div>
               </div>
               {shouldUseCenteredComposer && (
-                <div ref={centeredComposerRef} className="w-full max-w-3xl">
-                  {composerInner}
-                </div>
+                <div
+                  ref={centeredComposerRef}
+                  className="w-full max-w-3xl"
+                  aria-hidden="true"
+                />
               )}
             </div>
           ) : hasPendingNewChat ? (
@@ -4604,16 +4683,18 @@ export default function ChatPageShell({
           )}
         </div>
         {/* Composer: full-width bar, centered pill like ChatGPT */}
-        {(!shouldUseCenteredComposer || shouldAnimateComposerDrop) && (
           <div
             ref={stickyComposerRef}
-            className={`bg-transparent px-4 sm:px-6 lg:px-12 py-3 sm:py-4 ${
-              shouldUseCenteredComposer ? "fixed inset-x-0 bottom-0 pointer-events-none opacity-0" : "relative sticky"
-            } bottom-0 z-30 pb-[max(env(safe-area-inset-bottom),0px)] transition-transform ${shouldAnimateComposerDrop ? "duration-300 ease-out" : "duration-200 ease-out"}`}
+            className={`bg-transparent px-4 sm:px-6 lg:px-12 py-3 sm:py-4 relative sticky bottom-0 z-30 pb-[max(env(safe-area-inset-bottom),0px)] ${
+              composerTransitionEnabled ? "transition-transform duration-200 ease-out" : ""
+            }`}
             style={{
-              transform: composerDropTranslate
-                ? `translateY(calc(${-Math.max(0, composerLiftPx + 4)}px + ${composerDropTranslate}))`
-                : `translateY(${-Math.max(0, composerLiftPx + 4)}px)`,
+              ["--composer-drop-offset" as string]: CENTERED_COMPOSER_OFFSET,
+              transform: `translateY(calc(${-Math.max(0, composerLiftPx + 4)}px + ${
+                composerDockedPosition === "center"
+                  ? "var(--composer-drop-offset, CENTERED_COMPOSER_OFFSET)"
+                  : "0px"
+              }))`,
             }}
           >
             <div
@@ -4640,7 +4721,6 @@ export default function ChatPageShell({
             </div>
             <div className="mx-auto w-full max-w-3xl">{composerInner}</div>
           </div>
-        )}
       </div>
       {!isGuest && (
         <MarketFeedSidebar
