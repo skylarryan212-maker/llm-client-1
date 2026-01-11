@@ -558,15 +558,12 @@ export async function runWebSearchPipeline(
   }
 
   const sources = evidenceCards.map((card) => ({ title: card.title, url: card.url }));
-  console.log("[fast-web-pipeline] logging full excerpt data");
-  evidenceCards.forEach((card, index) => {
-    console.log(`[fast-web-pipeline] evidence card #${index + 1}/${evidenceCards.length} url=${card.url ?? "unknown"} textLen=${card.text.length}`);
-    console.log(card.text);
-  });
-  chunks.forEach((chunk, index) => {
-    console.log(`[fast-web-pipeline] chunk #${index + 1}/${chunks.length} url=${chunk.url ?? "unknown"} excerptLen=${chunk.text.length}`);
-    console.log(chunk.text);
-  });
+  if (evidenceCards.length || chunks.length) {
+    console.log("[fast-web-pipeline] evidence summary", {
+      evidenceCards: evidenceCards.length,
+      chunkCount: chunks.length,
+    });
+  }
   console.log("[fast-web-pipeline] returning result", {
     queries,
     totalSERPResults: serpResults.length,
