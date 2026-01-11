@@ -145,7 +145,6 @@ export async function POST(request: NextRequest) {
           const flushIntervalMs = 40;
           flushTimer = setInterval(() => {
             if (tokenBuffer.length > 0) {
-              console.log("[guest-chat] Interval flush, buffer length:", tokenBuffer.length);
               enqueue({ token: tokenBuffer });
               tokenBuffer = "";
             }
@@ -227,11 +226,9 @@ export async function POST(request: NextRequest) {
                 if (typedEvent.type === "response.output_text.delta" && typedEvent.delta) {
                   emittedToken = true;
                   const deltaStr = typedEvent.delta as string;
-                  console.log("[guest-chat] Token delta:", deltaStr.substring(0, 50));
-                  // Buffer small deltas and let the interval flush them.
                   tokenBuffer += deltaStr;
                 } else if (typedEvent.type === "response.output_text.delta") {
-                  console.log("[guest-chat] output_text.delta event received but no delta property");
+                  // Received delta event with no payload.
                 }
 
             // Log all response.completed events to diagnose
@@ -247,7 +244,6 @@ export async function POST(request: NextRequest) {
                 (typedEvent as any)?.response?.output_text
               ) {
                 emittedToken = true;
-                console.log("[guest-chat] Emitting fallback output_text:", (typedEvent as any).response.output_text.substring(0, 50));
                 enqueue({ token: (typedEvent as any).response.output_text });
               }
             }
@@ -271,7 +267,6 @@ export async function POST(request: NextRequest) {
               }
               // Flush any buffered tokens before finishing.
               if (tokenBuffer.length > 0) {
-                console.log("[guest-chat] Final flush before done, buffer length:", tokenBuffer.length);
                 enqueue({ token: tokenBuffer });
                 tokenBuffer = "";
               }

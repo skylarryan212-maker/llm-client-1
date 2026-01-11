@@ -2256,6 +2256,8 @@ export default function ChatPageShell({
         appendMessages(chatId, [userMessage]);
       }
 
+      setPendingNewChatMessages(null);
+
       const assistantId = `assistant-${Date.now()}`;
       const assistantMessage: StoredMessage = {
         id: assistantId,
