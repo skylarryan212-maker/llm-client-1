@@ -4,7 +4,6 @@ import { redirect } from "next/navigation";
 import { supabaseServer, supabaseServerAdmin } from "@/lib/supabase/server";
 
 const ADMIN_SETTINGS_ID = "singleton";
-const DEFAULT_RANGE_DAYS = 30;
 
 type AdminSettingsRow = {
   admin_user_id: string;
@@ -70,7 +69,7 @@ export type AdminUserUsage = {
 };
 
 export type AdminUsageSummary = {
-  rangeDays: number;
+  rangeDays: number | null;
   totals: UsageTotals;
   users: AdminUserUsage[];
 };
@@ -217,22 +216,28 @@ async function loadUserEmailMap() {
   return emailMap;
 }
 
-export async function getAdminUsageSummary(rangeDays = DEFAULT_RANGE_DAYS): Promise<AdminUsageSummary> {
+export async function getAdminUsageSummary(rangeDays?: number | null): Promise<AdminUsageSummary> {
   const gate = await getAdminGate();
   if (gate.status !== "admin") {
     redirect("/login?next=/admin");
   }
 
   const admin = await supabaseServerAdmin();
-  const sinceIso = new Date(Date.now() - rangeDays * 24 * 60 * 60 * 1000).toISOString();
+  const effectiveRangeDays = typeof rangeDays === "number" ? rangeDays : null;
 
-  const { data, error } = await (admin as any)
+  let query = (admin as any)
     .from("usage_events")
-    .select("user_id,event_type,model,input_tokens,cached_tokens,output_tokens,cost_usd,metadata,created_at")
-    .gte("created_at", sinceIso);
+    .select("user_id,event_type,model,input_tokens,cached_tokens,output_tokens,cost_usd,metadata,created_at");
+
+  if (effectiveRangeDays !== null && effectiveRangeDays > 0) {
+    const sinceIso = new Date(Date.now() - effectiveRangeDays * 24 * 60 * 60 * 1000).toISOString();
+    query = query.gte("created_at", sinceIso);
+  }
+
+  const { data, error } = await query;
   if (error) {
     console.error("[admin] Failed to load usage events", error);
-    return { rangeDays, totals: emptyTotals(), users: [] };
+    return { rangeDays: effectiveRangeDays, totals: emptyTotals(), users: [] };
   }
 
   const emailMap = await loadUserEmailMap();
@@ -330,7 +335,7 @@ export async function getAdminUsageSummary(rangeDays = DEFAULT_RANGE_DAYS): Prom
   }).sort((a, b) => b.totals.costUsd - a.totals.costUsd);
 
   return {
-    rangeDays,
+    rangeDays: effectiveRangeDays,
     totals: globalTotals,
     users,
   };

@@ -128,6 +128,7 @@ export function AdminDashboard({
 }) {
   const router = useRouter();
   const [filter, setFilter] = useState("");
+  const rangeLabel = data.rangeDays === null ? "Showing all time." : `Showing the last ${data.rangeDays} days.`;
 
   const filteredUsers = useMemo(() => {
     const trimmed = filter.trim().toLowerCase();
@@ -146,7 +147,7 @@ export function AdminDashboard({
             <p className="text-xs uppercase tracking-[0.3em] text-slate-500">Admin</p>
             <h1 className="text-3xl font-semibold text-white">Usage command center</h1>
             <p className="text-sm text-slate-400">
-              Showing the last {data.rangeDays} days. Admin: {adminEmail ?? "unknown"}.
+              {rangeLabel} Admin: {adminEmail ?? "unknown"}.
             </p>
           </div>
           <Button variant="outline" onClick={() => router.refresh()}>
