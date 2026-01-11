@@ -2385,83 +2385,7 @@ export async function POST(request: NextRequest) {
     const billedCiContainerIds: string[] = Array.isArray(ciMeta.billedContainerIds)
       ? ciMeta.billedContainerIds.filter((id: any) => typeof id === "string" && id.trim().length > 0).map((id: string) => id.trim())
       : [];
-
-    // Load last few messages to check for OpenAI response ID (for context chaining)
-    const { data: recentMessagesRaw, error: messagesError } = await supabaseAny
-      .from("messages")
-      .select("*")
-      .eq("conversation_id", conversationId)
-      .order("created_at", { ascending: false })
-      .limit(20);
-
-    if (messagesError) {
-      console.error("Failed to load messages:", messagesError);
-      return NextResponse.json(
-        { error: "Failed to load conversation history" },
-        { status: 500 }
-      );
-    }
-
-    // Normalize to the six most recent messages in chronological order for router context.
-    const recentMessages: MessageRow[] = Array.isArray(recentMessagesRaw)
-      ? [...recentMessagesRaw].sort(
-          (a: MessageRow, b: MessageRow) =>
-            new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime()
-        )
-      : [];
-
-    // Load topics for this conversation (used by decision router)
-    const { data: topicRows } = await supabaseAny
-      .from("conversation_topics")
-      .select("id, conversation_id, label, summary, description, parent_topic_id")
-      .eq("conversation_id", conversationId)
-      .order("created_at", { ascending: true })
-      .limit(50);
-    const baseTopicsForRouter = Array.isArray(topicRows)
-      ? topicRows.map((t: any) => ({
-          id: t.id,
-          conversation_id: t.conversation_id,
-          label: t.label,
-          summary: t.summary,
-          description: t.description,
-          parent_topic_id: t.parent_topic_id,
-          conversation_title: conversation.title ?? null,
-          project_id: conversation.project_id ?? null,
-          is_cross_conversation: false,
-        }))
-      : [];
-    const crossChatTopicsForRouter = effectiveSimpleContextMode
-      ? []
-      : await loadCrossConversationTopicsForDecisionRouter({
-          supabase: supabaseAny,
-          conversationId,
-          projectId: conversation.project_id ?? null,
-          userId,
-        });
-    const topicsForRouter = effectiveSimpleContextMode
-      ? baseTopicsForRouter
-      : [...baseTopicsForRouter, ...crossChatTopicsForRouter];
-
-    // Load artifacts for this conversation (used by decision router)
-    const { data: artifactRows } = await supabaseAny
-      .from("artifacts")
-      .select("id, conversation_id, topic_id, type, title, summary, keywords")
-      .eq("conversation_id", conversationId)
-      .order("created_at", { ascending: false })
-      .limit(50);
-    const artifactsForRouter =
-      Array.isArray(artifactRows) &&
-      artifactRows.map((a: any) => ({
-        id: a.id,
-        conversation_id: a.conversation_id,
-        topic_id: a.topic_id,
-        type: a.type,
-        title: a.title,
-        summary: a.summary,
-        keywords: Array.isArray(a.keywords) ? a.keywords : [],
-        snippet: typeof a.summary === "string" ? a.summary.slice(0, 200) : "",
-      }));
-
+    
     // Optionally insert the user message unless the client indicates it's already persisted (e.g., first send via server action, or retry)
     const buildUserMetadata = () => {
       const meta: Record<string, unknown> = {};
@@ -2484,10 +2408,28 @@ export async function POST(request: NextRequest) {
       return meta;
     };
 
-    let userMessageRow: MessageRow | null = null;
-    let permanentInstructionState: { instructions: PermanentInstructionCacheItem[]; metadata: ConversationRow["metadata"] } | null = null;
+    const recentMessagesPromise = supabaseAny
+      .from("messages")
+      .select("*")
+      .eq("conversation_id", conversationId)
+      .order("created_at", { ascending: false })
+      .limit(20);
+    const topicRowsPromise = supabaseAny
+      .from("conversation_topics")
+      .select("id, conversation_id, label, summary, description, parent_topic_id")
+      .eq("conversation_id", conversationId)
+      .order("created_at", { ascending: true })
+      .limit(50);
+    const artifactRowsPromise = supabaseAny
+      .from("artifacts")
+      .select("id, conversation_id, topic_id, type, title, summary, keywords")
+      .eq("conversation_id", conversationId)
+      .order("created_at", { ascending: false })
+      .limit(50);
+
+    let pendingUserInsert: Promise<{ data: MessageRow | null; error: any } | null> | null = null;
     if (!skipUserInsert) {
-      const insertResult = await supabaseAny
+      pendingUserInsert = supabaseAny
         .from("messages")
         .insert({
           user_id: userId,
@@ -2498,15 +2440,81 @@ export async function POST(request: NextRequest) {
         })
         .select()
         .single();
+    }
 
-      if (insertResult.error || !insertResult.data) {
-        console.error("Failed to insert user message:", insertResult.error);
+    const [recentMessagesResult, topicRowsResult, artifactRowsResult] = await Promise.all([
+      recentMessagesPromise,
+      topicRowsPromise,
+      artifactRowsPromise,
+    ]);
+
+    if (recentMessagesResult.error) {
+      console.error("Failed to load messages:", recentMessagesResult.error);
+      return NextResponse.json(
+        { error: "Failed to load conversation history" },
+        { status: 500 }
+      );
+    }
+
+    const recentMessages: MessageRow[] = Array.isArray(recentMessagesResult.data)
+      ? [...recentMessagesResult.data].sort(
+          (a: MessageRow, b: MessageRow) =>
+            new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime()
+        )
+      : [];
+    const baseTopicsForRouter = Array.isArray(topicRowsResult.data)
+      ? topicRowsResult.data.map((t: any) => ({
+          id: t.id,
+          conversation_id: t.conversation_id,
+          label: t.label,
+          summary: t.summary,
+          description: t.description,
+          parent_topic_id: t.parent_topic_id,
+          conversation_title: conversation.title ?? null,
+          project_id: conversation.project_id ?? null,
+          is_cross_conversation: false,
+        }))
+      : [];
+    const crossChatTopicsForRouter = effectiveSimpleContextMode
+      ? []
+      : await loadCrossConversationTopicsForDecisionRouter({
+          supabase: supabaseAny,
+          conversationId,
+          projectId: conversation.project_id ?? null,
+          userId,
+        });
+    const topicsForRouter = effectiveSimpleContextMode
+      ? baseTopicsForRouter
+      : [...baseTopicsForRouter, ...crossChatTopicsForRouter];
+    const artifactsForRouter =
+      Array.isArray(artifactRowsResult.data)
+        ? artifactRowsResult.data.map((a: any) => ({
+            id: a.id,
+            conversation_id: a.conversation_id,
+            topic_id: a.topic_id,
+            type: a.type,
+            title: a.title,
+            summary: a.summary,
+            keywords: Array.isArray(a.keywords) ? a.keywords : [],
+            snippet: typeof a.summary === "string" ? a.summary.slice(0, 200) : "",
+          }))
+        : [];
+
+    let userMessageRow: MessageRow | null = null;
+    let permanentInstructionState: {
+      instructions: PermanentInstructionCacheItem[];
+      metadata: ConversationRow["metadata"];
+    } | null = null;
+    if (pendingUserInsert) {
+      const insertResult = await pendingUserInsert;
+      if (!insertResult || insertResult.error || !insertResult.data) {
+        console.error("Failed to insert user message:", insertResult?.error);
         return NextResponse.json(
           { error: "Failed to save user message" },
           { status: 500 }
         );
       }
-      userMessageRow = insertResult.data as MessageRow;
+      userMessageRow = insertResult.data;
     } else if (attachments && attachments.length) {
       // For first message created via server action, persist attachment metadata on the latest user message
       const { data: latestUser, error: latestErr } = await supabaseAny
@@ -2758,17 +2766,39 @@ export async function POST(request: NextRequest) {
     const marketContextMessages: Array<{ role: "system"; content: string }> = [];
 
     if (resolvedMarketInstanceId) {
-      const { data: instanceRow } = await supabaseAny
+      const instancePromise = supabaseAny
         .from("market_agent_instances")
         .select("*")
         .eq("id", resolvedMarketInstanceId)
         .maybeSingle();
-      const { data: watchlistRows } = await supabaseAny
+      const watchlistPromise = supabaseAny
         .from("market_agent_watchlist_items")
         .select("symbol")
         .eq("instance_id", resolvedMarketInstanceId);
-      const watchlistSymbols = Array.isArray(watchlistRows)
-        ? (watchlistRows as any[]).map((row) => row.symbol).filter(Boolean)
+      const statePromise = supabaseAny
+        .from("market_agent_state")
+        .select("*")
+        .eq("instance_id", resolvedMarketInstanceId)
+        .maybeSingle();
+      const eventPromise = resolvedMarketEventId
+        ? supabaseAny
+            .from("market_agent_events")
+            .select("*")
+            .eq("id", resolvedMarketEventId)
+            .maybeSingle()
+        : supabaseAny
+            .from("market_agent_events")
+            .select("*")
+            .eq("instance_id", resolvedMarketInstanceId)
+            .order("ts", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+      const [instanceResult, watchlistResult, eventResult, stateResult] =
+        await Promise.all([instancePromise, watchlistPromise, eventPromise, statePromise]);
+      const instanceRow = instanceResult.data ?? null;
+      const watchlistSymbols = Array.isArray(watchlistResult.data)
+        ? (watchlistResult.data as any[]).map((row) => row.symbol).filter(Boolean)
         : [];
 
       if (instanceRow) {
@@ -2784,24 +2814,7 @@ export async function POST(request: NextRequest) {
         });
       }
 
-      let marketEventRow: any = null;
-      if (resolvedMarketEventId) {
-        const { data: eventRow } = await supabaseAny
-          .from("market_agent_events")
-          .select("*")
-          .eq("id", resolvedMarketEventId)
-          .maybeSingle();
-        marketEventRow = eventRow;
-      } else {
-        const { data: eventRow } = await supabaseAny
-          .from("market_agent_events")
-          .select("*")
-          .eq("instance_id", resolvedMarketInstanceId)
-          .order("ts", { ascending: false })
-          .limit(1)
-          .maybeSingle();
-        marketEventRow = eventRow;
-      }
+      const marketEventRow = eventResult.data ?? null;
       if (marketEventRow) {
         const payloadSnippet = stringifyPayloadSafe((marketEventRow as any).payload, 900);
         marketContextMessages.push({
@@ -2812,11 +2825,7 @@ export async function POST(request: NextRequest) {
         });
       }
 
-      const { data: stateRow } = await supabaseAny
-        .from("market_agent_state")
-        .select("*")
-        .eq("instance_id", resolvedMarketInstanceId)
-        .maybeSingle();
+      const stateRow = stateResult.data ?? null;
       if (stateRow?.state) {
         const stateText = summarizeMarketState(stateRow.state) ?? stringifyPayloadSafe(stateRow.state, 800);
         if (stateText) {
