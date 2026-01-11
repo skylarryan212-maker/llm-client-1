@@ -1,7 +1,6 @@
 import { getModelAndReasoningConfig } from "../modelConfig";
 import type { ReasoningEffort, ModelFamily } from "../modelConfig";
 import { callDeepInfraLlama } from "../deepInfraLlama";
-import { computeTopicSemantics } from "../semantic/topicSimilarity";
 import { supabaseServerAdmin } from "../supabase/server";
 import { calculateCost } from "../pricing";
 import { logUsageRecord } from "../usage";
@@ -68,7 +67,6 @@ export async function runDecisionRouter(params: {
     ? input.recentMessages.slice(-6)
     : [];
   const totalStart = Date.now();
-  let semanticMs = 0;
   let llmMs: number | null = null;
 
   // Build prompt context
@@ -86,60 +84,20 @@ export async function runDecisionRouter(params: {
         .filter((t) => !!t)
     )
   );
-  const semanticStart = Date.now();
-  const semanticMatches = await computeTopicSemantics(input.userMessage, input.topics, input.artifacts, {
-    userId: params.userId,
-    conversationId: params.conversationId ?? input.currentConversationId,
-  });
-  semanticMs = Date.now() - semanticStart;
-  const highConfidenceMatches = (semanticMatches || []).filter((m) => typeof m.similarity === "number" && m.similarity >= 0.5);
-  if (semanticMatches && semanticMatches.length) {
-    console.log("[semantic] top topic matches", semanticMatches.slice(0, 4));
-  }
   const topicIds = new Set((input.topics || []).map((t) => t.id));
   const topicsById = new Map((input.topics || []).map((t) => [t.id, t]));
-  const semanticSection =
-    highConfidenceMatches && highConfidenceMatches.length
-      ? highConfidenceMatches
-          .slice(0, 6)
-          .map((match) => {
-            const flag = match.topicId === input.activeTopicId ? " (active topic)" : "";
-            const kindLabel = match.kind === "artifact" ? "artifact" : "topic";
-            const preview =
-              (match.summary || match.description || "No summary available.")
-                .replace(/\s+/g, " ")
-                .trim()
-                .slice(0, 160);
-            const linkedTopic =
-              match.kind === "artifact" && match.relatedTopicId
-                ? topicsById.get(match.relatedTopicId)?.label || match.relatedTopicId
-                : null;
-            const linkNote = linkedTopic ? ` (linked topic: ${linkedTopic})` : "";
-            return `- [${kindLabel}:${match.topicId}]${flag} ${match.label}${linkNote} (score ${match.similarity.toFixed(
-              3
-            )}): ${preview}`;
-          })
-          .join("\n")
-      : "No semantic matches >= 0.50 available.";
-  const bestNonActiveMatch = semanticMatches?.find((match) => match.topicId !== input.activeTopicId);
-  const bestNonActiveHint = bestNonActiveMatch
-    ? `Closest non-active topic: [${bestNonActiveMatch.topicId}] ${bestNonActiveMatch.label} (score ${bestNonActiveMatch.similarity.toFixed(
-        3
-      )}).`
-    : "No strong non-active topic detected.";
 
   const systemPrompt = `You are a single decision router. All inputs are provided as JSON. You MUST output ONE JSON object with a "labels" field only, matching the schema below. Do not include the input in your response.
 
 Use the provided context to inform every rule:
-- Work through the input in this order: recentMessages (latest assistant/user turns), topic summaries (label, description), artifacts, and the current userMessage. 
-- Leverage semantic similarity scores and the "Closest non-active topic" hint to detect strong fits; these are high-priority indicators of reuse.
-- Use memories, context mode, and selections to understand what references the client expects. If memories or topic metadata mention entities that match the new touchpoint, prefer reuse.
-- Consider whether the user is referencing a previous assistant sentence, continuing a plan, or branching to something unrelated; recent assistant prompts and message history show whether continuation makes sense.
+ - Work through the input in this order: recentMessages (latest assistant/user turns), topic summaries (label, description), artifacts, and the current userMessage. 
+ - Use memories, context mode, and selections to understand what references the client expects. If memories or topic metadata mention entities that match the new touchpoint, prefer reuse.
+ - Consider whether the user is referencing a previous assistant sentence, continuing a plan, or branching to something unrelated; recent assistant prompts and message history show whether continuation makes sense.
 
 When consuming the input:
 - Scan the recentMessages list so you can tell whether the active assistant reply and the new user message are tightly linked; look for follow-up language ("that", "continue", "next") or explicit references to previous ideas.
 - Compare the active topic’s label, summary, and description against the incoming user message; matching entities or shared intent are strong cues to stay on that topic.
-- Check artifacts and the semantic similarity section, including the closest non-active topic hint, to see if the user is resuming work that lives elsewhere.
+ - Check artifacts carefully to see if the user is resuming work that lives elsewhere.
 - Use the current userMessage as the final tie-breaker: if nothing in the above context fits, emit topicAction "new" and start a fresh thread.
 
 Output shape:
@@ -157,7 +115,7 @@ Output shape:
 Rules:
 - Never invent placeholder strings like "none"/"null" for IDs.
 - If topicAction="new": primaryTopicId MUST be null.
-  * continue_active: when the user is clearly continuing the active topic (follow-up, same intent, direct references like "that", "this", "continue", or replies to the last turn) and there is no stronger match elsewhere. Consider semantic scores, recent messages, topic labels, and mention of shared entity/context.
+  * continue_active: when the user is clearly continuing the active topic (follow-up, same intent, direct references like "that", "this", "continue", or replies to the last turn) and there is no stronger match elsewhere. Consider recent messages, topic labels, and mention of shared entity/context.
   * reopen_existing: when the user intent best matches a past topic in the provided topics/artifacts (same subject/entity/task), but the active topic is different or stale. Pick the best-matching previous topic as primaryTopicId.
   * new: when the request starts a new subject/task not covered by the active topic or any prior topic (no strong match).
   * Hard rule: if the intent clearly matches an existing topic, do NOT choose "new"; use continue_active for the active topic or reopen_existing for another topic.
@@ -166,7 +124,7 @@ Rules:
   * Prefer current-chat topics unless the user clearly refers to another chat or asks about prior messages outside this conversation.
   * If you select a cross-chat topic, use topicAction="reopen_existing" with that topic id.
  - Use the "Semantic similarity to prior topics/artifacts" section (below) as a signal: higher similarity means a stronger candidate to reopen, but you may still choose any provided topic if it best matches the user’s intent.
-  * If an artifact is the strongest semantic match and it links to a topic, prefer reopen_existing with that linked topic unless the user explicitly wants a new topic.
+  * If an artifact strongly matches the user message and links to a topic, prefer reopen_existing with that linked topic unless the user explicitly wants a new topic.
 - secondaryTopicIds: subset of provided topic ids, exclude primary; may be empty.
 - newParentTopicId: null or a provided topic id.
 - Model selection (trade-offs, not a default):
@@ -227,11 +185,6 @@ Memory summary:
 ${memorySection}
 
 Semantic similarity to prior topics/artifacts (score >= 0.50 only; higher = stronger):
-${semanticSection}
-
-Closest non-active topic hint:
-${bestNonActiveHint}
-
 Return only the "labels" object matching the output schema.`;
 
   const schema = {
@@ -287,20 +240,18 @@ Return only the "labels" object matching the output schema.`;
   if (!allowLLM) {
     console.log("[decision-router] Skipping LLM router (disabled); using fallback.");
     console.log("[decision-router] timing", {
-      semanticMs,
       llmMs,
       totalMs: Date.now() - totalStart,
       allowLLM,
     });
     const output = fallback();
-    void logDecisionRouterSample({
-      promptVersion: "v_current",
-      fallbackUsed: true,
-      semanticMs,
-      llmMs,
-      input: inputPayload.input,
-      output,
-    });
+      void logDecisionRouterSample({
+        promptVersion: "v_current",
+        fallbackUsed: true,
+        llmMs,
+        input: inputPayload.input,
+        output,
+      });
     return output;
   }
 
@@ -384,7 +335,6 @@ Return only the "labels" object matching the output schema.`;
       void logDecisionRouterSample({
         promptVersion: "v_current",
         fallbackUsed: true,
-        semanticMs,
         llmMs,
         input: inputPayload.input,
         output: fallbackDecision,
@@ -457,7 +407,6 @@ Return only the "labels" object matching the output schema.`;
     void logDecisionRouterSample({
       promptVersion: "v_current",
       fallbackUsed: usedFallback,
-      semanticMs,
       llmMs,
       input: inputPayload.input,
       output,
@@ -465,27 +414,24 @@ Return only the "labels" object matching the output schema.`;
     return output;
   } catch (err) {
     console.error("[decision-router] LLM routing failed, using fallback:", err);
-    console.log("[decision-router] timing", {
-      semanticMs,
-      llmMs,
-      totalMs: Date.now() - totalStart,
-      allowLLM,
-    });
+      console.log("[decision-router] timing", {
+        llmMs,
+        totalMs: Date.now() - totalStart,
+        allowLLM,
+      });
     const output = fallback();
-    void logDecisionRouterSample({
-      promptVersion: "v_current",
-      fallbackUsed: true,
-      semanticMs,
-      llmMs,
-      input: inputPayload.input,
-      output,
-    });
+      void logDecisionRouterSample({
+        promptVersion: "v_current",
+        fallbackUsed: true,
+        llmMs,
+        input: inputPayload.input,
+        output,
+      });
     return output;
   }
   finally {
     // Log timing on successful path
     console.log("[decision-router] timing", {
-      semanticMs,
       llmMs,
       totalMs: Date.now() - totalStart,
       allowLLM,
@@ -496,7 +442,6 @@ Return only the "labels" object matching the output schema.`;
 type DecisionRouterSample = {
   promptVersion: string;
   fallbackUsed: boolean;
-  semanticMs: number;
   llmMs: number | null;
   input: any;
   output: DecisionRouterOutput;
@@ -510,12 +455,11 @@ async function logDecisionRouterSample(sample: DecisionRouterSample) {
       prompt_version: sample.promptVersion,
       input: sample.input,
       labels: sample.output,
-      meta: {
-        fallback: sample.fallbackUsed,
-        semantic_ms: sample.semanticMs,
-        llm_ms: sample.llmMs,
-        timestamp: new Date().toISOString(),
-      },
+        meta: {
+          fallback: sample.fallbackUsed,
+          llm_ms: sample.llmMs,
+          timestamp: new Date().toISOString(),
+        },
     };
     await supabase.from("decision_router_samples").insert(payload);
   } catch (err) {
