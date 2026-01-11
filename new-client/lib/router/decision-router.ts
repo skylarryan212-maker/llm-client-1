@@ -306,9 +306,9 @@ Return only the "labels" object matching the output schema.`;
 
   try {
     let usedFallback = false;
-    const runRouterAttempt = async () => {
-      const llmStart = Date.now();
-      const { text, usage } = await callDeepInfraLlama({
+      const runRouterAttempt = async () => {
+        const llmStart = Date.now();
+        const { text, usage } = await callDeepInfraLlama({
         messages: [
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt },
@@ -342,11 +342,11 @@ Return only the "labels" object matching the output schema.`;
       return text;
     };
 
-    const validateLabels = (labels: any) => {
-      if (
-        !labels ||
-        typeof labels.topicAction !== "string" ||
-        !["continue_active", "new", "reopen_existing"].includes(labels.topicAction) ||
+      const validateLabels = (labels: any) => {
+        if (
+          !labels ||
+          typeof labels.topicAction !== "string" ||
+          !["continue_active", "new", "reopen_existing"].includes(labels.topicAction) ||
         (labels.model &&
           !["grok-4-1-fast", "gpt-5-nano", "gpt-5-mini", "gpt-5.2", "gpt-5.2-pro"].includes(
             labels.model
@@ -355,17 +355,17 @@ Return only the "labels" object matching the output schema.`;
       ) {
         return false;
       }
-      return true;
-    };
+        return true;
+      };
 
-    let labels: any = null;
-    const fallbackDecision = fallback();
-    for (let attempt = 0; attempt < 2; attempt++) {
-      try {
-        const text = await runRouterAttempt();
-        const cleaned = (text || "").replace(/```json|```/g, "").trim();
+      let labels: any = null;
+      const fallbackDecision = fallback();
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          const text = await runRouterAttempt();
+        const cleaned = parseJsonLoose(text || "");
         const parsed = JSON.parse(cleaned);
-        labels = parsed?.labels;
+        labels = normalizeRouterLabels(parsed?.labels);
         if (validateLabels(labels)) {
           break;
         }
@@ -521,4 +521,56 @@ async function logDecisionRouterSample(sample: DecisionRouterSample) {
   } catch (err) {
     console.warn("[decision-router] sample log failed", err);
   }
+}
+
+function parseJsonLoose(raw: string) {
+  const cleaned = (raw || "")
+    .replace(/```json|```/gi, "")
+    .trim();
+  const match = cleaned.match(/\{[\s\S]*\}$/);
+  if (match) {
+    return match[0];
+  }
+  return cleaned;
+}
+
+function normalizeRouterLabels(labels: any): DecisionRouterOutput {
+  const defaultLabels: DecisionRouterOutput = {
+    topicAction: "new",
+    primaryTopicId: null,
+    secondaryTopicIds: [] as string[],
+    newParentTopicId: null,
+    model: "gpt-5-nano",
+    effort: "low",
+    memoryTypesToLoad: [] as string[],
+  };
+  if (!labels || typeof labels !== "object") return defaultLabels;
+  return {
+    ...defaultLabels,
+    topicAction:
+      typeof labels.topicAction === "string" &&
+      ["continue_active", "new", "reopen_existing"].includes(labels.topicAction)
+        ? labels.topicAction
+        : defaultLabels.topicAction,
+    primaryTopicId:
+      typeof labels.primaryTopicId === "string" ? labels.primaryTopicId : defaultLabels.primaryTopicId,
+    secondaryTopicIds: Array.isArray(labels.secondaryTopicIds)
+      ? labels.secondaryTopicIds.filter((id: unknown) => typeof id === "string")
+      : defaultLabels.secondaryTopicIds,
+    newParentTopicId:
+      typeof labels.newParentTopicId === "string" ? labels.newParentTopicId : defaultLabels.newParentTopicId,
+    model:
+      typeof labels.model === "string" &&
+      ["grok-4-1-fast", "gpt-5-nano", "gpt-5-mini", "gpt-5.2", "gpt-5.2-pro"].includes(labels.model)
+        ? labels.model
+        : defaultLabels.model,
+    effort:
+      typeof labels.effort === "string" &&
+      ["none", "low", "medium", "high", "xhigh"].includes(labels.effort)
+        ? labels.effort
+        : defaultLabels.effort,
+    memoryTypesToLoad: Array.isArray(labels.memoryTypesToLoad)
+      ? labels.memoryTypesToLoad.filter((type: unknown) => typeof type === "string")
+      : defaultLabels.memoryTypesToLoad,
+  };
 }

@@ -148,7 +148,8 @@ Rules:
 
   let parsed: QueryWriterResult | null = null;
   try {
-    parsed = JSON.parse(text);
+    const cleaned = cleanJsonString(text);
+    parsed = JSON.parse(cleaned);
   } catch {
     parsed = null;
   }
@@ -417,7 +418,8 @@ Rules:
 
   let parsed: QueryAndTimeResult | null = null;
   try {
-    parsed = JSON.parse(text);
+    const cleaned = cleanJsonString(text);
+    parsed = JSON.parse(cleaned);
   } catch {
     parsed = null;
   }
@@ -451,4 +453,13 @@ Rules:
     timeSensitive: Boolean(parsed?.timeSensitive),
     timeReason: parsed?.timeReason,
   };
+}
+
+function cleanJsonString(raw: string) {
+  const cleaned = (raw || "").replace(/```json|```/gi, "").trim();
+  const match = cleaned.match(/\{[\s\S]*\}$/);
+  if (match) {
+    return match[0];
+  }
+  return cleaned;
 }
